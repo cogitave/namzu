@@ -531,7 +531,7 @@ export function createScheduleToolHost(ui: ScheduleUi): ScheduleToolHost {
 		return { preview, policy }
 	}
 	const NOT_INSTALLED_NOTE =
-		'No scheduler is installed on this machine, so the job does not run until the operator runs `namzu schedule install`. Tell them; do not say it will run.'
+		'No scheduler is installed on this machine, so the job does not run until the operator runs `namzu schedule service install`. Tell them; do not say it will run.'
 	const paths = () => schedulePaths(ui.home())
 	const history = (job: ScheduleJob, action: 'created' | 'paused' | 'resumed' | 'removed') =>
 		appendHistory(paths(), job.id, {
@@ -672,7 +672,7 @@ export function createScheduleToolHost(ui: ScheduleUi): ScheduleToolHost {
 			// "done" said nothing about that.
 			const installed = readManifest(paths()) !== undefined
 			ui.say(
-				`Scheduled job ${job.name} created${options.paused ? ' (paused)' : ''}. /schedule lists it.${installed ? '' : ' The scheduler is not installed, so it does not run until you install it: namzu schedule install.'}`,
+				`Scheduled job ${job.name} created${options.paused ? ' (paused)' : ''}. /schedule lists it.${installed ? '' : ' The scheduler is not installed, so it does not run until you install it: namzu schedule service install.'}`,
 			)
 			return {
 				name: job.name,
@@ -797,7 +797,7 @@ export function createScheduleToolHost(ui: ScheduleUi): ScheduleToolHost {
 			})
 			const installed = readManifest(paths()) !== undefined
 			ui.say(
-				`Scheduled job ${next.name} changed (${next.state}); it keeps its history. /schedule shows it.${installed ? '' : ' The scheduler is not installed, so it does not run until you install it: namzu schedule install.'}`,
+				`Scheduled job ${next.name} changed (${next.state}); it keeps its history. /schedule shows it.${installed ? '' : ' The scheduler is not installed, so it does not run until you install it: namzu schedule service install.'}`,
 			)
 			return {
 				name: next.name,

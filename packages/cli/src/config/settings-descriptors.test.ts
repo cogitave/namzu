@@ -313,7 +313,7 @@ describe('where each setting sits', () => {
 	it('keeps the terminal app rows apart from the command line rows', () => {
 		const terminal = SETTING_DESCRIPTORS.filter((entry) => entry.section === 'terminal')
 		for (const row of terminal) {
-			const app = /^(tui\.|composerTriggers\.|statusLine$)/.test(row.path)
+			const app = /^(tui\.|composerTriggers\.|network\.|statusLine$)/.test(row.path)
 			if (!app) expect(row.group, row.path).toBe('command-line')
 			else expect(row.group, row.path).toMatch(/^terminal-/)
 		}

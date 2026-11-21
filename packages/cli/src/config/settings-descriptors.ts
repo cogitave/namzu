@@ -59,6 +59,7 @@ export type SettingGroup =
 	| 'terminal-mouse'
 	| 'terminal-notifications'
 	| 'terminal-message-box'
+	| 'terminal-network'
 	| 'saved-conversations'
 	| 'traces'
 	| 'command-line'
@@ -87,6 +88,7 @@ export const SETTING_GROUP_LABELS: Readonly<Record<SettingGroup, string>> = {
 	'terminal-mouse': 'Terminal app: mouse and scrolling',
 	'terminal-notifications': 'Terminal app: notifications',
 	'terminal-message-box': 'Terminal app: message box',
+	'terminal-network': 'Terminal app: your other machines',
 	'saved-conversations': 'Saved conversations',
 	traces: 'Traces',
 	'command-line': 'Command line',
@@ -115,6 +117,7 @@ export const SETTING_GROUP_ORDER: readonly SettingGroup[] = [
 	'terminal-mouse',
 	'terminal-notifications',
 	'terminal-message-box',
+	'terminal-network',
 	'saved-conversations',
 	'traces',
 	'command-line',
@@ -479,7 +482,7 @@ const fileOnly: SettingControl = { kind: 'file-only' }
 
 /**
  * When a key's saved value is read. Found from the code that reads it: the terminal app, the
- * schedule daemon, the update check, telemetry, the plugin loader, the model choice and the list of
+ * schedule service daemon, the update check, telemetry, the plugin loader, the model choice and the list of
  * permission modes a host offers read once at launch. The host re-reads the user and project files
  * whenever it starts a conversation (`ensureSession` in `commands/acp.ts`), and builds the session
  * options, the permission rules, the browser rules and the per-turn options from that fresh read,
@@ -918,6 +921,100 @@ const DECLARED: readonly SettingDescriptor[] = [
 			default: true,
 			confirm: 'Ignored files, such as local keys and installed packages, will show in file lists.',
 			confirmWhen: 'off',
+		},
+	),
+	d(
+		'network.enabled',
+		'terminal',
+		'Your Namzu network',
+		'Find your other machines on the same network and message their sessions. Auto turns it on in the terminal on a private network and leaves it off elsewhere and for every unattended run.',
+		pick(
+			[
+				'auto',
+				'Automatic',
+				'On in the terminal on a private network; off on a network Namzu cannot tell is private.',
+			],
+			['true', 'On', 'On in the terminal on any network.'],
+			[
+				'false',
+				'Off',
+				'No advertisement and no listener: nothing on this machine reaches the network.',
+			],
+		),
+		{
+			group: 'terminal-network',
+			keywords: ['peers', 'other machines', 'pairing', 'devices', 'lan', 'network'],
+			default: 'auto',
+			confirm:
+				'This machine will tell its network that Namzu is here, and accept requests from your machines.',
+			confirmValues: ['true'],
+		},
+	),
+	d(
+		'network.acceptMail',
+		'terminal',
+		'Messages from your other machines',
+		'What to do with a message another of your machines sends to a session here: deliver it, always ask you first, or refuse it.',
+		pick(
+			[
+				'members',
+				'Deliver',
+				'Delivered unless its permission mode differs or this session is in bypass; those wait for you.',
+			],
+			['hold', 'Ask me first', 'Every message waits for you to allow or deny it once.'],
+			[
+				'off',
+				'Refuse',
+				'Messages from other machines are refused. The list of machines still works.',
+			],
+		),
+		{
+			group: 'terminal-network',
+			keywords: ['peers', 'other machines', 'messages', 'inbox'],
+			default: 'members',
+		},
+	),
+	d(
+		'network.autoAdmit',
+		'terminal',
+		'New machines on your network',
+		'Whether a new machine of yours joins your Namzu network without asking you first. By default it does so on a network you marked as trusted; anywhere else you are asked once.',
+		pick(
+			[
+				'trusted-networks',
+				'On trusted networks',
+				'A new machine on a network you trusted joins without asking. Elsewhere you allow it once.',
+			],
+			[
+				'never',
+				'Always ask me',
+				'Every new machine waits for your Allow, even on a trusted network.',
+			],
+			[
+				'always',
+				'On any private network',
+				'Any machine on the same private network can join without asking.',
+			],
+		),
+		{
+			group: 'terminal-network',
+			keywords: ['peers', 'other machines', 'join', 'trust', 'trusted network', 'allow', 'pairing'],
+			default: 'trusted-networks',
+			confirm:
+				'Anyone on the same network as this machine can then join your Namzu network, see your sessions and message them, without asking you.',
+			confirmValues: ['always'],
+		},
+	),
+	d(
+		'network.machineName',
+		'terminal',
+		'This machine’s name',
+		'What your other machines call this one in the list of sessions. Leave it empty to use the computer’s host name.',
+		{ kind: 'text', placeholder: 'Host name' },
+		{
+			group: 'terminal-network',
+			keywords: ['peers', 'host name', 'other machines', 'rename'],
+			defaultText: 'the computer’s host name',
 		},
 	),
 	d(

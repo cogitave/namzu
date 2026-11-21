@@ -78,6 +78,14 @@ import {
 	useSyncExternalStore,
 } from 'react'
 import {
+	type PeersAction,
+	describeAction,
+	peersActions,
+	renderPeersScreen,
+} from '../integrations/network/format.js'
+import { networkSettings } from '../integrations/network/policy.js'
+import { type NetworkRuntime, createNetworkRuntime } from '../integrations/network/runtime.js'
+import {
 	type LivePeers,
 	buildPeerTools,
 	openLivePeers,
@@ -1150,6 +1158,15 @@ type ChoicePickerState = {
 			readonly step: 'offer' | 'kind' | 'model'
 			readonly title: string
 			readonly notice?: string
+			readonly values: readonly string[]
+			readonly options: readonly ChoicePickerOption[]
+	  }
+	| {
+			/** `/peers`: what waits for the person (join requests, held messages); `values` index `actions`. */
+			readonly kind: 'peers-network'
+			readonly title: string
+			readonly notice?: string
+			readonly actions: readonly PeersAction[]
 			readonly values: readonly string[]
 			readonly options: readonly ChoicePickerOption[]
 	  }
@@ -3685,7 +3702,11 @@ function AppBody({
 	const closeAndExit = useCallback(() => {
 		cancelPendingModelSwitch()
 		peersRef.current?.setEnabled(false)
-		const closing = Promise.all([session?.close(), peersRef.current?.close()])
+		const closing = Promise.all([
+			session?.close(),
+			peersRef.current?.close(),
+			networkRef.current?.close(),
+		])
 		const bounded = Promise.race([
 			closing,
 			new Promise<void>((resolve) =>
@@ -3852,6 +3873,7 @@ function AppBody({
 	 */
 	const conversationGenRef = useRef<number>(0)
 	const peersRef = useRef<LivePeers | null>(null)
+	const networkRef = useRef<NetworkRuntime | null>(null)
 	const peersStartingRef = useRef(false)
 	const [peerVersion, wakePeers] = useState(0)
 	const peerTools = useMemo(() => buildPeerTools(() => peersRef.current), [])
@@ -6037,6 +6059,91 @@ function AppBody({
 				commandPickerSubmitRef.current(`/${command.name}`)
 				const child = choicePickerRef.current
 				if (child) setChoicePicker({ ...child, back: picker })
+				return
+			}
+			if (picker.kind === 'peers-network') {
+				const action = picker.actions[Number(value)]
+				const control = networkRef.current?.control
+				const peers = peersRef.current
+				const said = (text: string) => pushMessage('system', text)
+				const failed = (error: unknown) =>
+					pushSystem('error', explainFailure(error, 'That did not work.'))
+				if (!action) return
+				switch (action.kind) {
+					case 'cancel-join':
+						void control
+							?.cancelJoin()
+							.then((was) =>
+								said(was ? 'Withdrew the request to join.' : 'No request to join is waiting.'),
+							)
+							.catch(failed)
+						break
+					case 'join-nearby':
+						void control
+							?.add(`${action.network.host}:${action.network.port}`)
+							.then(() =>
+								said(
+									`Asked ${action.network.host} to let this machine join. Allow it on one of your other machines.`,
+								),
+							)
+							.catch(failed)
+						break
+					case 'allow-join':
+						void control
+							?.allow(action.request.requestId)
+							.then(() => said(`Allowed ${action.request.name} to join your Namzu network.`))
+							.catch(failed)
+						break
+					case 'allow-join-trust':
+						void control
+							?.allow(action.request.requestId, { trust: action.name })
+							.then(() =>
+								said(
+									`Allowed ${action.request.name} to join your Namzu network. This network is trusted as "${action.name}": new machines here join without asking. /peers lists it; "Stop trusting" removes it.`,
+								),
+							)
+							.catch(failed)
+						break
+					case 'untrust-network':
+						void control
+							?.untrust(action.network.name)
+							.then(() =>
+								said(
+									`Stopped trusting ${action.network.name}. New machines on it will ask for an Allow again.`,
+								),
+							)
+							.catch(failed)
+						break
+					case 'deny-join':
+						void control
+							?.deny(action.request.requestId)
+							.then(() => said(`Denied ${action.request.name}.`))
+							.catch(failed)
+						break
+					case 'allow-held-remote':
+						void control
+							?.allowHeld(action.mail.id)
+							.then(() => said('Allowed once: the message was delivered.'))
+							.catch(failed)
+						break
+					case 'deny-held-remote':
+						void control
+							?.denyHeld(action.mail.id)
+							.then(() => said('Denied: the sender was told.'))
+							.catch(failed)
+						break
+					case 'allow-held-local':
+						said(
+							peers?.allowHeld(action.mail.id)
+								? 'Allowed once: the message is in the inbox.'
+								: 'That message is no longer waiting.',
+						)
+						break
+					case 'deny-held-local':
+						peers?.denyHeld(action.mail.id)
+						said('Denied: the sender was told.')
+						break
+				}
 				return
 			}
 			if (picker.kind === 'workflow-runs') {
@@ -12112,6 +12219,9 @@ function AppBody({
 							hostContext: () =>
 								[
 									...(st.contextTexts ?? []),
+									// The role another machine or the person set: request-only context on every request,
+									// so a resume or a compaction cannot lose it and the first request of a turn has it.
+									peersRef.current?.roleContext(),
 									wakeSnapshot.idleJobs.text,
 									monitorSnapshot.text,
 									describePendingWorkflowNotices(wakeSnapshot.workflows),
@@ -13876,7 +13986,7 @@ function AppBody({
 			const palHostCommand =
 				operatorText &&
 				palDefinitionRef.current &&
-				/^\/(?:schedule|loop|worktree|add-dir|browser|mcp|plugins|skills|save-skill|memory|init|review|goal|agents)(?:\s|$)/u.test(
+				/^\/(?:schedule|loop|worktree|add\s+dir|browser|mcp|plugins|skills|save-skill|memory|init|review|goal|agents)(?:\s|$)/u.test(
 					dispatch,
 				)
 			if (palHostCommand) {
@@ -13977,7 +14087,10 @@ function AppBody({
 							pushMessage('system', 'Peer messaging is not ready.')
 							return
 						}
+						const network = networkRef.current
 						const [verb, target, ...words] = slash.args
+						const fail = (error: unknown, what: string) =>
+							pushSystem('error', explainFailure(error, what))
 						if (verb === 'on' || verb === 'off') {
 							peers.setEnabled(verb === 'on')
 							pushMessage(
@@ -13993,22 +14106,164 @@ function AppBody({
 										`Peer message ${receipt.status}: ${receipt.reason ?? 'accepted in the receiving inbox'}`,
 									),
 								)
-								.catch((error) =>
-									pushSystem('error', explainFailure(error, 'Peer message failed.')),
+								.catch((error) => fail(error, 'Peer message failed.'))
+						} else if (verb === 'role' && target && (words.length > 0 || target === 'clear')) {
+							// `/peers role <target> <text...>`, or `/peers role clear <target>`.
+							const clearing = target === 'clear'
+							const where = clearing ? words.join(' ') : target
+							const text = clearing ? null : words.join(' ')
+							if (!where)
+								pushMessage(
+									'system',
+									'Usage: /peers role <session> <role...> | /peers role clear <session>',
 								)
+							else
+								void peers
+									.setRole(where, text)
+									.then((result) =>
+										pushMessage(
+											'system',
+											result.status === 'applied'
+												? text === null
+													? `Cleared the role of ${where}.`
+													: `Set the role of ${where}. It grants nothing; it only describes what the session is for.`
+												: `Role refused: ${result.reason ?? 'no reason given'}`,
+										),
+									)
+									.catch((error) => fail(error, 'Could not set the role.'))
+						} else if ((verb === 'allow' || verb === 'deny') && target) {
+							const query = [target, ...words].join(' ')
+							const control = network?.control
+							if (!control) pushMessage('system', 'Your Namzu network is not running.')
+							else
+								void (verb === 'allow' ? control.allow(query) : control.deny(query))
+									.then((request) =>
+										pushMessage(
+											'system',
+											`${verb === 'allow' ? 'Allowed' : 'Denied'} ${request.name}${verb === 'allow' ? ' to join your Namzu network' : ''}.`,
+										),
+									)
+									.catch((error) => fail(error, 'That request could not be decided.'))
+						} else if (verb === 'remove' && target) {
+							const cascade = words.includes('--and-its-admissions')
+							const control = network?.control
+							if (!control) pushMessage('system', 'Your Namzu network is not running.')
+							else
+								void control
+									.remove(target, { cascade })
+									.then((result) =>
+										pushMessage(
+											'system',
+											`Removed ${result.removed.join(', ') || target} from your Namzu network.`,
+										),
+									)
+									.catch((error) => fail(error, 'The machine could not be removed.'))
+						} else if (verb === 'rename' && target) {
+							const control = network?.control
+							if (!control) pushMessage('system', 'Your Namzu network is not running.')
+							else
+								void control
+									.rename([target, ...words].join(' '))
+									.then(() =>
+										pushMessage(
+											'system',
+											`This machine is now called ${[target, ...words].join(' ')}. \`namzu peers rename\` also keeps it for the next start.`,
+										),
+									)
+									.catch((error) => fail(error, 'The machine could not be renamed.'))
+						} else if (verb === 'cancel') {
+							const control = network?.control
+							if (!control) pushMessage('system', 'Your Namzu network is not running.')
+							else
+								void control
+									.cancelJoin()
+									.then((was) =>
+										pushMessage(
+											'system',
+											was ? 'Withdrew the request to join.' : 'No request to join is waiting.',
+										),
+									)
+									.catch((error) => fail(error, 'The request could not be withdrawn.'))
+						} else if (verb === 'add' && target) {
+							const control = network?.control
+							if (!control) pushMessage('system', 'Your Namzu network is not running.')
+							else
+								void control
+									.add(target)
+									.then((result) =>
+										pushMessage(
+											'system',
+											result === 'join-requested'
+												? `Asked ${target} to let this machine join. Allow it on one of your other machines.`
+												: `Added ${target}.`,
+										),
+									)
+									.catch((error) => fail(error, 'That address could not be added.'))
 						} else if (!verb || verb === 'list') {
-							void peers
-								.list()
-								.then((peersList) =>
+							void (async () => {
+								const localList = await peers.list()
+								let summary: Awaited<ReturnType<NetworkRuntime['control']['summary']>> | undefined
+								let roster: Awaited<ReturnType<NetworkRuntime['control']['roster']>> | undefined
+								if (network?.decision.run) {
+									try {
+										summary = await network.control.summary()
+										roster = await network.control.roster()
+									} catch {
+										summary = undefined
+									}
+								}
+								const heldLocal = peers.held()
+								if (!summary) {
+									const local = `Peer messaging ${peers.enabled ? 'on' : 'off'} · ${peers.pending} pending\n${localList.map((peer) => `${peer.self ? 'This terminal' : (peer.title as string)} [${peer.ref as string}] · ${peer.state as string} · ${peer.permission_mode as string}${peer.accepts_messages ? '' : ' · not accepting messages'}`).join('\n')}`
+									const off = network && !network.decision.run ? `\n${network.decision.text}` : ''
+									const held = heldLocal.length
+										? `\nHeld (${heldLocal.length}): ${heldLocal.map((item) => `${item.fromName} · ${item.reason}`).join('; ')}`
+										: ''
+									pushMessage('system', `${local}${off}${held}`)
+									if (heldLocal.length === 0) return
+								} else {
 									pushMessage(
 										'system',
-										`Peer messaging ${peers.enabled ? 'on' : 'off'} · ${peers.pending} pending\n${peersList.map((peer) => `${peer.self ? 'This terminal' : peer.title} [${peer.ref}] · ${peer.state} · ${peer.permission_mode}${peer.accepts_messages ? '' : ' · not accepting messages'}`).join('\n')}`,
-									),
+										renderPeersScreen({
+											summary,
+											roster,
+											selfRef: peers.ref,
+											heldLocal,
+											now: Date.now(),
+											// The row sits after the two-column mark, and the scroll view keeps a margin.
+											columns: (terminal.columns ?? 80) - 4,
+										}),
+									)
+								}
+								const actions = peersActions(
+									summary ?? {
+										state: 'off',
+										members: 0,
+										nearbyNetworks: 0,
+										nearby: [],
+										joinRequests: [],
+										held: [],
+										autoJoined: [],
+										trustedNetworks: [],
+										outcomes: [],
+									},
+									heldLocal,
 								)
-								.catch((error) =>
-									pushSystem('error', explainFailure(error, 'Peer discovery failed.')),
-								)
-						} else pushMessage('system', 'Usage: /peers [list|on|off|send <ref> <message>]')
+								if (actions.length === 0) return
+								setSelectedChoice(0)
+								setChoicePicker({
+									kind: 'peers-network',
+									title: 'Waiting for you',
+									actions,
+									values: actions.map((_, index) => String(index)),
+									options: actions.map((action) => describeAction(action)),
+								})
+							})().catch((error) => fail(error, 'Peer discovery failed.'))
+						} else
+							pushMessage(
+								'system',
+								'Usage: /peers [list|on|off|send <name> <message>|role <name> <text>|role clear <name>|allow <code>|deny <code>|remove <machine>|rename <name>|add <host[:port]>|cancel]',
+							)
 						return
 					}
 					case 'workflows': {
@@ -14932,7 +15187,7 @@ function AppBody({
 					case 'add-dir': {
 						const dirs = session?.directories
 						if (!dirs) {
-							pushMessage('system', 'No conversation yet; /add-dir works once one has started.')
+							pushMessage('system', 'No conversation yet; /add dir works once one has started.')
 							return
 						}
 						void dirs
@@ -14943,7 +15198,7 @@ function AppBody({
 									if (questionRef.current) {
 										pushMessage(
 											'system',
-											'Answer the open question first; /add-dir asks one of its own.',
+											'Answer the open question first; /add dir asks one of its own.',
 										)
 										return Promise.resolve(false)
 									}
@@ -16528,16 +16783,35 @@ function AppBody({
 				now: Date.now(),
 			})
 		}
+		const peerHome = sessionsRef.current?.root ?? resolveNamzuHome()
+		// Your Namzu network runs only in a terminal with a person at it: a real terminal, never a test's
+		// stand-in screen, and never a Pal's. It stays off (and leaves nothing behind) on a network that is
+		// not known to be private, and entirely when `network.enabled` is false.
+		const network = createNetworkRuntime({
+			home: peerHome,
+			version: ctxRef.current.version,
+			settings: networkSettings(ctxRef.current.network),
+			interactive: ctxRef.current.runNetwork === true && stdout.isTTY === true,
+			notify: (text) => pushSystem('notice', text),
+			ownRef: () => peersRef.current?.ref,
+		})
+		networkRef.current = network
 		const onClose = () => {
 			disposed = true
 			if (peersRef.current === opened) peersRef.current = null
 			void opened?.close()
+			void network.close()
+			if (networkRef.current === network) networkRef.current = null
 		}
 		appLifetime.signal.addEventListener('abort', onClose, { once: true })
 		void openLivePeers({
-			home: sessionsRef.current?.root ?? resolveNamzuHome(),
+			home: peerHome,
 			cwd: sessionsRef.current?.projectRoot ?? ctxRef.current.cwd,
 			version: ctxRef.current.version,
+			roles: network.roles,
+			audit: (entry) => network.audit(entry),
+			network: () => (network.decision.run ? network.link : undefined),
+			bypass: () => permissionModeRef.current === 'bypass',
 			mode: () => permissionModeRef.current,
 			state: () =>
 				permissionResolveRef.current
@@ -16587,7 +16861,7 @@ function AppBody({
 				appLifetime.signal.removeEventListener('abort', onClose)
 				if (!disposed) pushSystem('error', explainFailure(error, 'Peer messaging unavailable.'))
 			})
-	}, [phase, appLifetime.signal, pushMessage, pushSystem])
+	}, [phase, appLifetime.signal, pushMessage, pushSystem, stdout.isTTY])
 
 	// A rename or a generated title reaches the session's record, so the sidebar and the
 	// other sessions call it by its new name.
@@ -18842,7 +19116,9 @@ function AppBody({
 										: {})}
 									{...(choicePicker.kind === 'account' ? { hints: ACCOUNT_PICKER_HINTS } : {})}
 									options={filterChoiceOptions(choicePicker.options, choiceQuery)}
-									describeSelected={choicePicker.kind === 'user-question'}
+									describeSelected={
+										choicePicker.kind === 'user-question' || choicePicker.kind === 'peers-network'
+									}
 									query={choicePickerSearchable(choicePicker) ? choiceQuery : undefined}
 									selected={selectedChoice}
 									windowSize={

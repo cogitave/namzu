@@ -44,7 +44,7 @@ default. A newer Desktop ignores it when `default` is present.
 The apply time is found from the code that reads the key, not guessed.
 
 - **Next start**: keys read once when the process or host starts: the terminal app's own keys
-  (`tui.*`, `composerTriggers.*`, `statusLine`), updates, telemetry, the schedule daemon, plugins,
+  (`tui.*`, `composerTriggers.*`, `statusLine`), updates, telemetry, the schedule service daemon, plugins,
   learning, `model` and `routing` (the model choice), the permission modes a host offers
   (`permissions.autoMode`, `disableAutoMode`, `disableBypassMode`), and any key not traced to a reader.
 - **Next conversation**: the host re-reads the user and project files each time it builds a

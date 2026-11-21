@@ -76,7 +76,7 @@ it('leaves no sender record behind and finds the target by id or title', async (
 	expect(readPeerRecords(runtime.sessionsDir).length).toBe(before)
 })
 
-it('is refused by the receiver when the declared mode differs', async () => {
+it('is held by the receiver for the person when the declared mode differs', async () => {
 	const f = await fixture('auto')
 	const receipt = await sendToTerminal({
 		...f.common,
@@ -85,10 +85,11 @@ it('is refused by the receiver when the declared mode differs', async () => {
 		mode: 'bypass',
 	})
 	expect(receipt).toMatchObject({
-		status: 'refused',
-		reason: 'The terminals have different permission modes.',
+		status: 'held',
+		reason: expect.stringContaining('permission mode differs'),
 	})
 	expect(f.receiver.take(0)).toEqual([])
+	expect(f.receiver.held()).toHaveLength(1)
 })
 
 it('does not see a terminal in another project', async () => {

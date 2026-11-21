@@ -31,7 +31,7 @@ import { resolvePeerRuntime } from './runtime.js'
  * and shows the mail as coming from a command line, never as the operator.
  */
 
-export type PeerSendStatus = 'queued' | 'refused' | 'unreachable'
+export type PeerSendStatus = 'queued' | 'held' | 'refused' | 'unreachable'
 
 export interface PeerSendReceipt {
 	readonly status: PeerSendStatus
@@ -153,12 +153,17 @@ export async function sendToTerminal(
 			ref: peer.ref,
 			id,
 		}
-	const status = result.status === 'queued' ? 'queued' : 'refused'
+	const status =
+		result.status === 'queued' ? 'queued' : result.status === 'held' ? 'held' : 'refused'
 	return {
 		status,
 		reason:
 			result.reason ??
-			(status === 'queued' ? 'Accepted in the live inbox.' : 'The terminal refused the message.'),
+			(status === 'queued'
+				? 'Accepted in the live inbox.'
+				: status === 'held'
+					? 'Held for the person at the receiving terminal.'
+					: 'The terminal refused the message.'),
 		ref: peer.ref,
 		sessionId: peer.sessionId,
 		id,

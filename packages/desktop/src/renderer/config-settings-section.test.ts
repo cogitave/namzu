@@ -520,6 +520,7 @@ describe('the real engine list, section by section', () => {
 				'Terminal app: mouse and scrolling',
 				'Terminal app: notifications',
 				'Terminal app: message box',
+				'Terminal app: your other machines',
 				'Command line',
 			])
 			expect(headings('updates')).toEqual(['Command line'])

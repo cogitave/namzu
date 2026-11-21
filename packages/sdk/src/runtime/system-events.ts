@@ -37,6 +37,7 @@ const SYSTEM_EVENT_KINDS_LIST = [
 	'peer-notice',
 	'idle-notice',
 	'delivery-notice',
+	'role-notice',
 ] as const
 
 /** The closed set of event sources this envelope may describe. */
@@ -55,6 +56,7 @@ const SYSTEM_EVENT_STATUSES_LIST = [
 	'idle',
 	'exited',
 	'delivered',
+	'expired',
 ] as const
 
 /**

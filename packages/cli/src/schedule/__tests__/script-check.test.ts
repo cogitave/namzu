@@ -86,12 +86,12 @@ describe('nested shells behind command wrappers', () => {
 		expect(ok(body)).toBe(false)
 	})
 
-	it.each(['env -i bash -c "namzu schedule stop"', 'toybox sh -c "namzu schedule stop"'])(
-		'applies the floor to a literal command in %s',
-		(body) => {
-			expect(ok(body)).toBe(false)
-		},
-	)
+	it.each([
+		'env -i bash -c "namzu schedule service stop"',
+		'toybox sh -c "namzu schedule service stop"',
+	])('applies the floor to a literal command in %s', (body) => {
+		expect(ok(body)).toBe(false)
+	})
 })
 
 describe('programs inside find exec clauses', () => {
@@ -155,18 +155,18 @@ describe('the scheduled-run floor, as a whole script body', () => {
 			'launchctl bootout gui/501/com.namzu.scheduler',
 			'schtasks /TN \\namzu\\scheduler /F /Delete',
 			'pkill node',
-			"pkill -f 'schedule daemon'",
+			"pkill -f 'schedule service daemon'",
 			'namzu schedule remove nightly',
-			'namzu schedule stop',
+			'namzu schedule service stop',
 			`cat ${HOME}/config.yaml`,
 			`echo x >> ${HOME}/schedule/jobs/a.json`,
 			'ls /mnt/c/Users/A/AppData/Local/namzu',
 			"echo 'namzu schedule remove x' | sh",
 			'bash <<EOF\nsystemctl --user stop namzu-scheduler\nEOF',
-			"sudo bash -c 'namzu schedule stop'",
-			'$(echo namzu) schedule stop',
-			'powershell.exe -NoProfile -Command "namzu schedule stop"',
-			"powershell -c 'namzu schedule stop'",
+			"sudo bash -c 'namzu schedule service stop'",
+			'$(echo namzu) schedule service stop',
+			'powershell.exe -NoProfile -Command "namzu schedule service stop"',
+			"powershell -c 'namzu schedule service stop'",
 			// The three floor bypasses closed alongside the permission-model fix
 			// (design.md §6 revision) protect a script the same way they now
 			// protect a live bash call.

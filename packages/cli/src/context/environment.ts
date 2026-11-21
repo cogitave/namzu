@@ -438,11 +438,11 @@ function boundaryLines(boundary: ExecutionBoundary, stable = false): string[] {
 	if (!boundary.sandbox) {
 		const outside =
 			boundary.outsideRoot === 'refuse'
-				? 'A path anywhere else is refused without asking, in every mode, because the setting permissions.outsideRoot is refuse. If you need one, say which directory and why, so the user can add it (`--add-dir <path>` or `/add-dir <path>`) or change the setting.'
+				? 'A path anywhere else is refused without asking, in every mode, because the setting permissions.outsideRoot is refuse. If you need one, say which directory and why, so the user can add it (`--add-dir <path>` or `/add dir <path>`) or change the setting.'
 				: boundary.delegated
 					? 'A path anywhere else is refused, or decided by the session that started you, and you cannot approve it yourself. If you needed a directory, name it in your summary.'
 					: boundary.interactive
-						? 'A path anywhere else is not refused outright: the user is asked to approve that call first, every time — in plan mode too, for a read; the strict permission mode refuses it. When you need a directory repeatedly, suggest the user add it with `/add-dir <path>`.'
+						? 'A path anywhere else is not refused outright: the user is asked to approve that call first, every time — in plan mode too, for a read; the strict permission mode refuses it. When you need a directory repeatedly, suggest the user add it with `/add dir <path>`.'
 						: 'A path anywhere else is refused in this session, because it needs a person to approve it and nobody is at the terminal. If you need one, say which directory and why, so the user can add it (`--add-dir <path>`) and run again.'
 		return [
 			`Tools run on this machine, not in a sandbox. ${permissionSentence(boundary, stable)}`,
@@ -471,7 +471,7 @@ function boundaryLines(boundary: ExecutionBoundary, stable = false): string[] {
 		`${
 			boundary.delegated
 				? 'To reach another directory, name it in your summary; the session that started you decides whether to add it.'
-				: 'To reach another directory, ask the user to add it with `/add-dir <path>` (the next turn binds it).'
+				: 'To reach another directory, ask the user to add it with `/add dir <path>` (the next turn binds it).'
 		} ${escapeRoute}`,
 	]
 }
@@ -483,7 +483,7 @@ function wslLines(wsl: WslFacts, boundary: ExecutionBoundary | undefined): strin
 	const sandboxed = boundary?.sandbox?.enforced.includes('filesystem') === true
 	const fileTools =
 		boundary?.sandbox !== undefined
-			? 'the file tools reach them only once added with `/add-dir`'
+			? 'the file tools reach them only once added with `/add dir`'
 			: boundary?.outsideRoot === 'refuse'
 				? 'a file tool reaching them is refused, because the setting permissions.outsideRoot is refuse'
 				: boundary?.interactive === false
@@ -497,7 +497,7 @@ function wslLines(wsl: WslFacts, boundary: ExecutionBoundary | undefined): strin
 			? `Windows drives are mounted under ${wsl.drives.map((d) => `\`${d}\``).join(', ')} (\`C:\\Users\` is \`${root}c/Users\`; \`wslpath -w\` and \`wslpath -u\` convert).`
 			: `No Windows drive is mounted under \`${root === '/' ? '/' : root.slice(0, -1)}\` right now.`
 	const reach = sandboxed
-		? 'They are outside the sandbox, so a command there needs `/add-dir` or the sandbox escape.'
+		? 'They are outside the sandbox, so a command there needs `/add dir` or the sandbox escape.'
 		: `They are outside the working directory, so ${fileTools}.`
 	const interop = wsl.interop
 		? `Windows programs start from the shell through WSL interop, by their \`.exe\` name: \`powershell.exe -NoProfile -Command ...\`, \`cmd.exe /c ...\`, \`explorer.exe .\` (it exits 1 even when it succeeds). \`cmd.exe\` started from a Linux directory warns that UNC paths are unsupported and falls back to C:\\Windows, so \`cd\` under \`${root}c\` first or use \`powershell.exe\`. If a name is not found, the Windows side of \`PATH\` was not appended; \`cmd.exe\` is under \`${wslSystem32(root)}\` and \`powershell.exe\` under its \`WindowsPowerShell/v1.0\`.${sandboxed ? ' The sandbox does not mount the Windows drives those programs live on, so running one needs the sandbox escape.' : ''}`

@@ -16,7 +16,7 @@ import { addToObject, appendToArray, parseJsonc } from './jsonc.js'
 import { updateTerminalState } from './state.js'
 
 /**
- * `/terminal-setup`: make Shift+Enter (or Option+Enter in Terminal.app) start a
+ * `/terminal setup`: make Shift+Enter (or Option+Enter in Terminal.app) start a
  * new line in the terminal Namzu runs in. It runs only when the person types
  * the command. Every file it changes is copied to `<file>.<8 hex>.bak` first,
  * and the reply says what was changed and where. Where it cannot write (an
@@ -470,7 +470,7 @@ export function unsupportedTerminalText(id: TerminalId, platform: string): strin
 	].join('\n')
 }
 
-/** What `/terminal-setup` does and says. Changes files only for a terminal it knows how to set up. */
+/** What `/terminal setup` does and says. Changes files only for a terminal it knows how to set up. */
 export function runTerminalSetup(world: SetupWorld): string {
 	const id = identifyTerminal(world.env)
 	if (id === 'tmux') return [...TMUX_LINES, '', DEFAULT_LINE].join('\n')

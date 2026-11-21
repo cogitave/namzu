@@ -50,7 +50,7 @@ describe('the command shell', () => {
 		const { code, out, loads } = await runWithoutSdk(['--help'])
 
 		expect(code).toBe(0)
-		for (const name of ['exec|e', 'acp', 'worktree', 'resume', 'providers-json'])
+		for (const name of ['exec|e', 'acp', 'worktree', 'resume', 'providers'])
 			expect(out).toContain(name)
 		expect(out).toContain('--permission-mode <mode>')
 		expect(out.replace(/\s+/g, ' ')).toContain(

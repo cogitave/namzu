@@ -275,6 +275,53 @@ describe('createPeerEndpoint: deliver / subscribe_idle / notice', () => {
 		expect(called).toBe(false)
 	})
 
+	it('deliver: a message that says it crossed machines is taken only from the network bridge', async () => {
+		const remote = {
+			machineId: 'a'.repeat(64),
+			machineName: 'studio',
+			sessionName: 'calm-heron',
+			sessionRef: 'abcdef',
+			mode: 'auto',
+			hops: 0,
+		}
+		const seen: unknown[] = []
+		for (const [kind, expected] of [
+			['net', 'queued'],
+			['tui', 'refused'],
+		] as const) {
+			const endpoint = await start({
+				verifySender: (from) => ({ ...from, kind }),
+				onDeliver: (request) => {
+					seen.push(request.remote)
+					return { status: 'queued' }
+				},
+			})
+			const result = await new PeerClient().deliver(
+				{ address: endpoint.address, token: 't'.repeat(32) },
+				{ id: 'm1', from: makeFrom({ kind }), text: 'hi', remote },
+			)
+			expect(result).toMatchObject({ kind: 'responded', status: expected })
+		}
+		expect(seen).toEqual([expect.objectContaining({ machineName: 'studio' })])
+	})
+
+	it('deliver: the network bridge cannot send without naming the machine', async () => {
+		let called = false
+		const endpoint = await start({
+			verifySender: (from) => ({ ...from, kind: 'net' }),
+			onDeliver: () => {
+				called = true
+				return { status: 'queued' }
+			},
+		})
+		const result = await new PeerClient().deliver(
+			{ address: endpoint.address, token: 't'.repeat(32) },
+			{ id: 'm1', from: makeFrom({ kind: 'net' }), text: 'hi' },
+		)
+		expect(result).toMatchObject({ kind: 'responded', status: 'refused' })
+		expect(called).toBe(false)
+	})
+
 	it('subscribe_idle: calls onSubscribeIdle once verified', async () => {
 		const endpoint = await start({
 			verifySender: (from) => from,

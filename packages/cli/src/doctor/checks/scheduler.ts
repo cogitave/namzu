@@ -9,7 +9,7 @@ import { listJobs } from '../../schedule/store/jobs.js'
  * The scheduler, as far as files can tell without asking a service manager:
  * whether jobs exist without a scheduler to run them, whether the installed
  * service points at a node and a CLI that still exist, and how long ago the
- * daemon last wrote its heartbeat. `namzu schedule status` asks the service
+ * daemon last wrote its heartbeat. `namzu schedule service status` asks the service
  * manager too.
  */
 export const schedulerCheck: DoctorCheck = {
@@ -34,7 +34,7 @@ export const schedulerCheck: DoctorCheck = {
 				? {
 						status: 'warn',
 						message: `${jobs} active scheduled job(s) and no scheduler installed; they will not run`,
-						remediation: 'namzu schedule install',
+						remediation: 'namzu schedule service install',
 					}
 				: { status: 'skipped', message: 'no scheduled jobs and no scheduler installed' }
 		}
@@ -45,7 +45,7 @@ export const schedulerCheck: DoctorCheck = {
 				return {
 					status: 'fail',
 					message: `the scheduler service starts ${path}, which no longer exists`,
-					remediation: 'namzu schedule install',
+					remediation: 'namzu schedule service install',
 				}
 			}
 		}
@@ -60,7 +60,7 @@ export const schedulerCheck: DoctorCheck = {
 			return {
 				status: 'warn',
 				message: `${manifest.name} (${manifest.platform}) is installed but the daemon has not been seen ${age === undefined ? 'yet' : `for ${Math.round(age / 1000)} s`}`,
-				remediation: 'namzu schedule status',
+				remediation: 'namzu schedule service status',
 			}
 		}
 		return {

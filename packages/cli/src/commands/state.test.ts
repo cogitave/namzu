@@ -107,7 +107,7 @@ describe('namzu state command', () => {
 		expect(h.inspect).not.toHaveBeenCalled()
 		expect(h.errors).toEqual([
 			expect.objectContaining({
-				message: expect.stringContaining('namzu state [report | move-legacy [--dry-run]]'),
+				message: expect.stringContaining('namzu state [report | move legacy [--dry-run]]'),
 			}),
 		])
 	})
@@ -116,7 +116,7 @@ describe('namzu state command', () => {
 		const rendered = renderStateReport(report())
 		expect(rendered).toContain('legacy (state an earlier Namzu kept in this folder')
 		expect(rendered).toContain('sessions — 2.00 KiB · 3 files')
-		expect(rendered).toContain('namzu state move-legacy moves it into the Namzu home')
+		expect(rendered).toContain('namzu state move legacy moves it into the Namzu home')
 		expect(rendered).toContain('No files were changed.')
 	})
 
@@ -127,10 +127,10 @@ describe('namzu state command', () => {
 			roots: value.roots.map((root) => ({ ...root, roles: ['user'] as const })),
 		})
 		expect(rendered).toContain('legacy (the layout before session logs')
-		expect(rendered).not.toContain('move-legacy')
+		expect(rendered).not.toContain('move legacy')
 	})
 
-	it('runs move-legacy only when asked, and passes --dry-run through', async () => {
+	it('runs move legacy only when asked, and passes --dry-run through', async () => {
 		const printed: unknown[] = []
 		const errors: unknown[] = []
 		const formatter: Formatter = {
@@ -159,7 +159,7 @@ describe('namzu state command', () => {
 		const invoke = (rawArgs: readonly string[]) =>
 			command.handler({ ctx: { config: {}, formatter }, rawArgs })
 
-		expect(await invoke(['move-legacy', '--dry-run'])).toBe(0)
+		expect(await invoke(['move', 'legacy', '--dry-run'])).toBe(0)
 		expect(moveLegacy).toHaveBeenCalledExactlyOnceWith({ dryRun: true })
 		expect(inspect).not.toHaveBeenCalled()
 		const text = (printed[0] as { text: string }).text
@@ -167,8 +167,15 @@ describe('namzu state command', () => {
 		expect(text).toContain('.namzu/sessions')
 		expect(text).toContain('Left in place:\n  .namzu/checkpoints: git tracks files in it')
 
-		expect(await invoke(['move-legacy', '--force'])).toBe(64)
+		expect(await invoke(['move', 'legacy', '--force'])).toBe(64)
 		expect(moveLegacy).toHaveBeenCalledOnce()
+
+		// The old spelling runs nothing and names the new one.
+		expect(await invoke(['move-legacy', '--dry-run'])).toBe(64)
+		expect(moveLegacy).toHaveBeenCalledOnce()
+		expect(errors).toContainEqual(
+			expect.objectContaining({ message: 'This command is now `namzu state move legacy`.' }),
+		)
 	})
 
 	it('says why a move was refused and exits unavailable', async () => {
@@ -187,7 +194,7 @@ describe('namzu state command', () => {
 			}),
 		})
 		expect(
-			await command.handler({ ctx: { config: {}, formatter }, rawArgs: ['move-legacy'] }),
+			await command.handler({ ctx: { config: {}, formatter }, rawArgs: ['move', 'legacy'] }),
 		).toBe(69)
 		expect(errors).toEqual([
 			expect.objectContaining({ message: expect.stringContaining('you trust') }),

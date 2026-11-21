@@ -91,6 +91,7 @@ The kernel.
 * [Ids](ids.md) - Opaque UUIDs, nominal entity types and strict storage admission.
 * [Delegation events](delegation-events.md) - What the kernel says when a turn delegates to a child session, which fields a host may act on, which are captions for a screen, and what the logs keep.
 * [Cross-session peer messaging (SDK)](peer-messaging.md) - The live-session registry, the namzu-peer/1 transport and the runtime-context rendering a delivered message or notice.
+* [Your Namzu network (SDK)](namzu-network.md) - How machines of one person find each other, join with one Allow, share a roster and roles, and exchange held-or-delivered messages, with the files, wire protocol and limits.
 * [Hook events](hooks.md) - The events the kernel fires for extensions and shell hooks (`turn_start`, `turn_end`, `session_start`, …), what each carries, which can answer with a verdict, the exit codes and JSON a shell hook answers with, and the limits on what a hook may decide.
 * [Skills and allowed-tools](skills.md) - Loading a SKILL.md through the skill tool, the directory a host tells the model a skill's files are in, and allowed-tools as a turn-scoped pre-approval that never narrows the tool set.
 * [The bash tool](bash-tool.md) - Which shell the bash tool runs a command in, on the host and in a sandbox, and how the permission rules follow that choice.

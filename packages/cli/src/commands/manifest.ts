@@ -58,7 +58,7 @@ export const costCommand = lazyCommand(
 export const peersCommand = lazyCommand(
 	{
 		name: 'peers',
-		description: 'List live terminals in this project or send one a message',
+		description: 'List and message live terminals, and manage your Namzu network of machines',
 		passThrough: true,
 	},
 	async () => (await import('./peers.js')).peersCommand,
@@ -210,22 +210,13 @@ export const skillsCommand = lazyCommand(
 	async () => (await import('./skills.js')).skillsCommand,
 )
 
-export const skillsJSONCommand = lazyCommand(
+export const providersCommand = lazyCommand(
 	{
-		name: 'skills-json',
-		description: 'Print discovered skills as JSON (for host UIs)',
+		name: 'providers',
+		description: 'List providers and their models',
 		passThrough: true,
 	},
-	async () => (await import('./host-queries.js')).skillsJSONCommand,
-)
-
-export const providersJSONCommand = lazyCommand(
-	{
-		name: 'providers-json',
-		description: 'Print providers + per-provider models as JSON (for host UIs)',
-		passThrough: true,
-	},
-	async () => (await import('./host-queries.js')).providersJSONCommand,
+	async () => (await import('./providers.js')).providersCommand,
 )
 
 export const upgradeCommand = lazyCommand(

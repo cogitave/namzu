@@ -167,6 +167,26 @@ export interface TuiConfig {
 	readonly syntaxHighlight?: boolean
 }
 
+/** See `NamzuCliConfig.network`. */
+export interface NetworkConfig {
+	/**
+	 * `auto` (default): on in an interactive terminal on a network known to be private, off elsewhere and
+	 * for every headless run. `true`: on in an interactive terminal on any network. `false`: off entirely
+	 * (no advertisement, no listener).
+	 */
+	readonly enabled?: 'auto' | boolean
+	/** Messages from your other machines: `members` delivers, `hold` always asks first, `off` refuses. */
+	readonly acceptMail?: 'members' | 'hold' | 'off'
+	/** What this machine is called to the others; absent means its host name. At most 40 characters. */
+	readonly machineName?: string
+	/**
+	 * Whether a new machine on your network joins without asking you: `trusted-networks` (default) when it is
+	 * on a network you marked as trusted, `always` on any private network (anyone on that network can then
+	 * join), `never` to be asked every time.
+	 */
+	readonly autoAdmit?: 'trusted-networks' | 'always' | 'never'
+}
+
 /** Release channel the background updater follows. */
 export type UpdateChannel = 'latest' | 'stable'
 
@@ -850,7 +870,7 @@ export interface NamzuCliConfig {
 	/**
 	 * Directories besides the working directory the file tools may reach,
 	 * relative to the project or absolute. Bound read-write into the sandbox.
-	 * `--add-dir` and `/add-dir` add to this list for one launch or session.
+	 * `--add-dir` and `/add dir` add to this list for one launch or session.
 	 */
 	readonly additionalDirectories?: readonly string[]
 	/**
@@ -895,6 +915,12 @@ export interface NamzuCliConfig {
 	readonly telemetry?: TelemetryConfig
 	/** Interactive-terminal-only behaviour. Absent leaves notifications off. */
 	readonly tui?: TuiConfig
+	/**
+	 * Your Namzu network: finding your other machines and messaging their sessions. Absent means the
+	 * defaults (`enabled: auto`, `acceptMail: members`, the machine's host name). Your own config files
+	 * only: a repository cannot open a listener on your machine.
+	 */
+	readonly network?: NetworkConfig
 	/**
 	 * How the terminal keeps Namzu itself up to date. Absent means the
 	 * defaults: check in the background, install quietly where Namzu may,
@@ -1242,7 +1268,7 @@ export interface SandboxConfig {
 	 * working directory and the added directories is an approval request,
 	 * not a refusal. `true` confines each command to the working directory
 	 * and the added directories, with the network cut where the platform can
-	 * cut it; whatever the sandbox cannot reach then needs `/add-dir` or a
+	 * cut it; whatever the sandbox cannot reach then needs `/add dir` or a
 	 * per-command escape the user approves.
 	 *
 	 * Unset, it is on when `requireIsolation` names a control or `workspace`

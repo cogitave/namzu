@@ -18,7 +18,7 @@ export interface SpinnerTipInput {
 	readonly lastTurnToolCalls: () => number
 	readonly env?: Readonly<Record<string, string | undefined>>
 	readonly tips?: readonly Tip[]
-	/** Whether `/terminal-setup` has set up this terminal; read from the saved record when absent. */
+	/** Whether `/terminal setup` has set up this terminal; read from the saved record when absent. */
 	readonly newlineKeyInstalled?: () => boolean
 }
 

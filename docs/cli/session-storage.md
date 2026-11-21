@@ -44,7 +44,7 @@ rewritten.
 │   ├── runs/<job-id>/<run-id>.json   each run's result; <run-id>.log beside it is the run's output
 │   ├── daemon/                       lease.<fence>.json, lease.json, endpoint.json, heartbeat.json, notify.json, stop.json, log/
 │   ├── daemon.env                    optional KEY=value credentials for scheduled runs (0600)
-│   ├── service.json                  what `namzu schedule install` created
+│   ├── service.json                  what `namzu schedule service install` created
 │   └── seen.json                     when the TUI last summarised scheduled runs
 └── projects/
     └── <slug>/                       one per working directory

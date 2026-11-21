@@ -14,13 +14,13 @@ const HELP = `namzu state — inspect local Namzu state, and move what an earlie
 Usage:
   namzu state
   namzu state report
-  namzu state move-legacy [--dry-run]
+  namzu state move legacy [--dry-run]
 
 report (the default) lists what Namzu keeps and where, without changing
 anything: it does not load project configuration, create a Session, repair,
 move, chmod, or delete state.
 
-move-legacy moves the state an earlier Namzu kept in this folder's .namzu
+move legacy moves the state an earlier Namzu kept in this folder's .namzu
 (sessions/, projects/, checkpoints/, worktrees/, cli.json and the like) into
 the Namzu home, under legacy/<folder>/<time>/. It runs only in a folder you
 trust, moves only names an earlier Namzu wrote, and leaves in place what git
@@ -31,7 +31,7 @@ Output:
   Use the global --format json or --format yaml flag for structured output.
 
 Options:
-  --dry-run   With move-legacy: list what would move, change nothing
+  --dry-run   With move legacy: list what would move, change nothing
   -h, --help  Show this help`
 
 export interface StateCommandDeps {
@@ -47,9 +47,13 @@ export function createStateCommand(deps: StateCommandDeps): CommandDef {
 		help: HELP,
 		handler: async ({ ctx, rawArgs }) => {
 			if (rawArgs[0] === 'move-legacy') {
-				const rest = rawArgs.slice(1)
+				ctx.formatter.error({ message: 'This command is now `namzu state move legacy`.' })
+				return EXIT_USAGE
+			}
+			if (rawArgs[0] === 'move' && rawArgs[1] === 'legacy') {
+				const rest = rawArgs.slice(2)
 				if (!(rest.length === 0 || (rest.length === 1 && rest[0] === '--dry-run'))) {
-					ctx.formatter.error({ message: 'Usage: namzu state move-legacy [--dry-run]' })
+					ctx.formatter.error({ message: 'Usage: namzu state move legacy [--dry-run]' })
 					return EXIT_USAGE
 				}
 				const move =
@@ -69,7 +73,7 @@ export function createStateCommand(deps: StateCommandDeps): CommandDef {
 				return EXIT_OK
 			}
 			if (!(rawArgs.length === 0 || (rawArgs.length === 1 && rawArgs[0] === 'report'))) {
-				ctx.formatter.error({ message: 'Usage: namzu state [report | move-legacy [--dry-run]]' })
+				ctx.formatter.error({ message: 'Usage: namzu state [report | move legacy [--dry-run]]' })
 				return EXIT_USAGE
 			}
 			const report = await deps.inspect()
@@ -83,7 +87,7 @@ export const stateCommand: CommandDef = createStateCommand({
 	inspect: inspectNamzuState,
 })
 
-/** What `namzu state move-legacy` says it did, or with `--dry-run` would do. */
+/** What `namzu state move legacy` says it did, or with `--dry-run` would do. */
 export function renderLegacyMove(
 	result: Exclude<LegacyMoveResult, { state: 'refused' }>,
 	show: (path: string) => string = (path) => safePath(homePath(path)),
@@ -178,7 +182,7 @@ export function renderStateReport(report: NamzuStateReport): string {
 			}
 			if (projectOnly) {
 				lines.push(
-					'  namzu state move-legacy moves it into the Namzu home (--dry-run lists what would move).',
+					'  namzu state move legacy moves it into the Namzu home (--dry-run lists what would move).',
 				)
 			}
 		}

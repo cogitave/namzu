@@ -1013,7 +1013,7 @@ With the strip hidden, every way of moving still works:
 ## Settings
 
 **Settings** is a dialog over the app, not a page: the gear (in the foot of the sidebar, or in the rail while it is collapsed), the
-command palette's **Settings**, the File menu's **Settings…** (`Ctrl+,` or `⌘,`) and the slash commands `/config`, `/mcp`, `/hooks`, `/theme`, `/login` and `/release-notes` all open it. Nothing behind it changes: the conversation, its draft, the panes and the scroll stay as they were, the app is dimmed (a 52 percent black layer, also over the title row) and inert while the dialog is open, and closing puts the focus back on the control that opened it.
+command palette's **Settings**, the File menu's **Settings…** (`Ctrl+,` or `⌘,`) and the slash commands `/config`, `/mcp`, `/hooks`, `/theme`, `/login` and `/release notes` all open it. Nothing behind it changes: the conversation, its draft, the panes and the scroll stay as they were, the app is dimmed (a 52 percent black layer, also over the title row) and inert while the dialog is open, and closing puts the focus back on the control that opened it.
 
 The panel is 1024 by 761 pixels in a 1280 by 833 window (128 pixels at the sides, 36 above and below), never larger, with a 12 pixel corner, a hairline edge and no shadow; in a smaller window it keeps at least 16 pixels of the app around it, and below 520 pixels wide the left column shows only icons. The sizes are the `--settings-dialog-*` tokens in `theme.css`. A title band ("Settings", and a close button at the top right) sits over two columns: the left column (it never scrolls) holds the search field and the sections in four groups separated by hairlines (Models; General, Appearance, Speech; Agent, Tools, Projects, Terminal; Desktop app, Telemetry, Updates, About, `SETTINGS_NAV_GROUPS` in `settings-model.ts`); the right column shows one section under one heading and scrolls on its own.
 
@@ -1040,7 +1040,7 @@ Rows that hold a list or a small map are typed controls rather than JSON boxes (
 - **Tools** holds *Computer use* (*Enable computer use* and *Denied apps*, see [Computer use settings](computer-use-settings.md); a Desktop conversation offers the computer tools only once the switch is on), *Browser* (`browser.enabled`, first among the browser rows) and *Code analysis* (`codeAnalysis.enabled`). A Desktop conversation reads both (browser tools only in a conversation that uses this computer, not in a Pal's): the engine host builds the browser tools from `browser.enabled` and the code analysis tool from `codeAnalysis`, so neither says "terminal app".
 - *Hypermode* is in Agent, not General. The notification rows have a section of their own, Notifications ([A system notification when you are elsewhere](#a-system-notification-when-you-are-elsewhere)).
 - *Default terminal shell* is **Windows only**: main offers a choice of shells only on Windows (`availableShells`), elsewhere a terminal tab runs the login shell and the setting is never read. The row and its search entry are drawn only where main offers more than one shell (`entryIsDrawn` in `settings-model.ts`, asked by the page and by search alike), so search never offers a row that is not drawn.
-- A section stored before the move still opens, and `desktop` is a valid stored section (`lastSettingsSection`). `/mcp`, `/hooks`, `/theme`, `/login`, `/release-notes`, Ctrl+, and the menu item land on the same sections and rows as before.
+- A section stored before the move still opens, and `desktop` is a valid stored section (`lastSettingsSection`). `/mcp`, `/hooks`, `/theme`, `/login`, `/release notes`, Ctrl+, and the menu item land on the same sections and rows as before.
 
 What it holds, and where each value lives (one source of truth per value):
 
@@ -2624,7 +2624,7 @@ off, then the graceful shutdown.
   would split the app from the command line's conversations, trust list and schedules. The place is shown
   and can be opened and copied under About, Data folders.
 - *Only on this computer* (`SET-243`): Desktop has no scheduled-task feature and starts no scheduler. The
-  scheduler is the command line's (`schedule install` makes an operating system service that runs without
+  scheduler is the command line's (`schedule service install` makes an operating system service that runs without
   any window), so a switch here would describe nothing the app does. No row, no read-only line.
 
 **Data folders** (About, `SET-170`). Open and Copy path were already there; what was wrong were the notes.

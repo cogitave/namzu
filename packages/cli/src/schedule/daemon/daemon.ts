@@ -193,7 +193,7 @@ export class ScheduleDaemon {
 	/** Runs in progress: ours (with a handle) and adopted ones (without). */
 	readonly #running = new Map<string, Tracked>()
 	#stopping = false
-	/** The stop came from `schedule stop`'s file, not a signal or the endpoint. */
+	/** The stop came from `schedule service stop`'s file, not a signal or the endpoint. */
 	#stopRequestedByFile = false
 	#draining = false
 	#standby = false
@@ -370,7 +370,7 @@ export class ScheduleDaemon {
 	}
 
 	/**
-	 * `schedule stop` and `uninstall` leave `daemon/stop.json`; `start` and
+	 * `schedule service stop` and `uninstall` leave `daemon/stop.json`; `start` and
 	 * `install` remove it. It reaches a daemon the service manager cannot: one
 	 * on standby (it has no endpoint), or one under WSL, whose Windows task
 	 * ending does not end the Linux process. A daemon that finds it exits
@@ -1590,7 +1590,7 @@ export function appendRunRecord(
 	})
 }
 
-/** Where `schedule stop` leaves its request. See `ScheduleDaemon#stopRequested`. */
+/** Where `schedule service stop` leaves its request. See `ScheduleDaemon#stopRequested`. */
 export function stopRequestPath(paths: SchedulePaths): string {
 	return join(paths.daemon, 'stop.json')
 }

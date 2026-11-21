@@ -38,12 +38,11 @@ import {
 	mcpCommand,
 	peersCommand,
 	pluginCommand,
-	providersJSONCommand,
+	providersCommand,
 	scheduleCommand,
 	sendCommand,
 	serveCommand,
 	skillsCommand,
-	skillsJSONCommand,
 	stateCommand,
 	upgradeCommand,
 	watchCommand,
@@ -175,7 +174,7 @@ function addLaunchOptions(command: Command): Command {
 		)
 		.option(
 			'--add-dir <path>',
-			'Let the file tools reach another directory this session; repeatable. /add-dir does the same from inside.',
+			'Let the file tools reach another directory this session; repeatable. /add dir does the same from inside.',
 			(value: string, previous: string[]) => [...previous, value],
 			[] as string[],
 		)
@@ -196,12 +195,14 @@ const EX_USAGE = 64
 
 /**
  * Commands that were removed, and what replaced each. Typing one gets
- * commander's unknown-command error and one line naming the replacement.
+ * one line naming the replacement.
  */
 const REMOVED_COMMANDS: Readonly<Record<string, string>> = {
 	run: '`namzu run` was replaced by `namzu exec "<prompt>"`, which takes the same options.',
 	'run-stream':
 		'`namzu run-stream` was replaced by `namzu exec --json "<prompt>"`, which emits the same events.',
+	'skills-json': 'This command is now `namzu skills list --json`.',
+	'providers-json': 'This command is now `namzu providers list --json`.',
 }
 
 /**
@@ -632,9 +633,8 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 		extensionCommand,
 		pluginCommand,
 		skillsCommand,
-		skillsJSONCommand,
 		workspacesCommand,
-		providersJSONCommand,
+		providersCommand,
 		upgradeCommand,
 		serveCommand,
 		stateCommand,
@@ -1023,6 +1023,8 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 						? { toolResultScreens: resolvedCtx.config.toolResultScreens }
 						: {}),
 					...(resolvedCtx.config.tui ? { tui: resolvedCtx.config.tui } : {}),
+					...(resolvedCtx.config.network ? { network: resolvedCtx.config.network } : {}),
+					runNetwork: true,
 					...(resolvedCtx.config.updates ? { updates: resolvedCtx.config.updates } : {}),
 				}
 			}
@@ -1098,7 +1100,8 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 		const removed = firstRootOperand(program, opts.argv.slice(2))
 		const hint = removed !== undefined ? REMOVED_COMMANDS[removed] : undefined
 		if (removed !== undefined && hint !== undefined) {
-			program.error(`error: unknown command '${removed}'\n${hint}`, {
+			// One line, naming the replacement: the old name is not a command any more.
+			program.error(hint, {
 				exitCode: EX_USAGE,
 				code: 'commander.unknownCommand',
 			})
