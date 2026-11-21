@@ -2,7 +2,8 @@
 
 ## 2026-11-21
 
-* **Update** The Ollama driver stops waiting for a model's information after 5 seconds on a picture request, and no longer reads it for conversations without pictures.
+- **Update** [Text-only models and images](sdk/text-only-models-and-images.md): the Ollama driver stops waiting for a model's information after 5 seconds on a picture request, and no longer reads it for conversations without pictures.
+- **Update** [Text-only models and images](sdk/text-only-models-and-images.md#the-capability-warning): a picture attached to the message being answered by a model its driver lists as text-only now brings the capability warning (with `model`), and the terminal points to `/model`; before, the picture was left out with no word to the person. `.changeset/text-only-model-picture-warning.md`.
 - **Update** [Text-only models and images](sdk/text-only-models-and-images.md): a pasted image now reaches an Ollama or LM Studio model that reads images (decided per model from the server's own model information, read once and kept), and an HTTP endpoint model when its config sets the new `vision` option (`true` or a list of model ids; off by default); tool-result images follow on all three. `.changeset/local-drivers-pasted-images.md`.
 - **Update** [Text-only models and images](sdk/text-only-models-and-images.md): a pasted image now reaches an OpenRouter model that reads images, as an `image_url` content part; `OPENROUTER_CAPABILITIES.supportsVision` is `true` and `supportsImageInputFor` answers per model from the listing's input modalities, so a text-only model still gets the notice and omission marker. `.changeset/openrouter-images-for-vision-models.md`.
 - **Update** [Slash commands](cli/slash-commands.md): provider setup's install question starts on Cancel and takes no letter as an answer; installing takes an arrow to Install and Enter.
