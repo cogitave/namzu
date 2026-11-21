@@ -1,5 +1,5 @@
 ---
-'@namzu/sdk': minor
+'@namzu/sdk': major
 ---
 
 The auto-review classifier now sees how each earlier call ended, and the working tree before a git command that can destroy local work. For a host that uses the `classify` review mode, these change with no option set:
@@ -12,4 +12,4 @@ The auto-review classifier now sees how each earlier call ended, and the working
 
 What to check before upgrading: a host that finds auto mode refusals by matching the text "Blocked by auto mode:" should also match `AUTO_REVIEW_UNAVAILABLE_PREFIX`, or read `ToolMessage.outcome`. A host that handles every value of `AutoReviewDecision['cause']` gains `oversized`, and one that treated `unreadable` as "too long" should read `oversized` instead. A host whose process may not start `git` loses nothing but the status.
 
-This is a minor release because no export is removed or renamed and no option's default changed. The refusal sentences are words written for the model, not a contract for code; `ToolMessage.outcome` and the exported prefixes are the supported way to tell refusals apart, and they are new here.
+This is a major release. Nothing is removed or renamed, but two things a host may rely on change: an over-long action now returns `cause: 'oversized'` instead of `unreadable` (the `AutoReviewDecision['cause']` union is wider, so an exhaustive switch over it needs the new case), and a destructive git command now starts a `git status` subprocess by default. To keep the old reading of an over-long action, treat `oversized` as you treated `unreadable`; a host whose process must not start `git` should run the classifier with a sandboxed shell, where the status is skipped.
