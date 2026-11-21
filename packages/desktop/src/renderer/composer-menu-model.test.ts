@@ -12,6 +12,7 @@ import {
 	mirrorParts,
 	moveHighlight,
 	pickSlash,
+	renamedSlash,
 	slashLine,
 	slashQuery,
 } from './composer-menu-model.js'
@@ -83,6 +84,15 @@ describe('picking', () => {
 		expect(slashLine(rows, '/diff')?.entry.name).toBe('diff')
 		expect(slashLine(rows, 'plain')).toBeNull()
 		expect(findSlash(rows, 'effortx')).toBeUndefined()
+	})
+
+	it('finds a command spelled as two words, and names the new spelling for the old hyphen form', () => {
+		const spelled = [row('release notes', 'x'), ...rows]
+		expect(slashLine(spelled, '/release notes')?.entry.name).toBe('release notes')
+		expect(slashLine(spelled, '/release-notes')).toBeNull()
+		expect(renamedSlash('/release-notes')).toBe('This command is now /release notes.')
+		expect(renamedSlash('/release notes')).toBeNull()
+		expect(renamedSlash('/effort')).toBeNull()
 	})
 })
 

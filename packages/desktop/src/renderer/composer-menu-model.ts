@@ -85,11 +85,25 @@ export function slashLine<T extends SlashEntry>(
 ): { entry: T; argument: string } | null {
 	const token = slashToken(value)
 	if (!token) return null
+	// A command spelled as two keywords ("/release notes") is looked up by both words first.
+	const second = /^(\S+)\s*([\s\S]*)$/.exec(token.rest)
+	const twoWords = second ? findSlash(rows, `${token.name} ${second[1]}`) : undefined
+	if (twoWords && second) return { entry: twoWords, argument: (second[2] ?? '').trim() }
 	const entry = findSlash(rows, token.name)
 	if (!entry) return null
 	// A row that takes no text runs only on its own: "/new feature ideas" is a message, not a command.
 	if (!entry.argHint && token.rest.trim() !== '') return null
 	return { entry, argument: token.rest.trim() }
+}
+
+/** Old hyphenated spellings: they run nothing, and the one line names the new spelling. */
+const RENAMED_SLASH: Readonly<Record<string, string>> = { 'release-notes': '/release notes' }
+
+/** The line to show for a box holding an old spelling of a command, or null for any other text. */
+export function renamedSlash(value: string): string | null {
+	const token = slashToken(value.trim())
+	const renamed = token ? RENAMED_SLASH[token.name] : undefined
+	return renamed ? `This command is now ${renamed}.` : null
 }
 
 /** The grey hint after "/name " while no argument was typed yet. */

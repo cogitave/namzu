@@ -75,7 +75,8 @@ export const SLASH_DEFINITIONS: readonly SlashDefinition[] = [
 	def('copy', 'Copy the latest reply', true),
 	def('new', 'Start a new conversation', false, { aliases: ['clear'] }),
 	def('archive', 'Archive this conversation', true),
-	def('release-notes', 'See what changed in this version', false),
+	// Spelled as keywords: "/release notes". The id stays a code name, not a spelling.
+	{ ...def('release-notes', 'See what changed in this version', false), name: 'release notes' },
 ]
 
 /**
