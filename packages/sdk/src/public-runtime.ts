@@ -1675,12 +1675,17 @@ export {
 // The model that decides, in the `classify` review mode, what a person would
 // otherwise be asked. See `runtime/query/auto-review/`.
 export {
+	AUTO_REVIEW_BLOCKED_PREFIX,
 	AUTO_REVIEW_DEFAULTS_MARKER,
+	AUTO_REVIEW_UNAVAILABLE_PREFIX,
 	DEFAULT_ALLOW as DEFAULT_AUTO_REVIEW_ALLOW,
 	DEFAULT_AUTO_REVIEW_LIMITS,
 	DEFAULT_HARD_DENY as DEFAULT_AUTO_REVIEW_HARD_DENY,
 	DEFAULT_SOFT_DENY as DEFAULT_AUTO_REVIEW_SOFT_DENY,
 	autoReviewBlockedFeedback,
+	autoReviewOversizedFeedback,
+	autoReviewStoppedFeedback,
+	autoReviewUnavailableFeedback,
 	createAutoReviewClassifier,
 	resolveAutoReviewRules,
 } from './runtime/query/auto-review/index.js'

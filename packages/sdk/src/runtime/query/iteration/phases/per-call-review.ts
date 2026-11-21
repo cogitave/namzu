@@ -9,24 +9,19 @@ import { DECLINED_TOOL_CALL_FEEDBACK } from '../../declined.js'
 import type { CallAdmission, ReviewedExecution } from '../../executor.js'
 import { DECLINED_NOTE_MAX_CHARS } from '../../executor.js'
 import { supersededByRecovery } from '../../resume-pending.js'
+import {
+	EDIT_NOT_OFFERED,
+	NOT_THIS_QUESTION,
+	PAUSED_CALL,
+	UNANSWERED_CALL,
+} from '../../unanswered.js'
+
+export { UNANSWERED_CALL } from '../../unanswered.js'
 import { type IterationContext, awaitDecisionDurably } from './context.js'
 
 /** What a call is told when a refusal elsewhere in its batch ended the turn before it started. */
 export const REFUSED_WITH_THE_TURN =
 	'An earlier call in this batch was refused and the turn was stopped, so this call was not run. Wait for the user.'
-
-/** What a call is told when the answer to it could not be taken. */
-export const UNANSWERED_CALL =
-	'No answer was given for this call, so it was not run. Ask again if it is still needed.'
-
-const EDIT_NOT_OFFERED =
-	'Editing a call while it is asked about is not offered, so this call was not run. Ask again with the input you want.'
-
-const PAUSED_CALL =
-	'The turn was asked to wait before this call could be answered, so it was not run. Ask again if it is still needed.'
-
-const NOT_THIS_QUESTION =
-	'That answer was not an answer to a question about a tool call, so this call was not run.'
 
 /** The audit trail keeps a person's reason, cut short and without control characters. */
 /**

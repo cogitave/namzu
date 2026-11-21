@@ -320,12 +320,17 @@ import {
 } from '../memory/presentation.js'
 import { appendMemoryWithStatus, readMemory } from '../memory/store.js'
 import {
+	AUTO_MODE_DEFAULT_NOTICE_BODY,
+	AUTO_MODE_DEFAULT_NOTICE_TITLE,
 	BYPASS_CONSENT_BODY,
 	BYPASS_CONSENT_TITLE,
 	acknowledgeBypass,
 	hasAcknowledgedBypass,
+	hasSeenAutoModeDefaultNotice,
+	markAutoModeDefaultNoticeSeen,
 } from '../permissions/consent.js'
 import { createImageReadPolicy } from '../permissions/image-read.js'
+import { defaultStartMode } from '../permissions/launch.js'
 import {
 	type ModeAvailability,
 	type PermissionMode,
@@ -1998,14 +2003,27 @@ function AppBody({
 	// (a flag that names it, or the operator's own default) and shut by
 	// `permissions.disableBypassMode`; nothing typed inside the session opens it.
 	const autoModeNoticeShownRef = useRef(false)
+	/**
+	 * Says once per person, in the transcript, that auto mode is the default:
+	 * the first time a session starts in it because nothing chose another mode.
+	 * The record is `~/.namzu/acknowledgements.json`; a home that cannot be
+	 * written shows it again next time rather than never.
+	 */
+	const autoDefaultNoticeShownRef = useRef(false)
+	/** Shows the notice if it is due; true when it was shown just now. */
+	const showAutoDefaultNoticeRef = useRef<() => boolean>(() => false)
 	const bypassAvailableRef = useRef(
 		ctx.bypassAvailable ??
 			(ctx.skipPermissions === true ||
 				ctx.allowDangerouslySkipPermissions === true ||
 				permissionMode === 'bypass'),
 	)
+	// `auto-default`: nothing chose a mode, so the session starts in auto once
+	// it is built and its classifier can reach a model (see `hydrateSession`).
+	// Until then the screen shows `prompt`, which is also where it stays when
+	// the classifier cannot.
 	const permissionModeSourceRef = useRef<
-		'default' | 'launch-bypass' | 'launch-flag' | 'config-default' | 'session'
+		'default' | 'auto-default' | 'launch-bypass' | 'launch-flag' | 'config-default' | 'session'
 	>(
 		ctx.permissionSource === 'config-default'
 			? 'config-default'
@@ -2013,7 +2031,9 @@ function AppBody({
 				? 'launch-flag'
 				: ctx.skipPermissions === true
 					? 'launch-bypass'
-					: 'default',
+					: ctx.permissionSource === 'auto-default' && !ctx.palId
+						? 'auto-default'
+						: 'default',
 	)
 	const [reasoningEffort, setReasoningEffortState] = useState<ReasoningEffort | undefined>()
 	const reasoningEffortRef = useRef<ReasoningEffort | undefined>(undefined)
@@ -2862,6 +2882,27 @@ function AppBody({
 		idRef.current += 1
 		return `m${idRef.current}`
 	}, [])
+	showAutoDefaultNoticeRef.current = () => {
+		if (autoDefaultNoticeShownRef.current) return false
+		autoDefaultNoticeShownRef.current = true
+		if (hasSeenAutoModeDefaultNotice()) return false
+		try {
+			markAutoModeDefaultNoticeSeen()
+		} catch {
+			// An unwritable home costs a repeat of the notice next time.
+		}
+		const id = nextId()
+		setMessages((previous) => [
+			...previous,
+			{
+				id,
+				role: 'system',
+				content: `${AUTO_MODE_DEFAULT_NOTICE_TITLE}\n${AUTO_MODE_DEFAULT_NOTICE_BODY}`,
+				kind: 'announcement' as const,
+			},
+		])
+		return true
+	}
 	const takeThinking = useCallback(() => {
 		const text = thinkingForNextRowRef.current
 		if (text.trim() === '') return undefined
@@ -4998,9 +5039,26 @@ function AppBody({
 	 */
 	const handleAutoModeLimit = useCallback(
 		(event: {
-			readonly limit: 'consecutive' | 'total'
+			readonly limit: 'consecutive' | 'total' | 'unavailable'
 			readonly reason: string
 		}): void => {
+			if (event.limit === 'unavailable') {
+				// The kernel refused the batch and ended the turn. A person who chose
+				// auto keeps it. A terminal in auto only because nothing chose another
+				// mode goes back to asking, as it does at the block limit, so a model
+				// that cannot judge does not stop every turn for someone who never
+				// picked auto.
+				if (
+					permissionModeSourceRef.current === 'auto-default' &&
+					permissionModeRef.current === 'classify'
+				) {
+					commitPermissionMode('prompt', false)
+					pushMessage('system', AUTO_MODE_DEFAULT_STOPPED_NOTICE)
+					return
+				}
+				pushMessage('system', AUTO_MODE_STOPPED_NOTICE)
+				return
+			}
 			if (permissionModeRef.current !== 'classify') return
 			commitPermissionMode('prompt', false)
 			pushMessage(
@@ -6755,10 +6813,44 @@ function AppBody({
 			palRouteSessionRef.current = definition ? scope.sessionId : null
 			// The claimed Pal owns its guest. Only a default follows this route;
 			// an operator's /permissions or Shift+Tab choice remains authoritative.
-			if (permissionModeSourceRef.current === 'default') {
-				const mode = definition ? 'auto' : 'prompt'
+			// With nothing chosen, the terminal starts in auto when this session's
+			// classifier can reach a model, and in prompt, silently, when it cannot.
+			const startSource = permissionModeSourceRef.current
+			if (startSource === 'default' || startSource === 'auto-default') {
+				const autoDefault =
+					startSource === 'auto-default' && activeCtx.permissionSource === 'auto-default'
+				if (startSource === 'auto-default' && !autoDefault) {
+					// The project's own file, read once the folder was trusted, named a
+					// default or switched auto off.
+					permissionModeSourceRef.current = 'default'
+				}
+				const mode = defaultStartMode({
+					pal: Boolean(definition),
+					autoDefault,
+					settings: activeCtx.permissionSettings,
+					classifierUsable: s.hasProvider && s.autoMode?.available === true,
+				})
+				const before = permissionModeRef.current
 				permissionModeRef.current = mode
 				setPermissionModeState(mode)
+				const noticed =
+					mode === 'classify' && autoDefault ? showAutoDefaultNoticeRef.current() : false
+				// A later session (another model, another service) can move a terminal
+				// that is in its default between auto and asking. Nobody chose that, so
+				// it is said, once per change; a Pal's own mode is not the default's.
+				if (
+					autoDefault &&
+					previousSessionRef.current !== null &&
+					!definition &&
+					!previousPalDefinition &&
+					before !== mode &&
+					!noticed
+				) {
+					pushMessage(
+						'system',
+						mode === 'classify' ? AUTO_MODE_DEFAULT_RESUMED_NOTICE : AUTO_MODE_DEFAULT_LEFT_NOTICE,
+					)
+				}
 			}
 			// A picker-owned provider/model change is one state transition. Clear the
 			// old model's effort selection before publishing the replacement session
@@ -19536,6 +19628,18 @@ function pluginActionPicker(owner: AgentSession, name: string): ChoicePickerStat
 const BYPASS_UNAVAILABLE_NOTICE =
 	'Bypass mode is not available in this session. Start Namzu with --allow-dangerously-skip-permissions (or --yolo), or set permissions.allowBypassMode to true in your own config file, to use it, unless permissions.disableBypassMode is set.'
 const AUTO_UNAVAILABLE_NOTICE = 'Auto mode is not available in this session.'
+/** Said when the turn ended because auto mode kept getting no verdict. */
+export const AUTO_MODE_STOPPED_NOTICE =
+	'Auto mode could not get a safety decision, so nothing was run and Namzu stopped. Send a message to try again, or press Shift+Tab to change the mode.'
+/** The same, for a terminal that was in auto only by default: it goes back to asking. */
+export const AUTO_MODE_DEFAULT_STOPPED_NOTICE =
+	'Auto mode could not get a safety decision, so nothing was run and Namzu stopped. This terminal now asks before changes: send a message to carry on, or use /permissions auto to go back to auto mode.'
+/** Said when a later session takes a terminal that is in its default out of auto. */
+export const AUTO_MODE_DEFAULT_LEFT_NOTICE =
+	'Auto mode cannot check actions with this model, so this terminal now asks before changes.'
+/** Said when a later session puts a terminal that is in its default back in auto. */
+export const AUTO_MODE_DEFAULT_RESUMED_NOTICE =
+	'This model can check actions, so this terminal is in auto mode now.'
 
 export function permissionPicker(
 	mode: PermissionMode,

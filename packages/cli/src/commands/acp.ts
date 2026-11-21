@@ -1513,8 +1513,12 @@ export function createCliAcpRuntime(
 					// The words the person sent: a target such as +500k is read from these only.
 					typedInput: prompt,
 					currentPermissionMode: () => turn.mode,
-					onAutoModeLimit: () => {
-						turn.mode = 'prompt'
+					// A run of answers with no verdict ends the turn in the kernel, and the
+					// refusal on each held-back call's card says the turn was stopped (the
+					// app has no other place for a sentence from here). Only a run of
+					// blocks hands the rest of the turn to the person.
+					onAutoModeLimit: (event) => {
+						if (event.limit !== 'unavailable') turn.mode = 'prompt'
 					},
 					...(undoNote ? { systemNote: undoNote } : {}),
 					...(computer

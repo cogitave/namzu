@@ -477,6 +477,11 @@ function resumeContextOf(ctx: IterationContext, scope?: AskScope): ResumeContext
 						ctx.toolExecutor.launchedScripts(callId, line, dialect),
 				}
 			: {}),
+		...(typeof ctx.toolExecutor?.gitStatusForReview === 'function'
+			? {
+					gitStatus: (line, dialect) => ctx.toolExecutor.gitStatusForReview(line, dialect),
+				}
+			: {}),
 	}
 }
 

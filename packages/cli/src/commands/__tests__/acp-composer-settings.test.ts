@@ -368,6 +368,21 @@ describe('ACP carries the two modes that stop asking', () => {
 			await f.runtime.close()
 		}
 	})
+
+	it('keeps auto when the turn ended for want of a verdict, which asks nobody anything', async () => {
+		const f = fixture()
+		const seen: string[] = []
+		f.holdSend(async (options) => {
+			options.onAutoModeLimit?.({ limit: 'unavailable', reason: 'the check could not run' })
+			seen.push(options.currentPermissionMode?.() ?? 'none')
+		})
+		try {
+			await f.prompt({ permissionMode: 'classify' })
+			expect(seen).toEqual(['classify'])
+		} finally {
+			await f.runtime.close()
+		}
+	})
 })
 
 describe('ACP plugin controls do not start executable sessions from a menu', () => {

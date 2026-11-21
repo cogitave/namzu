@@ -753,6 +753,32 @@ describe('/permissions', () => {
 		if (r?.kind === 'message') expect(r.content).toContain('permissions.defaultMode')
 	})
 
+	it('says auto is the terminal’s default when nothing chose it, and how to start asking', () => {
+		const r = permissionsReadout(
+			context({
+				permissions: permissions({
+					currentMode: () => ({ mode: 'classify', source: 'auto-default' }),
+				}),
+			}),
+		)
+		expect(r?.kind).toBe('message')
+		if (r?.kind === 'message') {
+			expect(r.content).toContain('Namzu’s default for the terminal')
+			expect(r.content).toContain('permissions.defaultMode: prompt in ~/.namzu/config.yaml')
+		}
+	})
+
+	it('says nothing of the default once the session has left auto', () => {
+		const r = permissionsReadout(
+			context({
+				permissions: permissions({
+					currentMode: () => ({ mode: 'prompt', source: 'auto-default' }),
+				}),
+			}),
+		)
+		if (r?.kind === 'message') expect(r.content).not.toContain('Namzu’s default for the terminal')
+	})
+
 	it('lists configured rules with their verb', () => {
 		const r = permissionsReadout(
 			context({

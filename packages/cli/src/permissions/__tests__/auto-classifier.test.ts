@@ -263,3 +263,73 @@ describe('the calls it refused', () => {
 		expect(classifier.recentBlocks()).toEqual([])
 	})
 })
+
+describe('a run of answers with no verdict', () => {
+	const usage = { promptTokens: 40, completionTokens: 2, totalTokens: 42 }
+
+	it('marks the third in a row when no model can be reached, and starts over', async () => {
+		const { classifier } = build({
+			providerFor: async () => {
+				throw new Error('no credential')
+			},
+		})
+		const marks: boolean[] = []
+		for (let i = 0; i < 4; i += 1) {
+			const decision = await inTurn(() => classifier.review(request))
+			marks.push(decision.verdict === 'block' && decision.noVerdictLimitReached === true)
+		}
+		expect(marks).toEqual([false, false, true, false])
+	})
+
+	it('counts a model that answered nothing readable the same way', async () => {
+		// Two passes a review, three reviews: each pass answers without a verdict.
+		const provider = new MockLLMProvider({
+			turns: Array.from({ length: 6 }, () => ({ text: 'I am not sure.', usage })),
+		})
+		const { classifier } = build({ providerFor: async () => provider })
+		await inTurn(() => classifier.review(request))
+		await inTurn(() => classifier.review(request))
+		expect(await inTurn(() => classifier.review(request))).toMatchObject({
+			verdict: 'block',
+			cause: 'unreadable',
+			noVerdictLimitReached: true,
+		})
+	})
+
+	it('does not count three actions too long to read, which never reach a model', async () => {
+		const provider = new MockLLMProvider({ turns: [ALLOW] })
+		const providerFor = vi.fn(async () => provider)
+		const { classifier } = build({ providerFor })
+		const long = {
+			...request,
+			call: { ...request.call, input: { command: `${'#'.repeat(9_000)}; make` } },
+		}
+		for (let i = 0; i < 3; i += 1) {
+			const decision = await inTurn(() => classifier.review(long))
+			expect(decision).toMatchObject({ verdict: 'block', cause: 'oversized' })
+			expect(decision).not.toHaveProperty('noVerdictLimitReached')
+		}
+		expect(classifier.recentBlocks()).toEqual([])
+	})
+
+	it('starts over on a real verdict and on a reset', async () => {
+		let reachable = false
+		const { classifier } = build({
+			providerFor: async () => {
+				if (!reachable) throw new Error('no credential')
+				return new MockLLMProvider({ turns: [ALLOW] })
+			},
+		})
+		await inTurn(() => classifier.review(request))
+		await inTurn(() => classifier.review(request))
+		reachable = true
+		expect(await inTurn(() => classifier.review(request))).toMatchObject({ verdict: 'allow' })
+		reachable = false
+		await inTurn(() => classifier.review(request))
+		classifier.reset()
+		await inTurn(() => classifier.review(request))
+		expect(await inTurn(() => classifier.review(request))).not.toHaveProperty(
+			'noVerdictLimitReached',
+		)
+	})
+})
