@@ -19,7 +19,9 @@
  * @experimental
  */
 
+import { execFile } from 'node:child_process'
 import { randomBytes, randomUUID } from 'node:crypto'
+import { readFile } from 'node:fs/promises'
 import { networkInterfaces, hostname as osHostname, platform as osPlatform } from 'node:os'
 import { z } from 'zod'
 import { type AuditEntry, type AuditSink, createFileAuditSink, textHash } from './audit.js'
@@ -28,8 +30,10 @@ import {
 	type DiscoveredEndpoint,
 	type ListenAddress,
 	type NetworkDiscovery,
+	isPrivateNetworkAddress,
 	privateInterfaces,
 } from './discovery.js'
+import { createNetworkIdentity, createSystemGatewayReader } from './fingerprint.js'
 import { type MachineKey, generateMachineKey, machineIdOf, shortMachineId } from './identity.js'
 import { JoinTable, type PendingJoin, formatJoinCode, joinCode } from './join.js'
 import {
@@ -168,6 +172,17 @@ export type NetworkEvent =
 	  }
 	| { readonly type: 'join-request'; readonly request: PendingJoin }
 	| {
+			/** A join was admitted without asking, on a trusted network or because `network.autoAdmit` is `always`. */
+			readonly type: 'join-auto'
+			readonly requestId: string
+			readonly name: string
+			readonly machineId: string
+			readonly mode: 'trusted-network' | 'always'
+			/** The name of the trusted network, when that is why. */
+			readonly network?: string
+			readonly at: number
+	  }
+	| {
 			readonly type: 'join-settled'
 			readonly requestId: string
 			readonly result: 'allow' | 'deny' | 'expired'
@@ -230,11 +245,38 @@ export interface NetworkServiceOptions {
 	readonly hostname?: string
 	readonly machineName?: string
 	readonly acceptMail?: () => MailSetting
+	/**
+	 * Whether a join request is admitted without an Allow: on a trusted network (default), on any private
+	 * network, or never. Read at each request.
+	 */
+	readonly autoAdmit?: () => AutoAdmitSetting
+	/** Which local network an address is on (see `fingerprint.ts`); undefined when unknown. Tests inject one. */
+	readonly networkIdentity?: (address: string) => Promise<string | undefined>
 	readonly audit?: AuditSink
 	readonly store?: NetworkStore
 	readonly browseMs?: number
 	readonly platform?: string
 }
+
+export type AutoAdmitSetting = 'trusted-networks' | 'always' | 'never'
+
+/** A local network as the person sees it. */
+export interface NetworkRef {
+	readonly id: string
+	/** The name it is trusted under, when it is trusted. */
+	readonly trusted?: string
+	/** A short default name to offer when the person trusts it. */
+	readonly suggestedName: string
+}
+
+export interface TrustedNetwork {
+	readonly id: string
+	readonly name: string
+	readonly trustedAt: number
+}
+
+/** Strip the IPv4-in-IPv6 prefix a socket may report. */
+const plainAddress = (address: string) => address.replace(/^::ffff:/i, '')
 
 interface PeerState {
 	name: string
@@ -307,7 +349,18 @@ export interface NetworkService {
 		readonly self: boolean
 	}[]
 	pendingJoins(): readonly PendingJoin[]
-	allow(query: string): Promise<PendingJoin>
+	/**
+	 * Admit a joiner. `trust` also marks the local network the request came from as trusted (a string names it);
+	 * it throws, before admitting anything, when that network cannot be recognised.
+	 */
+	allow(query: string, options?: { readonly trust?: boolean | string }): Promise<PendingJoin>
+	/** Which local network `address` is on, and whether it is trusted; undefined when it cannot be recognised. */
+	networkOf(address: string): Promise<NetworkRef | undefined>
+	trustedNetworks(): Promise<readonly TrustedNetwork[]>
+	/** Mark the network `address` is on as trusted, or rename it when it already is. Returns the name. */
+	trustNetwork(address: string, name?: string): Promise<TrustedNetwork>
+	/** Stop trusting a network by name or id prefix. */
+	untrustNetwork(query: string): Promise<TrustedNetwork>
 	deny(query: string): Promise<PendingJoin>
 	remove(
 		machineId: string,
@@ -457,6 +510,106 @@ export function createNamzuNetwork(options: NetworkServiceOptions): NetworkServi
 		id12: shortMachineId(machineId),
 		name: peerState.get(machineId)?.name,
 	})
+
+	const identify =
+		options.networkIdentity ??
+		createNetworkIdentity({
+			interfaces: options.interfaces ?? networkInterfaces,
+			clock,
+			gateway: createSystemGatewayReader({
+				platform: osPlatform(),
+				readText: (path) => readFile(path, 'utf8').catch(() => undefined),
+				run: (command, args) =>
+					new Promise((resolve) => {
+						execFile(
+							command,
+							[...args],
+							{ timeout: 4000, windowsHide: true, maxBuffer: 64 * 1024 },
+							(error, stdout) => resolve(error ? undefined : String(stdout)),
+						)
+					}),
+			}),
+		})
+
+	async function trustedList(): Promise<readonly TrustedNetwork[]> {
+		const read = await store.readTrustedNetworks()
+		return read.status === 'ok' ? read.value.networks : []
+	}
+
+	async function networkOf(address: string): Promise<NetworkRef | undefined> {
+		const id = await identify(plainAddress(address)).catch(() => undefined)
+		if (!id) return undefined
+		const list = await trustedList()
+		const known = list.find((n) => n.id === id)
+		const names = new Set(list.map((n) => n.name.toLowerCase()))
+		let n = list.length + 1
+		while (names.has(`network ${n}`)) n++
+		return { id, ...(known ? { trusted: known.name } : {}), suggestedName: `Network ${n}` }
+	}
+
+	async function trustNetwork(address: string, name?: string): Promise<TrustedNetwork> {
+		const ref = await networkOf(address)
+		if (!ref)
+			throw new NetworkError(
+				'invalid',
+				'This network cannot be recognised (its gateway cannot be read), so it cannot be trusted.',
+			)
+		const list = await trustedList()
+		const existing = list.find((n) => n.id === ref.id)
+		const wanted =
+			name === undefined ? (existing?.name ?? ref.suggestedName) : sanitizeName(name, 40)
+		if (wanted.length === 0) throw new NetworkError('invalid', 'A network needs a name.')
+		if (list.some((n) => n.id !== ref.id && n.name.toLowerCase() === wanted.toLowerCase()))
+			throw new NetworkError('invalid', `Another trusted network is already called "${wanted}".`)
+		const entry: TrustedNetwork = {
+			id: ref.id,
+			name: wanted,
+			trustedAt: existing?.trustedAt ?? clock.now(),
+		}
+		await store.writeTrustedNetworks({
+			v: 1,
+			networks: [...list.filter((n) => n.id !== ref.id), entry],
+		})
+		logAudit({
+			event: 'network_trusted',
+			decision: existing ? 'renamed' : 'trusted',
+			reason: wanted,
+		})
+		return entry
+	}
+
+	async function untrustNetwork(query: string): Promise<TrustedNetwork> {
+		const list = await trustedList()
+		const q = query.trim().toLowerCase()
+		const hits = list.filter((n) => n.name.toLowerCase() === q)
+		const matches = hits.length > 0 ? hits : list.filter((n) => q.length >= 4 && n.id.startsWith(q))
+		if (matches.length !== 1)
+			throw new NetworkError(
+				'unknown_target',
+				matches.length === 0
+					? `No trusted network is called "${query}". \`namzu peers networks\` lists them.`
+					: 'More than one trusted network matches that.',
+			)
+		const gone = matches[0] as TrustedNetwork
+		await store.writeTrustedNetworks({ v: 1, networks: list.filter((n) => n.id !== gone.id) })
+		logAudit({ event: 'network_untrusted', reason: gone.name })
+		return gone
+	}
+
+	/** Why a request from `address` is admitted without asking, or undefined when it must ask. */
+	async function autoAdmitMode(
+		address: string,
+	): Promise<{ mode: 'trusted-network' | 'always'; network?: string } | undefined> {
+		const setting = options.autoAdmit?.() ?? 'trusted-networks'
+		if (setting === 'never') return undefined
+		const plain = plainAddress(address)
+		if (setting === 'always')
+			return options.allowLoopback || isPrivateNetworkAddress(plain)
+				? { mode: 'always' }
+				: undefined
+		const ref = await networkOf(plain)
+		return ref?.trusted ? { mode: 'trusted-network', network: ref.trusted } : undefined
+	}
 
 	const joiners = new JoinTable({
 		clock,
@@ -1281,6 +1434,7 @@ export function createNamzuNetwork(options: NetworkServiceOptions): NetworkServi
 		if (view.members.has(joinerId)) return { ...admittedFrame() }
 		if (view.removed.has(joinerId))
 			return { status: 'refused', reason: 'This machine was removed from the network.' }
+		const auto = await autoAdmitMode(ctx.sourceAddress).catch(() => undefined)
 		const nonceM = randomBytes(16).toString('base64')
 		const code = joinCode(joinerId, selfId(), request.nonce, nonceM)
 		const requestId = randomUUID()
@@ -1314,6 +1468,30 @@ export function createNamzuNetwork(options: NetworkServiceOptions): NetworkServi
 			event: 'join_requested',
 			machine: { id12: shortMachineId(joinerId), name: added.entry.name },
 		})
+		if (auto) {
+			try {
+				// Admitted without asking: nobody is shown a request, so the other members are not told of one.
+				emit({
+					type: 'join-auto',
+					requestId,
+					name: added.entry.name,
+					machineId: joinerId,
+					mode: auto.mode,
+					...(auto.network ? { network: auto.network } : {}),
+					at: clock.now(),
+				})
+				await decideJoin(
+					requestId,
+					'allow',
+					auto.mode === 'always'
+						? 'automatically (network.autoAdmit is always)'
+						: `automatically (trusted network ${auto.network})`,
+				)
+				return undefined
+			} catch {
+				// fall through: the request waits for a person like any other
+			}
+		}
 		emit({ type: 'join-request', request: added.entry })
 		void gossipPending(added.entry, request.publicKey)
 		return undefined
@@ -1347,6 +1525,7 @@ export function createNamzuNetwork(options: NetworkServiceOptions): NetworkServi
 	async function handleJoinDecision(
 		request: Extract<NetRequest, { op: 'join_decision' }>,
 		from: string,
+		note?: string,
 	): Promise<unknown> {
 		const entry = joiners.get(request.requestId)
 		if (!entry) {
@@ -1385,7 +1564,7 @@ export function createNamzuNetwork(options: NetworkServiceOptions): NetworkServi
 			logAudit({
 				event: 'join_allowed',
 				machine: { id12: shortMachineId(a.machineId), name: entry.name },
-				decision: `by ${shortMachineId(from)}`,
+				decision: note ?? `by ${shortMachineId(from)}`,
 			})
 			emit({ type: 'join-settled', requestId: request.requestId, result: 'allow' })
 			void pushSync()
@@ -1424,7 +1603,11 @@ export function createNamzuNetwork(options: NetworkServiceOptions): NetworkServi
 		)
 	}
 
-	async function decideJoin(query: string, decision: 'allow' | 'deny'): Promise<PendingJoin> {
+	async function decideJoin(
+		query: string,
+		decision: 'allow' | 'deny',
+		note?: string,
+	): Promise<PendingJoin> {
 		if (!key || !netId) throw new NetworkError('no_network', 'This machine is not in a network.')
 		const entry = joiners.find(query)
 		if (!entry) throw new NetworkError('unknown_target', 'No request to join matches that.')
@@ -1451,6 +1634,7 @@ export function createNamzuNetwork(options: NetworkServiceOptions): NetworkServi
 					...(admission ? { admission } : {}),
 				},
 				selfId(),
+				note,
 			)
 			return entry
 		}
@@ -1977,7 +2161,28 @@ export function createNamzuNetwork(options: NetworkServiceOptions): NetworkServi
 				self: id === key?.machineId,
 			})),
 		pendingJoins: () => joiners.list(),
-		allow: (q) => decideJoin(q, 'allow'),
+		async allow(q, opts = {}) {
+			if (opts.trust) {
+				const entry = joiners.find(q)
+				if (!entry) throw new NetworkError('unknown_target', 'No request to join matches that.')
+				if (!(await networkOf(entry.sourceAddr)))
+					throw new NetworkError(
+						'invalid',
+						'This network cannot be recognised (its gateway cannot be read), so it cannot be trusted.',
+					)
+			}
+			const entry = await decideJoin(q, 'allow')
+			if (opts.trust)
+				await trustNetwork(
+					entry.sourceAddr,
+					typeof opts.trust === 'string' ? opts.trust : undefined,
+				)
+			return entry
+		},
+		networkOf,
+		trustedNetworks: trustedList,
+		trustNetwork,
+		untrustNetwork,
 		deny: (q) => decideJoin(q, 'deny'),
 		async remove(machineId, opts = {}) {
 			if (!key || !netId || !view)

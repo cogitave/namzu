@@ -21,6 +21,8 @@ export const AUDIT_EVENTS = [
 	'join_denied',
 	'join_expired',
 	'admitted',
+	'network_trusted',
+	'network_untrusted',
 	'removed',
 	'role_set',
 	'role_refused',

@@ -39,6 +39,19 @@ export {
 } from './audit.js'
 export type { AuditEntry, AuditEventName, AuditSink, FileAuditSinkOptions } from './audit.js'
 
+export {
+	createNetworkIdentity,
+	createSystemGatewayReader,
+	networkFingerprint,
+	parseLinuxArp,
+	parseLinuxDefaultRoute,
+	parseMacArp,
+	parseMacDefaultRoute,
+	parseWindowsGateway,
+	subnetOf,
+} from './fingerprint.js'
+export type { Gateway, GatewayReader } from './fingerprint.js'
+
 export { createNetworkStore } from './store.js'
 export type { NetworkStore, NetworkStoreOptions } from './store.js'
 
@@ -89,7 +102,10 @@ export {
 } from './service.js'
 export type {
 	HeldMail,
+	AutoAdmitSetting,
 	NetworkEvent,
+	NetworkRef,
+	TrustedNetwork,
 	NetworkHost,
 	NetworkService,
 	NetworkServiceOptions,

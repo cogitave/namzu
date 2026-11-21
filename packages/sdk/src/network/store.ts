@@ -3,7 +3,7 @@
  *
  * ```
  * machine.json  machine.key.pem  machine.cert.pem  network.json
- * members.json  peers.json  session-roles.json  leader.lock  audit.jsonl
+ * members.json  peers.json  session-roles.json  trusted-networks.json  leader.lock  audit.jsonl
  * ```
  *
  * The directory is 0700 and every file 0600, written atomically. Reads are
@@ -97,6 +97,25 @@ export const SessionRolesFileSchema = z
 	.strict()
 export type SessionRolesFile = z.infer<typeof SessionRolesFileSchema>
 
+export const TrustedNetworksFileSchema = z
+	.object({
+		v: z.literal(1),
+		networks: z
+			.array(
+				z
+					.object({
+						/** Fingerprint of the local network (see `fingerprint.ts`); not a secret. */
+						id: z.string().length(16),
+						name: z.string().min(1).max(40),
+						trustedAt: z.number().int().nonnegative(),
+					})
+					.strict(),
+			)
+			.max(64),
+	})
+	.strict()
+export type TrustedNetworksFile = z.infer<typeof TrustedNetworksFileSchema>
+
 export const LeaderLockSchema = z
 	.object({
 		pid: z.number().int().positive(),
@@ -138,6 +157,8 @@ export interface NetworkStore {
 	writePeers(value: PeersFile): Promise<void>
 	readSessionRoles(): Promise<ReadResult<SessionRolesFile>>
 	writeSessionRoles(value: SessionRolesFile): Promise<void>
+	readTrustedNetworks(): Promise<ReadResult<TrustedNetworksFile>>
+	writeTrustedNetworks(value: TrustedNetworksFile): Promise<void>
 	/** Forget the network and the identity (a removed machine starts over). The audit log stays. */
 	reset(): Promise<void>
 }
@@ -220,6 +241,9 @@ export function createNetworkStore(options: NetworkStoreOptions): NetworkStore {
 		writePeers: (v) => writeJson('peers.json', PeersFileSchema.parse(v)),
 		readSessionRoles: () => readJson('session-roles.json', SessionRolesFileSchema),
 		writeSessionRoles: (v) => writeJson('session-roles.json', SessionRolesFileSchema.parse(v)),
+		readTrustedNetworks: () => readJson('trusted-networks.json', TrustedNetworksFileSchema),
+		writeTrustedNetworks: (v) =>
+			writeJson('trusted-networks.json', TrustedNetworksFileSchema.parse(v)),
 		async reset() {
 			for (const name of [
 				'machine.json',

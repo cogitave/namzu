@@ -4,6 +4,7 @@ import type { NetworkInterfaceInfo } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { removeTempDir } from '../__fixtures__/temp-dir.js'
+import { createMemoryAuditSink } from './audit.js'
 import { type ManualClock, createManualClock } from './clock.js'
 import { type NetworkDiscovery, createDiscoveryHub, createFakeDiscovery } from './discovery.js'
 import { generateMachineKey } from './identity.js'
@@ -15,6 +16,7 @@ import {
 	type NetworkEvent,
 	type NetworkHost,
 	type NetworkService,
+	type NetworkServiceOptions,
 	type RemoteMail,
 	createNamzuNetwork,
 	parseHostPort,
@@ -80,6 +82,7 @@ function machine(
 	world: { hub: ReturnType<typeof createDiscoveryHub>; clock: ManualClock },
 	sessions: LocalSession[] = [],
 	discovery?: NetworkDiscovery,
+	extra: Partial<NetworkServiceOptions> = {},
 ): Machine {
 	const home = mkdtempSync(join(tmpdir(), 'namzu-net-svc-'))
 	homes.push(home)
@@ -111,6 +114,9 @@ function machine(
 		allowLoopback: true,
 		listenPort: 0,
 		hostname: name,
+		// never read the real gateway from a test
+		networkIdentity: async () => undefined,
+		...extra,
 	})
 	services.push(svc)
 	let cutoff = 0
@@ -802,5 +808,158 @@ describe('manual addresses', () => {
 		expect(parseHostPort('[fe80::1]:6000')).toEqual({ host: 'fe80::1', port: 6000 })
 		expect(() => parseHostPort('bad host')).toThrow(NetworkError)
 		expect(() => parseHostPort('x:99999')).toThrow(NetworkError)
+	})
+})
+
+describe('trusted networks', () => {
+	const HOME_NET = 'a1b2c3d4e5f60718'
+
+	/** a founds; the joiner asks it; `allow` decides on a. Returns the audit entries of a. */
+	async function setup(extraA: Partial<NetworkServiceOptions> = {}) {
+		const world = newWorld()
+		const audit = createMemoryAuditSink()
+		const a = machine('studio', world, [session('aaaaaa', 'calm-heron')], undefined, {
+			networkIdentity: async () => HOME_NET,
+			audit,
+			...extraA,
+		})
+		await found(a, world.clock)
+		return { world, a, audit }
+	}
+
+	async function ask(world: ReturnType<typeof newWorld>, joiner: Machine, on: Machine) {
+		world.clock.advance(JOIN_ADDRESS_WINDOW_MS)
+		for (const m of [joiner, on]) m.fresh()
+		await joiner.svc.start()
+		world.clock.advance(5000)
+		await joiner.until((e) => e.type === 'join-waiting')
+	}
+
+	it('the first Allow with trust marks the network, and the next machine on it joins without asking', async () => {
+		const { world, a, audit } = await setup()
+		const b = machine('desk', world, [session('bbbbbb', 'swift-finch')], undefined, {
+			networkIdentity: async () => HOME_NET,
+			audit,
+		})
+		await ask(world, b, a)
+		const request = (await a.until((e) => e.type === 'join-request')) as Extract<
+			NetworkEvent,
+			{ type: 'join-request' }
+		>
+		await expect(a.svc.networkOf(request.request.sourceAddr)).resolves.toEqual({
+			id: HOME_NET,
+			suggestedName: 'Network 1',
+		})
+		await a.svc.allow(request.request.code, { trust: 'Home' })
+		await b.until((e) => e.type === 'joined')
+		expect((await a.svc.trustedNetworks()).map((n) => n.name)).toEqual(['Home'])
+		expect(a.svc.pendingJoins()).toEqual([])
+
+		const c = machine('mini', world, [session('cccccc', 'brisk-marten')])
+		await b.svc.trustNetwork('127.0.0.1', 'Home')
+		a.fresh()
+		await ask(world, c, a)
+		await c.until((e) => e.type === 'joined')
+		const auto =
+			a.events.find((e) => e.type === 'join-auto') ?? b.events.find((e) => e.type === 'join-auto')
+		expect(auto).toMatchObject({
+			type: 'join-auto',
+			name: 'mini',
+			mode: 'trusted-network',
+			network: 'Home',
+		})
+		expect(a.events.some((e) => e.type === 'join-request' && e.request.name === 'mini')).toBe(false)
+		expect(
+			c.svc
+				.members()
+				.map((m) => m.name)
+				.sort(),
+		).toEqual(['desk', 'mini', 'studio'])
+		const line = audit.entries.find((e) => e.event === 'join_allowed' && e.machine?.name === 'mini')
+		expect(line?.decision).toBe('automatically (trusted network Home)')
+		expect(audit.entries.some((e) => e.event === 'network_trusted' && e.reason === 'Home')).toBe(
+			true,
+		)
+	})
+
+	it('a network that is not trusted keeps asking, also after an Allow without trust', async () => {
+		const { world, a } = await setup()
+		const b = machine('desk', world, [])
+		await admit(b, a, world.clock)
+		expect(await a.svc.trustedNetworks()).toEqual([])
+		const c = machine('mini', world, [])
+		await ask(world, c, a)
+		const request = await a.until((e) => e.type === 'join-request')
+		expect(request).toBeTruthy()
+		expect(a.events.some((e) => e.type === 'join-auto')).toBe(false)
+		expect(c.svc.status().members).toBe(0)
+	})
+
+	it('a network whose gateway cannot be read is unknown: it cannot be trusted and never auto-admits', async () => {
+		const { world, a } = await setup({ networkIdentity: async () => undefined })
+		const b = machine('desk', world, [])
+		await ask(world, b, a)
+		const request = (await a.until((e) => e.type === 'join-request')) as Extract<
+			NetworkEvent,
+			{ type: 'join-request' }
+		>
+		await expect(a.svc.networkOf(request.request.sourceAddr)).resolves.toBeUndefined()
+		await expect(a.svc.allow(request.request.code, { trust: true })).rejects.toBeInstanceOf(
+			NetworkError,
+		)
+		// nothing was admitted by the refused call; a plain Allow still works
+		expect(a.svc.pendingJoins()).toHaveLength(1)
+		await a.svc.allow(request.request.code)
+		await b.until((e) => e.type === 'joined')
+		expect(await a.svc.trustedNetworks()).toEqual([])
+	})
+
+	it('autoAdmit always admits on any private network; never asks even on a trusted one', async () => {
+		const always = await setup({
+			autoAdmit: () => 'always',
+			networkIdentity: async () => undefined,
+		})
+		const b = machine('desk', always.world, [])
+		await ask(always.world, b, always.a)
+		await b.until((e) => e.type === 'joined')
+		expect(always.a.events.find((e) => e.type === 'join-auto')).toMatchObject({ mode: 'always' })
+		expect(always.audit.entries.find((e) => e.event === 'join_allowed')?.decision).toBe(
+			'automatically (network.autoAdmit is always)',
+		)
+
+		let setting: 'trusted-networks' | 'never' = 'trusted-networks'
+		const trusted = await setup({ autoAdmit: () => setting })
+		await trusted.a.svc.trustNetwork('127.0.0.1', 'Home')
+		setting = 'never'
+		const c = machine('mini', trusted.world, [])
+		await ask(trusted.world, c, trusted.a)
+		await trusted.a.until((e) => e.type === 'join-request')
+		expect(trusted.a.events.some((e) => e.type === 'join-auto')).toBe(false)
+		expect(c.svc.status().members).toBe(0)
+	})
+
+	it('untrust removes the network, by name or id prefix, and the next join asks again', async () => {
+		const { world, a, audit } = await setup()
+		await a.svc.trustNetwork('127.0.0.1', 'Home')
+		await a.svc.trustNetwork('127.0.0.1', 'Home renamed')
+		expect((await a.svc.trustedNetworks()).map((n) => n.name)).toEqual(['Home renamed'])
+		await expect(a.svc.untrustNetwork('nowhere')).rejects.toBeInstanceOf(NetworkError)
+		const gone = await a.svc.untrustNetwork('home RENAMED')
+		expect(gone.id).toBe(HOME_NET)
+		expect(await a.svc.trustedNetworks()).toEqual([])
+		expect(audit.entries.some((e) => e.event === 'network_untrusted')).toBe(true)
+		const b = machine('desk', world, [])
+		await ask(world, b, a)
+		await a.until((e) => e.type === 'join-request')
+		expect(a.events.some((e) => e.type === 'join-auto')).toBe(false)
+	})
+
+	it('writes trusted-networks.json with mode 0600 and no secret', async () => {
+		const { a } = await setup()
+		await a.svc.trustNetwork('127.0.0.1')
+		const file = join(a.home, 'network', 'trusted-networks.json')
+		const text = readFileSync(file, 'utf8')
+		expect(JSON.parse(text).networks[0]).toMatchObject({ id: HOME_NET, name: 'Network 1' })
+		if (process.platform !== 'win32') expect(statSync(file).mode & 0o777).toBe(0o600)
 	})
 })
