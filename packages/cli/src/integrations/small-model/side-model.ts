@@ -34,6 +34,7 @@ import {
 	type SideRoute,
 	cheapestTextModel,
 	parseSmallModel,
+	vendorPrefix,
 } from './route.js'
 
 /** Where a side request is counted. Implemented by the delegation runtime, which owns the turn's ledger. */
@@ -139,9 +140,17 @@ export function createSideModel(deps: SideModelDeps): SideModel {
 			const listing = await runPickerProviderOperation(signal, (operationSignal) =>
 				(provider.listModels as (signal?: AbortSignal) => Promise<ModelInfo[]>)(operationSignal),
 			)
-			const cheapest = cheapestTextModel(active.providerId, listing, (model) =>
-				deps.offerable ? deps.offerable(active.providerId, model) : true,
-			)
+			const offerable = (model: ModelInfo) =>
+				deps.offerable ? deps.offerable(active.providerId, model) : true
+			const vendor = vendorPrefix(active.model)
+			const cheapest =
+				(vendor === undefined
+					? undefined
+					: cheapestTextModel(
+							active.providerId,
+							listing.filter((model) => vendorPrefix(model.id) === vendor),
+							offerable,
+						)) ?? cheapestTextModel(active.providerId, listing, offerable)
 			if (cheapest !== undefined) {
 				return {
 					providerId: active.providerId,

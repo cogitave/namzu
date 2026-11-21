@@ -135,6 +135,7 @@ async function run(
 	provider: LLMProvider,
 	model: string,
 	fallbackProviders?: { provider: LLMProvider; model?: string }[],
+	messages = history(),
 ) {
 	const events: SessionEvent[] = []
 	const dir = await mkdtemp(join(tmpdir(), 'namzu-text-only-'))
@@ -154,7 +155,7 @@ async function run(
 			},
 			agentId: 'agent_text_only',
 			agentName: 'Text only',
-			messages: history(),
+			messages,
 			workingDirectory: dir,
 			sessionId: '1facb730-1762-4583-82ee-3b51eb21bcce' as SessionId,
 			topicId: '89b5ba11-b552-44f2-87bf-a506c57b9476' as TopicId,
@@ -180,6 +181,26 @@ describe('a text-only model inside a conversation that holds images', () => {
 		const vision = new ModelAwareProvider(new Set(['beam']))
 		await run(vision, 'seer')
 		expect(JSON.stringify(vision.requests[0]?.messages)).toContain(image.data)
+	})
+
+	it('tells the person, naming the model, when the message it answers carries a picture', async () => {
+		const withPicture = () => [...history(), createUserMessage('and this one?', [image])]
+		const provider = new ModelAwareProvider(new Set(['beam']))
+		const { result, events } = await run(provider, 'beam', undefined, withPicture())
+		expect(result.status).toBe('completed')
+		expect(JSON.stringify(provider.requests[0]?.messages)).not.toContain(image.data)
+		const warnings = events.filter((e) => e.type === 'capability_warning')
+		expect(warnings).toHaveLength(1)
+		expect(warnings[0]).toMatchObject({
+			capability: 'vision',
+			providerId: 'model-aware',
+			model: 'beam',
+		})
+		// A model that reads images gets the picture and no warning.
+		const vision = new ModelAwareProvider(new Set(['beam']))
+		const seen = await run(vision, 'seer', undefined, withPicture())
+		expect(JSON.stringify(vision.requests[0]?.messages)).toContain(image.data)
+		expect(seen.events.some((e) => e.type === 'capability_warning')).toBe(false)
 	})
 
 	it('retries once without images when an undeclared model refuses them, and says so', async () => {

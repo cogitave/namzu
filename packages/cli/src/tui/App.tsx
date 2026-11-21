@@ -232,7 +232,11 @@ import {
 	writePreferences,
 } from '../integrations/providers/index.js'
 import { generateTitle } from '../integrations/sessions/ai-title.js'
-import { displayConversationTitle, typedTextOf } from '../integrations/sessions/display-title.js'
+import {
+	displayConversationTitle,
+	displayTitleFor,
+	typedTextOf,
+} from '../integrations/sessions/display-title.js'
 import { journalOf } from '../integrations/sessions/journal-trail.js'
 import { generatePromptSuggestion } from '../integrations/sessions/prompt-suggestion.js'
 import { generateRecap } from '../integrations/sessions/recap.js'
@@ -1465,7 +1469,9 @@ function latestAssistantOutput(messages: readonly Message[]): string | null {
 function firstTypedPrompt(messages: readonly Message[]): string | undefined {
 	for (const message of messages) {
 		if (message.role !== 'user' || message.source) continue
-		const text = typedTextOf(message.content).text.replace(/\s+/g, ' ').trim()
+		const text = typedTextOf(chipPastedRanges(message.content, message.pasted))
+			.text.replace(/\s+/g, ' ')
+			.trim()
 		if (text.length > 0) return text.length > 60 ? `${text.slice(0, 59)}…` : text
 	}
 	return undefined
@@ -1589,7 +1595,7 @@ export function projectConversation(
 				{
 					id: nextId(),
 					role: 'user',
-					content: readable ?? message.content,
+					content: readable ?? chipPastedRanges(message.content, message.pasted),
 					...(attachments ? { attachments } : {}),
 				},
 			]
@@ -8586,7 +8592,10 @@ function AppBody({
 			void hydrateSavedChildren()
 			conversationMaterializedRef.current = true
 			sourceDeliveryPollRef.current()
-			pushMessage('system', `Resumed: ${displayConversationTitle(conv.title)}`)
+			pushMessage(
+				'system',
+				`Resumed: ${displayConversationTitle(displayTitleFor(conv.title, msgs))}`,
+			)
 			if (discardedQueued > 0) {
 				pushMessage(
 					'system',
@@ -9661,7 +9670,7 @@ function AppBody({
 				composerDraftTokenRef.current += 1
 				setComposerDraft({
 					token: composerDraftTokenRef.current,
-					text: target.displayText,
+					text: target.draftText ?? target.displayText,
 					...(forked.selected.attachments && forked.selected.attachments.length > 0
 						? { attachments: [...forked.selected.attachments] }
 						: {}),
@@ -9768,7 +9777,7 @@ function AppBody({
 					composerDraftTokenRef.current += 1
 					setComposerDraft({
 						token: composerDraftTokenRef.current,
-						text: target.displayText,
+						text: target.draftText ?? target.displayText,
 						...(target.message.attachments && target.message.attachments.length > 0
 							? { attachments: [...target.message.attachments] }
 							: {}),
@@ -10833,6 +10842,7 @@ function AppBody({
 								capability: event.capability,
 								...(event.contentSource ? { contentSource: event.contentSource } : {}),
 								providerId: event.providerId,
+								...(event.model ? { model: event.model } : {}),
 							}),
 							event.text,
 							debugRequested(),
