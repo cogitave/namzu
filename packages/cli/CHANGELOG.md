@@ -1,5 +1,149 @@
 # @namzu/cli
 
+## 55.0.0
+
+### Major Changes
+
+- c1989fd: The interactive terminal now starts in auto mode by default. The old default was `prompt` (ask before changes); the new one is `auto`, the mode in which a second model checks each action that would otherwise ask you and blocks the risky ones.
+
+  It applies only when nothing chose a mode: no `--permission-mode`, no `--yolo` or `--dangerously-skip-permissions`, and no `permissions.defaultMode` in your user file, the managed file or the project's file (a project's `defaultMode` keeps the terminal out of auto and starts it in `prompt`, as before). It does not apply when `permissions.disableAutoMode: true` is set anywhere, and the terminal starts in `prompt` as before when the classifier cannot reach a model (for example a `permissions.autoMode.model` this machine has no credential for). `namzu exec`, `exec --json`, scheduled runs, sub-agents and workflows, Pals, and the sessions Desktop and ACP clients own keep their current modes.
+
+  `namzu peers send` with no `--mode` now acts in the mode a new terminal would plan to start in, so it reaches a terminal in its default (auto). A script that sends to a terminal that started in `prompt` because auto could not be used there, or to one someone switched to `prompt`, passes `--mode prompt`.
+
+  To keep being asked before changes, set this in `~/.namzu/config.yaml`:
+
+  ```yaml
+  permissions:
+    defaultMode: prompt
+  ```
+
+  or start with `--permission-mode prompt`, or press Shift+Tab once. `permissions.disableAutoMode: true` removes auto mode altogether.
+
+  Also in this release:
+
+  - The first time a terminal starts in auto because of the default, the transcript shows a one-time notice saying so, what auto does, how to change it and that `/permissions` explains the modes. It is recorded as `autoModeDefault` in `~/.namzu/acknowledgements.json` and never shown when you chose auto yourself. A later `/model` that takes a terminal in its default into or out of auto says so in one line.
+  - When auto mode gets no verdict three times in a row (the model cannot be reached, or its answers cannot be read), the turn stops with one sentence and nothing runs. If you chose auto, it stays on: send a message to try again or press Shift+Tab. A terminal in auto only by default goes back to asking before changes, as it does after too many blocks; `/permissions auto` turns it on again. `exec` says the same and exits 1, and in Desktop each refused call says the turn was stopped. A call held back for want of a verdict is told it may be tried again, not that it was blocked, and a command too long for the check to read is told to be split up.
+  - The Settings row for `permissions.defaultMode` shows auto as its default for the terminal, and clearing a saved value now asks first, since it turns auto back on; the agent's `get_settings` reports that default with the same note. `/permissions` with details says when auto is the terminal's default.
+
+- ce8b85d: Namzu now removes old conversations by default, and keeps prompt history across conversations.
+
+  What changes for you: `cleanupPeriodDays` (default 30, minimum 1) removes a conversation from this computer when nothing in it has changed for that many days. The sweep runs at most once a day when the terminal app starts. It never touches a conversation with an open turn, a live writer, a desktop-started conversation or an untrusted folder. The first start after upgrading only counts and tells you once, and deletes nothing for seven days; a period you set yourself applies at once. To keep everything, set `cleanupPeriodDays: 3650` (or any large number) in `~/.namzu/config.yaml` before then; a project file cannot set it. The same start clears old scratch folders, dead hook folders and dangling short names from the private temp folder.
+
+  New: `~/.namzu/history.jsonl` (mode 0600) records the prompts you send from the box, so Up and Ctrl+R in a new conversation recall the project's earlier ones; pasted text is read back from the conversation's log, not copied. Set `promptHistory: false` to stop writing it. The first start in a project seeds it from its newest 20 conversations.
+
+- 1e2106a: Commands are spelled as words, never with a hyphen, and a scheduler service
+  command now sits under `schedule service`. The old spellings stop running:
+  typed, each prints one line naming the new one (and exits 64 on the command
+  line). Change scripts and habits as follows.
+
+  - `namzu schedule run-now <job>` is `namzu schedule run <job>`.
+  - `namzu schedule install`, `uninstall`, `status`, `start`, `stop`, `logs` and
+    `daemon` are `namzu schedule service install`, `uninstall`, `status`,
+    `start`, `stop`, `logs` and `daemon`. The job commands (`add`, `list`,
+    `run`, `pause` and the rest) stay where they were.
+  - `namzu state move-legacy` is `namzu state move legacy`.
+  - `namzu skills-json` is `namzu skills list --json`, printing the same JSON.
+    `namzu skills` alone now shows usage; the human list is `namzu skills list`,
+    and `--audit` goes with it (`namzu skills list --audit`).
+  - `namzu providers-json` is `namzu providers list --json`, printing the same
+    JSON. `namzu providers list` prints a short table.
+  - `/add-dir`, `/release-notes` and `/terminal-setup` are `/add dir`,
+    `/release notes` and `/terminal setup`. Typing only the first word of one of
+    them shows the usage of its second word.
+
+  One old spelling keeps working on purpose: a scheduler service installed
+  before this release starts `schedule daemon`, and that form still runs the
+  scheduler so the installed service does not break. Reinstalling it with
+  `namzu schedule service install` rewrites it to `schedule service daemon`. A
+  scheduled run's read-only floor now lets `schedule service status` and
+  `schedule service logs` through, as it did `status` and `logs`.
+
+- 735ab77: A message from a terminal in another permission mode is no longer refused: the receiving terminal now **holds** it for its person, and so it does every agent's message while it is in bypass mode (a terminal in bypass used to refuse a sender in any other mode, and accept one in bypass too). The sender is told `held` with the reason. The person sees one line and `/peers` lists it with an Allow-once row and a Deny row; allowing queues it under the mode the terminal is in now and remembers nothing, denying refuses it, and a message nobody answers for ten minutes expires. The sender hears `queued`, `refused` or `expired` afterwards. A person's own message (`namzu send`) is unchanged.
+
+  `namzu peers send` can no longer be sure of acceptance, so it has a new receipt, **Held**, and a new exit status **4**. A script that treated exit 1 as "the other terminal is in a different mode" must handle 4 as well (and `--json`'s `status` can now be `held`). Nothing in a config file keeps the old behaviour: to avoid held mail, send from the same mode as the receiver (`--mode`) and do not message a terminal in bypass.
+
+  New and additive: your Namzu network. On a private network the interactive terminal finds your other machines running Namzu, with no pairing and no account. `/peers` and `namzu peers list` show every machine's sessions (name, project folder, state, permission mode, role); `namzu peers send` and `send_session_message` reach a session on another machine by name or `machine/name`; a new machine joins with one Allow on any machine (`/peers` or `namzu peers allow`), and any member can `remove` a lost one; `namzu peers role` (also `/peers role` and the model's `set_session_role` tool) describes what a session is for, which reaches the model as context and never grants a permission, approves anything or changes the permission mode; `namzu peers add <host[:port]>`, `join`, `status`, `rename`, `on`, `off` and `log` cover networks without multicast (WSL2's default for one), the machine's name and the audit log. Messages across machines are wrapped as untrusted peer context and held under the rules above. Settings: `network.enabled` (`auto` by default: interactive terminals on a network known to be private; never for `exec`, scheduled runs or any headless host), `network.acceptMail` and `network.machineName`, your own config file only. `NAMZU_NETWORK=off` is a hard stop. Nothing is created under `~/.namzu/network` until the network runs.
+
+  Your Namzu network starts without a person typing anything: a machine with no network looks around for five seconds before it creates one; with exactly one network nearby it asks it to let it join (one line with the code, and `/peers cancel` or `namzu peers cancel` to withdraw), and two machines that started together and each created a network merge: the younger asks the older, whose person sees one request and one Allow. With two or more networks nearby it asks none and `/peers` (or `namzu peers join`) lists one address for each. A machine name is sent to that one network's members only; nothing is admitted without that network's own Allow. New: `namzu peers cancel` and the `/peers cancel` verb; `namzu peers list` says why its list has no machines after a removal; a message to a machine that left says so.
+
+  Wording: modes are named as the screen names them (the kernel's `classify` is `auto`) in notices, held-mail reasons, `list_sessions` and the wrapper of a message from another terminal. Only JSON (`--json`, files) keeps the internal name. The held-mail rows in `/peers` fit 80 columns, with the reason on the Held line.
+
+  A role reaches the model as request-only context on every request while it is set (after the history, never in it), so the first request after it was set already has it and a resume or a compaction cannot lose it; nothing is re-armed and a cleared role simply stops being said. The audit log now records role changes (who, target, the size and a hash of the text) and every mail decision (accepted, held, allowed, denied, expired, refused) on both machines with a direction, never message text, and mail between two terminals of one machine is written too when the network runs. The leader lock is renewed every tick and a lock not renewed for 30 seconds is taken over, so a process number reused after a restart cannot keep the network from starting; a bridge record started by a session's own tool is refused.
+
+  Your Namzu network, hardened: the model's `set_session_role` refuses a target on another machine (the person sets it with `/peers role`); `allow`, `remove` and allowing held mail are refused to a command a Namzu session ran; remote mail is checked again against the terminal's mode when it arrives, so a switch to bypass after it was admitted does not let it in. Because a removal now always takes the machines the removed one admitted along, `namzu peers remove` without `--and-its-admissions` no longer leaves them in. `namzu peers allow <name>` refuses a name that two requests share. Held mail is told `expired` to its senders when the terminal that holds it closes.
+
+  Trusted networks: the first Allow on a network can also trust it ("Allow and trust this network (Network 1)" in `/peers`, `namzu peers allow <code> --trust [--as <name>]`); afterwards a new machine that asks from that network joins without asking, with one line on every terminal ("<machine> joined your Namzu network automatically (trusted network <name>). `namzu peers untrust <name>` stops that.") and an audit entry. A network counts only when its gateway's hardware address can be read without administrator rights; otherwise it is unknown and always asks. On other networks (café, office, hotel, a guest's Wi-Fi) the one-time Allow stays. `namzu peers networks [rename <name> <new name>]` and `namzu peers untrust <name>` list, rename and remove them, and `/peers` has a Trusted networks section with a "Stop trusting" row. New setting `network.autoAdmit`: `trusted-networks` (default), `never` (always ask) or `always` (any private network joins without asking: anyone on that network can then join and see your sessions; the Settings screen says so before saving). WSL2 in NAT mode gives each WSL2 machine a network of its own; use mirrored networking to share one trusted network. `/peers` lists this terminal's own session first under its machine.
+
+### Minor Changes
+
+- ce8b85d: An API key you add with `/auth` is now stored once, in `accounts.json`, instead of also being copied into `api-keys.json`. Startup finds it from the account, so nothing changes for you. A copy an earlier version left behind is removed at the first start, only when it is exactly the account's key, with a one-line notice; a different key is kept. Removing an account removes its key, so a key you typed in the picker that is identical to an account's is retired too and goes if you remove the account. `/logout <provider>` (and Desktop's remove key) removes the saved key and only the `/auth` accounts holding that same key; accounts with other keys stay, and the next oldest becomes the startup key. If an account cannot be removed, the saved key is kept and you are told. If you go back to an older version, it does not find a retired key in `api-keys.json` and shows the provider as not detected; the key is still in the account, and adding it again with the older version's key entry restores it.
+- ce8b85d: A project's local settings now live in `.namzu/settings.local.json` instead of `namzu.config.local.json` at the top of the folder, and `.namzu/settings.json` is read as a second shared project file beside `namzu.config.json`.
+
+  What you see: a "don't ask again" answer and `/permissions add` are saved to `.namzu/settings.local.json`. The first session in a trusted folder moves an existing `namzu.config.local.json` there: it copies the file's exact bytes, reads them back, and keeps the same bytes in the Namzu home as `~/.namzu/backups/projects/<folder>/namzu.config.local.json.backup.<ms>` before it removes the old file. Nothing to do; the saved answers keep working. To undo it, copy that backup back to `namzu.config.local.json` and delete `.namzu/settings.local.json`. The old file stays (and is still read, under the new one) when git tracks it, when it is not valid JSON, when both files hold different settings, when it changed while it was being moved, or when the backup could not be written; the session start says why in one sentence, once, until that changes. The global git ignore line is now `**/.namzu/settings.local.json*` (the old `**/namzu.config.local.json` line stays), written after `/permissions add` and `remove` too, and at session start when a local file exists; when git still would not ignore the file, the session start says so once.
+
+  An answer is no longer saved in three cases, and the answer says so: the folder is not trusted (its local file was never read there), git tracks the local file, or the rule looks like it holds a password or a token (for example `curl -u user:pass`, `mysql -p<password>`, an `Authorization:` header). It holds for the conversation only, also across `/permissions add` and `remove`, and `/permissions remove <rule>` takes it out. `/permissions add` refuses the last two, and both `/permissions add` and `remove` refuse a folder that is not trusted.
+
+  One change to notice: in a folder whose `.namzu` is a link, answers were saved to `namzu.config.local.json` at the top of the folder; now Namzu does not write through the link, so they hold for the conversation only, and the answer says so. Make `.namzu` a real folder to keep them.
+
+  `.namzu/settings.json` takes the same keys and limits as `namzu.config.json`; where both set a key, `.namzu/settings.json` wins, and both files' rules and hooks apply. `namzu doctor` and `/status` say when both files of a layer are there so you can keep one. A scheduled job pins `.namzu/settings.json` once it holds hooks, servers, plugins or permissions; a job confirmed before that is not stopped. `namzu state` names an old `namzu.config.local.json` while it is there, and its JSON report gains `legacyLocalConfig`. The Desktop commit preview leaves Namzu's local settings files out (`skippedLocalSettings`) and refuses a commit that names one.
+
+- 9ebda0f: `namzu login claude` now works from a shell that cannot take a paste (a chat tool's shell, a script). When standard input is not a terminal and closes, the command no longer fails: it keeps the sign-in for 10 minutes in an owner-only file under the Namzu home (`login-pending/anthropic.json`, never printed), prints the address, and exits 0 meaning "waiting for the code". Finish with `namzu login claude --code <code>`, where the value is the bare code, `code#state` or the finished address. A missing, expired or state-mismatched sign-in is refused in plain words. A script that treated exit 0 as "signed in" should check for the stored credential or run `--code` before relying on it. The interactive terminal flow and the Codex sign-in are unchanged.
+- ce8b85d: `namzu state` now names the state an earlier Namzu kept inside a project's own
+  `.namzu` folder (`cli.json`, `projects/`, `sessions/`, `checkpoints/`,
+  `worktrees/` and the rest) as `legacy`, where it used to count `cli.json` and
+  `projects/` as current runtime state and miss `projects/prj_*` entirely; the
+  memory curation log in the Namzu home is no longer called legacy. The new
+  `namzu state move legacy` moves that state into `~/.namzu/legacy/<folder>/<time>/`
+  when you ask (`--dry-run` lists what would move): only in a folder you trust,
+  only names an earlier Namzu wrote, never what git tracks or a git worktree with
+  changes, and a copy across disks is compared with the original before the
+  original is removed. Until you move it, a session in a trusted git checkout
+  adds one block to the clone's `info/exclude` so git does not list it, and says
+  so once. Nothing to do unless you want the old files out of the folder.
+- a611250: In WSL, the terminal now uses a Claude or Codex sign-in made in Namzu Desktop on Windows when the terminal has none of its own for that provider, so you no longer have to sign in again on the terminal. It reads Desktop's sign-in file in place and writes refreshes back to that same file under the same lock, so there is one sign-in, not two copies that invalidate each other. A sign-in made on the terminal always wins and is kept separate, and `namzu logout` in the terminal never signs Desktop out. To keep the terminal to its own sign-ins, set `shareDesktopSignIn: false` in your config file or `NAMZU_SHARE_DESKTOP_SIGNIN=0`. Nothing changes outside WSL, with `NAMZU_HOME` set, or for a terminal that already has its own sign-in.
+- ce8b85d: Saved state is no longer lost when the terminal, the Desktop engine and `namzu exec` change it at the same time. `config.yaml`, `trust.json`, `mcp-approvals.json` and the tip and hint counters are now changed under a lock file beside them (`<file>.lock`) and re-read under it, so two changes made together are both kept; a Settings save holds that lock across its checks and its writes. If another Namzu process keeps the lock for more than about two seconds, the change is refused with "... is being saved by another Namzu process right now, so this change was not made. Try again in a moment." A lock left behind by a process that has exited, by one that could not write its lock (a full disk), or by an earlier process that had the same pid is taken over by the next change, so it never blocks the file for good; `namzu doctor` names one it finds.
+
+  A damaged `trust.json` or `mcp-approvals.json` (not valid JSON, the wrong shape, or a newer version) used to read as empty, and the next folder trust or server approval replaced it, losing every earlier one. Now it trusts and approves nothing, is copied to `~/.namzu/backups/<file>.corrupted.<epoch ms>`, and any change to it is refused with a sentence naming the file, the copy and the newest recovery copy (with the time it was taken, and that the change it was taken for is not in it). To go on, either fix the file, or start a new list: press `s` in the trust box (a new list with this folder), or run `namzu mcp approve --new-list`; the old file stays in `backups/`. `namzu exec` names the list instead of saying nobody trusted the folder; creating a Pal is refused before anything is made. An empty or blank file reads as no file.
+
+  Before each change, `config.yaml`, `trust.json`, `mcp-approvals.json`, `accounts.json` and `preferences.json` are copied to `~/.namzu/backups/<file>.backup.<epoch ms>` (mode 0600, at most one a minute per file, five kept). `namzu mcp remove` also cuts the removed server, with its headers and environment, out of every `config.yaml` copy. A `config.yaml` that does not parse is still refused, now naming the newest copy. `namzu doctor` has a new `runtime.state-files` line that names an unreadable list or lock and says where the copies are, and `namzu state` counts `backups/`, `accounts.json` and `mcp-approvals.json` as configuration. Nothing is restored on its own: to go back, close Namzu and copy a `.backup.` file over the file.
+
+### Patch Changes
+
+- 9ebda0f: Fix the Claude sign-in failing with "Authorization failed / Invalid request format": the sign-in address now asks for the scopes the sign-in page registers (adding `user:plugins` and `user:privacy_consents:write`) and sends a 32-byte state.
+- ce8b85d: The old-conversation sweep no longer removes a conversation that a scheduled job delivers its results to (or has results queued for), so a monthly job keeps reaching the conversation that made it. The seven-day notice period now starts when the notice is shown on screen, not when it is written. Prompt history trims by time, and conversations the desktop app started are no longer copied into it.
+- ce8b85d: A folder whose `.namzu` is the live Namzu home no longer gets a git exclude block or an "earlier Namzu" notice. The notice says git does not list the untracked part, since git still lists tracked files. `namzu state move legacy` across file systems keeps folder modes and times, and `namzu state` counts the home's `legacy/` folder as `legacy` instead of `unknown`. The refusal for `#note` when no stored memory is open no longer says Namzu could not open the folder's saved data.
+- ce8b85d: `#note` and `/memory add` no longer write into the repository's
+  `.namzu/MEMORY.md`. A session refused at start (no provider yet, an unknown
+  provider, an account to sign in again, plugins that would not load) now saves
+  the note to this folder's stored memory under the Namzu home, as a working
+  session does, and keeps the `--type` you gave. Where no stored memory is open,
+  while the first session is still starting or when Namzu could not open the
+  folder's saved data, the note is not saved and the terminal says so. If you
+  used that fallback to add notes for your whole team, edit `.namzu/MEMORY.md`
+  by hand; it is still read into every prompt.
+- ce8b85d: The worktree location error and the Settings placeholder now say that new worktrees go in the Namzu home by default, not inside the project. Nothing changes where they are made; clear the setting to keep the default.
+- ce8b85d: Namzu creates its home folder (`~/.namzu` or `NAMZU_HOME`) with mode 0700 when
+  it is the one creating it, and the `/restore` copies under `file-history/` and
+  the `logs/` folder of crash logs are owner-only too. A home that already exists
+  keeps its mode; the conversation index inside it is narrowed to 0600 on the
+  next start. A `/restore` still writes back each file's own mode.
+- Updated dependencies [c1989fd]
+- Updated dependencies [735ab77]
+- Updated dependencies [ce8b85d]
+- Updated dependencies [ce8b85d]
+- Updated dependencies [ce8b85d]
+- Updated dependencies [ce8b85d]
+- Updated dependencies [ce8b85d]
+- Updated dependencies [ce8b85d]
+  - @namzu/sdk@67.0.0
+  - @namzu/browser@3.0.0
+  - @namzu/computer-use@4.4.0
+  - @namzu/anthropic@7.2.0
+  - @namzu/ollama@2.4.0
+  - @namzu/openai@4.5.0
+  - @namzu/openrouter@3.3.0
+  - @namzu/sandbox@42.0.0
+
 ## 54.0.0
 
 ### Major Changes
