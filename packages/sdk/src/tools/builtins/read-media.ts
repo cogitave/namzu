@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { createTempDir } from '../../utils/temp.js'
 import { readBoundedFile } from './bounded-file-read.js'
 import { screenshotTargetSize } from './computer-use-image.js'
+import { withoutByteOrderMark } from './notebook-guard.js'
 import { describeRaster } from './view-image.js'
 
 /**
@@ -414,7 +415,7 @@ export function readNotebook(bytes: Buffer, label: string): MediaRead {
 	}
 	let parsed: unknown
 	try {
-		parsed = JSON.parse(bytes.toString('utf-8'))
+		parsed = JSON.parse(withoutByteOrderMark(bytes.toString('utf-8')))
 	} catch (error) {
 		return {
 			ok: false,

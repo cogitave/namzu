@@ -11,6 +11,16 @@ export function isNotebookPath(path: string): boolean {
 	return path.toLowerCase().endsWith('.ipynb')
 }
 
+/**
+ * A notebook written by an editor that leads with a byte order mark is still a
+ * notebook: JSON.parse refuses the mark, so a file that opens everywhere else
+ * was read as corrupt. Only a mark at the very start is dropped, and nothing
+ * else about the text is touched.
+ */
+export function withoutByteOrderMark(text: string): string {
+	return text.charCodeAt(0) === 0xfeff ? text.slice(1) : text
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
@@ -43,7 +53,7 @@ function shapeProblem(parsed: unknown): string | undefined {
 function bodyProblem(content: string): string | undefined {
 	let parsed: unknown
 	try {
-		parsed = JSON.parse(content)
+		parsed = JSON.parse(withoutByteOrderMark(content))
 	} catch (error) {
 		const reason = error instanceof Error ? error.message : String(error)
 		return `it is not valid JSON (${reason})`

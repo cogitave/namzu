@@ -2,6 +2,7 @@
 
 ## 2026-11-21
 
+- **Update** [File tools](sdk/file-tool-limits.md#pictures-pdfs-and-notebooks): `read`, `edit` and `write` treat a notebook whose file leads with a UTF-8 byte order mark as the notebook it is, instead of reading it as invalid JSON and refusing it as one that never opened. `.changeset/sdk-notebook-byte-order-mark.md`.
 - **Update** [Extensions](cli/extensions.md): the build trusts Cogitave's production publisher key `cogitave-2026` (publisher `cogitave`, ids `com.cogitave.*`), so a package Cogitave signed can be added without a developer key. `.changeset/cli-extension-publisher-key.md`.
 - **Update** [Context and compaction](cli/context-and-compaction.md): on the full-screen transcript `/context` draws its grid with the legend beside it instead of its plain-text copy; a shell permission prompt for a call with a `description` keeps the readable view. `.changeset/cli-context-grid-on-the-scroll-screen.md`.
 - **Update** [Permission modes](cli/permission-modes.md): a conversation left in plan mode comes back in plan mode on `-c` or `/resume`. `.changeset/cli-plan-mode-resumes.md`.
