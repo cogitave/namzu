@@ -38,6 +38,7 @@ import {
 	type SessionGoal,
 	SessionGoalActivation,
 	type SessionId,
+	type SessionTimer,
 	TurnCancelled,
 	type TurnId,
 	type WakeBudget,
@@ -2116,6 +2117,8 @@ function AppBody({
 		readonly jobs: readonly BackgroundJob[]
 	}>({ ownerSession: null, jobs: [] })
 	const backgroundJobs = jobSnapshot.ownerSession === session ? jobSnapshot.jobs : []
+	// The model's pending timers, read when the Background dialog opens and each second while it is open.
+	const [timerSnapshot, setTimerSnapshot] = useState<readonly SessionTimer[]>([])
 	// Whether shell commands inside this session's sandbox run without asking:
 	// the footer and the mode descriptions say so.
 	const sandboxShell = sandboxRunsShellUnasked(session?.sandbox)
@@ -2727,16 +2730,17 @@ function AppBody({
 	// biome-ignore lint/correctness/useExhaustiveDependencies: the list predates linting of .tsx files; changing it changes when this runs, so it is left as written.
 	useEffect(() => setJobSurface(null), [session, setJobSurface])
 	const [jobClock, setJobClock] = useState(Date.now())
-	const hasRunningBackgroundJob = backgroundJobs.some((job) => job.status === 'running')
 	const jobSurfaceOpen = jobSurface !== null
 	useEffect(() => {
-		if (!jobSurfaceOpen || !hasRunningBackgroundJob) return
+		// Open dialog, refresh each second: a timer the model sets while it is open must appear too.
+		if (!jobSurfaceOpen) return
 		const timer = setInterval(() => {
 			setJobClock(Date.now())
+			setTimerSnapshot(scheduleRef.current?.timers.list() ?? [])
 			setJobSnapshot({ ownerSession: session, jobs: session?.jobs?.() ?? [] })
 		}, 1000)
 		return () => clearInterval(timer)
-	}, [jobSurfaceOpen, hasRunningBackgroundJob, session])
+	}, [jobSurfaceOpen, session])
 	const agentSurfaceRef = useRef<AgentSurface | null>(null)
 	const agentSurfaceCommittedRef = useRef<AgentSurface | null>(null)
 	const childMessageLifetimeRef = useRef(new AbortController())
@@ -3004,7 +3008,9 @@ function AppBody({
 		const current = session.jobs?.() ?? []
 		setJobSnapshot({ ownerSession: session, jobs: current })
 		setJobClock(Date.now())
-		const entries = backgroundRows(current, subagentsRef.current)
+		const timers = scheduleRef.current?.timers.list() ?? []
+		setTimerSnapshot(timers)
+		const entries = backgroundRows(current, subagentsRef.current, timers)
 		setJobSurface({
 			ownerSession: session,
 			selectedKey: (entries.find(isRowRunning) ?? entries[0])?.key ?? null,
@@ -7628,6 +7634,7 @@ function AppBody({
 	const slashCtx: SlashContext = {
 		cwd: ctx.cwd,
 		jobs: () => session?.jobs?.() ?? [],
+		timers: () => scheduleRef.current?.timers.list() ?? [],
 		hooks: () => session?.hooks,
 		hooksView: () => ({
 			...(session?.pluginHooks ? { pluginHooks: session.pluginHooks() } : {}),
@@ -16908,7 +16915,7 @@ function AppBody({
 					setJobSurface(null)
 					return
 				}
-				const entries = backgroundRows(backgroundJobs, subagentsRef.current)
+				const entries = backgroundRows(backgroundJobs, subagentsRef.current, timerSnapshot)
 				const selectedId = shellView.detailKey ?? shellView.selectedKey ?? entries[0]?.key
 				const selectedEntry = entries.find((entry) => entry.key === selectedId)
 				if (shellView.detailKey) {
@@ -16926,6 +16933,28 @@ function AppBody({
 					return
 				}
 				if (input.toLowerCase() === 'x' && selectedEntry && isRowRunning(selectedEntry)) {
+					if (selectedEntry.kind === 'timer') {
+						// The same timer the model's timer_cancel reaches: it is gone from timer_list too.
+						const id = selectedEntry.timer.id
+						const scheduler = scheduleRef.current?.timers
+						if (!scheduler) return
+						void scheduler.cancel(id).then((found) => {
+							const current = jobSurfaceRef.current
+							if (!current || current.ownerSession !== shellView.ownerSession) return
+							const left = scheduler.list()
+							setTimerSnapshot(left)
+							const remaining = backgroundRows(backgroundJobs, subagentsRef.current, left)
+							setJobSurface({
+								...current,
+								detailKey: null,
+								selectedKey: remaining.some((row) => row.key === current.selectedKey)
+									? current.selectedKey
+									: (remaining[0]?.key ?? null),
+								notice: found ? 'Timer cancelled.' : 'That timer had already fired.',
+							})
+						})
+						return
+					}
 					if (selectedEntry.kind === 'agent') {
 						// The row moves to Completed by itself once the child reports its end.
 						session?.stopSubagent?.(selectedEntry.agent.viewId)
@@ -17011,6 +17040,17 @@ function AppBody({
 					return
 				}
 				if (key.return && selectedEntry) {
+					if (selectedEntry.kind === 'timer') {
+						// The whole prompt is read in the detail view; the list row cuts it short.
+						setJobSurface({
+							...shellView,
+							selectedKey: selectedEntry.key,
+							detailKey: selectedEntry.key,
+							tailOffset: 0,
+							notice: undefined,
+						})
+						return
+					}
 					if (selectedEntry.kind === 'agent') {
 						// A subagent opens in the transcript view the agents rail uses.
 						setJobSurface(null)
@@ -18937,7 +18977,7 @@ function AppBody({
 					) : null}
 					{jobSurface && permission === null && scheduleReviewPrompt === null ? (
 						<BackgroundJobsPanel
-							entries={backgroundRows(backgroundJobs, subagents)}
+							entries={backgroundRows(backgroundJobs, subagents, timerSnapshot)}
 							selectedKey={jobSurface.selectedKey}
 							detailKey={jobSurface.detailKey}
 							tailOffset={jobSurface.tailOffset}
