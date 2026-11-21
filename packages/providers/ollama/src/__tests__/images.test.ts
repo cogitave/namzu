@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { OLLAMA_CAPABILITIES, OllamaProvider } from '../client.js'
 
@@ -156,5 +156,41 @@ describe('Ollama: pictures', () => {
 		const tool = seen.chat[0]?.messages[1] as { content: string; images?: unknown }
 		expect(tool.images).toBeUndefined()
 		expect(tool.content).toContain('[image omitted: the current model cannot read images')
+	})
+
+	it('asking whether a model reads pictures never calls the server', () => {
+		const { provider, seen } = server({ llava: ['vision'] })
+		expect(provider.supportsImageInputFor('llava')).toBe(true)
+		expect(seen.show).toEqual([])
+	})
+
+	describe('a model information read that never answers', () => {
+		afterEach(() => vi.useRealTimers())
+
+		it('does not stall the request: it goes on with the picture and asks again next time', async () => {
+			vi.useFakeTimers()
+			const shows: string[] = []
+			const chats: Record<string, unknown>[] = []
+			const fetchImpl = (async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
+				const body = JSON.parse(String(init?.body ?? '{}'))
+				if (String(input).endsWith('/api/show')) {
+					shows.push(body.model)
+					return new Promise<Response>(() => {})
+				}
+				chats.push(body)
+				const line = `${JSON.stringify({ model: body.model, message: { role: 'assistant', content: 'ok' }, done: true, done_reason: 'stop' })}\n`
+				return new Response(line, { status: 200 })
+			}) as typeof fetch
+			const provider = new OllamaProvider({ host: 'http://127.0.0.1:1', fetch: fetchImpl })
+			const run = ask(provider, 'llava', [withPicture])
+			await vi.advanceTimersByTimeAsync(5_000)
+			await run
+			expect(chats).toHaveLength(1)
+			expect((chats[0]?.messages as { images?: string[] }[])[0]?.images).toEqual([PNG])
+			const again = ask(provider, 'llava', [withPicture])
+			await vi.advanceTimersByTimeAsync(5_000)
+			await again
+			expect(shows).toEqual(['llava', 'llava'])
+		})
 	})
 })

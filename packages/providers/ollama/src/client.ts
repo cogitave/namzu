@@ -25,6 +25,9 @@ import {
 import { withRequestTimeout } from './request-timeout.js'
 import type { OllamaConfig } from './types.js'
 
+/** How long a picture request waits for the model information before going on. */
+const VISION_READ_WAIT_MS = 5_000
+
 /**
  * What this DRIVER does, not what the Ollama server could do:
  * `chatStream` never reads `params.tools` (no tool schemas reach the
@@ -261,32 +264,42 @@ export class OllamaProvider implements LLMProvider {
 
 	private async waitForVision(model: string, signal?: AbortSignal): Promise<void> {
 		const read = this.visionOf(model)
-		if (!signal) return read
 		let onAbort: (() => void) | undefined
+		let timer: ReturnType<typeof setTimeout> | undefined
 		const aborted = new Promise<never>((_resolve, reject) => {
+			if (!signal) return
 			if (signal.aborted) return reject(signal.reason)
 			onAbort = () => reject(signal.reason)
 			signal.addEventListener('abort', onAbort, { once: true })
 		})
+		// A server whose information endpoint never answers must not stall the
+		// request: give up waiting, leave the model unknown (it counts as
+		// "reads pictures") and let the next picture request ask again.
+		const gaveUp = new Promise<void>((resolve) => {
+			timer = setTimeout(() => {
+				this.visionReads.delete(model)
+				resolve()
+			}, VISION_READ_WAIT_MS)
+		})
 		try {
-			await Promise.race([read, aborted])
+			await Promise.race([read, aborted, gaveUp])
 		} catch (err) {
-			throw signal.reason ?? err
+			throw signal?.reason ?? err
 		} finally {
-			if (onAbort) signal.removeEventListener('abort', onAbort)
+			if (timer) clearTimeout(timer)
+			if (onAbort) signal?.removeEventListener('abort', onAbort)
 		}
 	}
 
 	/**
 	 * `false` only when the server's model information was read and does not
 	 * list vision. Until it was read (or when the server does not say) the
-	 * answer is `true`, and the first call starts the one read so the answer is
-	 * known by the next request.
+	 * answer is `true`. This never asks the server: the read starts only on
+	 * the first request that carries a picture, so a conversation without
+	 * pictures costs no extra call.
 	 */
 	supportsImageInputFor(model: string): boolean {
-		const known = this.vision.get(model)
-		if (known === undefined) void this.visionOf(model)
-		return known ?? true
+		return this.vision.get(model) ?? true
 	}
 
 	private resolveModel(params: ChatCompletionParams): string {
