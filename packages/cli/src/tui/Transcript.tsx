@@ -9,7 +9,7 @@
 import { Box, Static, Text, useWindowSize } from 'ink'
 import type { ReactNode } from 'react'
 import { memo, useRef, useSyncExternalStore } from 'react'
-import { type DiffInfo, diffViewBody, viewRowText } from './diff-view.js'
+import { type DiffInfo, type DiffViewRow, diffViewBody, viewRowText } from './diff-view.js'
 import { fitHintPlain, hintSuffix } from './hint-fit.js'
 import { EXPAND_HINT, clipText, hiddenLinesHint } from './truncation.js'
 import { cutUserText, hiddenTextNote, hiddenTextRule } from './user-text-view.js'
@@ -1006,6 +1006,34 @@ function renderedBodyLines(
  * a width, the plain rows up to the fold, each with the two cells the gutter
  * and the reserve take from the code.
  */
+/**
+ * The rows a change draws at a terminal `columns` wide, as styled runs, or
+ * null when the message has no change to draw or the body is not shown. These
+ * are the rows `DiffBlock` paints: wrapped, folded, with the fold notice.
+ */
+export function renderedDiffRows(
+	message: TranscriptMessage,
+	columns: number,
+	hint?: string,
+): DiffViewRow[] | null {
+	const lines = message.detail
+	if (!message.diff || !lines || lines.length === 0) return null
+	if (message.activity !== undefined && !message.detailExpanded) return null
+	return diffViewBody(message.diff, {
+		width: diffBodyWidth(columns),
+		expanded: message.detailExpanded === true,
+		canExpand: message.detailRef !== undefined,
+		...(hint !== undefined ? { hint } : {}),
+	})
+}
+
+/**
+ * The rows a change will occupy, for the height estimate. With the terminal
+ * width known these are the rows the renderer really draws (wrapped, folded
+ * and with its notice), one string per drawn row and indented by the columns
+ * the body hangs in, so a long line that wraps is never under-counted. Without
+ * a width, the plain rows up to the fold: a count, never text to paint.
+ */
 function renderedDiffLines(
 	lines: readonly string[],
 	message: TranscriptMessage,
@@ -1013,18 +1041,11 @@ function renderedDiffLines(
 	hint?: string,
 ): readonly string[] {
 	const indent = ' '.repeat(SHELL_RESULT_INDENT)
-	if (message.diff && columns !== undefined) {
-		const drawn = diffViewBody(message.diff, {
-			width: diffBodyWidth(columns),
-			expanded: message.detailExpanded === true,
-			canExpand: message.detailRef !== undefined,
-			...(hint !== undefined ? { hint } : {}),
-		})
-		return drawn.map((row) => `${indent}${terminalDisplayText(viewRowText(row))}`)
-	}
+	const drawn = columns !== undefined ? renderedDiffRows(message, columns, hint) : null
+	if (drawn) return drawn.map((row) => `${indent}${terminalDisplayText(viewRowText(row))}`)
 	const preview = message.diff?.preview
 	const limit = message.detailExpanded === true || preview === undefined ? lines.length : preview
-	const shown = lines.slice(0, limit).map((line) => `${indent}${terminalDisplayText(line)}..`)
+	const shown = lines.slice(0, limit).map((line) => `${indent}${terminalDisplayText(line)}`)
 	if (lines.length > limit) {
 		shown.push(
 			`${indent}${hiddenLinesHint(lines.length - limit, {

@@ -39,7 +39,7 @@ the trigger above) and is drawn whenever `autoCompact` is on, for every
 `windowSource` (it was drawn only for a configured or assumed window before;
 `windowSource` stays in the input and no longer changes the numbers). With `autoCompact` off the buffer is 3,000 tokens and named `Compact buffer`; a host draws it as an ordinary legend line while still marking its squares as buffer. `messageBreakdown` sizes tool calls and tool results by tool name,
 matching each result to its call by id. `describeToolCatalogTokens(tools)` sizes
-a rendered tool catalogue tool by tool, and `estimateTextTokens(text)` is the
+a rendered tool catalogue tool by tool, and `estimateTextTokens(text)` and `estimateMessagesTokens(messages)` (text, tool calls and their results, pictures and documents) are the
 characters-per-token estimate for a string.
 
 ## The summary trigger

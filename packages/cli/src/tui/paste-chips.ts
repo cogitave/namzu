@@ -261,3 +261,22 @@ export function noteAttachmentNumber(attachment: object, id: number): void {
 export function givenAttachmentNumber(attachment: object): number | undefined {
 	return NUMBERS_GIVEN.get(attachment)
 }
+
+/**
+ * `text` with each pasted stretch folded back into its chip, numbered in the
+ * order they stand: what the transcript shows for a sent message, so a long
+ * paste is one short row, as it was in the box. The model still gets the text.
+ */
+export function chipPastedRanges(text: string, ranges: readonly PasteRange[] | undefined): string {
+	if (!ranges || ranges.length === 0) return text
+	let out = ''
+	let at = 0
+	let id = 0
+	for (const range of ranges) {
+		if (range.start < at || range.end > text.length) return text
+		id += 1
+		out += text.slice(at, range.start) + pasteChip(id, text.slice(range.start, range.end))
+		at = range.end
+	}
+	return out + text.slice(at)
+}

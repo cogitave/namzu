@@ -99,9 +99,24 @@ export function TranscriptScrollView({
 							{row.glyph}
 						</Text>
 					</Box>
-					<Text color={row.color} wrap="truncate-end">
-						{row.text.length > 0 ? row.text : ' '}
-					</Text>
+					{row.spans && row.text.length > 0 ? (
+						<Text wrap="truncate-end">
+							{row.spans.map((span, j) => (
+								<Text
+									// biome-ignore lint/suspicious/noArrayIndexKey: spans are positional.
+									key={`s-${j}`}
+									color={span.color ?? row.color}
+									{...(span.background ? { backgroundColor: span.background } : {})}
+								>
+									{span.text}
+								</Text>
+							))}
+						</Text>
+					) : (
+						<Text color={row.color} wrap="truncate-end">
+							{row.text.length > 0 ? row.text : ' '}
+						</Text>
+					)}
 				</Box>
 			))}
 			<Box justifyContent="center">
