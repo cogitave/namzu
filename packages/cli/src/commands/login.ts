@@ -25,8 +25,8 @@
  * The verifier is what makes the exchange safe, and a run whose standard input
  * closes at once (a chat tool's shell) would take it to the grave before the
  * browser shows its code. That run now keeps the pending sign-in in an
- * owner-only file for ten minutes (`login-pending/anthropic.json`, never
- * printed) and exits 0 as "waiting"; `namzu login claude --code <code>`
+ * owner-only file for ten minutes (under `login-pending/`, never printed) and
+ * exits 0 as "waiting"; running the same login again with `--code <code>`
  * finishes it. A terminal that can paste keeps the interactive path as is.
  *
  * The registered browser callback shows a code rather than returning to a
@@ -292,7 +292,7 @@ export const loginCommand: CommandDef = {
 			return outcome.ok ? EXIT_OK : EXIT_FAIL
 		}
 
-		return runClaudeLogin({
+		return runBrowserCodeLogin({
 			print: (text) => ctx.formatter.print({ text }),
 			flags,
 			input: process.stdin,
@@ -301,7 +301,7 @@ export const loginCommand: CommandDef = {
 	},
 }
 
-export interface ClaudeLoginDeps {
+export interface BrowserCodeLoginDeps {
 	readonly print: (text: string) => void
 	readonly flags: LoginFlags
 	readonly input: NodeJS.ReadableStream
@@ -314,7 +314,7 @@ export interface ClaudeLoginDeps {
 
 const WAITING_LINE = 'Finish with `namzu login claude --code <code>` within 10 minutes.'
 
-export async function runClaudeLogin(deps: ClaudeLoginDeps): Promise<number> {
+export async function runBrowserCodeLogin(deps: BrowserCodeLoginDeps): Promise<number> {
 	const { print, flags } = deps
 	const options = { home: deps.home, fetch: deps.fetch }
 	const retry = { retry: 'namzu login claude', remove: 'namzu logout' }

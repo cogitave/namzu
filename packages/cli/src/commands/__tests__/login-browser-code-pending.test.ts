@@ -12,7 +12,7 @@ import {
 	readStoredSubscriptionCredential,
 } from '../../integrations/providers/index.js'
 import { writePendingLogin } from '../../integrations/providers/pending-login.js'
-import { parseLoginFlags, runClaudeLogin } from '../login.js'
+import { parseLoginFlags, runBrowserCodeLogin } from '../login.js'
 
 const ACCESS = 'zzz-access-pending-must-never-be-printed'
 const REFRESH = 'zzz-refresh-pending-must-never-be-printed'
@@ -43,7 +43,7 @@ function fakeFetch(status: number) {
 	}) as unknown as typeof fetch
 }
 
-function deps(argv: string[], over: Partial<Parameters<typeof runClaudeLogin>[0]> = {}) {
+function deps(argv: string[], over: Partial<Parameters<typeof runBrowserCodeLogin>[0]> = {}) {
 	const input = new PassThrough()
 	input.end()
 	return {
@@ -60,7 +60,7 @@ function deps(argv: string[], over: Partial<Parameters<typeof runClaudeLogin>[0]
 
 /** Start a sign-in whose stdin is closed, and return the state it kept. */
 async function startPending() {
-	const code = await runClaudeLogin(deps([]))
+	const code = await runBrowserCodeLogin(deps([]))
 	expect(code).toBe(EXIT_OK)
 	const raw = JSON.parse(readFileSync(pendingLoginPath(home), 'utf8')) as {
 		state: string
@@ -86,7 +86,7 @@ describe('claude sign-in from a shell whose stdin closes', () => {
 	})
 
 	it('keeps the interactive failure for a terminal that closes stdin', async () => {
-		const code = await runClaudeLogin(deps([], { interactive: true }))
+		const code = await runBrowserCodeLogin(deps([], { interactive: true }))
 		expect(code).toBe(EXIT_FAIL)
 		expect(printed.join('\n')).toContain('Standard input closed before an authorization code')
 		expect(existsSync(pendingLoginPath(home))).toBe(false)
@@ -94,7 +94,7 @@ describe('claude sign-in from a shell whose stdin closes', () => {
 
 	it('still completes from a piped code without keeping anything', async () => {
 		const input = new PassThrough()
-		const run = runClaudeLogin(deps([], { input }))
+		const run = runBrowserCodeLogin(deps([], { input }))
 		input.write(`${CODE}\n`)
 		expect(await run).toBe(EXIT_OK)
 		expect(readStoredSubscriptionCredential(home)?.accessToken).toBe(ACCESS)
@@ -114,7 +114,7 @@ describe('namzu login claude --code', () => {
 		it(`completes with ${name}, stores the credential and removes the pending file`, async () => {
 			const raw = await startPending()
 			printed = []
-			expect(await runClaudeLogin(deps(['--code', build(raw.state)]))).toBe(EXIT_OK)
+			expect(await runBrowserCodeLogin(deps(['--code', build(raw.state)]))).toBe(EXIT_OK)
 			expect(readStoredSubscriptionCredential(home)?.accessToken).toBe(ACCESS)
 			expect(existsSync(pendingLoginPath(home))).toBe(false)
 			const output = printed.join('\n')
@@ -126,12 +126,12 @@ describe('namzu login claude --code', () => {
 	}
 
 	it('says there is no sign-in waiting when none exists, and on a second --code', async () => {
-		expect(await runClaudeLogin(deps(['--code', CODE]))).toBe(EXIT_FAIL)
+		expect(await runBrowserCodeLogin(deps(['--code', CODE]))).toBe(EXIT_FAIL)
 		expect(printed.join('\n')).toContain('no sign-in waiting')
 		const raw = await startPending()
-		expect(await runClaudeLogin(deps(['--code', `${CODE}#${raw.state}`]))).toBe(EXIT_OK)
+		expect(await runBrowserCodeLogin(deps(['--code', `${CODE}#${raw.state}`]))).toBe(EXIT_OK)
 		printed = []
-		expect(await runClaudeLogin(deps(['--code', CODE]))).toBe(EXIT_FAIL)
+		expect(await runBrowserCodeLogin(deps(['--code', CODE]))).toBe(EXIT_FAIL)
 		expect(printed.join('\n')).toContain('no sign-in waiting')
 		expect(calls).toBe(1)
 	})
@@ -146,7 +146,7 @@ describe('namzu login claude --code', () => {
 			},
 			home,
 		)
-		expect(await runClaudeLogin(deps(['--code', CODE]))).toBe(EXIT_FAIL)
+		expect(await runBrowserCodeLogin(deps(['--code', CODE]))).toBe(EXIT_FAIL)
 		expect(printed.join('\n')).toContain('expired')
 		expect(calls).toBe(0)
 		expect(existsSync(pendingLoginPath(home))).toBe(false)
@@ -154,7 +154,7 @@ describe('namzu login claude --code', () => {
 
 	it('refuses a state that does not match, without calling the endpoint', async () => {
 		await startPending()
-		expect(await runClaudeLogin(deps(['--code', `${CODE}#some-other-state`]))).toBe(EXIT_FAIL)
+		expect(await runBrowserCodeLogin(deps(['--code', `${CODE}#some-other-state`]))).toBe(EXIT_FAIL)
 		expect(printed.join('\n')).toContain('cannot be matched')
 		expect(calls).toBe(0)
 		expect(existsSync(credentialsPath(home))).toBe(false)
@@ -164,7 +164,7 @@ describe('namzu login claude --code', () => {
 		const raw = await startPending()
 		printed = []
 		expect(
-			await runClaudeLogin(deps(['--code', `${CODE}#${raw.state}`], { fetch: fakeFetch(400) })),
+			await runBrowserCodeLogin(deps(['--code', `${CODE}#${raw.state}`], { fetch: fakeFetch(400) })),
 		).toBe(EXIT_FAIL)
 		expect(calls).toBe(1)
 		expect(existsSync(pendingLoginPath(home))).toBe(false)
