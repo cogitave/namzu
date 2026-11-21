@@ -138,7 +138,7 @@ describe('read-only state inventory, version 2', () => {
 		const cwd = temporary('backups')
 		const home = temporary('backups-home')
 		write(join(home, '.namzu', 'backups', 'trust.json.backup.1'), '{}')
-		write(join(home, '.namzu', 'backups', 'trust.json.corrupt-2'), '{')
+		write(join(home, '.namzu', 'backups', 'trust.json.corrupted.2'), '{')
 		write(join(home, '.namzu', 'accounts.json'), '{}')
 		write(join(home, '.namzu', 'mcp-approvals.json'), '{}')
 

@@ -15,8 +15,10 @@ import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 import {
 	StateFileBusyError,
 	StateFileUnreadableError,
+	copyTime,
 	newestStateBackup,
 	saveStateFile,
+	startNewStateFile,
 	unreadableStateFile,
 	withStateFileLock,
 } from './state-file.js'
@@ -51,7 +53,7 @@ describe('state file lock', () => {
 
 	it('says in words that another process is saving, after waiting its turn', () => {
 		const file = join(home(), 'trust.json')
-		writeFileSync(`${file}.lock`, `${process.pid}:0:live`)
+		writeFileSync(`${file}.lock`, `${process.ppid}:0:live`)
 		const waits: number[] = []
 		let error: unknown
 		try {
@@ -63,7 +65,7 @@ describe('state file lock', () => {
 		expect((error as Error).message).toContain('being saved by another Namzu process')
 		expect((error as StateFileBusyError).sentence(() => '~/t')).toMatch(/^~\/t is being saved/)
 		expect(waits).toEqual([0, 1, 2])
-		expect(readFileSync(`${file}.lock`, 'utf8')).toBe(`${process.pid}:0:live`)
+		expect(readFileSync(`${file}.lock`, 'utf8')).toBe(`${process.ppid}:0:live`)
 	})
 
 	it('passes an error from the change itself through unchanged', () => {
@@ -85,15 +87,15 @@ describe('saving a state file', () => {
 		saveStateFile(file, 'new', { home: root })
 		expect(readFileSync(file, 'utf8')).toBe('new')
 		const backup = newestStateBackup(root, file)
-		expect(backup).toMatch(/backups[/\\]trust\.json\.backup\.\d+$/)
-		expect(readFileSync(backup as string, 'utf8')).toBe('old')
+		expect(backup?.path).toMatch(/backups[/\\]trust\.json\.backup\.\d+$/)
+		expect(readFileSync(backup?.path as string, 'utf8')).toBe('old')
 		saveStateFile(file, 'newer', { home: root, backup: false })
 		expect(readdirSync(join(root, 'backups'))).toHaveLength(1)
 	})
 })
 
 describe('refusing an unreadable state file', () => {
-	it('keeps its bytes, names the copy and the last good copy, and changes nothing', () => {
+	it('keeps its bytes, names the copy and the newest recovery copy, and changes nothing', () => {
 		const root = home()
 		const file = join(root, 'trust.json')
 		writeFileSync(file, '{"trusted": ["/a"]}')
@@ -101,15 +103,41 @@ describe('refusing an unreadable state file', () => {
 		writeFileSync(file, '{"trusted": [')
 		const error = unreadableStateFile(file, 'not valid JSON', root)
 		expect(error).toBeInstanceOf(StateFileUnreadableError)
-		expect(error.copy).toMatch(/trust\.json\.corrupt-\d+$/)
+		expect(error.copy).toMatch(/trust\.json\.corrupted\.\d+$/)
 		expect(readFileSync(error.copy as string, 'utf8')).toBe('{"trusted": [')
-		expect(error.backup).toBe(newestStateBackup(root, file))
+		const backup = newestStateBackup(root, file)
+		expect(error.backup).toEqual(backup)
+		// The copy is the file before the last change: it says so, and when.
+		expect(readFileSync(backup?.path as string, 'utf8')).toBe('{"trusted": ["/a"]}')
 		expect(error.message).toBe(
-			`${file} could not be read (not valid JSON), so it was not changed. Its contents are kept in ${error.copy}. The last good copy is ${error.backup}; to go back to it, copy it over ${file}. Fix or remove the file, then try again.`,
+			`${file} could not be read (not valid JSON), so it was not changed. Its contents are kept in ${error.copy}. The newest recovery copy is ${backup?.path}, the file as it was before a change at ${copyTime(backup?.takenAt as number)}; that change and any later one are not in it. To go back to it, copy it over ${file}. Fix or remove the file, then try again.`,
 		)
+		expect(error.withRemedy('Start anew.').message.endsWith(' Start anew.')).toBe(true)
 		expect(readFileSync(file, 'utf8')).toBe('{"trusted": [')
 		// Asked again about the same damage: the same copy, not a second one.
 		expect(unreadableStateFile(file, 'not valid JSON', root).copy).toBe(error.copy)
+	})
+
+	it('starts a new file only after the old bytes are kept and read back', () => {
+		const root = home()
+		const file = join(root, 'trust.json')
+		writeFileSync(file, '{ damaged')
+		const kept = startNewStateFile(file, '{"version":1,"trusted":[]}\n', root)
+		expect(kept).toMatch(/backups[/\\]trust\.json\.corrupted\.\d+$/)
+		expect(readFileSync(kept, 'utf8')).toBe('{ damaged')
+		expect(readFileSync(file, 'utf8')).toBe('{"version":1,"trusted":[]}\n')
+		// The damaged bytes are not offered as a recovery copy of the good list.
+		expect(newestStateBackup(root, file)).toBeUndefined()
+	})
+
+	it('replaces nothing when the old bytes cannot be kept', () => {
+		const root = home()
+		const file = join(root, 'trust.json')
+		writeFileSync(file, '{ damaged')
+		// A file where the backups folder goes: no copy can be made.
+		writeFileSync(join(root, 'backups'), 'not a folder')
+		expect(() => startNewStateFile(file, '{}', root)).toThrow()
+		expect(readFileSync(file, 'utf8')).toBe('{ damaged')
 	})
 
 	it('still refuses when even the copy cannot be made', () => {

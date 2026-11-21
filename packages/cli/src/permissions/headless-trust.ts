@@ -92,7 +92,10 @@ export function decideHeadlessTrust(check: TrustCheck): TrustDecision {
 	if (isDirTrusted(cwd)) return { allowed: true, cwd }
 	// A list that exists but does not read trusts nothing. Saying "nobody has trusted" this
 	// folder would send the person to trust it again, into a list that cannot be saved.
-	const problem = (check.listProblem ?? (() => trustListProblem()))()
+	// A caller that answers trust itself answers for the list too: never the ambient home's file.
+	const listProblem =
+		check.listProblem ?? (check.trusted ? () => undefined : () => trustListProblem())
+	const problem = listProblem()
 	if (problem)
 		return {
 			allowed: false,

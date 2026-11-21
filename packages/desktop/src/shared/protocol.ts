@@ -1480,6 +1480,8 @@ export interface DesktopApi {
 	trustedFolders?(): Promise<import('./storage-protocol.js').TrustedFoldersView>
 	/** Takes one folder off that list (and forgets Desktop's fingerprint of it); it asks again next time. */
 	removeTrustedFolder?(path: string): Promise<import('./storage-protocol.js').TrustedFoldersView>
+	/** Starts an empty list in place of one that cannot be read; the old one is kept in backups/. */
+	startNewTrustedFolders?(): Promise<import('./storage-protocol.js').TrustedFoldersView>
 	/** What global shortcuts left for a window: Quick Entry lines and a voice request. Each is handed out once. */
 	takePendingEntries?(): Promise<{ quickEntries: string[]; voice: boolean }>
 	terminalShells?(): Promise<TerminalShellChoice[]>

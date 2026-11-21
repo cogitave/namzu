@@ -20,12 +20,17 @@ import { canonicalProjectPath } from '../../permissions/canonical-project.js'
 import {
 	readFailureReason,
 	saveStateFile,
+	startNewStateFile,
 	unreadableStateFile,
 	withStateFileLock,
 } from '../state/state-file.js'
 import type { McpServersConfig } from './servers.js'
 
 const FILE_VERSION = 1
+
+/** The way out of a damaged approvals file that keeps it. */
+export const NEW_APPROVALS_LIST_REMEDY =
+	'To start a new list, run namzu mcp approve --new-list; the old one stays where it is kept. Or fix the file and try again.'
 
 /**
  * What is on disk. `folders` is each folder's answers as understood; `raw` is
@@ -81,6 +86,8 @@ function readApprovals(namzuHome: string): ApprovalRead {
 		if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { state: 'missing' }
 		return { state: 'unreadable', reason: readFailureReason(error) }
 	}
+	// A write cut short before its first byte: nothing in it to protect.
+	if (text.trim() === '') return { state: 'missing' }
 	let parsed: unknown
 	try {
 		parsed = JSON.parse(text)
@@ -192,7 +199,8 @@ function recordApprovals(
 	const path = mcpApprovalsPath(namzuHome)
 	withStateFileLock(path, () => {
 		const read = readApprovals(namzuHome)
-		if (read.state === 'unreadable') throw unreadableStateFile(path, read.reason, namzuHome)
+		if (read.state === 'unreadable')
+			throw unreadableStateFile(path, read.reason, namzuHome, NEW_APPROVALS_LIST_REMEDY)
 		const raw = read.state === 'ok' ? read.raw : {}
 		const rawFolders = isRecord(raw.folders) ? raw.folders : {}
 		const key = folderKey(cwd)
@@ -203,4 +211,20 @@ function recordApprovals(
 		saveStateFile(path, `${JSON.stringify(next, null, 2)}\n`, { home: namzuHome })
 	})
 	return chosen
+}
+
+/**
+ * Start a new, empty approvals list when the current one could not be read, for
+ * a person who chose to. The old file's bytes are kept in
+ * `backups/mcp-approvals.json.corrupted.<ms>` and read back first. Returns where
+ * they are kept, or `undefined` when the file reads (or is missing) and so was
+ * left as it is.
+ */
+export function startNewMcpApprovals(namzuHome: string): string | undefined {
+	const path = mcpApprovalsPath(namzuHome)
+	return withStateFileLock(path, () => {
+		if (readApprovals(namzuHome).state !== 'unreadable') return undefined
+		const next = { version: FILE_VERSION, folders: {} }
+		return startNewStateFile(path, `${JSON.stringify(next, null, 2)}\n`, namzuHome)
+	})
 }

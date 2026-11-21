@@ -110,4 +110,39 @@ describe('the engine trust list', () => {
 		expect(onError).toHaveBeenCalled()
 		expect(existsSync(join(home, 'trust.json'))).toBe(true)
 	})
+
+	it('reads an empty or blank file as no list: there is nothing in it to keep', () => {
+		write('  \n')
+		const list = new EngineTrustList(home)
+		expect(list.view()).toEqual({ file: join(home, 'trust.json'), folders: [] })
+	})
+
+	it('starts a new list only for one that cannot be read, keeping the old one byte for byte', () => {
+		write('{"version":1,"trusted":["/kept"')
+		const list = new EngineTrustList(home)
+		expect(list.view().unreadable).toBe(true)
+		const view = list.startNewList()
+		expect(view.folders).toEqual([])
+		expect(view.kept).toMatch(/trust\.json\.corrupted\.\d+$/)
+		expect(readFileSync(view.kept as string, 'utf8')).toBe('{"version":1,"trusted":["/kept"')
+		expect(JSON.parse(readFileSync(join(home, 'trust.json'), 'utf8'))).toEqual({
+			version: 1,
+			trusted: [],
+		})
+		if (process.platform !== 'win32') expect(statSync(view.kept as string).mode & 0o777).toBe(0o600)
+		// A list that reads is left alone.
+		write({ version: 1, trusted: ['/a'] })
+		expect(list.startNewList()).toEqual({ file: join(home, 'trust.json'), folders: ['/a'] })
+		expect(JSON.parse(readFileSync(join(home, 'trust.json'), 'utf8')).trusted).toEqual(['/a'])
+	})
+
+	it('replaces nothing when the old list cannot be kept', () => {
+		write('{ damaged')
+		writeFileSync(join(home, 'backups'), 'a file where the backups folder goes')
+		const onError = vi.fn()
+		expect(() => new EngineTrustList(home, onError).startNewList()).toThrow(
+			'The old list could not be kept',
+		)
+		expect(readFileSync(join(home, 'trust.json'), 'utf8')).toBe('{ damaged')
+	})
 })

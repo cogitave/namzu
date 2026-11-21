@@ -5,7 +5,14 @@
  * nothing, is kept in backups/, and is never replaced.
  */
 
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
+import {
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	readdirSync,
+	writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -14,11 +21,13 @@ import { removeTempDir } from '../../../__fixtures__/temp-dir.js'
 import { canonicalProjectPath } from '../../../permissions/canonical-project.js'
 import { StateFileUnreadableError } from '../../state/state-file.js'
 import {
+	NEW_APPROVALS_LIST_REMEDY,
 	approveProjectMcpServers,
 	fingerprintMcpServer,
 	mcpApprovalsPath,
 	mcpApprovalsProblem,
 	splitProjectMcpServers,
+	startNewMcpApprovals,
 } from '../project-approval.js'
 
 const roots: string[] = []
@@ -55,7 +64,7 @@ describe('a damaged approvals file', () => {
 		expect(readFileSync(mcpApprovalsPath(home), 'utf8')).toBe(text)
 		const kept = readdirSync(join(home, 'backups'))
 		expect(kept).toHaveLength(1)
-		expect(kept[0]).toMatch(/^mcp-approvals\.json\.corrupt-\d+$/)
+		expect(kept[0]).toMatch(/^mcp-approvals\.json\.corrupted\.\d+$/)
 	})
 
 	it('keeps every other folder, and what it does not understand, when one folder is approved', () => {
@@ -86,5 +95,27 @@ describe('a damaged approvals file', () => {
 		expect(JSON.parse(readFileSync(join(home, 'backups', copies[0] as string), 'utf8'))).toEqual(
 			stored,
 		)
+	})
+
+	it('says how to start a new list, and starts one only when asked, keeping the old file', () => {
+		const { home, cwd } = scratch()
+		writeFileSync(mcpApprovalsPath(home), '{ damaged')
+		expect(() => approveProjectMcpServers(home, cwd, servers)).toThrow(NEW_APPROVALS_LIST_REMEDY)
+		const kept = startNewMcpApprovals(home)
+		expect(readFileSync(kept as string, 'utf8')).toBe('{ damaged')
+		expect(mcpApprovalsProblem(home)).toBeUndefined()
+		expect(approveProjectMcpServers(home, cwd, servers)).toEqual(['tickets'])
+		// A list that reads is never replaced by the same call.
+		expect(startNewMcpApprovals(home)).toBeUndefined()
+		expect(splitProjectMcpServers(home, cwd, servers).pending).toEqual([])
+	})
+
+	it('reads an empty or blank file as no file: there is nothing in it to keep', () => {
+		const { home, cwd } = scratch()
+		writeFileSync(mcpApprovalsPath(home), '  \n')
+		expect(mcpApprovalsProblem(home)).toBeUndefined()
+		expect(approveProjectMcpServers(home, cwd, servers)).toEqual(['tickets'])
+		// Nothing kept: a blank file is neither damaged nor worth a recovery copy.
+		expect(existsSync(join(home, 'backups'))).toBe(false)
 	})
 })

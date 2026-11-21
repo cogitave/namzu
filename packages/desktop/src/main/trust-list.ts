@@ -4,6 +4,7 @@ import type { TrustedFoldersView } from '../shared/storage-protocol.js'
 import {
 	EngineStateFileBusyError,
 	backupEngineStateFile,
+	preserveUnreadableEngineStateFile,
 	withEngineStateLock,
 	writeEngineStateFile,
 } from './engine-state-file.js'
@@ -50,6 +51,41 @@ export class EngineTrustList {
 			throw error
 		}
 	}
+	/**
+	 * Starts an empty list in place of one that cannot be read, for a person who chose to. The old
+	 * file's bytes are kept in `backups/trust.json.corrupted.<ms>` and read back first; if that
+	 * fails, or the file changes meanwhile, nothing is replaced. A list that reads is left alone.
+	 */
+	startNewList(): TrustedFoldersView {
+		const lockOptions = this.lockWait ? { wait: this.lockWait } : {}
+		try {
+			return withEngineStateLock(this.file, () => this.startNewListLocked(), lockOptions)
+		} catch (error) {
+			if (error instanceof EngineStateFileBusyError) throw new Error(error.message)
+			throw error
+		}
+	}
+	private startNewListLocked(): TrustedFoldersView {
+		const read = this.read()
+		if (!read.unreadable) return { file: this.file, folders: read.folders }
+		let kept: string
+		try {
+			const before = readFileSync(this.file)
+			kept = preserveUnreadableEngineStateFile(this.file, this.namzuHome)
+			if (!readFileSync(kept).equals(before) || !readFileSync(this.file).equals(before))
+				throw new Error('The list changed while it was being kept.')
+			writeEngineStateFile(
+				this.file,
+				`${JSON.stringify({ version: FILE_VERSION, trusted: [] }, null, 2)}\n`,
+			)
+		} catch (error) {
+			this.onError?.(error, 'write')
+			throw new Error(
+				'The old list could not be kept, so no new list was started. Nothing was changed.',
+			)
+		}
+		return { file: this.file, folders: [], kept }
+	}
 	private removeLocked(path: string): TrustedFoldersView {
 		const read = this.read()
 		if (read.unreadable)
@@ -79,6 +115,8 @@ export class EngineTrustList {
 		try {
 			const text = readFileSync(this.file, 'utf8')
 			if (text.length > MAX_FILE_BYTES) throw new Error('too large')
+			// A write cut short before its first byte: nothing in it to protect.
+			if (text.trim() === '') return { folders: [], entries: [], rest: {} }
 			const parsed: unknown = JSON.parse(text)
 			if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed))
 				throw new Error('not a trust list')

@@ -33,7 +33,11 @@ import { Document, isMap, parseDocument } from 'yaml'
 
 import { restrictToOwner } from '../integrations/providers/credential-store.js'
 import { resolveNamzuHome } from '../integrations/state/home.js'
-import { withStateFileLock } from '../integrations/state/state-file.js'
+import {
+	newestStateBackup,
+	recoveryCopySentence,
+	withStateFileLock,
+} from '../integrations/state/state-file.js'
 
 export interface UserConfigWriteOptions {
 	/** Override the user's home dir (testing). */
@@ -46,6 +50,22 @@ export function userConfigPath(opts: UserConfigWriteOptions = {}): string {
 		resolveNamzuHome({ ...(opts.home ? { home: opts.home } : {}), env: opts.env ?? process.env }),
 		'config.yaml',
 	)
+}
+
+/**
+ * The refusal for a user config that does not read as settings, naming the
+ * newest recovery copy when there is one. The file itself is left as it is.
+ */
+export function unreadableUserConfig(file: string, problem: string): Error {
+	const copy = newestStateBackup(dirname(file), file)
+	const recovery = copy ? ` ${recoveryCopySentence(file, copy, (path) => path)}` : ''
+	return new Error(`${file} ${problem}; fix it first.${recovery}`)
+}
+
+function parseProblem(doc: Document): string | undefined {
+	if (doc.errors.length > 0) return `is not valid YAML (${doc.errors[0]?.message ?? 'parse error'})`
+	if (doc.contents !== null && !isMap(doc.contents)) return 'is not a mapping of settings'
+	return undefined
 }
 
 /**
@@ -75,14 +95,8 @@ function setValue(file: string, path: readonly string[], value: unknown): string
 	const exists = existsSync(file)
 	const text = exists ? readFileSync(file, 'utf8') : ''
 	const doc = text.trim().length > 0 ? parseDocument(text) : new Document({})
-	if (doc.errors.length > 0) {
-		throw new Error(
-			`${file} is not valid YAML (${doc.errors[0]?.message ?? 'parse error'}); fix it first`,
-		)
-	}
-	if (doc.contents !== null && !isMap(doc.contents)) {
-		throw new Error(`${file} is not a mapping of settings; fix it first`)
-	}
+	const problem = parseProblem(doc)
+	if (problem) throw unreadableUserConfig(file, problem)
 	for (let depth = 1; depth < path.length; depth += 1) {
 		const parent = doc.getIn(path.slice(0, depth), true)
 		if (parent !== undefined && parent !== null && !isMap(parent)) {
@@ -110,14 +124,8 @@ export function editUserConfigDocument(
 function editDocument(file: string, change: (doc: Document) => void): string {
 	const text = existsSync(file) ? readFileSync(file, 'utf8') : ''
 	const doc = text.trim().length > 0 ? parseDocument(text) : new Document({})
-	if (doc.errors.length > 0) {
-		throw new Error(
-			`${file} is not valid YAML (${doc.errors[0]?.message ?? 'parse error'}); fix it first`,
-		)
-	}
-	if (doc.contents !== null && !isMap(doc.contents)) {
-		throw new Error(`${file} is not a mapping of settings; fix it first`)
-	}
+	const problem = parseProblem(doc)
+	if (problem) throw unreadableUserConfig(file, problem)
 	change(doc)
 	writePrivateUserConfig(file, doc)
 	return file
@@ -136,14 +144,8 @@ function deleteValue(file: string, path: readonly string[]): boolean {
 	if (!existsSync(file)) return false
 	const text = readFileSync(file, 'utf8')
 	const doc = parseDocument(text)
-	if (doc.errors.length > 0) {
-		throw new Error(
-			`${file} is not valid YAML (${doc.errors[0]?.message ?? 'parse error'}); fix it first`,
-		)
-	}
-	if (doc.contents !== null && !isMap(doc.contents)) {
-		throw new Error(`${file} is not a mapping of settings; fix it first`)
-	}
+	const problem = parseProblem(doc)
+	if (problem) throw unreadableUserConfig(file, problem)
 	for (let depth = 1; depth < path.length; depth += 1) {
 		const parent = doc.getIn(path.slice(0, depth), true)
 		if (parent === undefined || parent === null) return false

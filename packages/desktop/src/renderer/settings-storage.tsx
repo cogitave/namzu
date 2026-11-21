@@ -81,12 +81,19 @@ export function StoragePanel({ storage }: { storage: StorageControls }) {
 	)
 }
 
+/** The backups folder beside a file in the Namzu home, written the way the file is. */
+function backupsOf(file: string): string {
+	const cut = Math.max(file.lastIndexOf('/'), file.lastIndexOf('\\'))
+	return cut < 0 ? 'backups' : `${file.slice(0, cut + 1)}backups`
+}
+
 /**
  * The folders the engine trusts. This is the list that decides whether a folder may be used, so
  * the view says which list it is; Remove asks first. The row above says what removing does.
  */
 export function TrustedFoldersPanel({ trusted }: { trusted: TrustedFoldersControls }) {
 	const [asking, setAsking] = useState<string>()
+	const [askingNew, setAskingNew] = useState(false)
 	const { view, error, busy } = trusted
 	return (
 		<div className="settings-folders" data-settings-trusted>
@@ -100,8 +107,46 @@ export function TrustedFoldersPanel({ trusted }: { trusted: TrustedFoldersContro
 				<>
 					<p className="settings-help">Namzu’s own list, kept in {tildePath(view.file)}.</p>
 					{view.unreadable && (
-						<p role="alert" className="settings-error">
-							The list could not be read, so some folders may be missing here.
+						<>
+							<p role="alert" className="settings-error">
+								The list could not be read, so no folder counts as trusted. Start a new list to
+								trust folders again; the old one is kept in {tildePath(backupsOf(view.file))}.
+							</p>
+							<div className="settings-project-copy">
+								{askingNew ? (
+									<>
+										<Button
+											variant="outline"
+											size="sm"
+											disabled={busy}
+											aria-label="Yes, start a new list"
+											onClick={() => {
+												setAskingNew(false)
+												void trusted.startNew()
+											}}
+										>
+											Start a new list?
+										</Button>
+										<Button variant="ghost-muted" size="sm" onClick={() => setAskingNew(false)}>
+											Cancel
+										</Button>
+									</>
+								) : (
+									<Button
+										variant="outline"
+										size="sm"
+										disabled={busy}
+										onClick={() => setAskingNew(true)}
+									>
+										Start a new list
+									</Button>
+								)}
+							</div>
+						</>
+					)}
+					{view.kept && (
+						<p className="settings-help">
+							Started a new list. The old one is kept in {tildePath(view.kept)}.
 						</p>
 					)}
 					{view.folders.length === 0 && !view.unreadable && (

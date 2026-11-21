@@ -1,13 +1,14 @@
-import { mkdtempSync } from 'node:fs'
+import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, expect, it } from 'vitest'
+import { afterEach, expect, it, vi } from 'vitest'
 
 import { removeTempDir } from '../__fixtures__/temp-dir.js'
 import { decideHeadlessTrust } from '../permissions/headless-trust.js'
 
 const dirs: string[] = []
 afterEach(() => {
+	vi.unstubAllEnvs()
 	for (const dir of dirs.splice(0)) removeTempDir(dir)
 })
 
@@ -36,5 +37,15 @@ it('still says nobody trusted the folder when the list reads', () => {
 		trusted: () => false,
 		listProblem: () => undefined,
 	})
+	expect(decision.allowed ? '' : decision.message).toContain('nobody has trusted')
+})
+
+it('answers for the list from the caller that answers trust, never from the ambient home', () => {
+	const cwd = mkdtempSync(join(tmpdir(), 'namzu-headless-'))
+	const ambient = mkdtempSync(join(tmpdir(), 'namzu-headless-home-'))
+	dirs.push(cwd, ambient)
+	writeFileSync(join(ambient, 'trust.json'), '{ damaged')
+	vi.stubEnv('NAMZU_HOME', ambient)
+	const decision = decideHeadlessTrust({ cwd, trustFlag: false, trusted: () => false })
 	expect(decision.allowed ? '' : decision.message).toContain('nobody has trusted')
 })

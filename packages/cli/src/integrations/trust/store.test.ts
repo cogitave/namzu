@@ -11,6 +11,7 @@ import {
 	assertTrustListWritable,
 	isTrusted,
 	readTrustedDirs,
+	startNewTrustList,
 	trustDir,
 	trustListProblem,
 	untrustDir,
@@ -18,6 +19,8 @@ import {
 
 let home: string
 let work: string
+/** More folders a test makes: removed after it, whether or not it passed. */
+const extra: string[] = []
 
 beforeEach(() => {
 	home = mkdtempSync(join(tmpdir(), 'namzu-trust-'))
@@ -27,7 +30,14 @@ beforeEach(() => {
 afterEach(() => {
 	removeTempDir(home)
 	removeTempDir(work)
+	for (const dir of extra.splice(0)) removeTempDir(dir)
 })
+
+function otherFolder(): string {
+	const dir = mkdtempSync(join(tmpdir(), 'namzu-other-'))
+	extra.push(dir)
+	return dir
+}
 
 describe('trust store', () => {
 	it('starts empty and untrusted', () => {
@@ -133,18 +143,18 @@ describe('a trusted folders list that cannot be read', () => {
 		}
 		expect(error).toBeInstanceOf(StateFileUnreadableError)
 		expect(readFileSync(file(), 'utf8')).toBe(text)
-		const kept = readdirSync(backups()).filter((name) => name.startsWith('trust.json.corrupt-'))
+		const kept = readdirSync(backups()).filter((name) => name.startsWith('trust.json.corrupted.'))
 		expect(kept).toHaveLength(1)
 		expect(readFileSync(join(backups(), kept[0] as string), 'utf8')).toBe(text)
 		// Removing is refused too, rather than answered "it was not on the list".
 		expect(() => untrustDir(work, home)).toThrow(StateFileUnreadableError)
 		expect(() => assertTrustListWritable(home)).toThrow(StateFileUnreadableError)
 		// The same damage is kept once, however often it is met.
-		expect(readdirSync(backups()).filter((name) => name.includes('.corrupt-'))).toHaveLength(1)
+		expect(readdirSync(backups()).filter((name) => name.includes('.corrupted.'))).toHaveLength(1)
 	})
 
-	it('names the last good copy so it can be put back by hand', () => {
-		const other = mkdtempSync(join(tmpdir(), 'namzu-other-'))
+	it('names the newest recovery copy, and says the last change is not in it', () => {
+		const other = otherFolder()
 		trustDir(work, home)
 		trustDir(other, home)
 		writeFileSync(file(), '{ damaged')
@@ -155,11 +165,11 @@ describe('a trusted folders list that cannot be read', () => {
 			error = caught as StateFileUnreadableError
 		}
 		expect(error?.backup).toBeDefined()
-		expect(JSON.parse(readFileSync(error?.backup as string, 'utf8')).trusted).toEqual([
+		expect(JSON.parse(readFileSync(error?.backup?.path as string, 'utf8')).trusted).toEqual([
 			canonicalProjectPath(work),
 		])
-		expect(error?.message).toContain('to go back to it, copy it over')
-		removeTempDir(other)
+		expect(error?.message).toContain('that change and any later one are not in it')
+		expect(error?.message).toContain('To go back to it, copy it over')
 	})
 
 	it('keeps entries and keys it does not understand when it changes the list', () => {
@@ -189,7 +199,7 @@ describe('a trusted folders list that cannot be read', () => {
 
 	it('writes the list private and keeps a private copy of the old one', () => {
 		trustDir(work, home)
-		const other = mkdtempSync(join(tmpdir(), 'namzu-other-'))
+		const other = otherFolder()
 		trustDir(other, home)
 		const copies = readdirSync(backups()).filter((name) => name.startsWith('trust.json.backup.'))
 		expect(copies).toHaveLength(1)
@@ -197,6 +207,45 @@ describe('a trusted folders list that cannot be read', () => {
 			expect(statSync(file()).mode & 0o777).toBe(0o600)
 			expect(statSync(join(backups(), copies[0] as string)).mode & 0o777).toBe(0o600)
 		}
-		removeTempDir(other)
+	})
+
+	it('reads an empty or blank file as no list: there is nothing in it to keep', () => {
+		writeFileSync(file(), '')
+		expect(trustListProblem(home)).toBeUndefined()
+		trustDir(work, home)
+		expect(isTrusted(work, home)).toBe(true)
+		writeFileSync(file(), ' \n')
+		expect(isTrusted(work, home)).toBe(false)
+		expect(() => assertTrustListWritable(home)).not.toThrow()
+	})
+
+	it('starts a new list with this folder only when asked, keeping the old one byte for byte', () => {
+		const text = '{"version":1,"trusted":["/kept"'
+		writeFileSync(file(), text)
+		const { kept } = startNewTrustList(work, home)
+		expect(kept).toBeDefined()
+		expect(readFileSync(kept as string, 'utf8')).toBe(text)
+		expect(JSON.parse(readFileSync(file(), 'utf8'))).toEqual({
+			version: 1,
+			trusted: [canonicalProjectPath(work)],
+		})
+		expect(isTrusted(work, home)).toBe(true)
+		if (process.platform !== 'win32') expect(statSync(kept as string).mode & 0o777).toBe(0o600)
+	})
+
+	it('adds to a list that reads after all, instead of replacing it', () => {
+		const other = otherFolder()
+		trustDir(other, home)
+		expect(startNewTrustList(work, home)).toEqual({})
+		expect(isTrusted(other, home)).toBe(true)
+		expect(isTrusted(work, home)).toBe(true)
+	})
+
+	it('replaces nothing when the old list cannot be kept', () => {
+		writeFileSync(file(), '{ damaged')
+		writeFileSync(backups(), 'a file where the backups folder goes')
+		expect(() => startNewTrustList(work, home)).toThrow()
+		expect(readFileSync(file(), 'utf8')).toBe('{ damaged')
+		expect(isTrusted(work, home)).toBe(false)
 	})
 })

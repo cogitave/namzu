@@ -11,7 +11,9 @@
  * every change is made under its lock and re-reads it first (see
  * `../state/state-file.ts`). A file that exists but is not a trust list reads
  * as trusting nothing, and is never replaced: a change to it is refused, with
- * its bytes kept in `backups/`.
+ * its bytes kept in `backups/`, until the person chooses to start a new list
+ * ({@link startNewTrustList}). An empty file has nothing to keep and reads as
+ * no list at all.
  */
 
 import { readFileSync } from 'node:fs'
@@ -22,6 +24,7 @@ import { namzuHomePath } from '../state/home.js'
 import {
 	readFailureReason,
 	saveStateFile,
+	startNewStateFile,
 	unreadableStateFile,
 	withStateFileLock,
 } from '../state/state-file.js'
@@ -65,6 +68,8 @@ function readTrustState(file: string): TrustRead {
 		if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { state: 'missing' }
 		return { state: 'unreadable', reason: readFailureReason(error) }
 	}
+	// A write cut short before its first byte: nothing in it to protect.
+	if (text.trim() === '') return { state: 'missing' }
 	let parsed: unknown
 	try {
 		parsed = JSON.parse(text)
@@ -175,6 +180,34 @@ function writeTrustFile(
 	const rest = read.state === 'ok' ? read.rest : {}
 	const next = { ...rest, version: TRUST_FILE_VERSION, trusted }
 	saveStateFile(path, `${JSON.stringify(next, null, 2)}\n`, { home: namzuHomePath(home) })
+}
+
+export interface NewTrustListResult {
+	/** Where the list that could not be read is kept; absent when the list read fine after all. */
+	readonly kept?: string
+}
+
+/**
+ * Start a new trusted folders list holding `dir`, for a person who chose to
+ * when the list could not be read. The old list's bytes are kept in
+ * `backups/<file>.corrupted.<ms>` and read back first; nothing is replaced
+ * otherwise. A list that reads again by now is not replaced: `dir` is added to
+ * it as {@link trustDir} would.
+ */
+export function startNewTrustList(dir: string, home?: string): NewTrustListResult {
+	const target = canonicalProjectPath(dir)
+	const path = trustFilePath(home)
+	return withStateFileLock(path, () => {
+		const read = readTrustState(path)
+		if (read.state !== 'unreadable') {
+			if (!trustedStrings(read).map(canonicalStoredPath).includes(target))
+				writeTrustFile(path, read, [...(read.state === 'ok' ? read.entries : []), target], home)
+			return {}
+		}
+		const next = { version: TRUST_FILE_VERSION, trusted: [target] }
+		const kept = startNewStateFile(path, `${JSON.stringify(next, null, 2)}\n`, namzuHomePath(home))
+		return { kept }
+	})
 }
 
 export interface UntrustResult {

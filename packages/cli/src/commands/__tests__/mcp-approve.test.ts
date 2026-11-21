@@ -1,4 +1,4 @@
-import { mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, expect, it, vi } from 'vitest'
@@ -59,4 +59,40 @@ it('starts a project server only after `mcp approve`, and names an unknown one',
 		'docs',
 		'tickets',
 	])
+})
+
+it('starts a new approvals list with --new-list when the old one cannot be read, keeping it', async () => {
+	const home = mkdtempSync(join(tmpdir(), 'namzu-mcp-approve-home-'))
+	const project = mkdtempSync(join(tmpdir(), 'namzu-mcp-approve-proj-'))
+	roots.push(home, project)
+	vi.stubEnv('NAMZU_HOME', home)
+	writeFileSync(
+		join(project, '.mcp.json'),
+		JSON.stringify({ mcpServers: { tickets: { command: 'node' } } }),
+	)
+	writeFileSync(join(home, 'mcp-approvals.json'), '{ damaged')
+	process.chdir(project)
+	let stdout = ''
+	let stderr = ''
+	vi.spyOn(process.stdout, 'write').mockImplementation((chunk) => {
+		stdout += String(chunk)
+		return true
+	})
+	vi.spyOn(process.stderr, 'write').mockImplementation((chunk) => {
+		stderr += String(chunk)
+		return true
+	})
+	const run = (...args: string[]) =>
+		runCli({ argv: ['node', 'namzu', '--format', 'json', 'mcp', ...args] })
+
+	// Refused first, with the way out named; the file is left as it is.
+	expect(await run('approve')).not.toBe(0)
+	expect(stderr).toContain('namzu mcp approve --new-list')
+	expect(readFileSync(join(home, 'mcp-approvals.json'), 'utf8')).toBe('{ damaged')
+
+	expect(await run('approve', '--new-list')).toBe(0)
+	const answer = JSON.parse(stdout)
+	expect(answer.approved).toEqual(['tickets'])
+	expect(readFileSync(answer.keptAt, 'utf8')).toBe('{ damaged')
+	expect(pendingProjectMcpServers({ cwd: project }).pending).toEqual([])
 })
