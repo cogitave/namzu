@@ -25,6 +25,7 @@ import { wroteBy, wroteLineParts, wroteOf } from './agent-tokens.js'
 import { SYSTEM_ROW_GLYPH, endWord } from './system-rows.js'
 import { EXPAND_HINT } from './truncation.js'
 
+import { DEFAULT_SHOW_TURN_DURATION } from '../config/turn-duration-default.js'
 import {
 	DEFAULT_AGENT_PHASE,
 	DEFAULT_AGENT_WORKFLOW,
@@ -413,6 +414,11 @@ export function doneClock(at: Date): string {
  * Phases never appear here: they show only inside a workflow's detail view.
  * The tokens appear only when a child reported spend, and `· 1 failed` only
  * when one did.
+ *
+ * With `showDuration` false the `Worked for … · done …` part is left out. A
+ * turn that delegated still says what its agents came to (`3 agents · 27.0k
+ * tokens`), since that is spend and not time; one that delegated nothing has
+ * no line at all.
  */
 export function settleLine(
 	elapsedMs: number,
@@ -420,14 +426,16 @@ export function settleLine(
 	doneAt?: Date,
 	/** What the agents spent in all, when the caller knows it and the agents do not carry it. */
 	spentInAll?: number,
+	showDuration: boolean = DEFAULT_SHOW_TURN_DURATION,
 ): string | undefined {
 	const worked = (ms: number): string =>
 		`Worked for ${formatElapsed(Math.max(0, ms))}${doneAt ? ` · done ${doneClock(doneAt)}` : ''}`
-	if (agents.length <= 0) return elapsedMs >= SETTLE_LINE_MIN_MS ? worked(elapsedMs) : undefined
+	if (agents.length <= 0)
+		return showDuration && elapsedMs >= SETTLE_LINE_MIN_MS ? worked(elapsedMs) : undefined
 	const spent = spentInAll ?? wroteBy(agents)
 	const failed = agents.filter((agent) => agent.status === 'failed').length
 	return [
-		worked(elapsedMs),
+		...(showDuration ? [worked(elapsedMs)] : []),
 		`${agents.length} agent${agents.length === 1 ? '' : 's'}`,
 		...wroteLineParts(spent),
 		...(failed > 0 ? [`${failed} failed`] : []),

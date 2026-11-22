@@ -553,6 +553,63 @@ it('draws the roster of every machine, and offers Allow and Deny for a request t
 	}
 })
 
+it('writes nothing to the transcript when /peers opens a picker, and nothing when Esc closes it', async () => {
+	networkOn = { summary: networkSummary, roster: networkRoster }
+	const screen = await renderToScreen(<App ctx={interactiveCtx} />, { cols: 110, rows: 40 })
+	try {
+		await peerOpened.promise
+		await waitUntil(screen, () => peerOptions?.ready() === true, 'App did not open its peer host')
+		await typeAndPress(screen, '/peers', '\r')
+		await waitUntil(
+			screen,
+			() => screen.viewport().join('\n').includes('Allow desk-mini'),
+			'the picker was not offered',
+		)
+		// The roster is the picker's body.
+		expect(screen.viewport().join('\n')).toContain('Your Namzu network · on · 2 machines')
+		// A lone Esc is held back a moment by the input parser; the clock is the test's.
+		vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+		screen.press('\u001b')
+		for (let i = 0; i < 50 && screen.viewport().join('\n').includes('Allow desk-mini'); i++) {
+			await vi.advanceTimersByTimeAsync(40)
+			await screen.waitForRender()
+		}
+		expect(screen.viewport().join('\n')).not.toContain('Allow desk-mini')
+		// Once it is closed, neither the roster nor the join request is left behind.
+		const left = screen.scrollback().join('\n')
+		expect(left).not.toContain('Your Namzu network · on')
+		expect(left).not.toContain('wants to join your Namzu network')
+		expect(networkCalls).not.toContainEqual(['allow', 'r1'])
+	} finally {
+		vi.useRealTimers()
+		await screen.unmount()
+	}
+})
+
+it('writes the roster once as the command result when nothing waits for the person', async () => {
+	networkOn = {
+		summary: { ...networkSummary, joinRequests: [], held: [] },
+		roster: networkRoster,
+	}
+	const screen = await renderToScreen(<App ctx={interactiveCtx} />, { cols: 110, rows: 40 })
+	try {
+		await peerOpened.promise
+		await waitUntil(screen, () => peerOptions?.ready() === true, 'App did not open its peer host')
+		await typeAndPress(screen, '/peers', '\r')
+		await waitUntil(
+			screen,
+			() =>
+				screen.scrollback().some((line) => line.includes('Your Namzu network · on · 2 machines')),
+			'the roster was not written',
+		)
+		const rows = screen.scrollback().filter((line) => line.includes('Your Namzu network · on'))
+		expect(rows).toHaveLength(1)
+		expect(screen.viewport().join('\n')).not.toContain('Waiting for you')
+	} finally {
+		await screen.unmount()
+	}
+})
+
 it.each([110, 80])(
 	'shows the held-mail rows whole at %i columns: the reason is on the Held line, not cut on the row',
 	async (cols) => {
