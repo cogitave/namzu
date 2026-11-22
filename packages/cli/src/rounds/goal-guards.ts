@@ -3,15 +3,14 @@
  * it gives a goal when it is set.
  *
  * A goal is stopped by what it does, not by a fixed count of turns: a turn that
- * changed nothing and checked nothing, the same failure again, a pause every so
- * many turns for a person to look, an optional budget of tokens. The count of
+ * changed nothing and checked nothing, the same failure again, an optional pause every
+ * so many turns for a person to look, an optional budget of tokens. The count of
  * turns is only a backstop. The store keeps the counts; this reads a finished
  * turn's record into the one small shape the store takes, and says in plain
  * words why a goal stopped.
  */
 
 import {
-	DEFAULT_GOAL_CHECK_IN_ROUNDS,
 	DEFAULT_GOAL_STALL_ROUNDS,
 	type GoalGuards,
 	type GoalRoundAuthority,
@@ -28,6 +27,9 @@ import type { GoalCliConfig } from '../config/schema.js'
 /** Backstop on the automatic turns of one goal, when `goal.maxRounds` says nothing. */
 export const DEFAULT_CLI_GOAL_MAX_ROUNDS = 1000
 
+/** Turns between check-in pauses when `goal.checkInEvery` says nothing: 0, no pause. */
+export const DEFAULT_CLI_GOAL_CHECK_IN_ROUNDS = 0
+
 export interface GoalDefaults {
 	readonly maxGoalRounds: number
 	readonly guards: GoalGuards
@@ -39,7 +41,7 @@ export function goalDefaults(config: GoalCliConfig | undefined): GoalDefaults {
 		maxGoalRounds: config?.maxRounds ?? DEFAULT_CLI_GOAL_MAX_ROUNDS,
 		guards: {
 			stallRounds: config?.stallRounds ?? DEFAULT_GOAL_STALL_ROUNDS,
-			checkInEvery: config?.checkInEvery ?? DEFAULT_GOAL_CHECK_IN_ROUNDS,
+			checkInEvery: config?.checkInEvery ?? DEFAULT_CLI_GOAL_CHECK_IN_ROUNDS,
 			...(config?.tokenBudget !== undefined ? { tokenBudget: config.tokenBudget } : {}),
 		},
 	}

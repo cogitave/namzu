@@ -56,6 +56,7 @@ permissions:
 - `Tool`, `Tool()` and `Tool(*)` cover every call to the tool.
 - A trailing `:*` means the same as a trailing space and star: `git push:*` is `git push *`, and it also matches the bare `git push`.
 - A literal parenthesis in a specifier is written `\(` and `\)`.
+- A `deny` for a command matches wherever that command starts in the line (after `sudo`, a path such as `/usr/bin/`, a quote, `;`, `&&`, `|`, `$(` or a backtick), and never inside another word (a letter, digit, hyphen or underscore continues the word, so `.exe` or `${IFS}` after the command still count as the command): `Bash(gh *)` refuses `gh pr list` and `x && gh api`, not `through` or `ghost`. A pattern that starts with `*` still matches anywhere, and one that ends in `*` is open on the right (`python*` refuses `python3`).
 - Names are the tools' own, with capitalised words accepted: `Bash` is `bash`, `WebFetch` is `web_fetch`. Tool-server names such as `mcp__files__delete` are used as written.
 - `WebFetch(domain:host)` matches addresses on exactly that host.
 - A file tool's specifier is a path; see [File rules are paths](#file-rules-are-paths).

@@ -7,8 +7,10 @@
 
 import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
+import { schedulePaths } from '../paths.js'
 import { readVersioned, writeJsonAtomic } from '../store/atomic.js'
-import type { ServicePlatform } from './manifest.js'
+import { type ServicePlatform, readManifest } from './manifest.js'
+import { wslTaskName } from './wsl.js'
 
 export interface ServiceIndexEntry {
 	readonly name: string
@@ -82,8 +84,48 @@ function writeServiceIndex(
 	return undefined
 }
 
+/**
+ * The name a person typed for an entry written by older code, which stored a
+ * `wsl-windows-task` service as `<name>-wsl-<distro>`; undefined for any other
+ * entry. The distro comes from the service's own manifest, else `env`.
+ */
+export function legacyBaseName(
+	entry: ServiceIndexEntry,
+	env: NodeJS.ProcessEnv = process.env,
+): string | undefined {
+	if (entry.platform !== 'wsl-windows-task') return undefined
+	const distros: string[] = []
+	try {
+		const stored = readManifest(schedulePaths(entry.home))?.windows?.distro
+		if (stored) distros.push(stored)
+	} catch {}
+	if (env.WSL_DISTRO_NAME) distros.push(env.WSL_DISTRO_NAME)
+	for (const distro of distros) {
+		const suffix = wslTaskName('', distro)
+		if (entry.name.length > suffix.length && entry.name.endsWith(suffix))
+			return entry.name.slice(0, -suffix.length)
+	}
+	return undefined
+}
+
+/** The name `service list` and messages show: the one the person gave. */
+export function displayName(entry: ServiceIndexEntry, env?: NodeJS.ProcessEnv): string {
+	return legacyBaseName(entry, env) ?? entry.name
+}
+
+/** Exact name first; else an entry an older install registered under `<word>-wsl-<distro>`. Never writes. */
+export function matchService(
+	services: readonly ServiceIndexEntry[],
+	word: string,
+	env?: NodeJS.ProcessEnv,
+): ServiceIndexEntry | undefined {
+	return (
+		services.find((e) => e.name === word) ?? services.find((e) => legacyBaseName(e, env) === word)
+	)
+}
+
 export function findService(name: string, osHome?: string): ServiceIndexEntry | undefined {
-	return readServiceIndex(osHome).find((entry) => entry.name === name)
+	return matchService(readServiceIndex(osHome), name)
 }
 
 /** The sentence that refuses `name` for `home` when the index maps it elsewhere, else undefined. */

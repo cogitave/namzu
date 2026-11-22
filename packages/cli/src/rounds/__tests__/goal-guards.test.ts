@@ -1,4 +1,6 @@
 import {
+	GoalCheckInError,
+	type GoalGuards,
 	type GoalRoundAuthority,
 	InMemorySessionGoalStore,
 	InMemorySessionStore,
@@ -31,10 +33,10 @@ const record = (over: Partial<TurnOutcome> = {}): TurnOutcome => ({
 })
 
 describe('the limits a goal gets here', () => {
-	it('are the backstop, the stall count and the check-in, with no budget, when nothing is set', () => {
+	it('are the backstop and the stall count, with no check-in and no budget, when nothing is set', () => {
 		expect(goalDefaults(undefined)).toEqual({
 			maxGoalRounds: DEFAULT_CLI_GOAL_MAX_ROUNDS,
-			guards: { stallRounds: 3, checkInEvery: 50 },
+			guards: { stallRounds: 3, checkInEvery: 0 },
 		})
 		expect(DEFAULT_CLI_GOAL_MAX_ROUNDS).toBe(1000)
 	})
@@ -147,7 +149,7 @@ describe('the sentence for a goal a rule stopped', () => {
 })
 
 describe('writing a goal round down', () => {
-	async function fixture() {
+	async function fixture(guards: GoalGuards = { stallRounds: 3 }) {
 		const sessions = new InMemorySessionStore()
 		const tenantId: TenantId = generateTenantId()
 		const project = await sessions.createProject(
@@ -159,12 +161,44 @@ describe('writing a goal round down', () => {
 			tenantId,
 		)
 		const goals = new InMemorySessionGoalStore({ sessions })
-		const goal = await goals.createGoal(
-			{ sessionId: session.id, objective: 'x', guards: { stallRounds: 3 } },
-			tenantId,
-		)
+		const goal = await goals.createGoal({ sessionId: session.id, objective: 'x', guards }, tenantId)
 		return { goals, tenantId, sessionId: session.id as SessionId, goal }
 	}
+
+	async function admitAll(checkInEvery: number | undefined, count: number) {
+		const defaults = goalDefaults(checkInEvery === undefined ? undefined : { checkInEvery })
+		const { goals, tenantId, sessionId, goal: created } = await fixture(defaults.guards)
+		let goal = created
+		let refused: unknown
+		for (let i = 0; i < count; i++) {
+			try {
+				await goals.admitRound(sessionId, tenantId, goal)
+			} catch (error) {
+				refused = error
+				break
+			}
+			goal = (await goals.recordRound?.(sessionId, tenantId, goal.id, {
+				progress: 'progress',
+				action: 'edited a.ts',
+			})) as SessionGoal
+		}
+		return { refused, paused: await goals.getGoal(sessionId, tenantId) }
+	}
+
+	it('does not pause for a check-in when the setting is unset', async () => {
+		const { refused, paused } = await admitAll(undefined, 120)
+		expect(refused).toBeUndefined()
+		expect(paused?.phase).toBe('active')
+		expect(paused?.roundsAdmitted).toBe(120)
+	})
+
+	it('still pauses for a check-in after 50 turns when goal.checkInEvery is 50', async () => {
+		const { refused, paused } = await admitAll(50, 60)
+		expect(refused).toBeInstanceOf(GoalCheckInError)
+		expect(paused?.phase).toBe('paused')
+		expect(paused?.pauseReason?.code).toBe('check-in')
+		expect(paused?.roundsAdmitted).toBe(50)
+	})
 
 	it('stops the goal on the third empty turn, and says why only that once', async () => {
 		const { goals, tenantId, sessionId, goal } = await fixture()

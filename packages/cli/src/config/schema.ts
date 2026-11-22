@@ -287,7 +287,7 @@ export interface GoalCliConfig {
 	/**
 	 * Pause a goal for a check-in after this many automatic turns, and again after
 	 * each further batch. The pause says what has been spent; `/goal resume`
-	 * continues with no count reset. Default 50. 0 turns check-ins off.
+	 * continues with no count reset. Default 0: no check-ins. A positive number turns them on.
 	 */
 	readonly checkInEvery?: number
 	/** Tokens a goal's automatic turns may spend; one last turn is given at the budget. Unset: no budget. */
