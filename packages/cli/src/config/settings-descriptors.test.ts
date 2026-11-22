@@ -266,6 +266,14 @@ describe('the words of the apply sentence', () => {
 		)
 	})
 
+	it('reads the computer use switch every turn, and its denied apps once per conversation', () => {
+		expect(appliesWhenFor('computerUse.enabled')).toBe('next-turn')
+		expect(appliesTextFor({ path: 'computerUse.enabled', appliesWhen: 'next-turn' })).toBe(
+			'Applies from your next message.',
+		)
+		expect(appliesWhenFor('computerUse.deniedApps')).toBe('next-conversation')
+	})
+
 	it('keeps the old name of a renamed row as a search word', () => {
 		const find = (path: string) => SETTING_DESCRIPTORS.find((entry) => entry.path === path)
 		expect(find('smallModel')?.keywords).toContain('Small model')

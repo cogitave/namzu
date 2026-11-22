@@ -400,7 +400,7 @@ describe('trusted runtime config reaches hydration', () => {
 		)
 	})
 
-	it('leaves the computer tools out until computer use is turned on', async () => {
+	it('offers the computer tools with a switch that is off until computer use is turned on', async () => {
 		let seen: Parameters<typeof createSession>[2]
 		createSession = async (_prefs, _detected, options) => {
 			seen = options
@@ -410,7 +410,8 @@ describe('trusted runtime config reaches hydration', () => {
 		mounted.push(harness)
 		await vi.waitFor(() => expect(seen).toBeDefined())
 
-		expect(seen?.enableComputerUse).toBe(false)
+		expect(seen?.enableComputerUse).toBe(true)
+		expect(seen?.computerUseSwitch?.()).toBe(false)
 		expect(seen).not.toHaveProperty('deniedComputerApps')
 	})
 })

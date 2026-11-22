@@ -488,8 +488,13 @@ const fileOnly: SettingControl = { kind: 'file-only' }
  * options, the permission rules, the browser rules and the per-turn options from that fresh read,
  * so those keys reach the next conversation and never one that is already open. Every key not
  * traced to one of those readers defaults to `next-start`, the later and therefore safe claim.
+ *
+ * One key is read sooner than its prefix: `computerUse.enabled` is read at the top of every turn
+ * (`tui/computer-use-live.ts`), so it applies from the next message. `computerUse.deniedApps` stays
+ * with the conversation, which builds the tool.
  */
 export function appliesWhenFor(path: string): AppliesWhen {
+	if (path === 'computerUse.enabled') return 'next-turn'
 	const startOnly = [
 		'tui.',
 		'updates.',

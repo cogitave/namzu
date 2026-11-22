@@ -116,6 +116,14 @@ or a clear whose default is risky. On a terminal it asks `y/N` with that sentenc
 refused unless `--yes` is given; the refusal prints the sentence and the command to run again. Saving the
 value already saved asks nothing.
 
+## When a change applies
+
+Each result line says when the change takes hold. Most keys reach conversations started after the change
+("Applies to new conversations. Open ones keep what they have."). `computerUse.enabled` is the exception:
+an open conversation reads it before every message, so the result line says "Applies from your next
+message." and the computer tool appears (or goes) from then on. `computerUse.deniedApps` is still read when
+a conversation starts. See [Computer use settings](computer-use-settings.md#what-enabled-does).
+
 ## In the terminal app
 
 `/config <key>` shows the same as `namzu config get <key>`, `/config <key> <value>` sets it, and

@@ -81,13 +81,15 @@ it('mounts the host computer for the desktop once computer use is turned on', as
 	expect(seen.enableComputerUse).toBe(true)
 })
 
-it('leaves the host computer out for the desktop until computer use is turned on', async () => {
-	expect('enableComputerUse' in (await optionsSeen({ computerUse: true }))).toBe(false)
-	expect(
-		'enableComputerUse' in
-			(await optionsSeen({ computerUse: true }, { computerUse: { enabled: false } })),
-	).toBe(false)
-	// The apps on the list still reach the session; the tool only mounts when it is on.
+it('offers the host computer to the desktop with a switch that follows the setting', async () => {
+	const off = await optionsSeen({ computerUse: true })
+	expect(off.enableComputerUse).toBe(true)
+	expect((off.computerUseSwitch as () => boolean)()).toBe(false)
+	const disabled = await optionsSeen({ computerUse: true }, { computerUse: { enabled: false } })
+	expect((disabled.computerUseSwitch as () => boolean)()).toBe(false)
+	const on = await optionsSeen({ computerUse: true }, { computerUse: { enabled: true } })
+	expect((on.computerUseSwitch as () => boolean)()).toBe(true)
+	// The apps on the list still reach the session.
 	expect(
 		(
 			await optionsSeen(
@@ -96,6 +98,61 @@ it('leaves the host computer out for the desktop until computer use is turned on
 			)
 		).deniedComputerApps,
 	).toEqual(['Banking'])
+})
+
+it('reads the switch again between two turns of one session', async () => {
+	let enabled = false
+	let seen: Record<string, unknown> = {}
+	const deps = {
+		probe: async () => ({
+			preferences: { version: 3, providers: [{ id: 'mock' }], subagents: { active: [] } },
+			detected: [],
+		}),
+		decideTrust: ({ cwd }: { cwd: string }) => ({ allowed: true, cwd }),
+		resolveProjectContext: () => ({
+			config: { computerUse: { enabled } },
+			formatter: { name: 'text', print() {}, info() {}, error() {} },
+		}),
+		resolveSession: async (sessionId: string) => ({ sessionId }),
+		createSession: async (_p: unknown, _d: unknown, options: Record<string, unknown>) => {
+			seen = options
+			return {
+				hasProvider: true,
+				errorHint: null,
+				mcpFailed: [],
+				send: async function* () {
+					yield { kind: 'done', stopReason: 'end_turn' }
+				},
+				close: async () => {},
+				presenter: {
+					presentCall: () => ({ kind: 'generic', label: 'Fixture' }),
+					presentResult: () => ({ kind: 'generic', label: 'Fixture' }),
+				},
+				jobs: () => [],
+			}
+		},
+	} as unknown as AcpRuntimeDependencies
+	const runtime = createCliAcpRuntime(
+		{ config: {}, formatter: { name: 'text', print() {}, info() {}, error() {} } },
+		deps,
+		{ computerUse: true },
+	)
+	await runtime.gateway.prompt({
+		sessionId: 'session-cu-live',
+		cwd,
+		prompt: 'hello',
+		history: [],
+		signal: new AbortController().signal,
+		onEvent() {},
+		ask: async () => ({ kind: 'approve' }),
+		filesystem: undefined,
+	})
+	const computerUseSwitch = seen.computerUseSwitch as () => boolean
+	expect(computerUseSwitch()).toBe(false)
+	enabled = true
+	expect(computerUseSwitch()).toBe(true)
+	enabled = false
+	expect(computerUseSwitch()).toBe(false)
 })
 
 it('leaves a bare ACP client without it', async () => {

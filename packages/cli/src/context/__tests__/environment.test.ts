@@ -16,6 +16,7 @@ import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 import type { PermissionMode } from '../../permissions/mode.js'
 
 import {
+	COMPUTER_USE_OFFER_FACT,
 	DESKTOP_PREVIEW_FACT,
 	type EnvironmentFacts,
 	composeEnvironmentPrompt,
@@ -253,5 +254,31 @@ describe('the desktop host', () => {
 	it('says nothing about a preview anywhere else', () => {
 		expect(composeEnvironmentPrompt(base)).not.toContain('Browser pane')
 		expect(composeEnvironmentPrompt(base, { stable: true })).not.toContain('Browser pane')
+	})
+})
+
+describe('the computer use switch', () => {
+	const base: EnvironmentFacts = { today: '2026-11-16', branch: null, isRepository: false }
+
+	it('is said, in the cached block too, only where the surface offers it', () => {
+		for (const stable of [false, true]) {
+			const offered = composeEnvironmentPrompt({ ...base, computerUseOffer: true }, { stable })
+			expect(offered).toContain(COMPUTER_USE_OFFER_FACT)
+			expect(offered).toContain('/config computerUse.enabled on')
+			expect(composeEnvironmentPrompt(base, { stable })).not.toContain('computer_use tool')
+		}
+	})
+
+	it('names why the tool is absent while the switch is on and the desktop did not start', () => {
+		const failed = composeEnvironmentPrompt({
+			...base,
+			computerUseOffer: true,
+			computerUseFailure: 'the helper did not answer.',
+		})
+		expect(failed).toContain('could not start: the helper did not answer.')
+		expect(composeEnvironmentPrompt({ ...base, computerUseOffer: true })).not.toContain(
+			'could not start: ',
+		)
+		expect(composeEnvironmentPrompt({ ...base, computerUseFailure: 'x' })).not.toContain('x')
 	})
 })

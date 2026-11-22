@@ -280,6 +280,12 @@ export interface TuiContext {
 	readonly browser?: BrowserConfig
 	/** See `NamzuCliConfig.computerUse`. */
 	readonly computerUse?: ComputerUseConfig
+	/**
+	 * `computerUse.enabled` as the settings files say it now. Read at the top of every turn, so
+	 * turning computer use on or off in an open conversation applies from the next message.
+	 * Absent: the value in `computerUse` at launch stands.
+	 */
+	readonly readComputerUseEnabled?: () => boolean
 	/** See `NamzuCliConfig.codeAnalysis`. */
 	readonly codeAnalysis?: CodeAnalysisConfig
 	/** See `NamzuCliConfig.progressNudge`. */

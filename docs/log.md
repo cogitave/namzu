@@ -1,5 +1,9 @@
 # Documentation update log
 
+## 2026-11-23
+
+- **Update** [Computer use settings](cli/computer-use-settings.md#turning-it-on-in-an-open-conversation), [namzu config](cli/config-command.md#when-a-change-applies), [namzu computer](cli/computer.md): `computerUse.enabled` is read before every message, so turning it on or off applies from the next message in an open conversation (the host starts the first time it is on, and a failed start is retried only after off and on, and the model is told why; a setting file that cannot be read counts as off; the browser and desktop routing line follows a switch turned on later); the environment block tells the model once that computer use is a switch the person controls; `/config computerUse.enabled` now says "Applies from your next message.". The default stays off. `.changeset/cli-computer-use-live-enable.md`.
+
 ## 2026-11-22
 
 - **Update** [Permission layers](cli/permission-layers.md#rules-as-lists): a `deny` for a command now matches where that command starts, anywhere in the line, and no longer matches the same letters inside another word (`gh *` no longer refuses `through` or `ghost`); a rule that starts with `*` still matches anywhere. `.changeset/cli-deny-word-boundary.md`.
