@@ -144,7 +144,7 @@ function addLaunchOptions(command: Command): Command {
 		.addOption(
 			new Option(
 				'--fast',
-				'Start with fast inference on for this launch only (Anthropic models that offer it; billed at twice the standard rate). Off by default. /fast changes it from inside.',
+				'Start with fast inference on for this launch only (Anthropic and OpenAI models that offer it; billed at a multiple of the standard rate, or a faster use of your plan allowance). Off by default. /fast changes it from inside.',
 			),
 		)
 		.addOption(

@@ -1,0 +1,5 @@
+---
+"@namzu/sdk": major
+---
+
+`InferenceSpeed` and `TokenUsage.speed` gain the value `'ultrafast'`, so a `switch` over either that must be exhaustive stops compiling until it has an `'ultrafast'` case; add one (a driver that has no such tier refuses it, so most callers can treat it like `'fast'` for display and refuse it for pricing). Cost reading changed too: a call served at `'ultrafast'`, and tokens served on the `flex` or `scale` service tier, are now counted as unpriced (like `priority` and `batch`) instead of being charged at the standard rate, so `costLimitUsd` refuses rather than under-counts them. New and optional: `ModelInfo.speedTiers` and `LLMProvider.speedTiersFor(model)` name the speed tiers a listing established for a model (`undefined` unknown, `[]` none), and the retry, idle-timeout, fallback and window-suffix wrappers pass the method through. The model price catalogue gains `fastMultiplier` on six OpenAI rows (`gpt-5.5` is 2.5, `gpt-5.4`, `gpt-5.4-mini` and the three `gpt-5.6` models are 2); the `gpt-6` models have no row, so their fast usage reports unknown.

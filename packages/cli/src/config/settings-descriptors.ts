@@ -661,13 +661,14 @@ const DECLARED: readonly SettingDescriptor[] = [
 		'fast',
 		'models',
 		'Fast mode',
-		'Start the terminal app with faster replies on models that offer it. Billed at twice the standard rate.',
+		'Start the terminal app with faster replies on models that offer it. Billed at a multiple of the standard rate.',
 		on,
 		{
 			group: 'choosing-models',
 			keywords: ['fast', 'speed', 'faster replies', 'priority'],
 			default: false,
-			confirm: 'Replies on models that offer fast mode will be billed at twice the standard rate.',
+			confirm:
+				'Replies on models that offer fast mode will cost more or use more of your plan allowance.',
 			confirmWhen: 'on',
 		},
 	),

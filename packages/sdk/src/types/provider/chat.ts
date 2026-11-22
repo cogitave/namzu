@@ -109,10 +109,11 @@ export interface ChatCompletionParams {
 
 	/**
 	 * Inference speed. `'fast'` asks a provider for its premium low-latency
-	 * mode, billed at a multiple of the standard rate; absent and `'standard'`
+	 * mode, billed at a multiple of the standard rate; `'ultrafast'` asks for
+	 * a tier above it where a provider offers one. Absent and `'standard'`
 	 * are the same request. A driver with no such mode, or a model without it,
-	 * must refuse `'fast'` rather than serve it at standard speed and let the
-	 * caller believe it was honoured.
+	 * must refuse `'fast'` and `'ultrafast'` rather than serve them at standard
+	 * speed and let the caller believe they were honoured.
 	 */
 	speed?: InferenceSpeed
 }
@@ -183,8 +184,12 @@ export interface ThinkingConfig {
  * transport or leave the vendor to refuse an unknown compatible-endpoint
  * extension explicitly.
  */
-/** `'fast'` is a premium low-latency mode; `'standard'` is the ordinary request. See {@link ChatCompletionParams.speed}. */
-export type InferenceSpeed = 'standard' | 'fast'
+/**
+ * `'fast'` is a premium low-latency mode; `'ultrafast'` is a tier above it on
+ * providers that offer one; `'standard'` is the ordinary request. See
+ * {@link ChatCompletionParams.speed}.
+ */
+export type InferenceSpeed = 'standard' | 'fast' | 'ultrafast'
 
 export type ReasoningEffort =
 	| 'none'

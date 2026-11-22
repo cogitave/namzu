@@ -1375,10 +1375,20 @@ export class AnthropicProvider implements LLMProvider {
 		}
 		if (Object.keys(outputConfig).length) body.output_config = outputConfig
 
-		// Only 'fast' is a wire value: 'standard' is what an absent field means.
+		// Only 'fast' is a wire value: 'standard' is what an absent field means,
+		// and 'ultrafast' has no Anthropic counterpart, so it is refused above.
 		// Admission is decided locally, before transport, because the vendor
 		// either errors (removed or unsupported models) or, on Opus 4.6, quietly
 		// serves standard speed while the caller believes otherwise.
+		if (params.speed === 'ultrafast') {
+			throw new ProviderRequestError({
+				kind: 'bad_request',
+				providerId: 'anthropic',
+				providerCode: 'fast_mode_unsupported',
+				detail:
+					'Ultrafast is not an Anthropic mode. Use fast mode on a model that offers it, or omit speed.',
+			})
+		}
 		if (params.speed === 'fast') {
 			assertFastModeAccepted(
 				model,

@@ -88,13 +88,20 @@ describe('fast', () => {
 		expect(load().fast).toBeUndefined()
 		expect(load('fast: true\n').fast).toBe(true)
 		expect(() => load('fast: quick\n')).toThrow(ConfigValueError)
+		// The faster tier is asked for inside a conversation and never saved.
+		expect(() => load('fast: ultrafast\n')).toThrow(/must be true or false/u)
 	})
 
 	it('is off by default, asks before it is turned on, and applies when the terminal app starts', () => {
 		const entry = row('fast')
 		expect(entry?.default).toBe(false)
 		expect(entry?.confirmWhen).toBe('on')
-		expect(entry?.description).toMatch(/twice the standard rate/u)
+		expect(entry?.description).toBe(
+			'Start the terminal app with faster replies on models that offer it. Billed at a multiple of the standard rate.',
+		)
+		expect(entry?.confirm).toBe(
+			'Replies on models that offer fast mode will cost more or use more of your plan allowance.',
+		)
 		expect(entry && appliesTextFor(entry)).toBe('Applies the next time the terminal app starts.')
 	})
 

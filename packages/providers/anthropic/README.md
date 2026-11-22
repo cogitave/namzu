@@ -209,6 +209,8 @@ or Bedrock) is refused too: those platforms do not take `speed`, or sell fast
 variants as separate model ids. `speed` is a per-turn setting, so a turn that
 switches models mid-way (or falls back to another model) and lands on one
 without fast mode fails with the same error; it is not dropped quietly.
+`speed: 'ultrafast'` is not an Anthropic mode and is refused the same way, so it
+can never be sent as standard speed.
 The refusal is local because the vendor either errors or, on Opus 4.6, quietly
 serves standard speed while the caller believes otherwise. The removal date is
 read from `AnthropicConfig.clock` (default `Date.now`). The beta header is

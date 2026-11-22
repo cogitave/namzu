@@ -72,10 +72,10 @@ export interface TurnConfig {
 	/**
 	 * Inference speed for every model call in the turn: `'fast'` asks for the
 	 * provider's premium low-latency mode (billed at a multiple of the standard
-	 * rate), absent and `'standard'` are the ordinary request. Turn-level for
+	 * rate), `'ultrafast'` for a tier above it where one is offered, absent and `'standard'` are the ordinary request. Turn-level for
 	 * the same reason as {@link TurnConfig.effort}: speeds do not share a
 	 * prompt-cache prefix, so a value that moves between steps pays for a cache
-	 * miss each time. A driver or model without the mode REFUSES `'fast'`
+	 * miss each time. A driver or model without the mode REFUSES the tier
 	 * rather than serving it slowly.
 	 */
 	speed?: import('../provider/index.js').InferenceSpeed

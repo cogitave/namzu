@@ -1,6 +1,7 @@
 import type {
 	ChatCompletionParams,
 	ChatCompletionResponse,
+	InferenceSpeed,
 	LLMProvider,
 	ModelInfo,
 	ProviderCapabilities,
@@ -26,6 +27,7 @@ import type {
 	ChatCompletionTool,
 	ChatCompletionToolChoiceOption,
 } from 'openai/resources/chat/completions'
+import { assertFastModeAccepted, isFirstPartyOpenAIEndpoint, servedSpeed } from './fast-mode.js'
 import type { OpenAIConfig } from './types.js'
 
 /**
@@ -109,11 +111,16 @@ export function openAIReasoningEffortLevels(model: string): readonly ReasoningEf
 
 /** Whether a base URL names a host other than OpenAI's own API. */
 function isCompatibleHost(baseURL: string | undefined): boolean {
-	if (!baseURL) return false
+	return !isFirstPartyOpenAIEndpoint(baseURL)
+}
+
+/** The host a base URL names, for a refusal that has to say where requests go. */
+function hostOf(baseURL: string | undefined): string | undefined {
+	if (!baseURL) return undefined
 	try {
-		return new URL(baseURL).hostname !== 'api.openai.com'
+		return new URL(baseURL).hostname
 	} catch {
-		return false
+		return undefined
 	}
 }
 
@@ -297,7 +304,11 @@ interface RawOpenAIUsage {
 	prompt_tokens_details?: { cached_tokens?: number }
 }
 
-function parseUsage(raw?: RawOpenAIUsage | null): TokenUsage {
+function parseUsage(
+	raw?: RawOpenAIUsage | null,
+	servedTier?: unknown,
+	requestedSpeed?: InferenceSpeed,
+): TokenUsage {
 	if (!raw) {
 		return {
 			promptTokens: 0,
@@ -315,6 +326,7 @@ function parseUsage(raw?: RawOpenAIUsage | null): TokenUsage {
 		totalTokens: raw.total_tokens ?? promptTokens + completionTokens,
 		cachedTokens: raw.prompt_tokens_details?.cached_tokens ?? 0,
 		cacheWriteTokens: 0,
+		...servedSpeed(servedTier, requestedSpeed),
 	}
 }
 
@@ -497,6 +509,8 @@ export class OpenAIProvider implements LLMProvider {
 	/** Before this time (ms since the epoch) a failed listing is not asked for again. */
 	private windowListingRetryAt = 0
 	private thinkingOffFields: OpenAIConfig['thinkingOffFields']
+	/** The base URL requests go to, kept to name the host when fast mode is refused there. */
+	private readonly effectiveBaseURL: string | undefined
 
 	constructor(config: OpenAIConfig) {
 		if (!config.apiKey) {
@@ -523,7 +537,8 @@ export class OpenAIProvider implements LLMProvider {
 		this.defaultModel = config.model
 		this.thinkingOffFields = config.thinkingOffFields
 		// The client reads the standard base-URL variable when none is given, so that is where requests go.
-		this.compatibleHost = isCompatibleHost(config.baseURL ?? process.env.OPENAI_BASE_URL)
+		this.effectiveBaseURL = config.baseURL ?? process.env.OPENAI_BASE_URL
+		this.compatibleHost = isCompatibleHost(this.effectiveBaseURL)
 	}
 
 	/**
@@ -594,6 +609,23 @@ export class OpenAIProvider implements LLMProvider {
 				: this.thinkingOffFields
 			: undefined
 
+		// Fast mode is admitted or refused here, before transport: a model or an
+		// endpoint that does not take the tier would otherwise serve standard
+		// speed (or fail) while the caller believes it was honoured. Only the
+		// fast tier has a wire value; the verdict refuses `ultrafast` on this route.
+		let serviceTier: 'priority' | undefined
+		if (params.speed === 'fast' || params.speed === 'ultrafast') {
+			const accepted = assertFastModeAccepted({
+				route: 'api',
+				model,
+				tier: params.speed,
+				firstPartyEndpoint: !this.compatibleHost,
+				host: hostOf(this.effectiveBaseURL),
+			})
+			serviceTier = accepted.wire === 'priority' ? 'priority' : undefined
+		}
+		const requestedSpeed = params.speed === 'fast' ? ('fast' as const) : undefined
+
 		let stream: Awaited<ReturnType<typeof this.client.chat.completions.create>>
 		try {
 			stream = await this.client.chat.completions.create(
@@ -613,6 +645,7 @@ export class OpenAIProvider implements LLMProvider {
 						presence_penalty: params.presencePenalty,
 						stop: params.stop,
 						response_format: params.responseFormat,
+						...(serviceTier ? { service_tier: serviceTier } : {}),
 						...(offFields ?? {}),
 					},
 					params.effort,
@@ -634,8 +667,12 @@ export class OpenAIProvider implements LLMProvider {
 		// A choice reported why it stopped. A stream that closes without one was
 		// cut by the connection, and what it carried is not a whole response.
 		let finished = false
+		// The tier the service says served the call, from whichever chunk carries it.
+		let servedTier: unknown
 		try {
 			for await (const chunk of stream) {
+				const echoed = (chunk as { service_tier?: unknown }).service_tier
+				if (typeof echoed === 'string' && echoed.length > 0) servedTier = echoed
 				// Stop pulling promptly on abort; `for await` calls the stream's
 				// `.return()` on this throw, releasing the connection.
 				params.signal?.throwIfAborted()
@@ -674,7 +711,9 @@ export class OpenAIProvider implements LLMProvider {
 					const finishReason = choice?.finish_reason
 						? mapFinishReason(choice.finish_reason)
 						: undefined
-					const usage = chunk.usage ? parseUsage(chunk.usage) : undefined
+					const usage = chunk.usage
+						? parseUsage(chunk.usage, servedTier, requestedSpeed)
+						: undefined
 					if (finishReason) finished = true
 
 					if (!hasDelta && !finishReason && !usage) continue
@@ -684,7 +723,13 @@ export class OpenAIProvider implements LLMProvider {
 						delta: {
 							content: delta?.content ?? undefined,
 							...(reasoning
-								? { reasoning: { index: 0, type: 'thinking' as const, text: reasoning } }
+								? {
+										reasoning: {
+											index: 0,
+											type: 'thinking' as const,
+											text: reasoning,
+										},
+									}
 								: {}),
 							toolCalls,
 						},

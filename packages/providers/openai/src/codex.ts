@@ -1,6 +1,7 @@
 import type {
 	AssistantTextPart,
 	ChatCompletionParams,
+	InferenceSpeed,
 	LLMProvider,
 	ModelInfo,
 	ProviderCapabilities,
@@ -31,6 +32,7 @@ import type {
 	Tool,
 } from 'openai/resources/responses/responses'
 
+import { type FastTier, assertFastModeAccepted, servedSpeed } from './fast-mode.js'
 import type { CodexConfig } from './types.js'
 
 export const CODEX_CAPABILITIES: ProviderCapabilities = {
@@ -336,12 +338,16 @@ export function toCodexTools(params: ChatCompletionParams): Tool[] | undefined {
 	return tools.length ? tools : undefined
 }
 
-function responseUsage(usage: {
-	input_tokens?: number
-	output_tokens?: number
-	total_tokens?: number
-	input_tokens_details?: { cached_tokens?: number }
-}): TokenUsage {
+function responseUsage(
+	usage: {
+		input_tokens?: number
+		output_tokens?: number
+		total_tokens?: number
+		input_tokens_details?: { cached_tokens?: number }
+	},
+	servedTier?: unknown,
+	requestedSpeed?: InferenceSpeed,
+): TokenUsage {
 	const promptTokens = usage.input_tokens ?? 0
 	const completionTokens = usage.output_tokens ?? 0
 	return {
@@ -350,7 +356,30 @@ function responseUsage(usage: {
 		totalTokens: usage.total_tokens ?? promptTokens + completionTokens,
 		cachedTokens: usage.input_tokens_details?.cached_tokens ?? 0,
 		cacheWriteTokens: 0,
+		...servedSpeed(servedTier, requestedSpeed),
 	}
+}
+
+/**
+ * The speed tiers a model listing entry offers, from the current
+ * `service_tiers` objects and the older `additional_speed_tiers` strings.
+ * Only the two tiers this driver can request are kept: `priority` (or `fast`)
+ * is fast, `ultrafast` is ultrafast; anything else, flex included, is not a
+ * speed tier here.
+ */
+function subscriptionSpeedTiers(item: Record<string, unknown>): readonly FastTier[] {
+	const tiers = new Set<FastTier>()
+	const note = (id: unknown) => {
+		if (id === 'priority' || id === 'fast') tiers.add('fast')
+		else if (id === 'ultrafast') tiers.add('ultrafast')
+	}
+	if (Array.isArray(item.service_tiers)) {
+		for (const entry of item.service_tiers) note(record(entry)?.id)
+	}
+	if (Array.isArray(item.additional_speed_tiers)) {
+		for (const entry of item.additional_speed_tiers) note(entry)
+	}
+	return (['fast', 'ultrafast'] as const).filter((tier) => tiers.has(tier))
 }
 
 function buildRequest(
@@ -422,6 +451,19 @@ function buildRequest(
 	return request as ResponseCreateParamsStreaming
 }
 
+/**
+ * What an account's model listing said, kept for the life of the process so a
+ * provider rebuilt around a refreshed token still honours an advertised tier.
+ * Keyed by account and endpoint, never by token.
+ */
+const listingByAccount = new Map<
+	string,
+	{
+		speedTiers: Map<string, readonly FastTier[]>
+		reasoningProfiles: Map<string, SubscriptionReasoningProfile>
+	}
+>()
+
 export class CodexProvider implements LLMProvider {
 	readonly id = 'codex'
 	readonly name = 'OpenAI Codex'
@@ -430,6 +472,9 @@ export class CodexProvider implements LLMProvider {
 	private client: OpenAI
 	private defaultModel?: string
 	private reasoningProfiles = new Map<string, SubscriptionReasoningProfile>()
+	/** Per model, the speed tiers the account's listing offers. Absent until a listing has answered. */
+	private speedTiers?: Map<string, readonly FastTier[]>
+	private readonly listingKey: string
 
 	constructor(config: CodexConfig) {
 		if (!config.accessToken) throw new Error('Codex access token is required.')
@@ -448,6 +493,12 @@ export class CodexProvider implements LLMProvider {
 			},
 		})
 		this.defaultModel = config.model
+		this.listingKey = `${config.accountId}\u0000${config.baseURL ?? DEFAULT_CODEX_BASE_URL}`
+		const known = listingByAccount.get(this.listingKey)
+		if (known) {
+			this.speedTiers = known.speedTiers
+			this.reasoningProfiles = known.reasoningProfiles
+		}
 	}
 
 	private resolveModel(params: ChatCompletionParams): string {
@@ -464,6 +515,16 @@ export class CodexProvider implements LLMProvider {
 		return this.reasoningProfiles.get(model.toLowerCase())?.default
 	}
 
+	/**
+	 * The speed tiers the account's listing offers for `model`. `undefined`
+	 * until a listing has answered; once one has, a model it does not carry
+	 * offers none.
+	 */
+	speedTiersFor(model: string): readonly FastTier[] | undefined {
+		if (this.speedTiers === undefined) return undefined
+		return this.speedTiers.get(model.toLowerCase()) ?? []
+	}
+
 	async *chatStream(params: ChatCompletionParams): AsyncIterable<StreamChunk> {
 		const model = this.resolveModel(params)
 		const targetRoute = params.providerRoute ?? {
@@ -471,11 +532,30 @@ export class CodexProvider implements LLMProvider {
 			model,
 			chainIndex: 0,
 		}
-		const request = buildRequest(params, model, targetRoute, this.reasoningEffortLevelsFor(model))
+		const built = buildRequest(params, model, targetRoute, this.reasoningEffortLevelsFor(model))
+		// A tier the account's listing does not offer is refused here, before
+		// transport: the backend would drop it and serve standard speed while
+		// the caller believes the request was honoured.
+		const fast =
+			params.speed === 'fast' || params.speed === 'ultrafast'
+				? assertFastModeAccepted({
+						route: 'subscription',
+						model,
+						tier: params.speed,
+						advertised: this.speedTiersFor(model),
+						firstPartyEndpoint: true,
+					})
+				: undefined
+		const request = (
+			fast ? { ...built, service_tier: fast.wire } : built
+		) as ResponseCreateParamsStreaming
+		const requestedSpeed =
+			params.speed === 'fast' || params.speed === 'ultrafast' ? params.speed : undefined
 		let stream: AsyncIterable<ResponseStreamEvent>
 		try {
 			stream = (await this.client.responses.create(request, {
 				signal: params.signal,
+				...(fast?.header ? { headers: fast.header } : {}),
 			})) as AsyncIterable<ResponseStreamEvent>
 		} catch (error) {
 			if (isCallerAbortError(error, params.signal)) throw params.signal?.reason ?? error
@@ -541,7 +621,10 @@ export class CodexProvider implements LLMProvider {
 							event.item.type === 'message' &&
 							(event.item.phase === 'commentary' || event.item.phase === 'final_answer')
 						)
-							textItems.set(event.item.id, { id: event.item.id, phase: event.item.phase })
+							textItems.set(event.item.id, {
+								id: event.item.id,
+								phase: event.item.phase,
+							})
 						if (event.item.type === 'web_search_call') {
 							yield {
 								id: responseId,
@@ -678,7 +761,10 @@ export class CodexProvider implements LLMProvider {
 							const part = textParts[partIndex]
 							if (part) textParts[partIndex] = { ...part, text: part.text + suffix }
 							// The driver's text, not the model's.
-							yield { id: responseId, delta: { content: suffix, contentOrigin: 'driver' } }
+							yield {
+								id: responseId,
+								delta: { content: suffix, contentOrigin: 'driver' },
+							}
 						}
 						const replayState: CodexReplayState = {
 							kind: 'namzu.codex.responses',
@@ -695,7 +781,11 @@ export class CodexProvider implements LLMProvider {
 							delta: {},
 							...(phased ? { textParts } : {}),
 							finishReason: calls.length > 0 ? 'tool_calls' : 'stop',
-							usage: responseUsage(event.response.usage ?? {}),
+							usage: responseUsage(
+								event.response.usage ?? {},
+								(event.response as { service_tier?: unknown }).service_tier,
+								requestedSpeed,
+							),
 							replayState,
 						}
 						break
@@ -715,7 +805,11 @@ export class CodexProvider implements LLMProvider {
 							delta: {},
 							finishReason: reason === 'content_filter' ? 'content_filter' : 'length',
 							...(reason === 'content_filter' ? { refusal: {} } : {}),
-							usage: responseUsage(event.response.usage ?? {}),
+							usage: responseUsage(
+								event.response.usage ?? {},
+								(event.response as { service_tier?: unknown }).service_tier,
+								requestedSpeed,
+							),
 						}
 						break
 					}
@@ -749,6 +843,7 @@ export class CodexProvider implements LLMProvider {
 		})) as { models?: unknown }
 		signal?.throwIfAborted()
 		const profiles = new Map<string, SubscriptionReasoningProfile>()
+		const tiersBySlug = new Map<string, readonly FastTier[]>()
 		const models = (Array.isArray(response.models) ? response.models : []).flatMap(
 			(value): ModelInfo[] => {
 				const item = record(value)
@@ -756,6 +851,8 @@ export class CodexProvider implements LLMProvider {
 				if (item.visibility === 'hide' || item.visibility === 'hidden') return []
 				const profile = subscriptionReasoningProfile(item)
 				if (profile) profiles.set(item.slug.toLowerCase(), profile)
+				const speedTiers = subscriptionSpeedTiers(item)
+				tiersBySlug.set(item.slug.toLowerCase(), speedTiers)
 				return [
 					{
 						id: item.slug,
@@ -764,11 +861,17 @@ export class CodexProvider implements LLMProvider {
 						supportsStreaming: true,
 						...(profile ? { reasoningEffortLevels: profile.levels } : {}),
 						...(profile?.default !== undefined ? { reasoningEffortDefault: profile.default } : {}),
+						speedTiers,
 					},
 				]
 			},
 		)
 		this.reasoningProfiles = profiles
+		this.speedTiers = tiersBySlug
+		listingByAccount.set(this.listingKey, {
+			speedTiers: tiersBySlug,
+			reasoningProfiles: profiles,
+		})
 		return models
 	}
 

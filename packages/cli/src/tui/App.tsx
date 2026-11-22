@@ -578,11 +578,14 @@ import { type EditorMode, describeEditorMode, saveEditorMode } from './editor-mo
 import type { TuiExitSummary } from './exit-summary.js'
 import { ExternalEditorError, editDraftInExternalEditor } from './external-editor.js'
 import {
-	fastDroppedMessage,
-	fastLaunchRefusal,
-	fastModeBlocker,
+	type FastTier,
+	fastAfterModelChange,
+	fastModeOptionsFor,
+	fastModeVerdict,
 	fastOffMessage,
 	fastOnMessage,
+	launchFastOutcome,
+	requestedFastTier,
 } from './fast-mode.js'
 import { FullscreenTranscript } from './fullscreen/FullscreenTranscript.js'
 import type { FullscreenControl } from './fullscreen/FullscreenTranscript.js'
@@ -859,6 +862,7 @@ import {
 	commitReviewPrompt,
 	hostCommandNames,
 	kernelCommandDescriptors,
+	listedCommands,
 	mergeHostCommands,
 	parseSlash,
 	renderOutcome,
@@ -1480,7 +1484,10 @@ function modelSwitchLabel(provider: string | undefined, model: string | null | u
 }
 
 /** A model as the person reads it in a line of words. */
-function modelSwitchWords(to: { readonly id: string; readonly model: string }): string {
+function modelSwitchWords(to: {
+	readonly id: string
+	readonly model: string
+}): string {
 	return to.id === to.model ? to.model : `${to.id} · ${to.model}`
 }
 
@@ -2106,8 +2113,8 @@ function AppBody({
 	// Fast inference: a per-conversation switch like hypermode. Off unless
 	// `--fast` asked, never saved, and dropped (with a message) by a model change
 	// that cannot keep it.
-	const [fastMode, setFastModeState] = useState(false)
-	const fastModeRef = useRef(false)
+	const [fastMode, setFastModeState] = useState<FastTier | undefined>(undefined)
+	const fastModeRef = useRef<FastTier | undefined>(undefined)
 	// Where a pending fast start came from, so a refusal names the right thing.
 	const launchFastPendingRef = useRef<'flag' | 'saved' | undefined>(
 		initialCtx.launchSettings?.fast === true
@@ -2116,7 +2123,51 @@ function AppBody({
 				? 'saved'
 				: undefined,
 	)
-	const setFastMode = useCallback((next: boolean) => {
+	// What the current provider and model offer, kept in step with them for the
+	// command menu: the tiers on offer, and why a missing one is not.
+	const [speedView, setSpeedView] = useState<{
+		readonly tiers: readonly FastTier[]
+		readonly reasons: Partial<Record<FastTier, string>>
+	}>({ tiers: [], reasons: {} })
+	// Recomputed whenever the session (so the provider or model) changes, and
+	// again once the Codex model listing has arrived. While the listing is
+	// unknown the faster tier is left out; fast mode alone is judged without it.
+	useEffect(() => {
+		if (!session?.hasProvider) {
+			setSpeedView({ tiers: [], reasons: {} })
+			return
+		}
+		let current = true
+		const compute = async (): Promise<void> => {
+			const model = session.modelSummary
+			const advertised = model ? session.speedTiersFor?.(model) : undefined
+			const unknown = session.providerId === 'codex' && advertised === undefined
+			const tiers: FastTier[] = []
+			const reasons: Partial<Record<FastTier, string>> = {}
+			for (const tier of ['fast', 'ultrafast'] as const) {
+				if (tier === 'ultrafast' && unknown) {
+					reasons.ultrafast =
+						'Ultrafast needs the list of models your Codex subscription offers, which has not loaded yet. Try again in a moment.'
+					continue
+				}
+				const verdict = await fastModeVerdict(session.providerId, model, {
+					tier,
+					...(advertised !== undefined ? { advertised } : {}),
+				})
+				if (verdict.ok) tiers.push(tier)
+				else reasons[tier] = verdict.reason
+			}
+			if (current) setSpeedView({ tiers, reasons })
+		}
+		void compute()
+		if (session.providerId === 'codex' && session.reasoningSettled) {
+			void session.reasoningSettled.then(() => compute()).catch(() => undefined)
+		}
+		return () => {
+			current = false
+		}
+	}, [session])
+	const setFastMode = useCallback((next: FastTier | undefined) => {
 		fastModeRef.current = next
 		setFastModeState(next)
 	}, [])
@@ -2191,7 +2242,10 @@ function AppBody({
 	cannotTellReasonRef.current = session?.sandbox?.workspace === 'ephemeral' ? 'copy' : undefined
 	// What the outcome lines already said in the conversation on screen; keyed by
 	// the conversation so another one starts with nothing said.
-	const outcomeToldRef = useRef<{ id: string | undefined; telling: OutcomeTelling }>({
+	const outcomeToldRef = useRef<{
+		id: string | undefined
+		telling: OutcomeTelling
+	}>({
 		id: undefined,
 		telling: NOTHING_TOLD,
 	})
@@ -5224,31 +5278,35 @@ function AppBody({
 	}, [initialCtx, pushMessage])
 
 	/**
-	 * Turn fast inference on or off for this conversation. Turning it on is
-	 * refused, with the reason, when the provider, endpoint or model cannot take
-	 * it; it is never saved.
+	 * `/fast` and `/ultrafast`: each toggles its own tier for this conversation,
+	 * so `/fast` on ultrafast switches to fast. Turning one on is refused, with
+	 * the reason, when the provider, endpoint or model cannot take it; it is
+	 * never saved.
 	 */
 	const applyFastMode = useCallback(
-		async (enabled: boolean): Promise<void> => {
+		async (tier: FastTier): Promise<void> => {
 			if (!session?.hasProvider) {
 				pushMessage('system', 'No model is connected yet — pick a provider with /model first.')
 				return
 			}
-			if (!enabled) {
-				if (!fastModeRef.current) pushMessage('system', 'Fast mode is off.')
-				else {
-					setFastMode(false)
-					pushMessage('system', fastOffMessage())
-				}
+			const was = fastModeRef.current
+			const wanted = requestedFastTier(was, tier)
+			if (wanted === undefined) {
+				setFastMode(undefined)
+				if (was !== undefined) pushMessage('system', fastOffMessage(was))
 				return
 			}
-			const blocker = await fastModeBlocker(session.providerId, session.modelSummary)
-			if (blocker !== undefined) {
-				pushMessage('system', blocker)
+			const verdict = await fastModeVerdict(
+				session.providerId,
+				session.modelSummary,
+				await fastModeOptionsFor(session, wanted),
+			)
+			if (!verdict.ok) {
+				pushMessage('system', verdict.reason)
 				return
 			}
-			setFastMode(true)
-			pushMessage('system', fastOnMessage())
+			setFastMode(verdict.tier)
+			pushMessage('system', fastOnMessage(verdict))
 		},
 		[pushMessage, session, setFastMode],
 	)
@@ -7028,15 +7086,18 @@ function AppBody({
 			if (launchFastPendingRef.current && s.hasProvider) {
 				const fastSource = launchFastPendingRef.current
 				launchFastPendingRef.current = undefined
-				void fastModeBlocker(s.providerId, s.modelSummary).then((blocker) => {
-					if (blocker === undefined) setFastMode(true)
-					else pushMessage('system', fastLaunchRefusal(blocker, fastSource))
+				// Said once, with what it costs: a saved opt-in must not start billing silently.
+				void launchFastOutcome(s, fastSource).then((outcome) => {
+					if (outcome.tier !== undefined) setFastMode(outcome.tier)
+					pushMessage('system', outcome.message)
 				})
 			} else if (fastModeRef.current) {
-				void fastModeBlocker(s.providerId, s.modelSummary).then((blocker) => {
-					if (blocker === undefined) return
-					setFastMode(false)
-					pushMessage('system', fastDroppedMessage(blocker))
+				// Re-checked under the new model with the tier now on: the mode is kept
+				// (and not announced again) only when the new model offers that tier.
+				void fastAfterModelChange(s, fastModeRef.current).then((outcome) => {
+					if (outcome === undefined) return
+					setFastMode(undefined)
+					pushMessage('system', outcome)
 				})
 			}
 			// What the effort menu decides once the levels are final: a launch
@@ -7965,6 +8026,8 @@ function AppBody({
 
 	const slashCtx: SlashContext = {
 		cwd: ctx.cwd,
+		speedTiers: () => speedView.tiers,
+		speedTierRefusal: (tier) => (session?.hasProvider ? speedView.reasons[tier] : undefined),
 		jobs: () => session?.jobs?.() ?? [],
 		timers: () => scheduleRef.current?.timers.list() ?? [],
 		hooks: () => session?.hooks,
@@ -9658,7 +9721,14 @@ function AppBody({
 		}
 		if (!offerPick) return
 		const now = decisionSetup.now ?? Date.now
-		if (!shouldOfferDecisionSetup({ record: readOffer(opts), setting, env: opts.env, now: now() }))
+		if (
+			!shouldOfferDecisionSetup({
+				record: readOffer(opts),
+				setting,
+				env: opts.env,
+				now: now(),
+			})
+		)
 			return
 		setSelectedChoice(0)
 		setChoicePicker({
@@ -10565,7 +10635,7 @@ function AppBody({
 				onAutoModeLimit: handleAutoModeLimit,
 				limits: resolveTurnGuards(ctxRef.current.limits, turnLimitsOverrideRef.current),
 				...(reasoningEffortRef.current !== undefined ? { effort: reasoningEffortRef.current } : {}),
-				...(fastModeRef.current ? { speed: 'fast' as const } : {}),
+				...(fastModeRef.current ? { speed: fastModeRef.current } : {}),
 				...(hypermodeRef.current ? { hypermode: true } : {}),
 				...(ctxRef.current.refusalFallback
 					? { refusalFallback: ctxRef.current.refusalFallback }
@@ -12215,7 +12285,7 @@ function AppBody({
 								? { effort: pinnedEffort ?? turnReasoningEffort }
 								: {}),
 							...(turnHypermode ? { hypermode: true } : {}),
-							...(turnFast ? { speed: 'fast' as const } : {}),
+							...(turnFast ? { speed: turnFast } : {}),
 							// A model picked with /model while this turn runs: read before every
 							// request, so the next request of the loop uses it.
 							liveModel: () => {
@@ -12729,7 +12799,10 @@ function AppBody({
 	/** `post_model_switch`, run on the session that now serves the conversation. */
 	const announceModelSwitch = useCallback(
 		(
-			from: { readonly provider: string | undefined; readonly model: string | null | undefined },
+			from: {
+				readonly provider: string | undefined
+				readonly model: string | null | undefined
+			},
 			to: { readonly id: string; readonly model: string },
 			source: PluginModelSwitchInfo['source'],
 			requested: string | null,
@@ -12821,12 +12894,15 @@ function AppBody({
 					// refuses `speed` on a model without it. A pick that cannot keep it
 					// takes over when the reply finishes, where the session is rebuilt
 					// and fast mode is dropped with the reason.
-					const blocker = await fastModeBlocker(selection.id, selection.model)
-					if (blocker !== undefined) {
+					const verdict = await fastModeVerdict(selection.id, selection.model, {
+						tier: fastModeRef.current,
+						advertised: session.speedTiersFor?.(selection.model),
+					})
+					if (!verdict.ok) {
 						deferredModelRef.current = { query: target, quiet: false }
 						pushMessage(
 							'system',
-							`Switching to ${selection.id} · ${selection.model} when this reply finishes. Fast mode ends then: ${blocker}`,
+							`Switching to ${selection.id} · ${selection.model} when this reply finishes. Fast mode ends then: ${verdict.reason}`,
 						)
 						return
 					}
@@ -13771,9 +13847,10 @@ function AppBody({
 	)
 
 	/** A typed command whose `user_prompt_expansion` hooks have answered, until its line is submitted again. */
-	const expansionAnsweredRef = useRef<{ readonly line: string; readonly context?: string } | null>(
-		null,
-	)
+	const expansionAnsweredRef = useRef<{
+		readonly line: string
+		readonly context?: string
+	} | null>(null)
 	const handleSubmitRef = useRef<
 		| ((
 				value: string,
@@ -15150,7 +15227,10 @@ function AppBody({
 							try {
 								if (verb === 'create' || verb === 'fork') {
 									hookRuntime = session?.worktreeHooks
-										? { hooks: session.worktreeHooks, close: async () => undefined }
+										? {
+												hooks: session.worktreeHooks,
+												close: async () => undefined,
+											}
 										: await openWorktreeHookRuntime({ hooks: initialCtx.hooks }, ctx.cwd, notice)
 								}
 								const manager = await openManagedWorktrees(ctx.cwd, {
@@ -15894,7 +15974,7 @@ function AppBody({
 						return
 					}
 					case 'fast-mode': {
-						void applyFastMode(slash.enabled === 'toggle' ? !fastModeRef.current : slash.enabled)
+						void applyFastMode(slash.tier)
 						return
 					}
 					case 'hypermode': {
@@ -19370,7 +19450,7 @@ function AppBody({
 										onStopAllAgents={requestStopAllAgents}
 										railFocused={railFocus !== null}
 										userCommands={userCommands}
-										builtins={hostCommands.map((command) => ({
+										builtins={listedCommands(hostCommands, slashCtx).map((command) => ({
 											...command,
 											description: command.unavailable?.(slashCtx) ?? command.description,
 										}))}
