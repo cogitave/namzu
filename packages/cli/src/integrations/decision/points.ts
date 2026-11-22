@@ -109,11 +109,14 @@ export interface DecisionPoints {
 
 /**
  * The mode of a point the operator did not name, once a decision model is configured. Every point
- * is `off` except `pick`: what it sends is the names of the controls of one window and a few words
- * of intent, never conversation text, and it acts only when the model is sure.
+ * is `off` except `pick` and `goal`. `pick` sends the names of the controls of one window and a few
+ * words of intent, never conversation text, and acts only when the model is sure. `goal` is not a
+ * question for the decision service at all: it is the switch for checking a goal's completion
+ * report on the person's own provider (see `rounds/goal-judge.ts`), which is why it is on once a
+ * decision model is configured and `off` turns the check off.
  */
 export function defaultPointMode(point: DecisionPointId): DecisionPointMode {
-	return point === 'pick' ? 'on' : 'off'
+	return point === 'pick' || point === 'goal' ? 'on' : 'off'
 }
 
 const DEFAULT_TIMEOUT_MS = 1_500

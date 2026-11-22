@@ -57,7 +57,7 @@ describe('the goal carried across a compaction', () => {
 			(await goalCarriedAcrossCompaction(store(goal()), session, tenant, () => NOW)) ?? ''
 		expect(note).toContain('As of this compaction (2026-11-11T09:30:00.000Z)')
 		expect(note).toContain('active')
-		expect(note).toContain('3 of 8')
+		expect(note).toContain('with 3 automatic turns used')
 		expect(note).toContain('"Make the migration reversible"')
 		expect(note).toContain('It may have changed since')
 	})

@@ -92,6 +92,11 @@ export interface SideRequest {
 	readonly maxTokens: number
 	readonly signal: AbortSignal
 	/**
+	 * A model to use instead of the route, as `provider/model` or a model of the
+	 * provider the conversation runs on. For a job whose model the person chose.
+	 */
+	readonly model?: string
+	/**
 	 * `in-turn` runs the request on the turn's ledger and is declined when the
 	 * ledger has no room. `beside-turn` runs now, in parallel with the turn's
 	 * own request, and is counted once that request has closed.
@@ -185,7 +190,13 @@ export function createSideModel(deps: SideModelDeps): SideModel {
 	const ask = async (request: SideRequest): Promise<string | undefined> => {
 		try {
 			request.signal.throwIfAborted()
-			const chosen = await route(request.sessionId, request.signal)
+			const chosen: SideRoute =
+				request.model !== undefined
+					? {
+							...parseSmallModel(request.model, deps.active().providerId, deps.isKnownProvider),
+							source: 'configured',
+						}
+					: await route(request.sessionId, request.signal)
 			const provider = await deps.buildProvider(request.sessionId, chosen)
 			const estimatedPromptTokens =
 				estimateTokens(request.instruction) + estimateTokens(request.body)

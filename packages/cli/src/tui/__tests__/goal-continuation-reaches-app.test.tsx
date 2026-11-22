@@ -326,7 +326,7 @@ it('continues across admitted rounds, completes through run authority, and persi
 	expect(
 		(await listRecent(sessions)).find((conversation) => conversation.id === sessionId)?.title,
 	).toBe('finish the verified release')
-	expect(harness.frames.join('\n')).toContain('Goal, attempt 2 of 256')
+	expect(harness.frames.join('\n')).toContain('Goal, automatic turn 2')
 	expect(harness.frames.join('\n')).not.toContain('Admitted session goal round')
 
 	await submit(harness, '/new')
@@ -344,7 +344,7 @@ it('continues across admitted rounds, completes through run authority, and persi
 		() => (harness.lastFrame() ?? '').includes('Resumed: finish the verified release'),
 		'the durable goal conversation was not restored',
 	)
-	expect(harness.lastFrame()).toContain('Goal, attempt 2 of 256')
+	expect(harness.lastFrame()).toContain('Goal, automatic turn 2')
 	expect(harness.lastFrame()).not.toContain('Admitted session goal round')
 	await tick(100)
 	expect(calls).toHaveLength(2)
@@ -669,7 +669,7 @@ it('durably blocks at the configured cap instead of starting an unbounded turn',
 	const { root, harness } = await mountedApp('namzu-goal-app-cap-')
 	await submit(harness, '/goal stop at the cap')
 	await until(
-		() => harness.frames.join('\n').includes('Goal blocked after 1 admitted round'),
+		() => harness.frames.join('\n').includes('Goal stopped: Reached the 1-round limit'),
 		'the exhausted goal was not durably blocked',
 	)
 	const sessionId = scope!.sessionId
@@ -681,6 +681,49 @@ it('durably blocks at the configured cap instead of starting an unbounded turn',
 		roundsAdmitted: 1,
 		blockedReason: { code: 'round-limit' },
 	})
+}, 30_000)
+
+it('stops a goal whose turns change and check nothing, and says what it had used', async () => {
+	let sends = 0
+	sendImplementation = async function* () {
+		sends += 1
+		yield {
+			kind: 'usage',
+			totalTokens: 200,
+			cost: { totalCost: 0.01, currency: 'USD', unpricedTokens: 0 },
+		} as never
+		yield {
+			kind: 'done',
+			stopReason: 'end_turn',
+			outcome: {
+				verdict: 'unchanged',
+				basis: 'calls',
+				changes: { total: 0, paths: [], outsideKnownTools: false },
+				checks: [],
+			},
+		}
+	}
+
+	const { root, harness } = await mountedApp('namzu-goal-app-stall-')
+	await submit(harness, '/goal keep looking around')
+	await until(
+		() =>
+			harness.frames
+				.join('\n')
+				.includes('Goal stopped: 3 automatic turns in a row changed nothing'),
+		'the stalled goal was not stopped',
+	)
+	const sessionId = scope!.sessionId
+	await tick(100)
+	expect(sends).toBe(3)
+	const sessions = await openSessions(root)
+	expect(await sessions.goals.getGoal(sessionId, sessions.tenantId)).toMatchObject({
+		phase: 'blocked',
+		roundsAdmitted: 3,
+		tokensUsed: 600,
+		blockedReason: { code: 'no-progress' },
+	})
+	expect(harness.frames.join('\n')).toContain('600 tokens')
 }, 30_000)
 
 it('fails closed when the goal turn cannot pass its turn boundary', async () => {

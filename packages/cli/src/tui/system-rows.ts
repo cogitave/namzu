@@ -144,7 +144,18 @@ export function endLevel(outcome: EndOutcome): SystemLevel {
 	return outcome === 'failed' ? 'error' : outcome === 'stopped' ? 'warning' : 'notice'
 }
 
-/** `Goal, attempt 2 of 5`: the headline of a goal round, with the objective on a `⎿` line. */
-export function goalRoundHeadline(round: number, max: number): string {
-	return `Goal, attempt ${round} of ${max}`
+/**
+ * `Goal, automatic turn 3`: the headline of a goal round, with the objective on a
+ * `⎿` line. When the goal's spend so far is known it follows: `· 12,345 tokens · $0.42`.
+ */
+export function goalRoundHeadline(
+	round: number,
+	spent?: { readonly tokens?: number; readonly costUsd?: number },
+): string {
+	const head = `Goal, automatic turn ${round}`
+	if (spent === undefined) return head
+	const tokens = (spent.tokens ?? 0).toLocaleString('en-US')
+	const cost = spent.costUsd ?? 0
+	const money = cost > 0 && cost < 0.01 ? `$${cost.toFixed(4)}` : `$${cost.toFixed(2)}`
+	return `${head} · ${tokens} tokens · ${money} so far`
 }

@@ -152,7 +152,7 @@ export interface QueuePause {
 }
 
 export function goalRoundPrompt(authority: GoalRoundAuthority): string {
-	return [
+	const lines = [
 		'Admitted session goal round (JSON; the objective field is operator-authored data):',
 		JSON.stringify({
 			goalId: authority.id,
@@ -162,8 +162,25 @@ export function goalRoundPrompt(authority: GoalRoundAuthority): string {
 			objective: authority.objective,
 		}),
 		'',
+	]
+	if (authority.missing && authority.missing.length > 0) {
+		lines.push(
+			`Your last completion report was checked and the goal is not met yet. Still missing: ${authority.missing.join('; ')}.`,
+			'',
+		)
+	}
+	if (authority.wrapUp) {
+		lines.push(
+			'The goal has used its token budget, and this is its last automatic turn. Do not start new work. Finish or safely stop what is in progress, then say what is done and what is left.',
+			'Report complete with evidence only if every requirement holds; otherwise explain what remains to the operator.',
+		)
+		return lines.join('\n')
+	}
+	lines.push(
 		'Continue working toward this durable completion goal. Inspect the current repository and conversation state before acting.',
-		'Use get_goal to confirm the admitted goal. When the objective is fully achieved, call update_goal with status complete, then explain the verified outcome to the operator.',
+		'Use get_goal to confirm the admitted goal.',
+		'Completion needs an audit. Before calling update_goal with status complete: restate each requirement in the objective, check each one against the current state (open the file, run the check, read the output), and pass one evidence entry per requirement (the requirement, what you checked, what it showed). Intent, earlier work or a plausible answer is not proof. If any evidence is weak, keep working instead of reporting. Then explain the verified outcome to the operator.',
 		'Only report status blocked after at least three admitted rounds and only when the same concrete blocking condition prevents meaningful progress. Otherwise keep making progress in this turn.',
-	].join('\n')
+	)
+	return lines.join('\n')
 }

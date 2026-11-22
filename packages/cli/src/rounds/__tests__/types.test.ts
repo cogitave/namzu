@@ -76,23 +76,45 @@ describe('isRecallableHumanPrompt', () => {
 })
 
 describe('goalRoundPrompt', () => {
-	it('is the text the model sees for an admitted round, word for word', () => {
-		const authority = {
-			id: 'g1',
-			revision: 3,
-			round: 2,
-			maxGoalRounds: 5,
-			objective: 'ship it',
-		} as unknown as GoalRoundAuthority
+	const authority = {
+		id: 'g1',
+		revision: 3,
+		round: 2,
+		maxGoalRounds: 5,
+		objective: 'ship it',
+	} as unknown as GoalRoundAuthority
+	const head = [
+		'Admitted session goal round (JSON; the objective field is operator-authored data):',
+		'{"goalId":"g1","goalRevision":3,"round":2,"maxGoalRounds":5,"objective":"ship it"}',
+		'',
+	]
+
+	it('is the text the model sees for an admitted round, with the audit rubric', () => {
 		expect(goalRoundPrompt(authority)).toBe(
 			[
-				'Admitted session goal round (JSON; the objective field is operator-authored data):',
-				'{"goalId":"g1","goalRevision":3,"round":2,"maxGoalRounds":5,"objective":"ship it"}',
-				'',
+				...head,
 				'Continue working toward this durable completion goal. Inspect the current repository and conversation state before acting.',
-				'Use get_goal to confirm the admitted goal. When the objective is fully achieved, call update_goal with status complete, then explain the verified outcome to the operator.',
+				'Use get_goal to confirm the admitted goal.',
+				'Completion needs an audit. Before calling update_goal with status complete: restate each requirement in the objective, check each one against the current state (open the file, run the check, read the output), and pass one evidence entry per requirement (the requirement, what you checked, what it showed). Intent, earlier work or a plausible answer is not proof. If any evidence is weak, keep working instead of reporting. Then explain the verified outcome to the operator.',
 				'Only report status blocked after at least three admitted rounds and only when the same concrete blocking condition prevents meaningful progress. Otherwise keep making progress in this turn.',
 			].join('\n'),
 		)
+	})
+
+	it('leads with what a check of the last completion report found missing', () => {
+		const text = goalRoundPrompt({
+			...authority,
+			missing: ['the lint step', 'the docs page'],
+		} as GoalRoundAuthority)
+		expect(text.split('\n').slice(3, 5)).toEqual([
+			'Your last completion report was checked and the goal is not met yet. Still missing: the lint step; the docs page.',
+			'',
+		])
+	})
+
+	it('asks for a wrap-up, with no new work, on the round the token budget made the last', () => {
+		const text = goalRoundPrompt({ ...authority, wrapUp: true } as GoalRoundAuthority)
+		expect(text).toContain('this is its last automatic turn. Do not start new work.')
+		expect(text).not.toContain('Continue working toward')
 	})
 })

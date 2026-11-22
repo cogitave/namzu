@@ -271,6 +271,31 @@ export interface GoalCliConfig {
 	 * `record` in a later major release.
 	 */
 	readonly confirmedBy?: 'model' | 'record'
+	/**
+	 * The most automatic turns one goal may be given before it stops (a backstop,
+	 * not the way a goal normally ends). Default 1000. `/goal resume` raises a
+	 * stopped goal to this when it is larger.
+	 */
+	readonly maxRounds?: number
+	/**
+	 * Pause a goal for a check-in after this many automatic turns, and again after
+	 * each further batch. The pause says what has been spent; `/goal resume`
+	 * continues with no count reset. Default 50. 0 turns check-ins off.
+	 */
+	readonly checkInEvery?: number
+	/** Tokens a goal's automatic turns may spend; one last turn is given at the budget. Unset: no budget. */
+	readonly tokenBudget?: number
+	/**
+	 * Automatic turns in a row that change nothing, or end on the same failure,
+	 * after which a goal stops. Default 3.
+	 */
+	readonly stallRounds?: number
+	/**
+	 * The model that checks a goal's completion report when the decision model is
+	 * on, as `provider/model` or a model of the current provider. Unset: the
+	 * model for quick tasks.
+	 */
+	readonly judgeModel?: string
 }
 
 /** See `NamzuCliConfig.handBack`. */
@@ -1113,7 +1138,7 @@ export interface ScheduleConfig {
  * environment variable that holds a credential, never the credential itself.
  */
 /** Every decision point the host knows, in the order the docs list them. */
-export const DECISION_POINT_IDS = ['notify', 'memory', 'skill', 'pick'] as const
+export const DECISION_POINT_IDS = ['notify', 'memory', 'skill', 'pick', 'goal'] as const
 
 export type DecisionPointId = (typeof DECISION_POINT_IDS)[number]
 

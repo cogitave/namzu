@@ -39,10 +39,11 @@ describe('a decision point', () => {
 		expect(entries).toEqual([])
 	})
 
-	it('puts pick on, and every other point off, once a decision model is configured and nothing is named', () => {
+	it('puts pick and goal on, and every other point off, once a decision model is configured and nothing is named', () => {
 		const { model } = modelAnswering(0.9)
 		const points = createDecisionPoints({ model, modes: undefined })
 		expect(points.mode('pick')).toBe('on')
+		expect(points.mode('goal')).toBe('on')
 		for (const other of ['notify', 'memory', 'skill'] as const)
 			expect(points.mode(other)).toBe('off')
 		expect(createDecisionPoints({ model, modes: {} }).mode('pick')).toBe('on')
@@ -53,6 +54,12 @@ describe('a decision point', () => {
 		const { model } = modelAnswering(0.9)
 		expect(createDecisionPoints({ model, modes: { pick: 'off' } }).mode('pick')).toBe('off')
 		expect(createDecisionPoints({ model, modes: { pick: 'shadow' } }).mode('pick')).toBe('shadow')
+	})
+
+	it('lets the goal point be named off, and keeps it off without a decision model', () => {
+		const { model } = modelAnswering(0.9)
+		expect(createDecisionPoints({ model, modes: { goal: 'off' } }).mode('goal')).toBe('off')
+		expect(createDecisionPoints({ model: undefined, modes: undefined }).mode('goal')).toBe('off')
 	})
 
 	it('keeps pick off without a decision model', () => {

@@ -10,6 +10,8 @@
  */
 
 import {
+	GoalBudgetLimitError,
+	GoalCheckInError,
 	type GoalRoundAuthority,
 	GoalRoundLimitError,
 	type SessionGoalActivation,
@@ -19,6 +21,7 @@ import {
 	type TenantId,
 } from '@namzu/sdk'
 
+import { goalStopSentence } from './goal-guards.js'
 import { type QueuedPrompt, goalRoundPrompt } from './types.js'
 
 export type GoalAdmission<Trigger extends string = string> =
@@ -26,7 +29,7 @@ export type GoalAdmission<Trigger extends string = string> =
 	| { readonly kind: 'none' }
 	/** A round was reserved; queue it. */
 	| { readonly kind: 'admitted'; readonly round: QueuedPrompt<Trigger> }
-	/** The round limit was reached; say so in one plain sentence. */
+	/** A limit or a check-in stopped the goal; say so in one plain sentence. */
 	| { readonly kind: 'blocked'; readonly message: string }
 	/** The admission failed; say so in one plain sentence. */
 	| { readonly kind: 'failed'; readonly message: string }
@@ -89,10 +92,16 @@ export async function admitGoalRound<Trigger extends string = string>(
 		}
 	} catch (error) {
 		activation.disarm(sessionId, armed)
-		if (error instanceof GoalRoundLimitError) {
+		if (
+			error instanceof GoalRoundLimitError ||
+			error instanceof GoalCheckInError ||
+			error instanceof GoalBudgetLimitError
+		) {
 			return {
 				kind: 'blocked',
-				message: `Goal blocked after ${error.goal.roundsAdmitted} admitted round${error.goal.roundsAdmitted === 1 ? '' : 's'}: ${error.goal.blockedReason?.message ?? 'the round limit was reached'}`,
+				message:
+					goalStopSentence(error.goal) ??
+					`Goal stopped after ${error.goal.roundsAdmitted} automatic turn${error.goal.roundsAdmitted === 1 ? '' : 's'}: ${error.goal.blockedReason?.message ?? 'a limit was reached'}`,
 			}
 		}
 		if (error instanceof StaleGoalError) return { kind: 'none' }

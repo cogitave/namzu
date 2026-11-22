@@ -585,6 +585,7 @@ import {
 	createCliReminderSource,
 	hypermodeExitOwed,
 } from '../reminders/index.js'
+import { createGoalJudge } from '../rounds/goal-judge.js'
 import { createSessionSkillCatalog } from '../skills/catalog.js'
 import { createSkillDirectoryResolver } from '../skills/directory.js'
 import { isInsideFolder, restoreSkillHooks } from '../skills/restore-skill-hooks.js'
@@ -2930,6 +2931,8 @@ export interface AgentSessionOptions {
 	readonly sessionGoals?: SessionGoalStore
 	/** See `NamzuCliConfig.goal`: what ends a goal that did not choose. Absent is the model's report. */
 	readonly goalConfirmedBy?: 'model' | 'record'
+	/** `goal.judgeModel`: the model that checks a goal's completion report; absent leaves the side-model route. */
+	readonly goalJudgeModel?: string
 	/**
 	 * See `NamzuCliConfig.handBack`: offer the model the way to hand a task back to
 	 * a person. Off when absent: the tool is not offered and the prompt is unchanged.
@@ -4151,6 +4154,25 @@ export async function createAgentSession(
 				store: options.sessionGoals,
 				resolveAuthority: (turnId) => goalAuthorities.get(turnId as TurnId),
 				...(options.goalConfirmedBy ? { defaultConfirmedBy: options.goalConfirmedBy } : {}),
+				// A completion report carries evidence. With the decision model on, a
+				// judge on the small model reads it; without, the report is held once
+				// for a self-audit and no extra model is asked.
+				requireEvidence: true,
+				judge: createGoalJudge({
+					ask: async (request) =>
+						sideModel?.ask({
+							sessionId: request.sessionId as SessionId,
+							turnId: request.turnId as TurnId,
+							instruction: request.instruction,
+							body: request.body,
+							maxTokens: request.maxTokens,
+							signal: request.signal,
+							timing: 'beside-turn',
+							...(request.model !== undefined ? { model: request.model } : {}),
+						}),
+					model: options.goalJudgeModel,
+				}),
+				judgeActive: () => decisionPoints.mode('goal') === 'on' && sideModel !== undefined,
 			})
 		: undefined
 	if (options.sessionGoals) {
