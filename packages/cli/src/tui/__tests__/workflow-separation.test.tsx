@@ -271,4 +271,17 @@ describe('the conversation', () => {
 		expect(line).toBe('Worked for 13s · 2 agents')
 		expect(line).not.toContain('phase')
 	})
+
+	it('keeps what the agents came to when the duration is switched off', () => {
+		const agents = [labelled('a', 'Tarama', 1, done), labelled('b', 'Duzeltme', 2, done)]
+		const line = settleLine(13_000, agents, new Date(), undefined, false)
+		expect(line).toBe('2 agents')
+		expect(line).not.toContain('Worked')
+		expect(settleLine(13_000, agents, undefined, undefined, true)).toBe('Worked for 13s · 2 agents')
+	})
+
+	it('has no line at all when the duration is off and nothing was delegated', () => {
+		expect(settleLine(46_000, [], new Date(), undefined, false)).toBeUndefined()
+		expect(settleLine(46_000, [], undefined, undefined, true)).toBe('Worked for 46s')
+	})
 })

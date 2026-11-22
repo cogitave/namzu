@@ -523,6 +523,14 @@ describe('a resumed conversation closes and interrupts its turns as the live run
 		expect(rows.at(-1)?.glyph).toBe('✻')
 	})
 
+	it('writes no closing line for a restored turn when the duration is switched off', () => {
+		const trail = trailFromRecords(turnRecords(base, {}, 46))
+		const rows = projectConversation(base, ids(), [], { trail, showTurnDuration: false })
+		expect(rows.map((row) => row.content)).toEqual(['slow one', 'Finished.'])
+		const on = projectConversation(base, ids(), [], { trail, showTurnDuration: true })
+		expect(on.at(-1)?.content).toMatch(/^Worked for 46s · done /)
+	})
+
 	it('adds no line to a turn that was over at once', () => {
 		const trail = trailFromRecords(turnRecords(base, {}, 1))
 		expect(projectConversation(base, ids(), [], { trail }).map((row) => row.content)).toEqual([

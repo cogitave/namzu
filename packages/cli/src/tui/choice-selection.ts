@@ -55,6 +55,8 @@ export interface ChoicePickerGeometry {
 	readonly rowHeight?: number
 	/** Rows the chooser keeps under the list for the selected option's full description. */
 	readonly detailRows?: number
+	/** Lines of plain text the chooser draws between its title and its rows. */
+	readonly bodyRows?: number
 }
 
 /** Reserve room for App's header/footer and the chooser's own non-list rows. */
@@ -68,6 +70,7 @@ export function choicePickerWindowSize({
 	windowSize = SELECTION_WINDOW_SIZE,
 	rowHeight: givenRowHeight,
 	detailRows = 0,
+	bodyRows = 0,
 }: ChoicePickerGeometry): number {
 	const availableRows = Math.max(6, rows - 4)
 	const furnitureRows =
@@ -76,7 +79,8 @@ export function choicePickerWindowSize({
 		Number(notice) +
 		Number(selectedDescription) +
 		Number(rule) +
-		detailRows
+		detailRows +
+		bodyRows
 	const rowHeight = givenRowHeight ?? (columns < 70 ? 2 : 1)
 	return Math.max(1, Math.min(windowSize, Math.floor((availableRows - furnitureRows) / rowHeight)))
 }
