@@ -20,6 +20,7 @@ import {
 	compactionHistoryLines,
 	describeCompactionFailure,
 } from './compaction-rows.js'
+import { type ComputerUseLive, createComputerUseLive } from './computer-use-live.js'
 import { connectorCallSummary } from './connector-label.js'
 import { conversationInUseSentence, minutesUntilFree } from './conversation-in-use.js'
 import { type ProposedChange, diffBodyFromFacts, proposedFromInput } from './diff-rows.js'
@@ -2978,6 +2979,13 @@ export interface AgentSessionOptions {
 	 */
 	readonly enableComputerUse?: boolean
 	/**
+	 * The live value of `computerUse.enabled`, read at the top of every turn. `enableComputerUse`
+	 * says this surface offers the tool at all; this says whether the person has it on right now,
+	 * so turning it on in an open conversation brings the tool in from the next message and
+	 * turning it off takes it out. Absent means on, as a surface with no switch of its own.
+	 */
+	readonly computerUseSwitch?: () => boolean
+	/**
 	 * Applications the computer tool never acts in (`computerUse.deniedApps`), enforced by the
 	 * tool before any call reaches the host. Only read when `enableComputerUse` is true.
 	 */
@@ -3975,6 +3983,7 @@ export async function createAgentSession(
 	let computerUseHost: SubprocessComputerUseHost | undefined
 	let computerUseTool: ReturnType<typeof createComputerUseTool> | undefined
 	let computerUseError: Error | undefined
+	let computerUseLive: ComputerUseLive | undefined
 	// Said once at the start: the helper is being downloaded the first time it is needed.
 	const computerUseNotices: string[] = []
 	// What this conversation has learned about which models read images, and
@@ -3997,6 +4006,19 @@ export async function createAgentSession(
 		options.enableComputerUse === true && computerUsePackage?.state === 'present'
 			? computerUseUnavailableReason(provider)
 			: undefined
+	// Told to the model: the switch exists and the person owns it. Only where a tool can really
+	// appear for the model, so not for `exec`, `drain` or a Pal, and not where the package is absent
+	// or the driver cannot carry an image.
+	const computerUseOffered =
+		options.enableComputerUse === true &&
+		computerUsePackage?.state === 'present' &&
+		computerUseProviderRefusal === undefined
+	// The switch is on and the desktop did not start: the model is told why, since the tool is
+	// then absent for a reason other than the switch being off.
+	const computerUseFailureFact = (): { computerUseFailure?: string } =>
+		computerUseLive?.wanted() === true && computerUseLive.failure !== undefined
+			? { computerUseFailure: describeError(computerUseLive.failure) }
+			: {}
 	if (computerUseProviderRefusal !== undefined) {
 		// Mounted so the roster still names it, but never offered to the model:
 		// every call is refused, and its schema is about 900 tokens on every
@@ -4013,67 +4035,95 @@ export async function createAgentSession(
 			),
 		)
 	} else if (options.enableComputerUse === true && computerUsePackage?.state === 'present') {
-		const candidate = new SubprocessComputerUseHost({
-			foreground: { approve: screenApprover(() => elicitationHost.ask) },
-			windows: { onNotice: (notice) => computerUseNotices.push(notice) },
-		})
-		try {
-			await candidate.initialize()
-			const advisor = createPickAdvisor(decisionPoints)
-			computerUseTool = createComputerUseTool(candidate, {
-				...(advisor ? { advisor } : {}),
-				...(options.deniedComputerApps?.length ? { deniedApps: options.deniedComputerApps } : {}),
-				...(options.onComputerObservation
-					? { onObservation: (seen) => options.onComputerObservation?.(seen) }
-					: {}),
+		// Mounted whether or not the switch is on now: the person turns it on in `/config` or
+		// Settings in the middle of a conversation, and the tool has to be there for the next
+		// message. The host is not started until the switch is first on (starting it can download
+		// the desktop helper), and the tool is built only then, because its description and schema
+		// follow what the started host can do.
+		let current: ReturnType<typeof createComputerUseTool> | undefined
+		const changeListeners = new Set<() => void>()
+		const startHost = async (): Promise<void> => {
+			const candidate = new SubprocessComputerUseHost({
+				foreground: { approve: screenApprover(() => elicitationHost.ask) },
+				windows: { onNotice: (notice) => computerUseNotices.push(notice) },
 			})
-			// A host that loaded but reports no control at all (no screenshot,
-			// mouse, keyboard, clipboard or window access) would answer every
-			// call with its limitation. Read live, so the tool appears once the
-			// host reports a control.
-			toolsets.push(
-				readyWhen(
-					toolset('computer-use', [computerUseTool]),
-					() => turnReadsImages && computerUseHasControl(candidate.capabilities),
-				),
-			)
-			computerUseHost = candidate
-		} catch (error) {
-			computerUseError = error instanceof Error ? error : new Error(String(error))
-			await candidate.dispose().catch(() => {})
-			// Mounted anyway, with every capability false and the reason on it.
-			// A tool that is absent is a tool the model reasons about from the
-			// wrong premise; a tool that says "this desktop did not answer, and
-			// why" is one call the model reads once and does not repeat.
-			// Suspended, not unmounted: the host did not answer, nothing in this
-			// session retries it, and the request should not carry a schema for a
-			// tool that can only refuse.
-			toolsets.push(
-				readyWhen(
-					toolset('computer-use', [
-						createComputerUseTool({
-							id: candidate.id,
-							capabilities: {
-								...candidate.capabilities,
-								screenshot: false,
-								mouse: false,
-								keyboard: false,
-								cursorPosition: false,
-								clipboard: false,
-								unavailableReason: describeError(computerUseError),
-							},
-							getDisplayGeometry: async () => {
-								throw computerUseError
-							},
-							execute: async () => {
-								throw computerUseError
-							},
-						}),
-					]),
-					() => false,
-				),
-			)
+			try {
+				await candidate.initialize()
+				const advisor = createPickAdvisor(decisionPoints)
+				computerUseTool = createComputerUseTool(candidate, {
+					...(advisor ? { advisor } : {}),
+					...(options.deniedComputerApps?.length ? { deniedApps: options.deniedComputerApps } : {}),
+					...(options.onComputerObservation
+						? { onObservation: (seen) => options.onComputerObservation?.(seen) }
+						: {}),
+				})
+				current = computerUseTool
+				computerUseHost = candidate
+				computerUseError = undefined
+			} catch (error) {
+				computerUseError = error instanceof Error ? error : new Error(String(error))
+				const failed = computerUseError
+				await candidate.dispose().catch(() => {})
+				// Mounted anyway, with every capability false and the reason on it.
+				// A tool that is absent is a tool the model reasons about from the
+				// wrong premise; a tool that says "this desktop did not answer, and
+				// why" is one call the model reads once and does not repeat.
+				// Suspended, not unmounted: the host did not answer, nothing in this
+				// session retries it while the switch stays on, and the request should
+				// not carry a schema for a tool that can only refuse.
+				current = createComputerUseTool({
+					id: candidate.id,
+					capabilities: {
+						...candidate.capabilities,
+						screenshot: false,
+						mouse: false,
+						keyboard: false,
+						cursorPosition: false,
+						clipboard: false,
+						unavailableReason: describeError(failed),
+					},
+					getDisplayGeometry: async () => {
+						throw failed
+					},
+					execute: async () => {
+						throw failed
+					},
+				})
+				throw failed
+			} finally {
+				for (const listener of changeListeners) listener()
+			}
 		}
+		computerUseLive = createComputerUseLive({
+			read: options.computerUseSwitch ?? (() => true),
+			start: startHost,
+		})
+		const live = computerUseLive
+		const liveToolset: Toolset = {
+			...toolset('computer-use', []),
+			tools: () => (current ? [current] : []),
+			onChange: (listener) => {
+				changeListeners.add(listener)
+				return () => {
+					changeListeners.delete(listener)
+				}
+			},
+		}
+		// Read live, per request: the switch is on, the host started, the model reads images, and
+		// the host reports a control (one that loaded but reports no screenshot, mouse, keyboard,
+		// clipboard or window access would answer every call with its limitation).
+		toolsets.push(
+			readyWhen(
+				liveToolset,
+				() =>
+					live.ready() &&
+					turnReadsImages &&
+					computerUseHost !== undefined &&
+					computerUseHasControl(computerUseHost.capabilities),
+			),
+		)
+		// A switch that is on when the session is built starts now, as it always did.
+		await live.refresh()
 	}
 	// The browser: mounted for a surface that asked for it, never launched
 	// here. The host detects the engine now and starts the browser on the
@@ -5567,7 +5617,9 @@ export async function createAgentSession(
 		...(screensConfig !== undefined ? { resultGuardrails: screensConfig } : {}),
 		messages: () => [],
 	})
-	const browserDesktopRouting =
+	// Read per turn: computer use can be switched on after the session starts, and the host is
+	// only there from then.
+	const browserDesktopRouting = (): string | undefined =>
 		browserControl &&
 		browserUnavailable === undefined &&
 		computerUseHost?.capabilities.windowCapture === true &&
@@ -5576,8 +5628,8 @@ export async function createAgentSession(
 		typeof computerUseHost.executeWindow === 'function' &&
 		typeof computerUseHost.listWindows === 'function' &&
 		typeof computerUseHost.focusWindow === 'function' &&
-		manager.get('browser') &&
-		manager.get('computer_use')
+		liveManager().get('browser') &&
+		liveManager().get('computer_use')
 			? NAMZU_BROWSER_DESKTOP_ROUTING
 			: undefined
 	// How to go about a web task, said only where the browser tools are
@@ -6066,6 +6118,7 @@ export async function createAgentSession(
 				...scratchpadFact(paths, entry.sessionId),
 				boundary: boundaryFor(false),
 				...(wsl ? { wsl } : {}),
+				...(computerUseOffered ? { computerUseOffer: true, ...computerUseFailureFact() } : {}),
 			})
 			const resumePlanPath =
 				options.planApproval && !options.ephemeral
@@ -6074,7 +6127,7 @@ export async function createAgentSession(
 			const systemPrompt = composeSessionSystemPrompt(
 				sessionPromptInput(
 					{
-						browserDesktopRouting,
+						browserDesktopRouting: browserDesktopRouting(),
 						browserWebTask,
 						palBlock: palPromptBlock(),
 						environment: environmentPrompt,
@@ -7256,6 +7309,11 @@ export async function createAgentSession(
 					// inherit an addition made below (an extra toolset). No
 					// fork — an extra toolset for this send only, alongside the
 					// session's own (plan.md v3 §8).
+					// Computer use follows its setting between messages: read it before anything
+					// below builds a request, and let the session's tool list adopt a tool that
+					// has just been started.
+					await computerUseLive?.refresh()
+					liveManager()
 					let runToolsets: readonly Toolset[] = sessionToolsets
 					let runManager: ToolManager = manager
 					lastSendInteractive = opts?.onPermission !== undefined
@@ -7413,6 +7471,9 @@ export async function createAgentSession(
 								boundary: boundaryFor(opts?.onPermission !== undefined, undefined),
 								...(wsl ? { wsl } : {}),
 								...(options.desktop ? { host: 'desktop' as const } : {}),
+								...(computerUseOffered
+									? { computerUseOffer: true, ...computerUseFailureFact() }
+									: {}),
 							},
 							{ stable: true },
 						)
@@ -7487,7 +7548,7 @@ export async function createAgentSession(
 						const systemPrompt = composeSessionSystemPrompt(
 							sessionPromptInput(
 								{
-									browserDesktopRouting,
+									browserDesktopRouting: browserDesktopRouting(),
 									browserWebTask,
 									palBlock: palPromptBlock(),
 									environment: environmentPrompt,

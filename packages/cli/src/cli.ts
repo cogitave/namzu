@@ -58,6 +58,7 @@ import type { NamzuCliConfig } from './config/schema.js'
 import {
 	bindTrustedProjectContext,
 	refreshCachedContext,
+	refreshTrustedProjectContext,
 	resolveTrustedProjectContext,
 } from './config/trusted-project-context.js'
 import { debugRequested } from './debug-requested.js'
@@ -1001,6 +1002,10 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 					...(resolvedCtx.config.computerUse
 						? { computerUse: resolvedCtx.config.computerUse }
 						: {}),
+					// Read again from the files each turn: the setting is changed in `/config` or
+					// Settings while a conversation is open, and applies from the next message.
+					readComputerUseEnabled: () =>
+						refreshTrustedProjectContext(commandCtx, cwd).config.computerUse?.enabled === true,
 					...(resolvedCtx.config.progressNudge
 						? { progressNudge: resolvedCtx.config.progressNudge }
 						: {}),

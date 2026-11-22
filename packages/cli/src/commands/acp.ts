@@ -1134,11 +1134,10 @@ export function createCliAcpRuntime(
 					runtimeOptions.computerUse === true && !palEnvironment && browserConfig?.enabled !== false
 						? compileBrowserSites(browserConfig?.sites)
 						: undefined
-				// The computer tools are off until the user's own settings turn them on.
-				const computerOn =
-					runtimeOptions.computerUse === true &&
-					!palEnvironment &&
-					computerUseEnabled(projectCtx.config)
+				// The computer tools are offered here, and are on only while the user's own
+				// settings say so: read again at the top of every turn, so a change in
+				// Settings applies from the next message.
+				const computerOn = runtimeOptions.computerUse === true && !palEnvironment
 				candidate = await deps.createSession(prefs, probe.detected, {
 					...(palEnvironment ? { palEnvironment } : {}),
 					// The host PC, for the desktop only. A Pal conversation has its own
@@ -1146,6 +1145,11 @@ export function createCliAcpRuntime(
 					...(computerOn
 						? {
 								enableComputerUse: true,
+								computerUseSwitch: () =>
+									computerUseEnabled(
+										(deps.refreshProjectContext ?? deps.resolveProjectContext)(bootstrapCtx, cwd)
+											.config,
+									),
 								...(runtimeOptions.observeComputer
 									? {
 											onComputerObservation: (seen: ComputerUseObservation) =>

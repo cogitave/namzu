@@ -152,6 +152,15 @@ describe('changing a setting', () => {
 		expect(readSettingRow('limits.maxIterations', opts())).toMatchObject({ set: true, value: 20 })
 	})
 
+	it('says computer use applies from the next message, and its denied apps to new conversations', () => {
+		const on = planSettingChange('computerUse.enabled', 'on', opts())
+		if (!on.ok) throw new Error(on.error)
+		expect(on.apply()).toContain('Applies from your next message.')
+		const apps = planSettingChange('computerUse.deniedApps', 'Mail', opts())
+		if (!apps.ok) throw new Error(apps.error)
+		expect(apps.apply()).toContain('Applies to new conversations. Open ones keep what they have.')
+	})
+
 	it('stores a time in milliseconds and shows it in minutes and seconds', () => {
 		const plan = planSettingChange('limits.timeoutMs', '90s', opts())
 		if (!plan.ok) throw new Error(plan.error)
