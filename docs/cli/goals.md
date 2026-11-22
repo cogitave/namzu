@@ -1,7 +1,7 @@
 ---
 type: Guide
 title: Goals - how a goal continues and how it ends
-description: What /goal does, how it keeps working by itself, what stops it (no progress, the same failure, a check-in every 50 turns, an optional token budget, a 1000-turn backstop), how a completion report is checked (evidence, a judge when the decision model is on, a self-audit when it is off), and the choice of ending a goal by the record of the work.
+description: What /goal does, how it keeps working by itself, what stops it (no progress, the same failure, an optional check-in every so many turns (off by default), an optional token budget, a 1000-turn backstop), how a completion report is checked (evidence, a judge when the decision model is on, a self-audit when it is off), and the choice of ending a goal by the record of the work.
 resource: packages/sdk/src/tools/goal/confirmation.ts
 tags: [cli, goal, outcome, verification]
 status: stable
@@ -14,7 +14,7 @@ generated:
 
 A goal is an objective saved with a conversation. `/goal <objective>` (or `/goal set`, see [slash commands](slash-commands.md#goals-and-task-scope)) saves it and arms automatic work: after each reply Namzu starts another round, a turn of its own, until the goal ends, is paused or cleared, or a rule stops it. You can also set one in words: “set a goal: write the changelog” makes the model run `/goal write the changelog` through the `command` tool, after you approve that exact line ([commands from chat](slash-commands.md#commands-from-chat)). A round is an ordinary turn that is also offered two tools, `get_goal` and `update_goal`, which no other turn is.
 
-A goal is not stopped by a fixed number of turns. It stops when it is done, when it is stuck, or when it reaches a check-in; the number of turns is only a backstop.
+A goal is not stopped by a fixed number of turns. It stops when it is done, when it is stuck, or when it reaches a limit you set (a check-in or a token budget); the number of turns is only a backstop.
 
 ## What ends a goal
 
@@ -27,13 +27,13 @@ A goal is not stopped by a fixed number of turns. It stops when it is done, when
 
 ## What stops a goal
 
-These rules read what each automatic turn did, from the kernel's record of its calls. Each has a setting (see [the settings](#the-settings)) and every one is on by default except the token budget.
+These rules read what each automatic turn did, from the kernel's record of its calls. Each has a setting (see [the settings](#the-settings)) and every one is on by default except the check-in and the token budget.
 
 | Rule | When it applies | What you see | Going on |
 |---|---|---|---|
 | No progress | 3 automatic turns in a row changed no file, ran no command that could have, ran no check, and did not report completion. | The goal is blocked as `no-progress`; the line names the last action it took and what has been used so far. | `/goal resume` starts the count again. |
 | Repeated failure | The same check failed in 3 automatic turns in a row (the same command, the same exit code), and none of those turns changed a file. The record holds the command and its exit code, not its output, so a turn that edited files counts as work on the failure and is not a repeat. | The goal is blocked as `repeated-failure`, naming the failure. | Fix the cause, then `/goal resume`. |
-| Check-in | After every 50 admitted rounds. | The goal pauses and says how many turns, tokens and what cost it has used. | `/goal resume` continues with no count reset; the next check-in comes 50 turns later. A `/goal resume` applies the current `goal` settings to the goal, so setting `goal.checkInEvery` to `0` (or another value) first changes a goal that already exists; a changed interval counts from the resume. |
+| Check-in | Off by default. When `goal.checkInEvery` is a positive number, after every that many admitted rounds (50, say). | The goal pauses and says how many turns, tokens and what cost it has used. | `/goal resume` continues with no count reset; the next check-in comes that many turns later. A `/goal resume` applies the current `goal` settings to the goal, so setting `goal.checkInEvery` to `0` (or another value) first changes a goal that already exists; a changed interval counts from the resume. |
 | Token budget | Only when `goal.tokenBudget` (or `--token-budget`) is set: the goal has used that many tokens. | The goal gets one last round, told to wrap up and start nothing new, then is blocked as `budget-limited`. | Raise `goal.tokenBudget` and run `/goal resume`. |
 | Backstop | 1000 admitted rounds (`goal.maxRounds`). | The goal is blocked as `round-limit`. | Raise `goal.maxRounds` and run `/goal resume`: a resume uses the setting when it is larger than the goal's own cap. |
 
@@ -59,7 +59,7 @@ A turn counts as having made progress when files changed, a command ran that may
 | Setting | Default | Meaning |
 |---|---|---|
 | `goal.maxRounds` | 1000 | Backstop on automatic turns per goal. |
-| `goal.checkInEvery` | 50 | Pause for a check-in after this many automatic turns, and again after each further batch. `0` turns it off. |
+| `goal.checkInEvery` | 0 (off) | Pause for a check-in after this many automatic turns, and again after each further batch. `0` means no check-in; set a positive number, for example `50`, to pause after that many turns. |
 | `goal.tokenBudget` | not set | Tokens one goal may use. Not set means no budget. |
 | `goal.stallRounds` | 3 | Automatic turns in a row without progress, or ending on the same failure, before the goal stops. |
 | `goal.judgeModel` | not set | The model that checks a completion report when the decision model is on, as `provider/model` or a model of the current provider. |
