@@ -129,6 +129,14 @@ const LITERAL_STAMPS: { format: string; file: string; pattern: RegExp; version: 
 		version: 1,
 	},
 	{
+		// <default home>/schedule/services.json: name -> home of each installed scheduler service.
+		// An older command line never opens it, so the epoch stays.
+		format: 'schedule/services.json',
+		file: 'schedule/service/registry.ts',
+		pattern: /readonly v: (\d+)\s*readonly kind: 'schedule-service-index'/,
+		version: 1,
+	},
+	{
 		format: 'schedule script state',
 		file: 'schedule/store/script-state.ts',
 		pattern: /readonly v: (\d+)/,

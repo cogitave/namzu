@@ -156,6 +156,7 @@ than read, because reading it would drop the fields this build does not know and
 | History | `history/<id>.jsonl` | `v` 1, 2 or 3 on each line | a line of another version is skipped |
 | Daemon files | `daemon/lease.<fence>.json`, `endpoint.json`, `heartbeat.json`, `log/daemon-<day>.jsonl` | `v: 1` (endpoint and others), none on the plain logs | not checked |
 | Service record, seen marker, environment | `service.json`, `seen.json`, `daemon.env` | `v: 1` on `service.json`; none on the others | not checked |
+| Service index (name to home of each installed service) | `services.json` in the default home's `schedule/` | `v: 1` | an older command line never opens it |
 | Script state and source deliveries | `store/script-state.ts`, delivery records | `v: 1` | not checked |
 | Session loops | loops file of a session | `v: 1`, `kind: 'session-loops'` | not checked |
 | Notification throttle | schedule notify file | `v: 1` | not checked |

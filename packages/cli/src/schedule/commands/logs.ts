@@ -66,6 +66,12 @@ export async function logsCommand(ctx: CommandContext, argv: readonly string[]):
 		ctx.formatter.error({ message: `unknown option: ${args.unknown.join(', ')}` })
 		return EXIT_USAGE
 	}
+	if (args.positionals.length > 0) {
+		ctx.formatter.error({
+			message: `unexpected argument: ${args.positionals.join(' ')}; the service name goes right after the verb: namzu schedule service logs [<name>] [options]`,
+		})
+		return EXIT_USAGE
+	}
 	const paths = pathsFor(args)
 	const run = flag(args, 'run')
 	if (run) {
