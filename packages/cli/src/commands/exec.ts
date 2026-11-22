@@ -55,6 +55,7 @@ import {
 	type AttachedSessionExport,
 	attachSessionExport,
 } from '../integrations/telemetry/session-export.js'
+import { holdSessionCheckout } from '../integrations/worktrees/managed.js'
 import { cliLogger, contextLogging, createStderrSink, installCliLogging } from '../logging.js'
 import { loadOutputSchema } from '../output-schema.js'
 import { createFormatter } from '../output/index.js'
@@ -1139,8 +1140,29 @@ export const execCommand: CommandDef = {
 						},
 					}
 				: args
-		return flags.json
-			? execJson(formatted, termination, flags, structuredOutput)
-			: execPrint(formatted, termination, flags, structuredOutput)
+		// A one-shot run started inside a managed checkout says so too, for as long
+		// as the run lasts: `exec` works in that folder without a screen, and a
+		// removal asked for from another process would otherwise delete it around
+		// this wait. Asked of the folder the turn works in, not the one this
+		// process happens to sit in — `--cwd` is what moves it.
+		const workingDirectory = resolveWorkingDirectory(flags.cwd)
+		const heldCheckout =
+			'error' in workingDirectory
+				? undefined
+				: await holdSessionCheckout(workingDirectory.cwd, `session:${process.pid}`).catch(
+						() => undefined,
+					)
+		// The dispatch is awaited inside the block, not returned from it: leaving
+		// the block is what runs the `finally` below, and `return execPrint(...)`
+		// leaves it as soon as the call hands back a promise — the holding would be
+		// dropped again at the run's first await, which is the opposite of holding
+		// it for as long as the run lasts.
+		try {
+			return flags.json
+				? await execJson(formatted, termination, flags, structuredOutput)
+				: await execPrint(formatted, termination, flags, structuredOutput)
+		} finally {
+			if (heldCheckout) await heldCheckout().catch(() => undefined)
+		}
 	}),
 }

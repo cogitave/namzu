@@ -127,13 +127,25 @@ export class DelegatedWorktreeDriver {
 		return (await this.open()).driver.inspect(ref)
 	}
 
+	/**
+	 * The child that worked in a checkout has ended.
+	 *
+	 * Called whether or not the checkout is kept, so a checkout kept for review
+	 * stops saying a subagent is working in it. Without this it would go on being
+	 * refused by its own parent's holding — naming a `subagent:` that finished —
+	 * for as long as this process lives, and the entry here would never be let go.
+	 */
+	async release(ref: WorkspaceRef): Promise<void> {
+		const release = this.holding.get(ref.id)
+		this.holding.delete(ref.id)
+		if (release) await release().catch(() => undefined)
+	}
+
 	async dispose(ref: WorkspaceRef): Promise<void> {
 		try {
 			// The child is done before its checkout is: release first, so the removal
 			// this process asks for is not refused by its own holding.
-			const release = this.holding.get(ref.id)
-			this.holding.delete(ref.id)
-			if (release) await release().catch(() => undefined)
+			await this.release(ref)
 			return await (await this.open()).driver.dispose(ref)
 		} catch (cause) {
 			// The caller only logs a failed removal; a person must read why a hook

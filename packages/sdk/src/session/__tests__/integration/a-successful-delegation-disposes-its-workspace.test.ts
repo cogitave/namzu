@@ -122,6 +122,8 @@ class RecordingWorkspaceDriver implements WorkspaceBackendDriver {
 	readonly kind = 'git-worktree' as const
 	readonly created: WorkspaceRef[] = []
 	readonly disposed: WorkspaceId[] = []
+	/** Refs whose checkout the driver was told the child stopped working in. */
+	readonly released: WorkspaceId[] = []
 	/** What a look at the checkout reports; a test sets it before the child ends. */
 	inspection: WorkspaceInspection | Error = { exists: true, currentRef: 'x', isDirty: false }
 	private counter = 0
@@ -151,6 +153,10 @@ class RecordingWorkspaceDriver implements WorkspaceBackendDriver {
 
 	async dispose(ref: WorkspaceRef): Promise<void> {
 		this.disposed.push(ref.id)
+	}
+
+	async release(ref: WorkspaceRef): Promise<void> {
+		this.released.push(ref.id)
 	}
 
 	async inspect(_ref: WorkspaceRef): Promise<WorkspaceInspection> {
@@ -469,6 +475,26 @@ describe('a delegated child does not outlive its workspace', () => {
 			const task = await manager.sendMessage({ ...options, workspace: retainChanged }, taskContext)
 			await manager.waitForCompletion(task.taskId)
 			expect(driver.disposed).toEqual([])
+		})
+
+		it.each([
+			[
+				'an explicitly retained checkout',
+				{ mode: 'isolated', backend: 'git-worktree', retention: 'retain' },
+			],
+			['a checkout kept for its changes', retainChanged],
+		] as const)('lets go of %s even though it keeps it', async (_name, workspace) => {
+			const { manager, driver, options, taskContext } = await harness('completed')
+			// Dirty, so `retain-changed` keeps it; `retain` keeps it whatever it holds.
+			driver.inspection = { exists: true, currentRef: 'x', isDirty: true, hasNewCommits: false }
+			const task = await manager.sendMessage({ ...options, workspace }, taskContext)
+			await manager.waitForCompletion(task.taskId)
+
+			// Nothing disposes a checkout that is kept, so the release has to be a
+			// step of its own: a checkout a finished child still holds is a removal
+			// refused later, naming a session that is no longer anywhere.
+			expect(driver.disposed).toEqual([])
+			expect(driver.released).toEqual([driver.created[0]?.id])
 		})
 	})
 

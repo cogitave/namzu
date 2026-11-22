@@ -315,6 +315,12 @@ it('retains an edited worktree after cancellation has stopped the child', async 
 		)
 		expect(launch.success).toBe(true)
 		const path = await started.promise
+		// While the child works in it, the checkout says so: a removal from another
+		// process is refused instead of taking the edit it is holding.
+		const managed = await openManagedWorktrees(selected, { stateRoot })
+		expect((await managed.holders(basename(path))).map((held) => held.holder)).toEqual([
+			`subagent:${basename(path)}`,
+		])
 		const data = launch.data as { task_id: string }
 		const gateway = await runtime.gatewayForTurn(parent.scope.turnId)
 		expect(gateway.getTask(asTaskId(data.task_id))?.workspace?.meta.worktreePath).toBe(path)
@@ -324,6 +330,10 @@ it('retains an edited worktree after cancellation has stopped the child', async 
 		expect(gateway.getTask(asTaskId(data.task_id))?.state).toBe('canceled')
 		expect(readFileSync(join(path, 'unfinished-edit.txt'), 'utf8')).toBe('keep me')
 		expect(existsSync(path)).toBe(true)
+		// The child has ended, so it stops holding the checkout: only its
+		// uncommitted edit keeps it, and a later removal is not refused for a
+		// subagent that finished.
+		expect(await managed.holders(basename(path))).toEqual([])
 	} finally {
 		await runtime.close()
 	}

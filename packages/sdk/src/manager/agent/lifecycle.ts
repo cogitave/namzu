@@ -2400,7 +2400,10 @@ export class AgentManager {
 	/**
 	 * Release the workspace this manager provisioned for a child.
 	 *
-	 * Called on every terminal path, success included. `has(backend)` before
+	 * Called on every terminal path, success included, and it tells the driver
+	 * the child stopped working in its checkout before deciding whether to keep
+	 * it: a checkout that is kept must not go on claiming a live holder.
+	 * `has(backend)` before
 	 * `get(backend)` because the registry is deny-by-default and throws on an
 	 * unknown kind — a driver deregistered mid-turn must not turn cleanup into
 	 * an exception on a child that already finished.
@@ -2414,10 +2417,26 @@ export class AgentManager {
 	private async disposeChildWorkspace(
 		spawnRecord: Pick<ChildSpawnRecord, 'workspaceRef' | 'workspaceRetention' | 'subSessionId'>,
 	): Promise<void> {
-		if (spawnRecord.workspaceRetention === 'retain') return
 		if (!spawnRecord.workspaceRef) return
 		const backend = spawnRecord.workspaceRef.meta.backend
 		if (!this.deps.workspaceRegistry.has(backend)) return
+		const driver = this.deps.workspaceRegistry.get(backend)
+		// The child has ended, so it stops working in its checkout whatever this
+		// does with that checkout next. A driver that publishes who is working in
+		// one is told here, BEFORE the retention returns below: both of those keep
+		// the checkout, and a kept checkout must not go on claiming a holder that
+		// finished — that is a removal refused later for a session that is gone.
+		if (driver.release) {
+			await driver.release(spawnRecord.workspaceRef).catch((releaseErr) => {
+				this.log.warn('Workspace release failed', {
+					'namzu.manager.backend': backend,
+					'namzu.manager.workspace_id': spawnRecord.workspaceRef?.id,
+					'namzu.sub_session.id': spawnRecord.subSessionId,
+					'exception.message': toErrorMessage(releaseErr),
+				})
+			})
+		}
+		if (spawnRecord.workspaceRetention === 'retain') return
 		if (spawnRecord.workspaceRetention === 'retain-changed') {
 			// Keep the checkout unless it provably holds nothing. A look that fails,
 			// or a backend that cannot say whether it moved, keeps it too.
@@ -2435,8 +2454,7 @@ export class AgentManager {
 			if (!seen) return
 			if (seen.exists && (seen.isDirty || seen.hasNewCommits !== false)) return
 		}
-		await this.deps.workspaceRegistry
-			.get(backend)
+		await driver
 			.dispose(spawnRecord.workspaceRef)
 			.catch((disposeErr) => {
 				this.log.warn('Workspace dispose failed', {
