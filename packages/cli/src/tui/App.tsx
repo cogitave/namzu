@@ -5275,30 +5275,22 @@ function AppBody({
 	}, [initialCtx, pushMessage])
 
 	/**
-	 * `/fast` and `/ultrafast`: turn a tier on or off for this conversation.
-	 * Turning one on is refused, with the reason, when the provider, endpoint or
-	 * model cannot take it; it is never saved. `toggle` flips the command's own
-	 * tier, so `/fast` on ultrafast switches to fast.
+	 * `/fast` and `/ultrafast`: each toggles its own tier for this conversation,
+	 * so `/fast` on ultrafast switches to fast. Turning one on is refused, with
+	 * the reason, when the provider, endpoint or model cannot take it; it is
+	 * never saved.
 	 */
 	const applyFastMode = useCallback(
-		async (tier: FastTier, mode: 'toggle' | 'on' | 'off'): Promise<void> => {
+		async (tier: FastTier): Promise<void> => {
 			if (!session?.hasProvider) {
 				pushMessage('system', 'No model is connected yet — pick a provider with /model first.')
 				return
 			}
-			const wanted = requestedFastTier(fastModeRef.current, tier, mode)
+			const was = fastModeRef.current
+			const wanted = requestedFastTier(was, tier)
 			if (wanted === undefined) {
-				if (fastModeRef.current !== tier) {
-					pushMessage('system', tier === 'fast' ? 'Fast mode is off.' : 'Ultrafast is off.')
-				} else {
-					setFastMode(undefined)
-					pushMessage('system', fastOffMessage())
-				}
-				return
-			}
-			if (wanted === fastModeRef.current) {
-				// `off` of the other tier: nothing changes.
-				pushMessage('system', tier === 'fast' ? 'Fast mode is off.' : 'Ultrafast is off.')
+				setFastMode(undefined)
+				if (was !== undefined) pushMessage('system', fastOffMessage(was))
 				return
 			}
 			const verdict = await fastModeVerdict(
@@ -15956,7 +15948,7 @@ function AppBody({
 						return
 					}
 					case 'fast-mode': {
-						void applyFastMode(slash.tier, slash.mode)
+						void applyFastMode(slash.tier)
 						return
 					}
 					case 'hypermode': {

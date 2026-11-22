@@ -7,6 +7,7 @@ import {
 	fastLaunchRefusal,
 	fastModeBlocker,
 	fastModeVerdict,
+	fastOffMessage,
 	fastOnMessage,
 	launchFastOutcome,
 	rateWords,
@@ -138,39 +139,39 @@ describe('what turning it on says', () => {
 		const verdict = await ok('anthropic', 'claude-opus-5-5', { now: BEFORE, otherHost: null })
 		expect(fastOnMessage(verdict)).toBe(fastOnMessage())
 		expect(fastOnMessage()).toBe(
-			'Fast mode on: faster replies, billed at twice the standard rate. /fast off ends it.',
+			'Fast mode on: faster replies, billed at twice the standard rate. /fast turns it off.',
 		)
 	})
 
 	it('names the multiple on an API key', async () => {
 		expect(fastOnMessage(await ok('openai', 'gpt-5.6-sol', { otherHost: null }))).toBe(
-			'Fast mode on: faster replies, billed at twice the standard rate. /fast off ends it.',
+			'Fast mode on: faster replies, billed at twice the standard rate. /fast turns it off.',
 		)
 		expect(fastOnMessage(await ok('openai', 'gpt-5.5', { otherHost: null }))).toBe(
-			'Fast mode on: faster replies, billed at 2.5 times the standard rate. /fast off ends it.',
+			'Fast mode on: faster replies, billed at 2.5 times the standard rate. /fast turns it off.',
 		)
 	})
 
 	it('names the plan multiple only when a source states it', async () => {
 		expect(fastOnMessage(await ok('codex', 'gpt-6.2-sol', { advertised: ['fast'] }))).toBe(
-			'Fast mode on: faster replies, using your plan allowance 2x as fast. /fast off ends it.',
+			'Fast mode on: faster replies, using your plan allowance 2x as fast. /fast turns it off.',
 		)
 		expect(fastOnMessage(await ok('codex', 'gpt-5.6-sol', { advertised: ['fast'] }))).toBe(
-			'Fast mode on: faster replies, using more of your plan allowance. /fast off ends it.',
+			'Fast mode on: faster replies, using more of your plan allowance. /fast turns it off.',
 		)
 		expect(
 			fastOnMessage(
 				await ok('codex', 'gpt-6.2-sol', { advertised: ['ultrafast'], tier: 'ultrafast' }),
 			),
 		).toBe(
-			'Ultrafast on: the fastest replies, using your plan allowance 6x as fast. /ultrafast off ends it.',
+			'Ultrafast on: the fastest replies, using your plan allowance 6x as fast. /ultrafast turns it off.',
 		)
 		expect(
 			fastOnMessage(
 				await ok('codex', 'gpt-5.6-sol', { advertised: ['ultrafast'], tier: 'ultrafast' }),
 			),
 		).toBe(
-			'Ultrafast on: the fastest replies, using much more of your plan allowance. /ultrafast off ends it.',
+			'Ultrafast on: the fastest replies, using much more of your plan allowance. /ultrafast turns it off.',
 		)
 	})
 
@@ -187,31 +188,17 @@ describe('the toggle', () => {
 	const tiers = [undefined, 'fast', 'ultrafast'] as const
 	it('toggles the command own tier, from every state', () => {
 		for (const current of tiers) {
-			expect(requestedFastTier(current, 'fast', 'toggle')).toBe(
-				current === 'fast' ? undefined : 'fast',
-			)
-			expect(requestedFastTier(current, 'ultrafast', 'toggle')).toBe(
+			expect(requestedFastTier(current, 'fast')).toBe(current === 'fast' ? undefined : 'fast')
+			expect(requestedFastTier(current, 'ultrafast')).toBe(
 				current === 'ultrafast' ? undefined : 'ultrafast',
 			)
 		}
 	})
 
-	it('on asks for the tier, from every state', () => {
-		for (const current of tiers) {
-			expect(requestedFastTier(current, 'fast', 'on')).toBe('fast')
-			expect(requestedFastTier(current, 'ultrafast', 'on')).toBe('ultrafast')
-		}
-	})
-
-	it('off ends only the command own tier', () => {
-		for (const current of tiers) {
-			expect(requestedFastTier(current, 'fast', 'off')).toBe(
-				current === 'fast' ? undefined : current,
-			)
-			expect(requestedFastTier(current, 'ultrafast', 'off')).toBe(
-				current === 'ultrafast' ? undefined : current,
-			)
-		}
+	it('names the tier that ended', () => {
+		expect(fastOffMessage()).toBe('Fast mode off: standard speed and rate.')
+		expect(fastOffMessage('fast')).toBe('Fast mode off: standard speed and rate.')
+		expect(fastOffMessage('ultrafast')).toBe('Ultrafast off: standard speed and rate.')
 	})
 })
 
@@ -248,7 +235,7 @@ describe('applying a launch request to the opened session', () => {
 			const outcome = await launchFastOutcome(session, source)
 			expect(outcome.tier).toBe('fast')
 			expect(outcome.message).toBe(
-				'Fast mode on: faster replies, billed at 2.5 times the standard rate. /fast off ends it.',
+				'Fast mode on: faster replies, billed at 2.5 times the standard rate. /fast turns it off.',
 			)
 		}
 	})

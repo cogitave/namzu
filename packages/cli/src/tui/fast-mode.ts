@@ -128,20 +128,15 @@ export async function fastModeBlocker(
 }
 
 /**
- * The tier a `/fast` or `/ultrafast` argument leaves on, given the one on now;
- * `undefined` is off. `toggle` turns the command's tier on unless it is the
- * one already on, in which case it turns it off (so `/fast` on ultrafast
- * switches to fast). `on` asks for the tier. `off` ends the command's own tier
- * and leaves the other one as it is.
+ * The tier `/fast` or `/ultrafast` leaves on, given the one on now; `undefined`
+ * is off. Each command toggles its own tier: it turns it on, or off when it is
+ * the one already on, so `/fast` on ultrafast switches to fast.
  */
 export function requestedFastTier(
 	current: FastTier | undefined,
 	tier: FastTier,
-	mode: 'toggle' | 'on' | 'off',
 ): FastTier | undefined {
-	if (mode === 'on') return tier
-	if (mode === 'toggle') return current === tier ? undefined : tier
-	return current === tier ? undefined : current
+	return current === tier ? undefined : tier
 }
 
 /** 2 reads `twice`; anything else reads `<n> times`. */
@@ -152,26 +147,29 @@ export function rateWords(multiplier: number): string {
 /** What turning the mode on costs, in plain words; a number only where a source states one. */
 export function fastOnMessage(verdict?: Extract<FastModeVerdict, { ok: true }>): string {
 	if (verdict === undefined) {
-		return 'Fast mode on: faster replies, billed at twice the standard rate. /fast off ends it.'
+		return 'Fast mode on: faster replies, billed at twice the standard rate. /fast turns it off.'
 	}
 	const { tier, rate } = verdict
 	if (rate.kind === 'billing') {
 		return rate.multiplier !== undefined
-			? `Fast mode on: faster replies, billed at ${rateWords(rate.multiplier)} the standard rate. /fast off ends it.`
-			: 'Fast mode on: faster replies, billed above the standard rate. /fast off ends it.'
+			? `Fast mode on: faster replies, billed at ${rateWords(rate.multiplier)} the standard rate. /fast turns it off.`
+			: 'Fast mode on: faster replies, billed above the standard rate. /fast turns it off.'
 	}
 	if (tier === 'ultrafast') {
 		return rate.multiplier !== undefined
-			? `Ultrafast on: the fastest replies, using your plan allowance ${rate.multiplier}x as fast. /ultrafast off ends it.`
-			: 'Ultrafast on: the fastest replies, using much more of your plan allowance. /ultrafast off ends it.'
+			? `Ultrafast on: the fastest replies, using your plan allowance ${rate.multiplier}x as fast. /ultrafast turns it off.`
+			: 'Ultrafast on: the fastest replies, using much more of your plan allowance. /ultrafast turns it off.'
 	}
 	return rate.multiplier !== undefined
-		? `Fast mode on: faster replies, using your plan allowance ${rate.multiplier}x as fast. /fast off ends it.`
-		: 'Fast mode on: faster replies, using more of your plan allowance. /fast off ends it.'
+		? `Fast mode on: faster replies, using your plan allowance ${rate.multiplier}x as fast. /fast turns it off.`
+		: 'Fast mode on: faster replies, using more of your plan allowance. /fast turns it off.'
 }
 
-export function fastOffMessage(): string {
-	return 'Fast mode off: standard speed and rate.'
+/** The tier that was on has ended. */
+export function fastOffMessage(tier: FastTier = 'fast'): string {
+	return tier === 'ultrafast'
+		? 'Ultrafast off: standard speed and rate.'
+		: 'Fast mode off: standard speed and rate.'
 }
 
 /** `--fast` named a model that cannot take it; the launch continues at standard speed. */

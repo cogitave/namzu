@@ -171,7 +171,7 @@ export type SlashAction =
 	 * Turn fast inference on or off (or flip it) for this conversation, or ask for
 	 * the tier above it. `toggle` turns it on when it is off and off otherwise.
 	 */
-	| { kind: 'fast-mode'; tier: 'fast' | 'ultrafast'; mode: 'toggle' | 'on' | 'off' }
+	| { kind: 'fast-mode'; tier: 'fast' | 'ultrafast' }
 	/** `/config triggers on|off|list`: the composer triggers' one switch, written to the user config. */
 	| { kind: 'composer-triggers'; setting: 'on' | 'off' | 'list' }
 	/** Open the theme chooser. */
@@ -2076,12 +2076,12 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 		name: 'fast',
 		immediate: true,
 		help: {
-			usage: ['/fast [on|off]'],
+			usage: ['/fast'],
 			details: [
-				'Fast mode asks the model for faster replies at a higher price: a multiple of the standard rate on an API key, or more of your plan allowance on a Codex subscription. It exists on a few Anthropic and OpenAI models, and the command is listed in the menu only on a model that offers it; typed on any other it is refused with the reason. Off by default, never saved by this command, and it never changes reasoning effort. With no argument, toggles: off turns fast on, fast turns it off, and ultrafast switches to fast. `namzu --fast` starts a conversation with fast mode on.',
+				'Fast mode asks the model for faster replies at a higher price: a multiple of the standard rate on an API key, or more of your plan allowance on a Codex subscription. It exists on a few Anthropic and OpenAI models, and the command is listed in the menu only on a model that offers it; typed on any other it is refused with the reason. Off by default, never saved by this command, and it never changes reasoning effort. It toggles: off turns fast on, fast turns it off, and ultrafast switches to fast. `namzu --fast` starts a conversation with fast mode on.',
 			],
 		},
-		description: 'Toggle fast inference for this conversation: /fast [on|off].',
+		description: 'Toggle fast inference for this conversation.',
 		listedWhen: (ctx) => ctx.speedTiers?.().includes('fast') ?? false,
 		unavailable: (ctx) => ctx.speedTierRefusal?.('fast'),
 		action: (_ctx, args) => speedAction('fast', args),
@@ -2090,12 +2090,12 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 		name: 'ultrafast',
 		immediate: true,
 		help: {
-			usage: ['/ultrafast [on|off]'],
+			usage: ['/ultrafast'],
 			details: [
-				'Ultrafast is the tier above fast mode, offered on the Codex subscription models whose account lists it. It uses much more of your plan allowance, applies to this conversation only, is never saved, and never changes reasoning effort. The command is listed in the menu only on a model that offers it; typed on any other it is refused with the reason. With no argument, toggles: off turns ultrafast on, ultrafast turns it off, and fast switches to ultrafast.',
+				'Ultrafast is the tier above fast mode, offered on the Codex subscription models whose account lists it. It uses much more of your plan allowance, applies to this conversation only, is never saved, and never changes reasoning effort. The command is listed in the menu only on a model that offers it; typed on any other it is refused with the reason. It toggles: off turns ultrafast on, ultrafast turns it off, and fast switches to ultrafast.',
 			],
 		},
-		description: 'Toggle the fastest inference tier for this conversation: /ultrafast [on|off].',
+		description: 'Toggle the fastest inference tier for this conversation.',
 		listedWhen: (ctx) => ctx.speedTiers?.().includes('ultrafast') ?? false,
 		unavailable: (ctx) => ctx.speedTierRefusal?.('ultrafast'),
 		action: (_ctx, args) => speedAction('ultrafast', args),
@@ -2186,13 +2186,11 @@ export function initPrompt(instructionFiles: readonly string[]): string {
 }
 
 /** The session's shell hooks, by event, in the order the config file gave them. */
-/** `/fast [on|off]` and `/ultrafast [on|off]`. */
+/** `/fast` and `/ultrafast` toggle and take no argument. */
 function speedAction(tier: 'fast' | 'ultrafast', args: readonly string[]): SlashAction {
-	const choice = args.join(' ').trim().toLowerCase()
-	if (choice.length === 0) return { kind: 'fast-mode', tier, mode: 'toggle' }
-	if (choice === 'on') return { kind: 'fast-mode', tier, mode: 'on' }
-	if (choice === 'off') return { kind: 'fast-mode', tier, mode: 'off' }
-	return { kind: 'message', role: 'system', content: `Usage: /${tier} [on|off]` }
+	if (args.join(' ').trim().length > 0)
+		return { kind: 'message', role: 'system', content: `Usage: /${tier}` }
+	return { kind: 'fast-mode', tier }
 }
 
 /** `/hypermode [on|off]`, and its deprecated `/orchestrate` alias. */

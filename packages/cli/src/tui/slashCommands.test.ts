@@ -1021,47 +1021,24 @@ describe('/effort', () => {
 })
 
 describe('/fast and /ultrafast', () => {
-	it('toggle with no argument and take an explicit state', () => {
-		expect(runSlash('/fast', context())).toEqual({
-			kind: 'fast-mode',
-			tier: 'fast',
-			mode: 'toggle',
-		})
-		expect(runSlash('/fast on', context())).toEqual({ kind: 'fast-mode', tier: 'fast', mode: 'on' })
-		expect(runSlash('/fast OFF', context())).toEqual({
-			kind: 'fast-mode',
-			tier: 'fast',
-			mode: 'off',
-		})
-		expect(runSlash('/ultrafast', context())).toEqual({
-			kind: 'fast-mode',
-			tier: 'ultrafast',
-			mode: 'toggle',
-		})
-		expect(runSlash('/ultrafast on', context())).toEqual({
-			kind: 'fast-mode',
-			tier: 'ultrafast',
-			mode: 'on',
-		})
-		expect(runSlash('/ultrafast off', context())).toEqual({
-			kind: 'fast-mode',
-			tier: 'ultrafast',
-			mode: 'off',
-		})
+	it('toggle and take no argument', () => {
+		expect(runSlash('/fast', context())).toEqual({ kind: 'fast-mode', tier: 'fast' })
+		expect(runSlash('/ultrafast', context())).toEqual({ kind: 'fast-mode', tier: 'ultrafast' })
 	})
 
-	it('answer a bad argument with their own usage line, and `/fast ultrafast` is one', () => {
-		expect(runSlash('/fast ultrafast', context())).toMatchObject({
-			kind: 'message',
-			content: 'Usage: /fast [on|off]',
-		})
-		expect(runSlash('/fast sideways', context())).toMatchObject({
-			content: 'Usage: /fast [on|off]',
-		})
-		expect(runSlash('/ultrafast fast', context())).toMatchObject({
-			kind: 'message',
-			content: 'Usage: /ultrafast [on|off]',
-		})
+	it('answer any argument, including the old on, off and ultrafast words, with their usage line', () => {
+		for (const arg of ['on', 'OFF', 'ultrafast', 'sideways']) {
+			expect(runSlash(`/fast ${arg}`, context())).toMatchObject({
+				kind: 'message',
+				content: 'Usage: /fast',
+			})
+		}
+		for (const arg of ['on', 'off', 'fast']) {
+			expect(runSlash(`/ultrafast ${arg}`, context())).toMatchObject({
+				kind: 'message',
+				content: 'Usage: /ultrafast',
+			})
+		}
 	})
 
 	describe('in the menu', () => {
@@ -1114,7 +1091,7 @@ describe('/fast and /ultrafast', () => {
 			role: 'system',
 			content: 'ultrafast is not offered here.',
 		})
-		expect(runSlash('/fast on', ctx)).toMatchObject({ content: 'fast is not offered here.' })
+		expect(runSlash('/fast', ctx)).toMatchObject({ content: 'fast is not offered here.' })
 	})
 })
 
