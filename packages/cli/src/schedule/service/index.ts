@@ -228,8 +228,10 @@ export async function installService(
 				bin: request.program.bin,
 				namzuHome: request.program.namzuHome,
 			})
-			const name = wslTaskName(request.name, distro)
-			const path = taskPath(name)
+			// The Windows task carries the distro so two distros never collide in
+			// Task Scheduler; the service itself keeps the name the person gave.
+			const taskName = wslTaskName(request.name, distro)
+			const path = taskPath(taskName)
 			// The XML goes where Windows can read it without a UNC path.
 			const localAppData = (
 				await run(tools.cmd, ['/d', '/c', 'echo', '%LOCALAPPDATA%'], { cwd: tools.drive })
@@ -240,7 +242,7 @@ export async function installService(
 			if (!linuxDir.startsWith(tools.mountRoot))
 				throw new ServiceRefusal(`could not map ${localAppData} into WSL`)
 			mkdirSync(linuxDir, { recursive: true })
-			const linuxFile = join(linuxDir, `${name}.xml`)
+			const linuxFile = join(linuxDir, `${taskName}.xml`)
 			writeFileSync(linuxFile, taskXmlBytes(taskXml(definition)))
 			const problems: string[] = []
 			try {
@@ -266,7 +268,6 @@ export async function installService(
 			}
 			const manifest: ServiceManifest = {
 				...base,
-				name,
 				artifacts: [{ type: 'windows-task', taskPath: path }],
 				windows: {
 					taskPath: path,
