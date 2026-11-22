@@ -2,6 +2,7 @@
 
 ## 2026-11-22
 
+- **Update** [Permission layers](cli/permission-layers.md#rules-as-lists): a `deny` for a command now matches where that command starts, anywhere in the line, and no longer matches the same letters inside another word (`gh *` no longer refuses `through` or `ghost`); a rule that starts with `*` still matches anywhere. `.changeset/cli-deny-word-boundary.md`.
 - **Update** [Releasing by hand](cli/releasing.md#remembered-checks): `pnpm release local` remembers the four pre-publish checks per tree in `.release/checks/<tree sha>.txt` and skips the three slow ones on a re-run for the same tree (the build always runs) (`--recheck` runs them again; a dry run that ran them writes the record too); a tag push that fails after publishing now says every package is published, names git's cause and gives the command to finish.
 - **Update** [Goals](cli/goals.md): `goal.checkInEvery` now defaults to 0 in the CLI, so an automatic goal no longer pauses after every 50 turns; a positive value keeps the pause. The SDK default is unchanged. `.changeset/cli-goal-check-in-off.md` (`@namzu/cli` major).
 - **Update** [The scheduler service](cli/scheduler-service.md#named-services): the name given to `install --name` is the name you type on every platform; a `wsl-windows-task` service is no longer registered as `<name>-wsl-<distro>` (only its Windows task keeps that name), and one installed that way earlier is still found by `<name>`. `.changeset/cli-service-wsl-name.md`.
