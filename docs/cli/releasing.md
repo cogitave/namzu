@@ -15,7 +15,7 @@ Releases normally run in `.github/workflows/release.yml` (npm, through changeset
 releases can be made from a maintainer's machine with `pnpm release`. It is the only allowed manual
 path (`AGENTS.md`), and only with the owner's go for that specific release. It never runs
 `npm unpublish`, never publishes a version the registry already has (it skips it and says so),
-and signs in only when you run `pnpm release login`. It uses only your own npm session: no access token and no one-time code.
+and signs in only through npm's browser approval (`pnpm release login`, or `pnpm release local` when the session has expired). It uses only your own npm session: no access token and no one-time code.
 
 Every command takes `--dry-run`, which runs every check and stops before anything is published,
 tagged, uploaded or deleted. Start with one.
@@ -41,7 +41,9 @@ tagged, uploaded or deleted. Start with one.
    pnpm release local
    ```
 
-   If `npm whoami` fails the command says to run `pnpm release login` and stops. Nothing is typed to npm
+   npm's browser sign-in lasts hours, not days. `pnpm release local` checks `npm whoami` before the checks
+   and again before publishing; when it fails, a real run opens the same sign-in approval and goes on once
+   you approve, and a dry run says to run `pnpm release login` and stops. Nothing is typed to npm
    and the command sets no timeout of its own, so it works from a shell without a keyboard, such as a
    chat tool's `!` shell.
 
@@ -76,10 +78,13 @@ In order, it refuses unless: the working tree is clean and HEAD equals `origin/m
 first); no changeset is pending (it tells you to run `pnpm release version`); the gate proof holds.
 It then builds, runs the pre-publish consumer install check
 (`.github/scripts/verify-consumer-install.sh`) and the publish-metadata gate, requires a clean tree
-afterwards, and checks `npm whoami`. It asks the registry about each package with `npm view <pkg>@<version>`
+afterwards, and checks `npm whoami` again. It asks the registry about each package with `npm view <pkg>@<version>`
 and lists what it will publish (a registry error other than a 404 stops it). Then it runs
-publishes the packages one at a time in dependency order, each with `pnpm --filter <pkg> publish`,
-and goes on only after the previous one succeeded. npm's output is streamed live. npm asks for an
+publishes the packages one at a time in dependency order, each with
+`pnpm --filter <pkg> publish --provenance=false`, and goes on only after the previous one succeeded.
+The packages ask for a provenance attestation in `publishConfig`, which only the release workflow's CI
+identity can produce; npm refuses that request on a maintainer's machine, and the flag (which outranks
+`publishConfig`) publishes a by-hand version without one. A version published by the workflow keeps it. npm's output is streamed live. npm asks for an
 approval at a URL and waits; the command opens it in the browser as described above and sets no timeout
 of its own (npm has its own; its message is shown if it expires). Before the first publish it says that the approval page may offer to not
 ask again for a few minutes from this address, which saves one approval per package. On the first failure it
