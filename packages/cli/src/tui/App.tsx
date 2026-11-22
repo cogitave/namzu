@@ -577,11 +577,13 @@ import { type EditorMode, describeEditorMode, saveEditorMode } from './editor-mo
 import type { TuiExitSummary } from './exit-summary.js'
 import { ExternalEditorError, editDraftInExternalEditor } from './external-editor.js'
 import {
+	type FastTier,
 	fastDroppedMessage,
 	fastLaunchRefusal,
-	fastModeBlocker,
+	fastModeVerdict,
 	fastOffMessage,
 	fastOnMessage,
+	requestedFastTier,
 } from './fast-mode.js'
 import { FullscreenTranscript } from './fullscreen/FullscreenTranscript.js'
 import type { FullscreenControl } from './fullscreen/FullscreenTranscript.js'
@@ -1471,6 +1473,30 @@ type StreamState = {
 }
 
 /** A model as a `pre_model_switch` or `post_model_switch` hook is told it: `provider/model`, or just `auto`. */
+/**
+ * What the fast-mode check needs from a session besides the model: the tiers
+ * the subscription's model listing offers for it. The listing may still be on
+ * its way when the session opens, so a first miss waits for it once.
+ */
+async function fastModeOptionsFor(
+	session: {
+		readonly providerId?: string
+		readonly modelSummary: string | null
+		readonly speedTiersFor?: (model: string) => readonly FastTier[] | undefined
+		readonly reasoningSettled?: Promise<unknown>
+	},
+	tier: FastTier,
+): Promise<{ readonly tier: FastTier; readonly advertised?: readonly FastTier[] }> {
+	const model = session.modelSummary
+	if (session.providerId !== 'codex' || !model || !session.speedTiersFor) return { tier }
+	let advertised = session.speedTiersFor(model)
+	if (advertised === undefined && session.reasoningSettled) {
+		await session.reasoningSettled
+		advertised = session.speedTiersFor(model)
+	}
+	return { tier, ...(advertised !== undefined ? { advertised } : {}) }
+}
+
 function modelSwitchLabel(provider: string | undefined, model: string | null | undefined): string {
 	const name = model ?? 'unknown'
 	return provider === undefined || provider === name ? name : `${provider}/${name}`
@@ -2103,8 +2129,8 @@ function AppBody({
 	// Fast inference: a per-conversation switch like hypermode. Off unless
 	// `--fast` asked, never saved, and dropped (with a message) by a model change
 	// that cannot keep it.
-	const [fastMode, setFastModeState] = useState(false)
-	const fastModeRef = useRef(false)
+	const [fastMode, setFastModeState] = useState<FastTier | undefined>(undefined)
+	const fastModeRef = useRef<FastTier | undefined>(undefined)
 	// Where a pending fast start came from, so a refusal names the right thing.
 	const launchFastPendingRef = useRef<'flag' | 'saved' | undefined>(
 		initialCtx.launchSettings?.fast === true
@@ -2113,7 +2139,7 @@ function AppBody({
 				? 'saved'
 				: undefined,
 	)
-	const setFastMode = useCallback((next: boolean) => {
+	const setFastMode = useCallback((next: FastTier | undefined) => {
 		fastModeRef.current = next
 		setFastModeState(next)
 	}, [])
@@ -5221,31 +5247,37 @@ function AppBody({
 	}, [initialCtx, pushMessage])
 
 	/**
-	 * Turn fast inference on or off for this conversation. Turning it on is
-	 * refused, with the reason, when the provider, endpoint or model cannot take
-	 * it; it is never saved.
+	 * Turn fast inference on or off for this conversation, or ask for the tier
+	 * above it. Turning it on is refused, with the reason, when the provider,
+	 * endpoint or model cannot take it; it is never saved. `toggle` turns it on
+	 * when it is off, and off when either tier is on.
 	 */
 	const applyFastMode = useCallback(
-		async (enabled: boolean): Promise<void> => {
+		async (mode: 'toggle' | 'off' | 'fast' | 'ultrafast'): Promise<void> => {
 			if (!session?.hasProvider) {
 				pushMessage('system', 'No model is connected yet — pick a provider with /model first.')
 				return
 			}
-			if (!enabled) {
+			const wanted = requestedFastTier(fastModeRef.current, mode)
+			if (wanted === undefined) {
 				if (!fastModeRef.current) pushMessage('system', 'Fast mode is off.')
 				else {
-					setFastMode(false)
+					setFastMode(undefined)
 					pushMessage('system', fastOffMessage())
 				}
 				return
 			}
-			const blocker = await fastModeBlocker(session.providerId, session.modelSummary)
-			if (blocker !== undefined) {
-				pushMessage('system', blocker)
+			const verdict = await fastModeVerdict(
+				session.providerId,
+				session.modelSummary,
+				await fastModeOptionsFor(session, wanted),
+			)
+			if (!verdict.ok) {
+				pushMessage('system', verdict.reason)
 				return
 			}
-			setFastMode(true)
-			pushMessage('system', fastOnMessage())
+			setFastMode(verdict.tier)
+			pushMessage('system', fastOnMessage(verdict))
 		},
 		[pushMessage, session, setFastMode],
 	)
@@ -7022,16 +7054,25 @@ function AppBody({
 			if (launchFastPendingRef.current && s.hasProvider) {
 				const fastSource = launchFastPendingRef.current
 				launchFastPendingRef.current = undefined
-				void fastModeBlocker(s.providerId, s.modelSummary).then((blocker) => {
-					if (blocker === undefined) setFastMode(true)
-					else pushMessage('system', fastLaunchRefusal(blocker, fastSource))
-				})
+				// Said once, with what it costs: a saved opt-in must not start billing silently.
+				void fastModeOptionsFor(s, 'fast')
+					.then((options) => fastModeVerdict(s.providerId, s.modelSummary, options))
+					.then((verdict) => {
+						if (verdict.ok) {
+							setFastMode(verdict.tier)
+							pushMessage('system', fastOnMessage(verdict))
+						} else pushMessage('system', fastLaunchRefusal(verdict.reason, fastSource))
+					})
 			} else if (fastModeRef.current) {
-				void fastModeBlocker(s.providerId, s.modelSummary).then((blocker) => {
-					if (blocker === undefined) return
-					setFastMode(false)
-					pushMessage('system', fastDroppedMessage(blocker))
-				})
+				// Re-checked under the new model with the tier now on: the mode is kept
+				// (and not announced again) only when the new model offers that tier.
+				void fastModeOptionsFor(s, fastModeRef.current)
+					.then((options) => fastModeVerdict(s.providerId, s.modelSummary, options))
+					.then((verdict) => {
+						if (verdict.ok) return
+						setFastMode(undefined)
+						pushMessage('system', fastDroppedMessage(verdict.reason))
+					})
 			}
 			// What the effort menu decides once the levels are final: a launch
 			// `--effort`, and the picker a model change asks for. Run at once when the
@@ -10559,7 +10600,7 @@ function AppBody({
 				onAutoModeLimit: handleAutoModeLimit,
 				limits: resolveTurnGuards(ctxRef.current.limits, turnLimitsOverrideRef.current),
 				...(reasoningEffortRef.current !== undefined ? { effort: reasoningEffortRef.current } : {}),
-				...(fastModeRef.current ? { speed: 'fast' as const } : {}),
+				...(fastModeRef.current ? { speed: fastModeRef.current } : {}),
 				...(hypermodeRef.current ? { hypermode: true } : {}),
 				...(ctxRef.current.refusalFallback
 					? { refusalFallback: ctxRef.current.refusalFallback }
@@ -12203,7 +12244,7 @@ function AppBody({
 								? { effort: pinnedEffort ?? turnReasoningEffort }
 								: {}),
 							...(turnHypermode ? { hypermode: true } : {}),
-							...(turnFast ? { speed: 'fast' as const } : {}),
+							...(turnFast ? { speed: turnFast } : {}),
 							// A model picked with /model while this turn runs: read before every
 							// request, so the next request of the loop uses it.
 							liveModel: () => {
@@ -12796,12 +12837,15 @@ function AppBody({
 					// refuses `speed` on a model without it. A pick that cannot keep it
 					// takes over when the reply finishes, where the session is rebuilt
 					// and fast mode is dropped with the reason.
-					const blocker = await fastModeBlocker(selection.id, selection.model)
-					if (blocker !== undefined) {
+					const verdict = await fastModeVerdict(selection.id, selection.model, {
+						tier: fastModeRef.current,
+						advertised: session.speedTiersFor?.(selection.model),
+					})
+					if (!verdict.ok) {
 						deferredModelRef.current = { query: target, quiet: false }
 						pushMessage(
 							'system',
-							`Switching to ${selection.id} · ${selection.model} when this reply finishes. Fast mode ends then: ${blocker}`,
+							`Switching to ${selection.id} · ${selection.model} when this reply finishes. Fast mode ends then: ${verdict.reason}`,
 						)
 						return
 					}
@@ -15868,7 +15912,7 @@ function AppBody({
 						return
 					}
 					case 'fast-mode': {
-						void applyFastMode(slash.enabled === 'toggle' ? !fastModeRef.current : slash.enabled)
+						void applyFastMode(slash.mode)
 						return
 					}
 					case 'hypermode': {

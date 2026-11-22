@@ -104,6 +104,12 @@ describe('runCli', () => {
 		)
 	})
 
+	it('keeps --fast a flag with no value, so a word after it is never read as a tier', async () => {
+		expect(await invoke(['--help'])).toBe(0)
+		expect(flat(stdout)).toMatch(/--fast +Start with fast inference on for this launch only/u)
+		expect(flat(stdout)).not.toMatch(/--fast (\[|<)/u)
+	})
+
 	it('lists the launch flags in --help', async () => {
 		expect(await invoke(['--help'])).toBe(0)
 		for (const flag of [
