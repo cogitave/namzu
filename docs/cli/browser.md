@@ -14,7 +14,7 @@ In the interactive terminal the model has two browser tools: `browser`, which op
 
 The tools are the SDK's [browser tools](../sdk/browser-tools.md) over the [`@namzu/browser` host](../sdk/browser-host.md), which the CLI installs as a regular dependency. Nothing starts when namzu starts: the browser launches on the model's first browser call, and closes when the session ends (unless `browser.keepOpen`). When no browser engine can run here (for example `browser.headless: never` with no display), the two tools are mounted but not sent to the model, because every call would only be refused; they are sent once a profile switch finds a usable engine.
 
-`namzu exec`, `exec --json` and `drain` never get the browser: nobody is at a window there to sign in or to answer a review. `namzu acp` gets it only when the Namzu Desktop application starts it (`acp --desktop`), with the same lifecycle as the terminal: the host is built when the conversation opens, the browser launches on the model's first browser call, and it closes with the conversation. The same `browser` settings apply (`enabled`, `defaultProfile`, `engine`, `headless`, `sites`, `keepOpen`, `signInDetection`), and the site rules sit in front of the permission table as they do in the terminal. A bare ACP client, and a Pal conversation (which has its own computer), do not get it. A scheduled job gets one only through its own grant: see [Scheduled jobs](#scheduled-jobs).
+`namzu exec`, `exec --json` and `drain` never get the browser: nobody is at a window there to sign in or to answer a review. `namzu acp` gets it only when the Namzu Desktop application starts it (`acp --desktop`), with the same lifecycle as the terminal: the host is built when the conversation opens, the browser launches on the model's first browser call, and it closes with the conversation. The same `browser` settings apply (`enabled`, `defaultProfile`, `engine`, `headless`, `sites`, `keepOpen`, `signInDetection`, `signInWatch`), and the site rules sit in front of the permission table as they do in the terminal. A bare ACP client, and a Pal conversation (which has its own computer), do not get it. A scheduled job gets one only through its own grant: see [Scheduled jobs](#scheduled-jobs).
 
 ## Which browser runs where
 
@@ -97,16 +97,24 @@ A sign-in page, a second sign-in step, a CAPTCHA, a bot check or an HTTP authent
 
 ```text
 ‖ The browser needs you: https://github.com is showing a sign-in page.
-  Sign in to https://github.com in the browser window (profile work), then press Enter to continue · Esc to stop.
+  Sign in to https://github.com in the browser window (profile work), then press Enter to continue, type a message to answer instead, or press Esc to stop.
 ```
 
-Do it in the window and press Enter; the turn continues, and the model is told to retry the page once. Pressing Enter does not claim that sign-in or the challenge succeeded. If the page still needs you, the turn pauses again. Esc stops the turn. With no window (headless), namzu closes its browser to free the profile and gives the command instead:
+Do it in the window and press Enter; the turn continues, and the model is told to retry the page once. Pressing Enter does not claim that sign-in or the challenge succeeded. If the page still needs you, the turn pauses again. Esc stops the turn, with a draft in the box too. A message you type instead of pressing Enter is your answer: the turn continues with your words, the model is told they are yours and to answer them first, and it retries the page only if that still makes sense. A slash command that does not take the turn (`/help`, a typo) leaves the pause as it is, and a mistyped command names the nearest real one (`/abondon` gives "Did you mean /abandon?"). If the pause was lost from the screen, Enter on an empty box still continues a paused turn, and says "Nothing to continue here" when none is paused. With no window (headless), namzu closes its browser to free the profile and gives the command instead:
 
 ```text
   namzu browser login work https://github.com/login
 ```
 
 Run it in another terminal, sign in, close the window, then press Enter.
+
+### Continuing by itself
+
+With a visible window, namzu looks at the page that is open every 3 seconds while the pause waits. It only reads: it never navigates, clicks, types, or reads cookies or storage (`peekHumanRequired` on the browser host, the same classifier as above). When two looks in a row show the page no longer asks for you, the turn continues once, with the quiet line "Looks like you signed in. Continuing." It does not look while you have a draft in the box, stops the moment you press a key that answers the pause, and gives up after 10 minutes with "Still waiting for you to sign in" (the pause stays; Enter or a message still answers it). It continues by itself at most twice before you act. `browser.signInWatch: false` turns it off. It does nothing without a window: a headless browser has nobody to sign in, and a browser outside the profile namzu opened cannot be seen.
+
+### Your own browser (Brave, Chrome, Edge)
+
+The agent drives its own namzu browser profile, never the browser you use every day, and never copies cookies from it. A sign-in you made in Brave, Chrome or Edge is therefore not visible to it, and it cannot continue from a page open there. Sign in once in the namzu window (or run `namzu browser login default https://github.com/login`); the sign-in is kept in the namzu profile for next time. On WSL namzu attaches only to its own profile directory, and only Chrome or Edge are candidates for the window, so Brave is never driven.
 
 ### Sign-in detection
 
@@ -150,6 +158,7 @@ A [scheduled job](scheduled-tasks.md#browser-access) drives the browser only wit
 | `browser.headless` | `auto` | `auto`, `always` or `never`. |
 | `browser.sites` | `{ "*": ask }` | Site key to `deny`, `read`, `ask` or `act`. |
 | `browser.keepOpen` | `false` | Leave the browser running when the session ends. |
+| `browser.signInWatch` | `true` | While a turn waits for a sign-in at a visible window, look at the page every 3 seconds and continue by itself once it stops asking. Read-only. See [Continuing by itself](#continuing-by-itself). |
 
 ## Commands
 

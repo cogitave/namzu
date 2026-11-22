@@ -122,11 +122,10 @@ export function mergeUndeliveredLiveInput<Trigger extends string>(
 	return merged
 }
 
-export function humanPromptMeta(attachedFiles: number, live = false): string | undefined {
-	const parts: string[] = []
-	if (attachedFiles > 0) parts.push(`${attachedFiles} file${attachedFiles > 1 ? 's' : ''} attached`)
-	if (live) parts.push('sent while working')
-	return parts.length > 0 ? parts.join(' · ') : undefined
+export function humanPromptMeta(attachedFiles: number): string | undefined {
+	return attachedFiles > 0
+		? `${attachedFiles} file${attachedFiles > 1 ? 's' : ''} attached`
+		: undefined
 }
 export type QueuePauseOutcome = 'failed' | 'stopped' | 'paused'
 
@@ -134,6 +133,11 @@ export type QueuePauseOutcome = 'failed' | 'stopped' | 'paused'
 export interface HandoffPark<Trigger extends string = string> {
 	readonly turnId: string
 	readonly reason?: string
+	/**
+	 * The browser paused the reply for a sign-in or a check, and a window is
+	 * open: the page can be looked at until it stops asking.
+	 */
+	readonly browserSignIn?: boolean
 	/**
 	 * The reply stopped because the account used up its allowance. Enter opens
 	 * the account list and runs the same reply again on the one chosen.

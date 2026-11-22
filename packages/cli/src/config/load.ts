@@ -2595,6 +2595,7 @@ const CONFIG_READERS: ConfigReaders = {
 			editorMode?: unknown
 			recap?: unknown
 			spinnerTips?: unknown
+			showTurnDuration?: unknown
 			syntaxHighlight?: unknown
 			workspacesPrefix?: unknown
 			spacesPrefix?: unknown
@@ -2606,6 +2607,8 @@ const CONFIG_READERS: ConfigReaders = {
 			return invalidConfigValue(context, ['sound'], 'must be true or false')
 		if (raw.spinnerTips !== undefined && typeof raw.spinnerTips !== 'boolean')
 			return invalidConfigValue(context, ['spinnerTips'], 'must be a boolean')
+		if (raw.showTurnDuration !== undefined && typeof raw.showTurnDuration !== 'boolean')
+			return invalidConfigValue(context, ['showTurnDuration'], 'must be true or false')
 		if (raw.syntaxHighlight !== undefined && typeof raw.syntaxHighlight !== 'boolean')
 			return invalidConfigValue(context, ['syntaxHighlight'], 'must be true or false')
 
@@ -2727,6 +2730,7 @@ const CONFIG_READERS: ConfigReaders = {
 			...(raw.editorMode !== undefined ? { editorMode: raw.editorMode as 'normal' | 'vim' } : {}),
 			...(raw.recap !== undefined ? { recap: raw.recap } : {}),
 			...(raw.spinnerTips !== undefined ? { spinnerTips: raw.spinnerTips } : {}),
+			...(raw.showTurnDuration !== undefined ? { showTurnDuration: raw.showTurnDuration } : {}),
 			...(raw.syntaxHighlight !== undefined ? { syntaxHighlight: raw.syntaxHighlight } : {}),
 			...(raw.sound !== undefined ? { sound: raw.sound } : {}),
 		}
@@ -3661,6 +3665,7 @@ const BROWSER_KEYS = new Set([
 	'sites',
 	'keepOpen',
 	'signInDetection',
+	'signInWatch',
 ])
 /** `@namzu/browser`'s profile names, restated so reading config does not load Playwright. */
 export const BROWSER_PROFILE_NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
@@ -3672,12 +3677,12 @@ function readBrowserConfig(v: unknown, context: ConfigReaderContext): BrowserCon
 			return invalidConfigValue(
 				context,
 				[key],
-				'is not a browser setting (enabled, defaultProfile, engine, headless, sites, keepOpen, signInDetection)',
+				'is not a browser setting (enabled, defaultProfile, engine, headless, sites, keepOpen, signInDetection, signInWatch)',
 			)
 		}
 	}
 	const raw = v as Record<string, unknown>
-	for (const key of ['enabled', 'keepOpen'] as const) {
+	for (const key of ['enabled', 'keepOpen', 'signInWatch'] as const) {
 		if (raw[key] !== undefined && typeof raw[key] !== 'boolean')
 			return invalidConfigValue(context, [key], 'must be true or false')
 	}
@@ -3728,6 +3733,7 @@ function readBrowserConfig(v: unknown, context: ConfigReaderContext): BrowserCon
 		...(raw.signInDetection !== undefined
 			? { signInDetection: raw.signInDetection as BrowserConfig['signInDetection'] }
 			: {}),
+		...(raw.signInWatch !== undefined ? { signInWatch: raw.signInWatch as boolean } : {}),
 	}
 }
 

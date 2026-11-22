@@ -40,7 +40,7 @@ Remember what trust is not: the network's fingerprint is not a secret, and a mac
 
 ## What the list shows
 
-`/peers`, or `namzu peers list` from a shell, draws every machine and its live sessions:
+`/peers`, or `namzu peers list` from a shell, draws every machine and its live sessions (in the terminal, inside the "Waiting for you" picker when something needs an answer, otherwise as the command's one result row):
 
 ```
 studio-air · this machine · online

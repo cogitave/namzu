@@ -238,8 +238,17 @@ export function handoffContinuationNote(
 	reason: string,
 	now: Date = new Date(),
 	tz: string = hostTimeZone(),
+	person?: string,
 ): string {
 	const flat = terminalDisplayText(reason).replace(/\s+/g, ' ').trim()
+	const wrote = person ? terminalDisplayText(person).replace(/\s+/g, ' ').trim().slice(0, 4000) : ''
+	if (wrote) {
+		return [
+			`This turn stopped because a tool needed a person: ${flat}. While it waited, the person wrote: ${JSON.stringify(wrote)}`,
+			'That is the person speaking to you, not a tool result. Answer it first. Then try the step that stopped again only if it still makes sense; typing a message does not confirm the issue was resolved. If the tool still needs a person, explain what remains and stop; never type a password or a code.',
+			currentTimeLine(now, tz),
+		].join('\n')
+	}
 	return [
 		`This turn stopped because a tool needed a person: ${flat}. The person chose to continue; that choice does not confirm the issue was resolved.`,
 		'Try the step that stopped again once (for a web page, open or reload it and read it again) before deciding it cannot be done. If the tool still needs a person, explain what remains and stop; never type a password or a code.',

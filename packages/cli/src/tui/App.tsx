@@ -1,4 +1,5 @@
 import { ConfigLoadError, pendingProjectMcpServers } from '../config/load.js'
+import { DEFAULT_SHOW_TURN_DURATION } from '../config/turn-duration-default.js'
 import { type TurnGuardKey, type TurnGuards, resolveTurnGuards } from '../config/turn-guards.js'
 import { TURN_LIMIT_FIELDS, turnLimitCommands } from './turn-limits-settings.js'
 /**
@@ -413,6 +414,7 @@ import {
 	agentViewPageRows,
 	agentWorkflowPageSize,
 	agentWorkflows,
+	cockpitDetailHeight,
 	cockpitEntryFocus,
 	maxAgentTranscriptTailOffset,
 	maxAgentViewTailOffset,
@@ -767,6 +769,7 @@ import {
 	triggerDefinition,
 } from './triggers/registry.js'
 import { describeComposerTriggers, setComposerTriggers } from './triggers/setting.js'
+import { describeTurnDuration, setShowTurnDuration } from './turn-duration-setting.js'
 import { typedInputOf } from './typed-input.js'
 import { type TypedKeySave, logoutWordFor, saveTypedKey } from './typed-key-save.js'
 import { formatCompactCount } from './units.js'
@@ -856,6 +859,7 @@ import {
 	runShellEscape,
 	shellEscapeCommand,
 } from './shell-escape.js'
+import { SIGNIN_AUTO_RESUME_CAP, SIGNIN_WATCH_MS, startSignInWatch } from './sign-in-watch.js'
 import {
 	type CommandPickerEntry,
 	type SlashContext,
@@ -1173,6 +1177,8 @@ type ChoicePickerState = {
 			readonly kind: 'peers-network'
 			readonly title: string
 			readonly notice?: string
+			/** The `/peers` screen, drawn under the title. */
+			readonly body?: readonly string[]
 			readonly actions: readonly PeersAction[]
 			readonly values: readonly string[]
 			readonly options: readonly ChoicePickerOption[]
@@ -1553,6 +1559,9 @@ export function projectConversation(
 		...(restore?.cwd ? { cwd: restore.cwd } : {}),
 		...(restore?.cannotTellReason ? { cannotTellReason: restore.cannotTellReason } : {}),
 		...(restore?.telling ? { telling: restore.telling } : {}),
+		...(restore?.showTurnDuration !== undefined
+			? { showTurnDuration: restore.showTurnDuration }
+			: {}),
 	})
 	const out: TranscriptMessage[] = []
 	for (const message of messages) {
@@ -2749,6 +2758,15 @@ function AppBody({
 	}, [])
 	/** How many tries a paused reply has made by itself since the person last acted. */
 	const autoResumeAttemptRef = useRef(0)
+	// Continues a sign-in watch made by itself since the person last acted, and
+	// the pause whose watch ran out (so it is not started again).
+	const signInAutoResumesRef = useRef(0)
+	const signInWatchGaveUpRef = useRef<string | null>(null)
+	const signInWatchStartRef = useRef<{ turnId: string; at: number } | null>(null)
+	// A tool paused this conversation for a person and the pause has not been
+	// answered or stopped since: Enter on an empty composer tries it even when
+	// the on-screen pause was lost.
+	const pausedTurnMayBeWaitingRef = useRef(false)
 	/**
 	 * The row that says a reply is paused while it mends itself. Every failed try
 	 * rewrites this one row instead of adding another; it is forgotten when the
@@ -4525,7 +4543,13 @@ function AppBody({
 		closingWaitRef.current = null
 		setClosingWaitVersion((version) => version + 1)
 		if (wait.silent === true) return
-		const line = settleLine(Math.max(0, Date.now() - wait.since - wait.pausedMs), mine, new Date())
+		const line = settleLine(
+			Math.max(0, Date.now() - wait.since - wait.pausedMs),
+			mine,
+			new Date(),
+			undefined,
+			showTurnDurationRef.current,
+		)
 		if (line) pushMessage('system', line, false, CLOSING_GLYPH, undefined, tokenColor('text.muted'))
 	}, [subagents, workflowRuns, state, closingWaitVersion, pushMessage])
 	/** The queue row chosen for editing with Up; null when no row is chosen. */
@@ -4653,6 +4677,12 @@ function AppBody({
 	/** `/config tips on|off` in this session, over whatever the config files say. */
 	const [spinnerTipsOverride, setSpinnerTipsOverride] = useState<boolean | undefined>()
 	const spinnerTipsOn = spinnerTipsOverride ?? ctx.tui?.spinnerTips !== false
+	/** `/config showTurnDuration on|off` in this session, over whatever the config files say. */
+	const [turnDurationOverride, setTurnDurationOverride] = useState<boolean | undefined>()
+	const showTurnDuration =
+		turnDurationOverride ?? ctx.tui?.showTurnDuration ?? DEFAULT_SHOW_TURN_DURATION
+	const showTurnDurationRef = useRef(showTurnDuration)
+	showTurnDurationRef.current = showTurnDuration
 	/** Tool calls the reply in flight has made; the tip picker reads and clears it at the reply's end. */
 	const turnToolCallsRef = useRef(0)
 	const spinnerTip = useSpinnerTip({
@@ -6666,6 +6696,7 @@ function AppBody({
 					cwd: ctxRef.current.cwd,
 					attachmentDir: attachmentDirOf(sessions, asSessionId(requestedConversationId)),
 					...(cannotTellReasonRef.current ? { cannotTellReason: cannotTellReasonRef.current } : {}),
+					showTurnDuration: showTurnDurationRef.current,
 					onTold: (telling) => {
 						outcomeToldRef.current = { id: requestedConversationId, telling }
 					},
@@ -8201,12 +8232,14 @@ function AppBody({
 					return
 				}
 				await session.abandonTurn(active.turnId as TurnId, reason)
+				setHandoffPark(null)
+				pausedTurnMayBeWaitingRef.current = false
 				pushMessage('system', PAUSED_TURN_LINES.abandoned)
 			} catch (err) {
 				pushSystem('error', explainFailure(err, 'Couldn’t stop the paused reply.'))
 			}
 		},
-		[pushMessage, session, state, pushSystem],
+		[pushMessage, session, state, pushSystem, setHandoffPark],
 	)
 
 	/**
@@ -8220,16 +8253,26 @@ function AppBody({
 		async (resume?: {
 			/** Continuing a turn a tool paused for a person: what the tool asked for. */
 			readonly handoffReason?: string | undefined
+			/** What the person typed while the turn waited: the model reads it as theirs and answers it first. */
+			readonly operatorNote?: string | undefined
 			/** A try the schedule made by itself: it adds no line of its own to the transcript. */
 			readonly automatic?: boolean
+			/** Say why in the transcript when there is nothing to continue, instead of returning false quietly. */
+			readonly explain?: boolean
 		}): Promise<boolean> => {
 			const sessions = sessionsRef.current
 			const scope = scopeRef.current
-			if (!sessions || !scope || !conversationMaterializedRef.current || !session?.hasProvider)
+			if (!sessions || !scope || !conversationMaterializedRef.current || !session?.hasProvider) {
+				if (resume?.explain)
+					pushMessage('system', 'Nothing to continue here: this conversation has no reply yet.')
 				return false
+			}
 			const resumedSessionId = scope.sessionId
 			const active = await activeConversationTurn(sessions, resumedSessionId).catch(() => undefined)
-			if (!active) return false
+			if (!active) {
+				if (resume?.explain) pushMessage('system', 'Nothing to continue here: no reply is paused.')
+				return false
+			}
 			if (abortRef.current || state !== 'idle') {
 				pushMessage(
 					'system',
@@ -8256,6 +8299,7 @@ function AppBody({
 				return true
 			}
 			setHandoffPark(null)
+			pausedTurnMayBeWaitingRef.current = false
 			const ac = new AbortController()
 			abortRef.current = ac
 			replyCutOffRef.current = false
@@ -8328,7 +8372,12 @@ function AppBody({
 								extraSystem: composeSkillsPrompt(activeSkills) || undefined,
 								...(resume?.handoffReason
 									? {
-											systemNote: handoffContinuationNote(resume.handoffReason),
+											systemNote: handoffContinuationNote(
+												resume.handoffReason,
+												undefined,
+												undefined,
+												resume.operatorNote,
+											),
 										}
 									: {}),
 							}),
@@ -8448,6 +8497,68 @@ function AppBody({
 		const timer = setInterval(() => setAutoResumeTick((n) => n + 1), 1_000)
 		return () => clearInterval(timer)
 	}, [autoResumeAt])
+
+	// A turn the browser paused for a sign-in goes on by itself once the open
+	// window stops asking. The watch only looks at the page (no clicks, no
+	// typing, no cookies), runs while a window is visible, stops when the
+	// person acts (the park clears), and gives up after ten minutes.
+	// Each pause is its own object, so a pause that comes back starts a fresh watch.
+	const signInPark = handoffPark?.browserSignIn ? handoffPark : undefined
+	const signInWatchTurn = signInPark?.turnId
+	const signInWatchOn = ctx.browser?.signInWatch !== false
+	// Read at call time, so a change in either does not restart the watch and its ten minutes.
+	const resumeActiveTurnRef = useRef(resumeActiveTurn)
+	resumeActiveTurnRef.current = resumeActiveTurn
+	const pushMessageRef = useRef(pushMessage)
+	pushMessageRef.current = pushMessage
+	// biome-ignore lint/correctness/useExhaustiveDependencies: `signInPark` is not read inside; a new pause object is what restarts the watch.
+	useEffect(() => {
+		if (signInWatchTurn === undefined) signInWatchStartRef.current = null
+		if (signInWatchTurn === undefined || !signInWatchOn) return
+		if (signInWatchGaveUpRef.current === signInWatchTurn) return
+		if (phase !== 'ready' || state !== 'idle') return
+		const control = browserControlRef.current
+		if (!control || control.status().headless) return
+		// A restart (the screen was busy for a moment) keeps the time already spent.
+		const startedAt =
+			signInWatchStartRef.current?.turnId === signInWatchTurn
+				? signInWatchStartRef.current.at
+				: Date.now()
+		signInWatchStartRef.current = { turnId: signInWatchTurn, at: startedAt }
+		const remaining = SIGNIN_WATCH_MS - (Date.now() - startedAt)
+		if (remaining <= 0) return
+		return startSignInWatch({
+			watchMs: remaining,
+			peek: () => control.peekSignIn(),
+			ready: () =>
+				handoffParkRef.current?.turnId === signInWatchTurn &&
+				!composerHasDraftRef.current &&
+				!abortRef.current,
+			onTimeout: () => {
+				if (handoffParkRef.current?.turnId !== signInWatchTurn) return
+				signInWatchGaveUpRef.current = signInWatchTurn
+				pushMessageRef.current(
+					'system',
+					'Still waiting for you to sign in. Press Enter when you have, or Esc to stop.',
+				)
+			},
+			onCleared: () => {
+				const parked = handoffParkRef.current
+				if (parked?.turnId !== signInWatchTurn || parked.reason === undefined) return
+				if (signInAutoResumesRef.current >= SIGNIN_AUTO_RESUME_CAP) {
+					signInWatchGaveUpRef.current = signInWatchTurn
+					pushMessageRef.current(
+						'system',
+						'Stopped checking for your sign-in. Press Enter when you have signed in, or Esc to stop.',
+					)
+					return
+				}
+				signInAutoResumesRef.current += 1
+				pushMessageRef.current('system', 'Looks like you signed in. Continuing.')
+				void resumeActiveTurnRef.current({ handoffReason: parked.reason, automatic: true })
+			},
+		})
+	}, [signInPark, signInWatchTurn, signInWatchOn, phase, state])
 
 	// biome-ignore lint/correctness/useExhaustiveDependencies: the list predates linting of .tsx files; changing it changes when this runs, so it is left as written.
 	const openResumePicker = useCallback(
@@ -9001,6 +9112,7 @@ function AppBody({
 				cwd: ctxRef.current.cwd,
 				attachmentDir: attachmentDirOf(sessions, conv.id),
 				...(cannotTellReasonRef.current ? { cannotTellReason: cannotTellReasonRef.current } : {}),
+				showTurnDuration: showTurnDurationRef.current,
 				onTold: (telling) => {
 					outcomeToldRef.current = { id: conv.id, telling }
 				},
@@ -9018,6 +9130,7 @@ function AppBody({
 			conversationGenRef.current += 1
 			// A pause belongs to the conversation it paused; another one does not inherit it.
 			setHandoffPark(null)
+			pausedTurnMayBeWaitingRef.current = false
 			autoResumeAttemptRef.current = 0
 			selfMendingPauseRowRef.current.forget()
 			resetSubagentActivity()
@@ -9224,6 +9337,7 @@ function AppBody({
 				conversationGenRef.current += 1
 				// A pause belongs to the conversation it paused; another one does not inherit it.
 				setHandoffPark(null)
+				pausedTurnMayBeWaitingRef.current = false
 				autoResumeAttemptRef.current = 0
 				selfMendingPauseRowRef.current.forget()
 				resetSubagentActivity()
@@ -10149,6 +10263,7 @@ function AppBody({
 				setMessages(
 					projectConversation(forked.messages, nextId, readablePrefix, {
 						cwd: ctxRef.current.cwd,
+						showTurnDuration: showTurnDurationRef.current,
 						attachmentDir: attachmentDirOf(sessions, forked.id),
 					}),
 				)
@@ -10253,6 +10368,7 @@ function AppBody({
 				setMessages(
 					projectConversation(result.messages, nextId, readable, {
 						cwd: ctxRef.current.cwd,
+						showTurnDuration: showTurnDurationRef.current,
 						...(sessionsRef.current && scopeRef.current
 							? { attachmentDir: attachmentDirOf(sessionsRef.current, scopeRef.current.sessionId) }
 							: {}),
@@ -11490,7 +11606,13 @@ function AppBody({
 						}
 						const closing =
 							closingWaitRef.current === null && (delegated.length > 0 || st.completed)
-								? settleLine(Date.now() - since - pausedMs, delegated, new Date())
+								? settleLine(
+										Date.now() - since - pausedMs,
+										delegated,
+										new Date(),
+										undefined,
+										showTurnDurationRef.current,
+									)
 								: undefined
 						// The workflows this turn ran are over: each says how it ended once.
 						for (const agent of delegated) endedWorkflowTurnsRef.current.add(agent.workflowId)
@@ -11537,9 +11659,16 @@ function AppBody({
 						// login`, which needs the profile this session holds.
 						if (browserNotice && browser && browserStatus?.headless) void browser.release()
 						pushSystem('warning', browserNotice ?? describePlainInterruption(event, plainOptions()))
+						pausedTurnMayBeWaitingRef.current = true
 						setHandoffPark({
 							turnId: event.turnId,
 							reason: event.handoff.reason,
+							...(browserNotice &&
+							browserStatus &&
+							!browserStatus.headless &&
+							event.handoff.detail?.cause !== 'http-auth'
+								? { browserSignIn: true }
+								: {}),
 						})
 					} else {
 						const pauseText = describePlainInterruption(event, plainOptions())
@@ -12160,7 +12289,7 @@ function AppBody({
 								undefined,
 								undefined,
 								undefined,
-								humanPromptMeta(input.attachedFiles, true),
+								humanPromptMeta(input.attachedFiles),
 								undefined,
 								undefined,
 								undefined,
@@ -14003,9 +14132,45 @@ function AppBody({
 				}
 				setViewNotice(undefined)
 			}
+			// A turn a tool paused for a person goes on with what they typed: it
+			// is their answer. A slash command that does not take the turn keeps
+			// the pause, so a typo or `/help` does not end it.
+			const parkedForPerson = handoffParkRef.current
+			if (
+				parkedForPerson?.reason !== undefined &&
+				!parkedForPerson.spentAllowance &&
+				meta.source === 'composer' &&
+				!attachments?.length &&
+				!value.trimStart().startsWith('/') &&
+				// `!` and `#` are the operator acting directly, not an answer.
+				shellEscapeCommand(value) === null &&
+				!value.startsWith('#') &&
+				phase === 'ready' &&
+				state === 'idle' &&
+				!abortRef.current
+			) {
+				const answer = value.trim()
+				if (answer.length > 0) {
+					setHandoffPark(null)
+					pausedTurnMayBeWaitingRef.current = false
+					autoResumeAttemptRef.current = 0
+					signInAutoResumesRef.current = 0
+					selfMendingPauseRowRef.current.forget()
+					setHistory((prev) => [...prev, value])
+					recordSentPrompt(sessionsRef.current, scopeRef.current?.sessionId, value, meta.pasted)
+					pushMessage('user', answer)
+					void resumeActiveTurn({
+						handoffReason: parkedForPerson.reason,
+						operatorNote: answer,
+						explain: true,
+					})
+					return
+				}
+			}
 			// The operator moved on; a parked turn is still there for /resume.
-			setHandoffPark(null)
+			if (!(handoffParkRef.current && value.trimStart().startsWith('/'))) setHandoffPark(null)
 			autoResumeAttemptRef.current = 0
+			signInAutoResumesRef.current = 0
 			selfMendingPauseRowRef.current.forget()
 			// A loop is not something the operator typed here, so it is not a line
 			// Up should bring back.
@@ -14353,27 +14518,24 @@ function AppBody({
 									}
 								}
 								const heldLocal = peers.held()
+								let screen: string
 								if (!summary) {
 									const local = `Peer messaging ${peers.enabled ? 'on' : 'off'} · ${peers.pending} pending\n${localList.map((peer) => `${peer.self ? 'This terminal' : (peer.title as string)} [${peer.ref as string}] · ${peer.state as string} · ${peer.permission_mode as string}${peer.accepts_messages ? '' : ' · not accepting messages'}`).join('\n')}`
 									const off = network && !network.decision.run ? `\n${network.decision.text}` : ''
 									const held = heldLocal.length
 										? `\nHeld (${heldLocal.length}): ${heldLocal.map((item) => `${item.fromName} · ${item.reason}`).join('; ')}`
 										: ''
-									pushMessage('system', `${local}${off}${held}`)
-									if (heldLocal.length === 0) return
+									screen = `${local}${off}${held}`
 								} else {
-									pushMessage(
-										'system',
-										renderPeersScreen({
-											summary,
-											roster,
-											selfRef: peers.ref,
-											heldLocal,
-											now: Date.now(),
-											// The row sits after the two-column mark, and the scroll view keeps a margin.
-											columns: (terminal.columns ?? 80) - 4,
-										}),
-									)
+									screen = renderPeersScreen({
+										summary,
+										roster,
+										selfRef: peers.ref,
+										heldLocal,
+										now: Date.now(),
+										// The picker draws it inside its frame, two columns of padding and a margin in.
+										columns: (terminal.columns ?? 80) - SCREEN_MARGIN - 4,
+									})
 								}
 								const actions = peersActions(
 									summary ?? {
@@ -14389,11 +14551,17 @@ function AppBody({
 									},
 									heldLocal,
 								)
-								if (actions.length === 0) return
+								// Nothing waits for the person: the screen is the command's result, as `/status` is.
+								// Something does: it is the picker's body, and the transcript gets nothing on open.
+								if (actions.length === 0) {
+									pushMessage('system', screen)
+									return
+								}
 								setSelectedChoice(0)
 								setChoicePicker({
 									kind: 'peers-network',
 									title: 'Waiting for you',
+									body: screen.split('\n'),
 									actions,
 									values: actions.map((_, index) => String(index)),
 									options: actions.map((action) => describeAction(action)),
@@ -14603,6 +14771,13 @@ function AppBody({
 								description: spinnerTipsOn
 									? 'On · one short tip shows under the working row. Select to turn off.'
 									: 'Off · no tip under the working row. Select to turn on.',
+							},
+							{
+								name: `config showTurnDuration ${showTurnDuration ? 'off' : 'on'}`,
+								label: 'Show turn duration',
+								description: showTurnDuration
+									? 'On · each reply ends with how long it took and when it finished. Select to turn off.'
+									: 'Off · no time line after a reply. Select to turn on.',
 							},
 							{
 								name: 'config sources',
@@ -16011,6 +16186,22 @@ function AppBody({
 						pushMessage(
 							'system',
 							setSpinnerTips(slash.on, {
+								cwd: ctx.cwd,
+								...(profile ? { profile } : {}),
+							}),
+						)
+						return
+					}
+					case 'turn-duration': {
+						if (slash.on === 'list') {
+							pushMessage('system', describeTurnDuration(showTurnDuration))
+							return
+						}
+						const profile = ctx.configDebug?.selectedProfile?.name
+						setTurnDurationOverride(slash.on)
+						pushMessage(
+							'system',
+							setShowTurnDuration(slash.on, {
 								cwd: ctx.cwd,
 								...(profile ? { profile } : {}),
 							}),
@@ -18500,6 +18691,8 @@ function AppBody({
 			}
 			// A turn a tool paused for a person: Enter on an empty composer
 			// continues it, Esc stops it (the turn is abandoned, like /abandon).
+			// Typing a message continues it too, with that message as the answer
+			// (the submit path). Esc stops it even with a draft in the box.
 			if (
 				handoffParkRef.current &&
 				phase === 'ready' &&
@@ -18510,6 +18703,8 @@ function AppBody({
 			) {
 				const parked = handoffParkRef.current
 				setHandoffPark(null)
+				pausedTurnMayBeWaitingRef.current = false
+				signInAutoResumesRef.current = 0
 				if (parked.spentAllowance) {
 					// The reply stopped on a spent allowance: Enter opens the account list
 					// and runs the same reply again on the one chosen; Esc leaves it.
@@ -18519,8 +18714,24 @@ function AppBody({
 				if (key.return) {
 					autoResumeAttemptRef.current = 0
 					selfMendingPauseRowRef.current.forget()
-					void resumeActiveTurn({ handoffReason: parked.reason })
+					void resumeActiveTurn({ handoffReason: parked.reason, explain: true })
 				} else void abandonActiveTurn('The operator stopped the turn a tool paused for them.')
+				return
+			}
+			// No park is on screen but the conversation's turn is paused (the park
+			// was lost, or the pause came from another window): Enter on an empty
+			// composer still continues it, and says so when there is nothing to.
+			if (
+				key.return &&
+				!composerHasDraft &&
+				!handoffParkRef.current &&
+				phase === 'ready' &&
+				state === 'idle' &&
+				!abortRef.current &&
+				pausedTurnMayBeWaitingRef.current
+			) {
+				pausedTurnMayBeWaitingRef.current = false
+				void resumeActiveTurn({ explain: true })
 				return
 			}
 			// A queued message chosen for editing: Esc only leaves the choice.
@@ -18772,7 +18983,7 @@ function AppBody({
 											? CONTINUE_WITH_ANOTHER_ACCOUNT
 											: handoffPark.autoResume
 												? `trying again in ${formatSpan(Math.max(0, handoffPark.autoResume.at - Date.now()))} · enter try now · esc stop`
-												: 'enter continue · esc stop'
+												: 'enter continue · or type a message · esc stop'
 										: goalStatus && phase === 'ready' && state === 'idle'
 											? undefined
 											: hintForPhase(phase, state, composerHasDraft)
@@ -18844,11 +19055,24 @@ function AppBody({
 		jobSurface === null
 	// Under the detail: the box as measured, the status line, the extension row and rows of the
 	// conversation, so nothing below it is pushed past the bottom of the screen.
-	const detailRows = workflowDetailHeight(
+	const detailCap = workflowDetailHeight(
 		terminal.rows,
 		fullscreen !== undefined,
 		composerBoxRows + 1 + (extensionMarks.length > 0 ? 1 : 0) + 4,
 	)
+	// Sized to what it lists, up to the free rows, so a small run leaves no blank rows in it.
+	const detailRows =
+		workflowDetailOpen && agentSurface?.kind === 'cockpit'
+			? cockpitDetailHeight(
+					subagents,
+					workflowRuns,
+					agentSurface.selectedPhaseId,
+					agentSurface.focus,
+					terminal.rows,
+					terminal.columns,
+					detailCap,
+				)
+			: detailCap
 	const viewRailRows =
 		liveSubagents.length > 0 || liveWorkflows.length > 0
 			? 1 +
@@ -19296,6 +19520,9 @@ function AppBody({
 												subtitle: choicePicker.subtitle,
 												hints: workflowRunsHints(workflowPickerCanStop, workflowPickerCanResume),
 											}
+										: {})}
+									{...(choicePicker.kind === 'peers-network' && choicePicker.body
+										? { body: choicePicker.body }
 										: {})}
 									{...(choicePicker.kind === 'account' ? { hints: ACCOUNT_PICKER_HINTS } : {})}
 									options={filterChoiceOptions(choicePicker.options, choiceQuery)}

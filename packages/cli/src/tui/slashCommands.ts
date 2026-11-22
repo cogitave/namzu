@@ -190,6 +190,8 @@ export type SlashAction =
 	| { kind: 'recap-now' }
 	/** `/config tips on|off|list`: the spinner tips' switch, written to the user config. */
 	| { kind: 'spinner-tips'; on: boolean | 'list' }
+	/** `/config showTurnDuration on|off|list`: the turn-end time line's switch, written to the user config. */
+	| { kind: 'turn-duration'; on: boolean | 'list' }
 	/** `/config <key> [value]`: show or change any described setting, as `namzu config` does. */
 	| { kind: 'config-setting'; key: string; text?: string; clear?: boolean }
 	/** Open the finite good/bad chooser for one exact assistant message. */
@@ -903,7 +905,10 @@ function commandHelp(ctx: SlashContext, args: readonly string[]): SlashAction {
 	return {
 		kind: 'message',
 		role: 'system',
-		content: `Unknown command: /${name}. Use /help to browse available commands.`,
+		content: `Unknown command: /${name}.${didYouMean(name, [
+			...(ctx.builtins ?? CLI_LOCAL_COMMANDS).map((c) => c.name),
+			...ctx.userCommands.map((c) => c.name),
+		])} Use /help to browse available commands.`,
 	}
 }
 
@@ -941,6 +946,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 				'/config motion [on|off|list]',
 				'/config recap [on|off|list]',
 				'/config tips [on|off|list]',
+				'/config showTurnDuration [on|off|list]',
 				'/config <setting>',
 				'/config <setting> <value>',
 				'/config <setting> unset',
@@ -951,6 +957,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 				'/config theme picks the colours with a preview, the same as /theme; /config theme light sets one by name.',
 				'/config motion on keeps the working line and the composer still, in your user config; /config motion off lets them move again.',
 				'/config tips off hides the tip under the working row, in your user config; /config tips on shows it again. The next task still shows.',
+				'/config showTurnDuration off leaves out the line that closes a reply with how long it took and when it finished, in your user config; /config showTurnDuration on shows it again.',
 				'/config limits.maxIterations shows any setting namzu config lists (its value, default, range and when a change applies); /config limits.maxIterations 30 changes it in your user config; /config limits.maxIterations unset puts the default back. A setting that widens what runs asks first. The same list and checks as namzu config and Desktop Settings.',
 			],
 		},
@@ -969,6 +976,17 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 					return { kind: 'spinner-tips', on: setting === 'on' }
 				if (args.length <= 2 && setting === 'list') return { kind: 'spinner-tips', on: 'list' }
 				return { kind: 'message', role: 'system', content: 'Usage: /config tips [on|off|list]' }
+			}
+			if (args[0] === 'showTurnDuration') {
+				const setting = (args[1] ?? 'list').toLowerCase()
+				if (args.length <= 2 && (setting === 'on' || setting === 'off'))
+					return { kind: 'turn-duration', on: setting === 'on' }
+				if (args.length <= 2 && setting === 'list') return { kind: 'turn-duration', on: 'list' }
+				return {
+					kind: 'message',
+					role: 'system',
+					content: 'Usage: /config showTurnDuration [on|off|list]',
+				}
 			}
 			if (args[0] === 'theme') {
 				if (args.length === 1) return { kind: 'theme-picker' }
@@ -3260,6 +3278,51 @@ export function argumentHintFor(
 	return userCommands.find((command) => command.name === m[1])?.argumentHint
 }
 
+/** Letters that differ between two words, counting an insert, a delete, a swap of one letter or a transposition. */
+function editDistance(a: string, b: string): number {
+	const rows: number[][] = Array.from({ length: a.length + 1 }, (_, i) => [i])
+	for (let j = 1; j <= b.length; j++) (rows[0] as number[])[j] = j
+	for (let i = 1; i <= a.length; i++) {
+		for (let j = 1; j <= b.length; j++) {
+			const cost = a[i - 1] === b[j - 1] ? 0 : 1
+			let best = Math.min(
+				((rows[i - 1] as number[])[j] as number) + 1,
+				((rows[i] as number[])[j - 1] as number) + 1,
+				((rows[i - 1] as number[])[j - 1] as number) + cost,
+			)
+			if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) {
+				best = Math.min(best, ((rows[i - 2] as number[])[j - 2] as number) + 1)
+			}
+			;(rows[i] as number[])[j] = best
+		}
+	}
+	return (rows[a.length] as number[])[b.length] as number
+}
+
+/**
+ * The one command a mistyped name most likely meant, as ` Did you mean /x?`,
+ * or an empty string. At most two letters off (one for names of four letters
+ * or fewer); a tie between two names suggests nothing.
+ */
+export function didYouMean(name: string, known: readonly string[]): string {
+	const typed = name.toLowerCase()
+	if (typed.length === 0) return ''
+	const limit = typed.length <= 4 ? 1 : 2
+	let best: string | undefined
+	let bestDistance = Number.POSITIVE_INFINITY
+	let tied = false
+	for (const candidate of new Set(known)) {
+		const distance = editDistance(typed, candidate.toLowerCase())
+		if (distance > limit) continue
+		if (distance < bestDistance) {
+			best = candidate
+			bestDistance = distance
+			tied = false
+		} else if (distance === bestDistance) tied = true
+	}
+	return best !== undefined && !tied && bestDistance > 0 ? ` Did you mean /${best}?` : ''
+}
+
 export function runSlash(
 	line: string,
 	ctx: SlashContext,
@@ -3317,6 +3380,9 @@ export function runSlash(
 	return {
 		kind: 'message',
 		role: 'system',
-		content: `Unknown command: /${parsed.name}. Try /help.`,
+		content: `Unknown command: /${parsed.name}.${didYouMean(parsed.name, [
+			...builtins.map((c) => c.name),
+			...ctx.userCommands.map((c) => c.name),
+		])} Try /help.`,
 	}
 }

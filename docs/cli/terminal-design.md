@@ -230,7 +230,10 @@ so above the input frame), not inside the frame: pending rows, then the send-now
 hint, then `Working (…)`, then the input. Each is `❯ <text>` in the grey of a
 message not yet read, one row per message in the order it will be used. A
 Tab-queued row ends with a dim `· after this reply`, so it reads apart from a
-steer. Under the last row a dim `ctrl+x ctrl+s to send now` appears while a
+steer. Once a message is sent it is an ordinary `❯ <text>` row, whether it was
+typed while a reply ran or not: it carries no `sent while working` label, and a
+conversation restored later draws it the same way. (An `N files attached` note
+under a message stays.) Under the last row a dim `ctrl+x ctrl+s to send now` appears while a
 reply runs. Rows are bounded by the terminal height (five, three or one; the
 rest fold into a dim `+N more messages` row) and counted in the transcript's
 live-window budget so they do not overdraw a short terminal. Control
@@ -335,6 +338,9 @@ approves nothing already refused. Each change is written to the session log as
 `approval_policy_changed` before anything is decided under it, and the model is
 told once through the kernel's own notice. See [Slash commands](slash-commands.md#keys-that-are-not-commands).
 
+The workflow detail is the exception: it is drawn above the input box, between the
+conversation and the frame, and the footer is not drawn while it is open.
+
 Below the footer — not between it and the frame — comes whatever panel owns
 the rest of the screen while agents are live: the automatic delegated-work
 rail, the agent cockpit, a child transcript, or the detailed transcript, each
@@ -420,7 +426,7 @@ moves between `main`, the agents and the workflows. A row is a pointer column
 `●` for the transcript on screen), then the name. `→` jumps from the tasks (the
 shell pill, `main` and the agents) to the first workflow and `←` back to the first
 task; neither leaves the rows. Enter on an agent views it (see below), on a
-workflow opens its detail, and on `main` goes back to the conversation from a
+workflow opens its detail (above the input box), and on `main` goes back to the conversation from a
 viewed agent or, from the conversation itself, opens the overview of its agents.
 Where the pointer is reported (the full screen view) every row is a click target
 that does what Enter does, and the row under the pointer is drawn as selected,
@@ -497,7 +503,11 @@ finished). Enter opens the workflow's detail view and
 `x` stops every agent of the workflow that is still going (each one as its own
 `x` would), or clears a finished row.
 
-The detail view is a frameless dialog: a rule across the top, the workflow's
+The detail view is a frameless dialog drawn above the input box (the box stays
+on screen, waiting, with the status line under it; the delegated-work rail and
+the narration band are hidden while it is open). Its height is its content, from
+8 rows up to the free rows (half the screen in the full screen view). It has a
+rule across the top, the workflow's
 name, then its description on the left and
 `<done>/<total> agents · <elapsed>` on the right (with ` · done`, ` · stopped`
 or ` · failed` once it has ended), then the lists. From 64 columns they sit side
@@ -720,7 +730,14 @@ live state belongs to the rail.
   (time spent waiting for a permission or a question to be answered is left
   out);
   a quicker answer, or a turn that was stopped or cancelled (which already says
-  how it ended), adds no line.
+  how it ended), adds no line. Durations never pad the smaller unit: `1m 5s`,
+  `1h 2m 3s`.
+  `tui.showTurnDuration: false`, `/config showTurnDuration off` or the
+  **Show turn duration** row of `/config` leaves the `Worked for … · done …`
+  part out, for live turns and for turns restored from a saved conversation.
+  A turn that delegated still closes with what its agents came to (`✻ 3 agents ·
+  27.0k tokens`, `· 1 failed`): that is spend and outcome, not time, so it stays;
+  a turn that delegated nothing then closes with no line. The default is on.
 
 While the parent does nothing but wait on its agents, the per-call rows under
 `Working` fold into one line, `✻ Waiting for 2 agents to finish` (or

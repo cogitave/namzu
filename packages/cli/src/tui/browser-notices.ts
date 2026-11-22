@@ -47,15 +47,15 @@ export function describeBrowserHandoff(
 	const lead = `Paused. The browser needs you: ${what}.`
 	if (detail.cause === 'http-auth') {
 		if (browser && !browser.headless) {
-			return `${lead}\nCheck access to ${origin} in the browser window (profile ${profile}). If authentication succeeds, press Enter to continue, or Esc to stop.`
+			return `${lead}\nCheck access to ${origin} in the browser window (profile ${profile}). If authentication succeeds, press Enter to continue, type a message to answer instead, or press Esc to stop.`
 		}
-		return `${lead}\nThis browser has no window, so Namzu closed it to free the profile. In another terminal run:\n  ${command}\nCheck access in the window it opens, then close it. If authentication succeeds, press Enter here to continue, or Esc to stop.`
+		return `${lead}\nThis browser has no window, so Namzu closed it to free the profile. In another terminal run:\n  ${command}\nCheck access in the window it opens, then close it. If authentication succeeds, press Enter here to continue, type a message to answer instead, or press Esc to stop.`
 	}
 	if (browser && !browser.headless) {
 		const verb = AT_THE_WINDOW[detail.cause ?? ''] ?? 'sign in to'
-		return `${lead}\n${verb.charAt(0).toUpperCase()}${verb.slice(1)} ${origin} in the browser window (profile ${profile}), then press Enter to continue, or Esc to stop.`
+		return `${lead}\n${verb.charAt(0).toUpperCase()}${verb.slice(1)} ${origin} in the browser window (profile ${profile}), then press Enter to continue, type a message to answer instead, or press Esc to stop.\nThis is Namzu's own browser profile, not the browser you use every day, so a sign-in there is not visible here. It is remembered for next time.`
 	}
-	return `${lead}\nThis browser has no window, so Namzu closed it to free the profile. In another terminal run:\n  ${command}\nsign in in the window it opens, close it, then press Enter here to continue, or Esc to stop.`
+	return `${lead}\nThis browser has no window, so Namzu closed it to free the profile. In another terminal run:\n  ${command}\nsign in in the window it opens, close it, then press Enter here to continue, type a message to answer instead, or press Esc to stop.`
 }
 
 /**
