@@ -903,7 +903,10 @@ function commandHelp(ctx: SlashContext, args: readonly string[]): SlashAction {
 	return {
 		kind: 'message',
 		role: 'system',
-		content: `Unknown command: /${name}. Use /help to browse available commands.`,
+		content: `Unknown command: /${name}.${didYouMean(name, [
+			...(ctx.builtins ?? CLI_LOCAL_COMMANDS).map((c) => c.name),
+			...ctx.userCommands.map((c) => c.name),
+		])} Use /help to browse available commands.`,
 	}
 }
 
@@ -3260,6 +3263,51 @@ export function argumentHintFor(
 	return userCommands.find((command) => command.name === m[1])?.argumentHint
 }
 
+/** Letters that differ between two words, counting an insert, a delete, a swap of one letter or a transposition. */
+function editDistance(a: string, b: string): number {
+	const rows: number[][] = Array.from({ length: a.length + 1 }, (_, i) => [i])
+	for (let j = 1; j <= b.length; j++) (rows[0] as number[])[j] = j
+	for (let i = 1; i <= a.length; i++) {
+		for (let j = 1; j <= b.length; j++) {
+			const cost = a[i - 1] === b[j - 1] ? 0 : 1
+			let best = Math.min(
+				((rows[i - 1] as number[])[j] as number) + 1,
+				((rows[i] as number[])[j - 1] as number) + 1,
+				((rows[i - 1] as number[])[j - 1] as number) + cost,
+			)
+			if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) {
+				best = Math.min(best, ((rows[i - 2] as number[])[j - 2] as number) + 1)
+			}
+			;(rows[i] as number[])[j] = best
+		}
+	}
+	return (rows[a.length] as number[])[b.length] as number
+}
+
+/**
+ * The one command a mistyped name most likely meant, as ` Did you mean /x?`,
+ * or an empty string. At most two letters off (one for names of four letters
+ * or fewer); a tie between two names suggests nothing.
+ */
+export function didYouMean(name: string, known: readonly string[]): string {
+	const typed = name.toLowerCase()
+	if (typed.length === 0) return ''
+	const limit = typed.length <= 4 ? 1 : 2
+	let best: string | undefined
+	let bestDistance = Number.POSITIVE_INFINITY
+	let tied = false
+	for (const candidate of new Set(known)) {
+		const distance = editDistance(typed, candidate.toLowerCase())
+		if (distance > limit) continue
+		if (distance < bestDistance) {
+			best = candidate
+			bestDistance = distance
+			tied = false
+		} else if (distance === bestDistance) tied = true
+	}
+	return best !== undefined && !tied && bestDistance > 0 ? ` Did you mean /${best}?` : ''
+}
+
 export function runSlash(
 	line: string,
 	ctx: SlashContext,
@@ -3317,6 +3365,9 @@ export function runSlash(
 	return {
 		kind: 'message',
 		role: 'system',
-		content: `Unknown command: /${parsed.name}. Try /help.`,
+		content: `Unknown command: /${parsed.name}.${didYouMean(parsed.name, [
+			...builtins.map((c) => c.name),
+			...ctx.userCommands.map((c) => c.name),
+		])} Try /help.`,
 	}
 }

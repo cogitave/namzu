@@ -356,6 +356,13 @@ export interface PlainInterruptionOptions {
 	readonly model?: string
 	/** The provider's configured base URL, so a local server is named as one. */
 	readonly baseUrl?: string
+	/**
+	 * Where the person answers a paused reply: `keys` (default) is the
+	 * terminal, where Enter continues and a typed message answers it;
+	 * `command` is a surface without those keys (plain output, a scheduled
+	 * run), which points to `/resume`.
+	 */
+	readonly answer?: 'keys' | 'command'
 }
 
 /**
@@ -391,7 +398,9 @@ export function describePlainInterruption(
 				}
 				return 'A reply is still running in this conversation. Wait for it to finish, or press Esc to stop it.'
 			case 'paused':
-				return 'The last reply is paused and waiting for you. Press Enter to continue it, or run /abandon to close it and send your message.'
+				return options.answer === 'command'
+					? 'The last reply is paused and waiting for you. Run /resume to continue it, or /abandon to close it and send your message.'
+					: 'The last reply is paused and waiting for you. Press Enter to continue it, type a message to answer it, or run /abandon to close it.'
 			case 'interrupted':
 				return 'The last reply was cut off when Namzu closed. Run /resume to continue it, or /abandon to close it.'
 		}

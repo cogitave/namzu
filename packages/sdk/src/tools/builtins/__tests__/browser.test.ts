@@ -392,6 +392,20 @@ describe('structural host errors', () => {
 		})
 	})
 
+	it("tells the model the browser is Namzu's own profile, not the user's everyday one", async () => {
+		const host = fakeHost()
+		host.throwNext = {
+			code: 'browser_human_required',
+			reason: 'sign-in',
+			origin: 'https://github.com',
+			message: 'sign-in page',
+		}
+		const result = await run(host, 'browser', { action: 'navigate', url: 'https://github.com' })
+		expect(result.error).toContain("its own Namzu profile, not the user's everyday browser")
+		expect(result.error).toContain('Brave, Chrome or Edge')
+		expect(result.error).toContain('signing in once in the Namzu window is remembered')
+	})
+
 	it('describes HTTP authentication without assuming a password dialog', async () => {
 		const host = fakeHost()
 		host.throwNext = {

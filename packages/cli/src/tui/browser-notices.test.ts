@@ -29,8 +29,20 @@ const STATUS: BrowserStatus = {
 describe('the browser handoff notice', () => {
 	it('sends the operator to the window when there is one', () => {
 		expect(describeBrowserHandoff(HANDOFF, STATUS)).toBe(
-			'Paused. The browser needs you: https://github.com is showing a sign-in page.\nSign in to https://github.com in the browser window (profile work), then press Enter to continue, or Esc to stop.',
+			"Paused. The browser needs you: https://github.com is showing a sign-in page.\nSign in to https://github.com in the browser window (profile work), then press Enter to continue, type a message to answer instead, or press Esc to stop.\nThis is Namzu's own browser profile, not the browser you use every day, so a sign-in there is not visible here. It is remembered for next time.",
 		)
+	})
+
+	it('names Enter, a typed message and Esc, and says it is not the everyday browser', () => {
+		for (const status of [STATUS, { ...STATUS, headless: true }]) {
+			const text = describeBrowserHandoff(HANDOFF, status) ?? ''
+			expect(text).toContain('press Enter')
+			expect(text).toContain('type a message to answer instead')
+			expect(text).toContain('Esc to stop')
+		}
+		const headed = describeBrowserHandoff(HANDOFF, STATUS) ?? ''
+		expect(headed).toContain('not the browser you use every day')
+		expect(headed).toContain('remembered for next time')
 	})
 
 	it('names the right thing to do for a check', () => {
@@ -59,7 +71,9 @@ describe('the browser handoff notice', () => {
 	it('gives the login command when the browser has no window', () => {
 		const text = describeBrowserHandoff(HANDOFF, { ...STATUS, headless: true })
 		expect(text).toContain('  namzu browser login work https://github.com/login\n')
-		expect(text).toContain('then press Enter here to continue, or Esc to stop.')
+		expect(text).toContain(
+			'then press Enter here to continue, type a message to answer instead, or press Esc to stop.',
+		)
 		expect(text).not.toContain('browser window (profile')
 	})
 
@@ -117,6 +131,7 @@ function control(): BrowserControl & { switched: string[] } {
 			profile = name
 			return { ...STATUS, profile }
 		}),
+		peekSignIn: async () => 'unknown',
 		release: async () => {},
 		runAs: async () => async () => {},
 		dispose: async () => {},

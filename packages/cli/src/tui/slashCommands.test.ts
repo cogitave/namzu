@@ -6,6 +6,7 @@ import {
 	type SlashCommand,
 	type SlashContext,
 	commandPickerDescription,
+	didYouMean,
 	initPrompt,
 	kernelCommandDescriptors,
 	matchSlashCommands,
@@ -1911,5 +1912,30 @@ describe('/plan and /btw', () => {
 			role: 'system',
 			content: 'Usage: /btw <question>',
 		})
+	})
+})
+
+describe('a mistyped command', () => {
+	const text = (line: string) => {
+		const r = runSlash(line, ctx)
+		return r?.kind === 'message' ? r.content : ''
+	}
+
+	it('suggests the one command it is nearest to', () => {
+		expect(text('/abondon')).toBe('Unknown command: /abondon. Did you mean /abandon? Try /help.')
+	})
+
+	it('suggests nothing when no command is close', () => {
+		expect(text('/zzzz')).toBe('Unknown command: /zzzz. Try /help.')
+	})
+
+	it('allows one slip in a short name and two in a longer one', () => {
+		expect(didYouMean('hlp', ['help', 'hook'])).toBe(' Did you mean /help?')
+		expect(didYouMean('hxxp', ['help'])).toBe('')
+		expect(didYouMean('abandn', ['abandon'])).toBe(' Did you mean /abandon?')
+	})
+
+	it('suggests nothing when two names are equally close', () => {
+		expect(didYouMean('cat', ['cap', 'car'])).toBe('')
 	})
 })

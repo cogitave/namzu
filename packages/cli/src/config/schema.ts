@@ -474,6 +474,12 @@ export interface BrowserConfig {
 	 * on any address that looks like a sign-in (`/login`, `/signin`, `/sso`, …).
 	 */
 	readonly signInDetection?: 'address' | 'page'
+	/**
+	 * While a turn waits for you to sign in, look at the open browser window
+	 * every few seconds (read-only: no clicks, no typing, no cookies) and
+	 * continue by itself once the page no longer asks. Default `true`.
+	 */
+	readonly signInWatch?: boolean
 }
 
 /** See `NamzuCliConfig.progressNudge`. */

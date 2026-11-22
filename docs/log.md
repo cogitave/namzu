@@ -1,5 +1,9 @@
 # Documentation update log
 
+## 2026-11-23
+
+- **Update** [The browser](cli/browser.md#when-a-page-needs-you), [Tool handoff](sdk/tool-handoff.md#in-the-cli), [Browser tools](sdk/browser-tools.md), [Browser host](sdk/browser-host.md#a-person-is-needed): a turn paused for a sign-in goes on with a typed message as the person's answer (Enter still continues, Esc stops even with a draft, slash commands leave the pause, Enter on an empty box continues a paused turn whose pause was lost); the notices name Enter, a typed message and Esc and say the browser is namzu's own profile, not Brave, Chrome or Edge; with a visible window a read-only look every 3 seconds (`peekHumanRequired`) continues the turn by itself once the page stops asking, at most twice, for 10 minutes (`browser.signInWatch`, default on); a mistyped command names the nearest one. `.changeset/signin-pause-typed-answer.md`.
+
 ## 2026-11-22
 
 - **Update** [Permission layers](cli/permission-layers.md#rules-as-lists): a `deny` for a command now matches where that command starts, anywhere in the line, and no longer matches the same letters inside another word (`gh *` no longer refuses `through` or `ghost`); a rule that starts with `*` still matches anywhere. `.changeset/cli-deny-word-boundary.md`.

@@ -77,9 +77,14 @@ can tell the operator.
 
 ## In the CLI
 
-- The interactive terminal shows the reason and `press Enter to continue · Esc
-  to stop`. Enter on an empty composer resumes the turn, and Esc abandons it,
-  as `/abandon` does. `/resume` also continues it.
+- The interactive terminal shows the reason and `enter continue · or type a
+  message · esc stop`. Enter on an empty composer resumes the turn, a message
+  typed instead resumes it with those words as the person's answer (the note to
+  the model quotes them as the person's and asks for an answer first), and Esc
+  abandons it, as `/abandon` does, even with a draft in the box. A slash command
+  that does not take the turn leaves the pause. `/resume` also continues it. A
+  turn the browser paused for a sign-in can also continue by itself once the
+  window stops asking: see [The browser](../cli/browser.md#continuing-by-itself).
 - The Desktop application draws a card above the message box, "Namzu is
   waiting for you", with what to do in plain words and **Continue** and
   **Stop** (see [Desktop](../cli/desktop.md#a-turn-that-needs-you)). Continue
