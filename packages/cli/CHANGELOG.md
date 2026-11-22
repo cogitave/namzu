@@ -1,5 +1,16 @@
 # @namzu/cli
 
+## 57.0.0
+
+### Major Changes
+
+- 0cbf195: `goal.checkInEvery` now defaults to 0 (off): an automatic goal no longer pauses after every 50 turns. It still stops when it makes no progress, repeats the same failure, reaches `goal.tokenBudget` or `goal.maxRounds`. To keep the old pause, set `goal.checkInEvery` to 50.
+
+### Patch Changes
+
+- a646ab3: A deny rule for a command (for example bash 'gh _' or 'rm _') now matches where that command starts, anywhere in the line, and no longer matches the same letters inside another word: 'gh _' denies 'gh pr list' and 'x && gh api', not 'through' or 'ghost'. A rule that starts with '_' still matches anywhere.
+- e230177: A scheduler service installed with --platform wsl-windows-task --name <n> is now addressed as <n> (it was registered as <n>-wsl-<distro>); services installed before are found by <n> too.
+
 ## 56.0.0
 
 ### Major Changes
