@@ -338,6 +338,9 @@ approves nothing already refused. Each change is written to the session log as
 `approval_policy_changed` before anything is decided under it, and the model is
 told once through the kernel's own notice. See [Slash commands](slash-commands.md#keys-that-are-not-commands).
 
+The workflow detail is the exception: it is drawn above the input box, between the
+conversation and the frame, and the footer is not drawn while it is open.
+
 Below the footer — not between it and the frame — comes whatever panel owns
 the rest of the screen while agents are live: the automatic delegated-work
 rail, the agent cockpit, a child transcript, or the detailed transcript, each
@@ -423,7 +426,7 @@ moves between `main`, the agents and the workflows. A row is a pointer column
 `●` for the transcript on screen), then the name. `→` jumps from the tasks (the
 shell pill, `main` and the agents) to the first workflow and `←` back to the first
 task; neither leaves the rows. Enter on an agent views it (see below), on a
-workflow opens its detail, and on `main` goes back to the conversation from a
+workflow opens its detail (above the input box), and on `main` goes back to the conversation from a
 viewed agent or, from the conversation itself, opens the overview of its agents.
 Where the pointer is reported (the full screen view) every row is a click target
 that does what Enter does, and the row under the pointer is drawn as selected,
@@ -500,7 +503,11 @@ finished). Enter opens the workflow's detail view and
 `x` stops every agent of the workflow that is still going (each one as its own
 `x` would), or clears a finished row.
 
-The detail view is a frameless dialog: a rule across the top, the workflow's
+The detail view is a frameless dialog drawn above the input box (the box stays
+on screen, waiting, with the status line under it; the delegated-work rail and
+the narration band are hidden while it is open). Its height is its content, from
+8 rows up to the free rows (half the screen in the full screen view). It has a
+rule across the top, the workflow's
 name, then its description on the left and
 `<done>/<total> agents · <elapsed>` on the right (with ` · done`, ` · stopped`
 or ` · failed` once it has ended), then the lists. From 64 columns they sit side

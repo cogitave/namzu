@@ -287,6 +287,12 @@ the detail, a frameless dialog (side by side from 64 columns, one list at a time
    `log()` line the script wrote shows under the header, the two before it dim
    (three lines from 30 terminal rows, one from 24, none below 24); the rail
    row never shows them.
+   The detail is drawn above the input box, which stays on screen under it, and is sized
+   to what it lists: its header, the log lines and the longer of the phase list and the
+   selected phase's agent list, never under 8 rows and never taller than the free rows
+   (half the screen in the full screen view). A run of one phase and two agents is about
+   ten rows tall, with no blank rows under the last agent; a long list keeps the full
+   height and scrolls.
 2. **`<phase> · N agents · D done`**: each agent as `✔` done, `✘` failed or skipped, `●`
    running or `◌` queued, with its label, type, model, what it wrote (and, from 110 columns, what it was sent and had cached) and time. A phase
    nothing has started in says `Not started yet`. `x` skips the selected agent:

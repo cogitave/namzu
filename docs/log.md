@@ -1,5 +1,9 @@
 # Documentation update log
 
+## 2026-11-23
+
+- **Update** [Workflows](cli/workflows.md) and [Terminal design](cli/terminal-design.md): the workflow detail is sized to its content, from 8 rows up to the free rows (half the screen in the full screen view), so a small run no longer leaves blank rows in it; it is drawn above the input box. `.changeset/cli-workflow-detail-fits-content.md`.
+
 ## 2026-11-22
 
 - **Update** [Permission layers](cli/permission-layers.md#rules-as-lists): a `deny` for a command now matches where that command starts, anywhere in the line, and no longer matches the same letters inside another word (`gh *` no longer refuses `through` or `ghost`); a rule that starts with `*` still matches anywhere. `.changeset/cli-deny-word-boundary.md`.
