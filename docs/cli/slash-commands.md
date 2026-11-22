@@ -83,7 +83,7 @@ spelling.
 | `/fast` | Toggle fast inference for this conversation: /fast [on\|off]. Faster replies at twice the standard rate, on the Anthropic models that offer it (Opus 5.5, Fable 5.2, Mythos 5.2, and Opus 5 in preview); any other model, and any custom or compatible `ANTHROPIC_BASE_URL`, is refused with the reason. Off by default, never saved, shown as `fast` in the footer, and it never changes reasoning effort. A model change that cannot keep it turns it off and says so. |
 | `/orchestrate` | Deprecated alias of `/hypermode`, from before the mode was renamed. It prints a line saying so, then does what `/hypermode` does. It will be removed in a later major version. |
 | `/init` | Write an AGENTS.md describing this project to future agents. |
-| `/goal` | Open this conversation’s goal menu. `/goal status` reads progress; `/goal set` opens the objective editor. |
+| `/goal` | Open this conversation’s goal menu. `/goal status` reads progress, with the automatic turns, tokens and cost so far; `/goal set` opens the objective editor. |
 | `/schedule` | List [scheduled jobs](scheduled-tasks.md) and what needs you: a run waiting for approval, a job waiting for confirmation or on hold. `/schedule confirm|pause|resume|run|remove <job>` acts on one; `/schedule add <name> "<when>" <read-only|edit-in-folder> <prompt…>` creates one after showing it. |
 | `/browser` | The [browser](browser.md) this session drives: engine, window or none, running or not, profile and site rules. `/browser profile <name>` switches profile for the rest of the session (closing the browser if it was open), and a rebuilt session keeps it. |
 | `/loop` | Re-send a prompt to this conversation on an interval, between turns: `/loop 10m <prompt>`, `/loop list`, `/loop stop <id>|all`. See [Session loops](session-loops.md). |
@@ -401,10 +401,15 @@ about every launch. See [Delegated work](delegated-work.md#which-launches-are-as
 the goal. `/goal pause`, `/goal resume` and `/goal clear` control automatic
 continuation. Direct `/goal <objective>` input also remains supported.
 `/goal set --confirmed-by record <objective>` makes this goal end only as the
-record of the work allows; see [Goals](goals.md).
+record of the work allows; `--token-budget <n>` gives this goal a token budget
+and `--max-rounds <n>` its own cap on automatic turns (each also as `--name=<n>`,
+at the front, right after `set`, or closing the command). A goal that stops
+for no progress, the same failure, a check-in or its budget goes on with
+`/goal resume`; see [Goals](goals.md).
 
-Creating or resuming a goal enables automatic work. The menu and objective
-editor show the automatic-turn allowance before submission. Pausing or
+Creating or resuming a goal enables automatic work. `/goal status` shows the
+automatic turns, the tokens and the cost so far, and the menu shows the same
+beside the phase. Pausing or
 clearing prevents further automatic replies; it does not undo a running tool
 call or interrupt the current turn. Goal reports distinguish the saved status
 from whether automatic continuation is enabled or paused.

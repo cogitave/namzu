@@ -1,13 +1,13 @@
 ---
 type: Reference
 title: Goal confirmation - ending a goal by the record
-description: The pure decision over what the model reported, the turn's outcome record and the refusal count; the GoalConfirmation controller that holds the report until the answer is finished; the beforeEnd hook of a turn; and what a host passes to switch it on.
+description: The pure decision over what the model reported, the turn's outcome record and the refusal count; the GoalConfirmation controller that holds the report until the answer is finished; the beforeEnd hook of a turn; the stop rules of a goal, evidence on completion and the optional judge; and what a host passes to switch them on.
 resource: packages/sdk/src/tools/goal/confirmation.ts
 tags: [sdk, goal, outcome, verification]
 status: stable
 generated:
   by: claude/sonnet-5.5
-  at: 2026-11-12
+  at: 2026-11-22
 ---
 
 # Goal confirmation
@@ -45,6 +45,22 @@ A refusal carries a note in the kernel's own words naming what the record holds.
 ## The hook
 
 `TurnConfig.outcome.beforeEnd(read)` is asked when the model has finished with no tool call left and the turn would end, after the [completion audit](completion-audit.md)'s reminder and before the end-of-turn hooks. `read()` gives the record as it stands with the workspace compared once (`OutcomeLedger.preview`, which does not settle the record; the turn's own record is still taken once at its end); it costs nothing unless called. A returned sentence goes to the model as a runtime note and the turn goes on; nothing returned lets it end. A turn stopped by a limit, a cancellation or a forced final answer is not asked, so every limit wins. At most 16 notes are honoured in a turn, and a hook that throws counts as nothing returned.
+
+## Stop rules, evidence and the judge
+
+A goal can carry stop rules, so that it ends by what it does and not by a count of rounds. Every field is optional and an absent one is not applied, so a goal created without them behaves as it always has: `DEFAULT_MAX_GOAL_ROUNDS` stays 256 and is the only limit.
+
+- `CreateSessionGoalParams.guards` (`GoalGuards`): `stallRounds` (turns in a row without progress, or on the same failure, before the goal is blocked), `checkInEvery` (pause after this many admitted rounds, `0` off) and `tokenBudget`. `DEFAULT_GOAL_STALL_ROUNDS` is 3 and `DEFAULT_GOAL_CHECK_IN_ROUNDS` 50, for a host that wants them; the kernel applies neither by itself.
+- `SessionGoalStore.recordRound(sessionId, tenantId, goalId, outcome)` (optional on the interface) takes what a finished round did (`GoalRoundOutcome`: `progress` of `progress`, `empty` or `unknown`, `tokens`, `costUsd`, `failureSignature`, `action`, `missing`). It keeps the goal's `tokensUsed`, `costUsd`, `quietRounds`, `failureRounds` and `lastAction` and, on an active goal, blocks it as `no-progress` or `repeated-failure` when a count reaches `stallRounds`. It does not change the goal's revision unless it blocks, so an armed round stays valid.
+- `admitRound` checks, in this order: the round cap (`round-limit`, `GoalRoundLimitError`), the token budget (the first admission past it is the last round, `authority.wrapUp`; the next blocks as `budget-limited`, `GoalBudgetLimitError`) and the check-in (the goal becomes `paused` with `pauseReason` of code `check-in`, `GoalCheckInError`, and `checkedInAtRound` is kept). `resumeGoal(..., options)` starts the stall counts again, never resets the round count or the check-in position, and may raise `maxGoalRounds` or `tokenBudget` for a goal a limit stopped.
+- `goalUsageSentence`, `goalTokensText` and `goalCostText` write what a goal has used.
+
+`GoalConfirmationOptions.requireEvidence` makes `update_goal` with `complete` need an `evidence` list (`GoalEvidence`: `requirement`, `checked`, `result`; `parseGoalEvidence` checks it, `GOAL_AUDIT_RUBRIC` is the text the model reads). With it off, a bare `complete` ends the goal as before.
+
+- No judge: `selfAudit(goalId, evidence)` holds the first report of a goal once and accepts the next when its evidence covers each requirement the first listed. No model is asked.
+- With `judge` (and `judgeActive`, default true when a judge was given): the report is held until the model has given its final answer, then `judge({ sessionId, turnId, objective, evidence, outcome, finalMessage })` runs. `TurnConfig.outcome.beforeEnd(read, { finalMessage })` is how the last message arrives. `met` completes the goal. Not met keeps it active, records the missing list on the goal (`SessionGoal.missing`, handed to the next round as `authority.missing` and then cleared) and returns it as the turn's note, at most `maxRefusals` times; after that the turn ends with the list kept. A judge that returns `undefined` or throws takes the self-audit path and never blocks a goal.
+
+A goal confirmed by the record is not touched by any of this. The stored goal gains only optional fields, so the `session-goal` schema stays at version 2 and an older engine reads and rewrites the record without losing them.
 
 ## The goal tools are not changes
 

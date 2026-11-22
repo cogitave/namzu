@@ -1,33 +1,75 @@
 ---
 type: Guide
 title: Goals - how a goal continues and how it ends
-description: What /goal does, how it keeps working by itself, the limits on that, and the choice of what ends a goal - the model's report (today) or the record the kernel keeps of the work, with its three endings (confirmed by the record, stated and not checked, not confirmed), the refusal bound and whose record counts.
+description: What /goal does, how it keeps working by itself, what stops it (no progress, the same failure, a check-in every 50 turns, an optional token budget, a 1000-turn backstop), how a completion report is checked (evidence, a judge when the decision model is on, a self-audit when it is off), and the choice of ending a goal by the record of the work.
 resource: packages/sdk/src/tools/goal/confirmation.ts
 tags: [cli, goal, outcome, verification]
 status: stable
 generated:
   by: claude/sonnet-5.5
-  at: 2026-11-12
+  at: 2026-11-22
 ---
 
 # Goals
 
-A goal is an objective saved with a conversation. `/goal <objective>` (or `/goal set`, see [slash commands](slash-commands.md#goals-and-task-scope)) saves it and arms automatic work: after each reply Namzu starts another round, a turn of its own, until the goal ends, is paused or cleared, or reaches its limit. A round is an ordinary turn that is also offered two tools, `get_goal` and `update_goal`, which no other turn is.
+A goal is an objective saved with a conversation. `/goal <objective>` (or `/goal set`, see [slash commands](slash-commands.md#goals-and-task-scope)) saves it and arms automatic work: after each reply Namzu starts another round, a turn of its own, until the goal ends, is paused or cleared, or a rule stops it. A round is an ordinary turn that is also offered two tools, `get_goal` and `update_goal`, which no other turn is.
+
+A goal is not stopped by a fixed number of turns. It stops when it is done, when it is stuck, or when it reaches a check-in; the number of turns is only a backstop.
 
 ## What ends a goal
 
 | Ending | How |
 |---|---|
-| Complete | The model calls `update_goal` with `complete`. |
-| Blocked | The model calls it with `blocked` and a reason, allowed from the third round on, or hands the round back to a person (see [a goal handed back](#a-goal-handed-back); only with `handBack.enabled`). Or the round limit is reached (256 admitted rounds by default). |
-| Paused or cleared | You run `/goal pause` or `/goal clear`. |
+| Complete | The model calls `update_goal` with `complete` and evidence, and the report is accepted (see [how completion is checked](#how-completion-is-checked)). |
+| Blocked | The model calls it with `blocked` and a reason, allowed from the third round on, or hands the round back to a person (see [a goal handed back](#a-goal-handed-back); only with `handBack.enabled`). Or a [rule](#what-stops-a-goal) stops it: no progress, the same failure again, the token budget, or the backstop. |
+| Paused or cleared | You run `/goal pause` or `/goal clear`, or the goal pauses itself for a [check-in](#what-stops-a-goal). |
 | Stopped | A turn that is cancelled, fails or hits a turn limit disarms automatic work; `/goal resume` starts again. |
 
-Today the model's own report is enough: when it says `complete`, the goal is complete, whether or not anything was checked. That is the default, and it is intended to change in a later major release (see [the default](#the-default)).
+## What stops a goal
+
+These rules read what each automatic turn did, from the kernel's record of its calls. Each has a setting (see [the settings](#the-settings)) and every one is on by default except the token budget.
+
+| Rule | When it applies | What you see | Going on |
+|---|---|---|---|
+| No progress | 3 automatic turns in a row changed no file, ran no command that could have, ran no check, and did not report completion. | The goal is blocked as `no-progress`; the line names the last action it took and what has been used so far. | `/goal resume` starts the count again. |
+| Repeated failure | The same check failed in 3 automatic turns in a row (the same command, the same exit code). | The goal is blocked as `repeated-failure`, naming the failure. | Fix the cause, then `/goal resume`. |
+| Check-in | After every 50 admitted rounds. | The goal pauses and says how many turns, tokens and what cost it has used. | `/goal resume` continues with no count reset; the next check-in comes 50 turns later. `goal.checkInEvery: 0` turns check-ins off. |
+| Token budget | Only when `goal.tokenBudget` (or `--token-budget`) is set: the goal has used that many tokens. | The goal gets one last round, told to wrap up and start nothing new, then is blocked as `budget-limited`. | Raise `goal.tokenBudget` and run `/goal resume`. |
+| Backstop | 1000 admitted rounds (`goal.maxRounds`). | The goal is blocked as `round-limit`. | Raise `goal.maxRounds` and run `/goal resume`: a resume uses the setting when it is larger than the goal's own cap. |
+
+A turn counts as having made progress when files changed, a command ran that may have changed them, or a check ran. A turn that did none of these and did not report completion is an empty turn; a turn with no record at all counts as neither. A stop is a block, not an error: `/goal status` shows the reason, and the work already done is kept.
+
+## How completion is checked
+
+`update_goal` with `complete` needs an `evidence` list: one entry per requirement of the objective, each with the requirement, what was checked and what the check showed. The prompt of every round carries the same rubric: restate the requirements, check each against the current state, treat intent or earlier work as no proof, and keep working when the evidence is weak. What happens next depends on whether the decision model is on.
+
+**With the decision model on** (a decision model is connected and the `goal` [decision point](decision-points.md) is `on`, which is its start mode; `shadow` counts as off), a judge runs only when the model claims completion. The report is held until the model has given its final answer. The judge is shown the objective (as data), the evidence, a line from the turn's record and the final message, and answers whether the goal is met and what is missing.
+
+- Met: the goal is complete.
+- Not met: the goal stays active, the missing list goes back to the model in the same turn, and it also leads the next round. This is limited to 3 times per goal; after that the turn ends and the list leads the next round.
+- The judge runs on the model `goal.judgeModel` names. Not set, it runs on the model for quick tasks (`smallModel`, else the cheapest priced model of the conversation's vendor, else the conversation's model). The goal, its evidence and the last answer are sent to that model.
+- A judge that cannot answer (no credential, an error, 30 seconds without a reply, a reply that is not an answer) never blocks the goal: the report takes the path below.
+
+**With the decision model off**, no extra model is asked. The first completion report of a goal is handed back once with the rubric; the second is accepted when its evidence covers each requirement the first one listed, each with what was checked and the result. A report that leaves one out is handed back again, naming it.
+
+`goal.confirmedBy: record` (below) is unchanged and is still opt-in. Evidence is asked for on a goal confirmed by the model; a goal confirmed by the record is decided by the record as before.
+
+## The settings
+
+| Setting | Default | Meaning |
+|---|---|---|
+| `goal.maxRounds` | 1000 | Backstop on automatic turns per goal. |
+| `goal.checkInEvery` | 50 | Pause for a check-in after this many automatic turns, and again after each further batch. `0` turns it off. |
+| `goal.tokenBudget` | not set | Tokens one goal may use. Not set means no budget. |
+| `goal.stallRounds` | 3 | Automatic turns in a row without progress, or ending on the same failure, before the goal stops. |
+| `goal.judgeModel` | not set | The model that checks a completion report when the decision model is on, as `provider/model` or a model of the current provider. |
+| `goal.confirmedBy` | `model` | See [the setting and the flag](#the-setting-and-the-flag). |
+
+All of them are in Settings (Agent) and in `~/.namzu/config.yaml` or `namzu.config.json` under `goal:`. A goal takes the values when it is set; `/goal set --token-budget <n>` and `--max-rounds <n>` give one goal its own. `/goal status` and the line that starts each round show the automatic turns, the tokens and the cost so far.
 
 ## Ending a goal by the record
 
-The kernel keeps a record of every turn, built from what its tool calls did and never from what the model says: what changed, what was run to check it, and whether the last word of each check was said about the files as the turn left them ([Turn outcome](../sdk/turn-outcome.md)). With confirmation by the record, a report of `complete` is held until the model has finished its answer, and then the kernel reads that record and decides. There is no judge model and no model call beyond the turns themselves.
+The kernel keeps a record of every turn, built from what its tool calls did and never from what the model says: what changed, what was run to check it, and whether the last word of each check was said about the files as the turn left them ([Turn outcome](../sdk/turn-outcome.md)). With confirmation by the record, a report of `complete` is held until the model has finished its answer, and then the kernel reads that record and decides. There is no judge model and no model call beyond the turns themselves; the [evidence check](#how-completion-is-checked) above is for goals the model confirms.
 
 ### The three endings
 
@@ -47,7 +89,7 @@ The note ends with how to say so: `update_goal` with `blocked` and a reason when
 
 ### The bound
 
-At most **3 refusals** per goal. After the third, the next report ends the goal as not confirmed with the record's sentence shown. Three because a first refusal normally costs one fix and one rerun of the check, a second covers a fix that did not hold and a third a check that needed a second look; past that the model is looping and each further refusal is a model call that has stopped moving the work. The existing limits win over it: a turn that is cancelled or stopped by a turn limit, a time limit or a budget ends without asking the record, and the round limit still blocks the goal. The count is kept in memory for the session: reopening Namzu gives the model its refusals again.
+At most **3 refusals** per goal. After the third, the next report ends the goal as not confirmed with the record's sentence shown. Three because a first refusal normally costs one fix and one rerun of the check, a second covers a fix that did not hold and a third a check that needed a second look; past that the model is looping and each further refusal is a model call that has stopped moving the work. The existing limits win over it: a turn that is cancelled or stopped by a turn limit, a time limit or a budget ends without asking the record, and the [stop rules](#what-stops-a-goal) still block the goal. The count is kept in memory for the session: reopening Namzu gives the model its refusals again.
 
 ### Whose record counts
 
