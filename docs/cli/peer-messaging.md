@@ -25,7 +25,10 @@ choice.
 - `/peers` or `/peers list`: show live terminals, short references, permission
   modes and the number of messages pending here. When [your Namzu network](namzu-network.md)
   runs it shows every machine's sessions instead, then what waits for you (held
-  messages, requests to join) with an Allow and a Deny row for each.
+  messages, requests to join) with an Allow and a Deny row for each. When
+  something waits for you, the roster is drawn inside that picker and nothing is
+  written to the transcript when it opens or when Esc closes it; when nothing
+  waits, the screen is written once as the command's result.
 - `/peers send <name> <message>`: send text to the selected terminal, or to a
   session on another machine (`machine/name`).
 - `/peers role <name> <text>` and `/peers role clear <name>`: describe what a

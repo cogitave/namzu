@@ -1677,6 +1677,23 @@ describe('/config tips', () => {
 	})
 })
 
+describe('/config showTurnDuration', () => {
+	it('switches the turn-end time line on or off', () => {
+		expect(runSlash('/config showTurnDuration off', context())).toEqual({
+			kind: 'turn-duration',
+			on: false,
+		})
+		expect(runSlash('/config showTurnDuration on', context())).toEqual({
+			kind: 'turn-duration',
+			on: true,
+		})
+		expect(runSlash('/config showTurnDuration', context())).toEqual({
+			kind: 'turn-duration',
+			on: 'list',
+		})
+	})
+})
+
 describe('/config theme', () => {
 	it('opens the picker, sets a name, and refuses anything else with the same usage as /theme', () => {
 		expect(runSlash('/config theme', context())).toEqual({ kind: 'theme-picker' })

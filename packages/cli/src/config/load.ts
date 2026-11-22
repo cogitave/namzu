@@ -2595,6 +2595,7 @@ const CONFIG_READERS: ConfigReaders = {
 			editorMode?: unknown
 			recap?: unknown
 			spinnerTips?: unknown
+			showTurnDuration?: unknown
 			syntaxHighlight?: unknown
 			workspacesPrefix?: unknown
 			spacesPrefix?: unknown
@@ -2606,6 +2607,8 @@ const CONFIG_READERS: ConfigReaders = {
 			return invalidConfigValue(context, ['sound'], 'must be true or false')
 		if (raw.spinnerTips !== undefined && typeof raw.spinnerTips !== 'boolean')
 			return invalidConfigValue(context, ['spinnerTips'], 'must be a boolean')
+		if (raw.showTurnDuration !== undefined && typeof raw.showTurnDuration !== 'boolean')
+			return invalidConfigValue(context, ['showTurnDuration'], 'must be true or false')
 		if (raw.syntaxHighlight !== undefined && typeof raw.syntaxHighlight !== 'boolean')
 			return invalidConfigValue(context, ['syntaxHighlight'], 'must be true or false')
 
@@ -2727,6 +2730,7 @@ const CONFIG_READERS: ConfigReaders = {
 			...(raw.editorMode !== undefined ? { editorMode: raw.editorMode as 'normal' | 'vim' } : {}),
 			...(raw.recap !== undefined ? { recap: raw.recap } : {}),
 			...(raw.spinnerTips !== undefined ? { spinnerTips: raw.spinnerTips } : {}),
+			...(raw.showTurnDuration !== undefined ? { showTurnDuration: raw.showTurnDuration } : {}),
 			...(raw.syntaxHighlight !== undefined ? { syntaxHighlight: raw.syntaxHighlight } : {}),
 			...(raw.sound !== undefined ? { sound: raw.sound } : {}),
 		}

@@ -158,6 +158,13 @@ export interface TuiConfig {
 	 */
 	readonly spinnerTips?: boolean
 	/**
+	 * Close a reply with the `Worked for 24s · done 10:47 PM` line. Default
+	 * `true`; only an explicit `false` leaves the line out, for live and
+	 * restored replies alike. A reply that delegated work still says what its
+	 * agents came to, without the duration.
+	 */
+	readonly showTurnDuration?: boolean
+	/**
 	 * Colour the syntax of a fenced code block that names a language it knows
 	 * (keywords, strings, numbers, comments, names, and the added and removed
 	 * lines of a diff). Default `true`; only an explicit `false` draws every
