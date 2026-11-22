@@ -2,6 +2,7 @@
 
 ## 2026-11-22
 
+- **Update** [Releasing by hand](cli/releasing.md#npm-packages): `pnpm release local` waits about ten minutes for the registry to show a published version (was about a minute), and a re-run with every version already on the registry pushes the tags `origin` lacks instead of stopping.
 - **Update** [Releasing by hand](cli/releasing.md#npm-packages): each package is published with `pnpm publish --provenance=false` from its own folder; a `--filter` publish rewrites the arguments it hands npm and dropped the flag, so npm still refused the publish for want of a CI identity.
 - **Update** [Releasing by hand](cli/releasing.md#npm-packages): `pnpm release local` publishes with `--provenance=false` (npm refuses the packages' `publishConfig.provenance` without a CI identity, so a by-hand version carries no provenance attestation), and checks the npm sign-in before the checks and again before publishing; a real run whose session expired opens the sign-in approval itself, a dry run says to run `pnpm release login`.
 - **Update** [Releasing by hand](cli/releasing.md#approvals-open-in-the-browser): `pnpm release login` signs in to npm, and every npm approval address (login, publish) is opened in the browser by the command itself (`BROWSER`, the WSL helper `~/.local/bin/open-in-windows`, `open`, `xdg-open` or PowerShell) and never printed; npm runs under a pseudo-terminal so it polls for the approval, and nothing is typed to it. The WSL helper script is documented.

@@ -2,7 +2,7 @@
 // The decision logic of scripts/release.mjs with injected runners: no npm, gh, git or registry is called.
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { Refusal, authUrl, compareVersions, dependencyOrder, findOpener, main, parseGateProof, ptyCommand } from '../release.mjs'
+import { Refusal, VERIFY_DELAYS_MS, authUrl, compareVersions, dependencyOrder, findOpener, main, parseGateProof, ptyCommand } from '../release.mjs'
 
 const TREE = 'a'.repeat(40)
 const HEAD = 'b'.repeat(40)
@@ -39,6 +39,7 @@ function world(over = {}) {
 		opener: true, // false: no browser can be opened
 		streamedLive: [], // order of onLine calls relative to logs
 		tags: '@namzu/sdk@2.0.0\n@namzu/cli@3.0.0\n',
+		remoteTags: '', // `git ls-remote --tags origin` output
 		...over,
 	}
 	w.deps = {
@@ -88,6 +89,7 @@ function world(over = {}) {
 			if (k === 'git rev-parse HEAD^{tree}') return ok(TREE)
 			if (k.startsWith('git ls-tree')) return ok(w.lsTree)
 			if (k === 'git tag --list') return ok(w.tags)
+			if (k === 'git ls-remote --tags origin') return ok(w.remoteTags)
 			if (k === 'pnpm list -r --depth -1 --json') return ok(PKGS)
 			if (k === 'npm whoami') return w.whoami
 			if (cmd === 'npm' && args[0] === 'view') {
@@ -173,11 +175,38 @@ test('a real run refuses when the sign-in still fails, names the login command a
 test('skips a version already on the registry and publishes nothing when all exist', async () => {
 	const w = world({
 		registry: new Set(['@namzu/sdk@2.0.0', '@namzu/cli@3.0.0']),
+		remoteTags: `${'1'.repeat(40)}\trefs/tags/@namzu/sdk@2.0.0\n${'2'.repeat(40)}\trefs/tags/@namzu/cli@3.0.0\n${'2'.repeat(40)}\trefs/tags/@namzu/cli@3.0.0^{}\n`,
 	})
 	const r = await run(['local'], w)
 	assert.deepEqual(r.published, [])
+	assert.deepEqual(r.tags, [])
 	assert.ok(w.logs.some((l) => l.includes('skip @namzu/sdk@2.0.0')))
+	assert.ok(w.logs.includes('tags: origin already has every tag'))
 	assert.ok(!w.calls.some((c) => c.join(' ').includes(' publish')))
+	assert.ok(!w.calls.some((c) => c[0] === 'git' && c[1] === 'push'))
+})
+test('a re-run after the registry was slow to show a version pushes only the tags origin lacks', async () => {
+	const w = world({
+		registry: new Set(['@namzu/sdk@2.0.0', '@namzu/cli@3.0.0']),
+		remoteTags: `${'1'.repeat(40)}\trefs/tags/@namzu/sdk@2.0.0\n`,
+		tags: '@namzu/sdk@2.0.0\n',
+	})
+	const r = await run(['local'], w)
+	assert.deepEqual(r.tags, ['@namzu/cli@3.0.0'])
+	const cmds = w.calls.map((c) => c.join(' '))
+	assert.ok(cmds.includes('git tag @namzu/cli@3.0.0'))
+	assert.ok(!cmds.includes('git tag @namzu/sdk@2.0.0'), 'an existing tag is never moved')
+	assert.ok(cmds.includes('git push origin refs/tags/@namzu/cli@3.0.0'))
+	assert.ok(!cmds.some((c) => c.includes(' publish')))
+})
+test('a dry run with every version on the registry pushes no tag', async () => {
+	const w = world({ registry: new Set(['@namzu/sdk@2.0.0', '@namzu/cli@3.0.0']) })
+	await run(['local', '--dry-run'], w)
+	assert.ok(!w.calls.some((c) => c[0] === 'git' && (c[1] === 'push' || c[1] === 'tag' || c[1] === 'ls-remote')))
+})
+test('the registry wait covers about ten minutes', () => {
+	const total = VERIFY_DELAYS_MS.reduce((a, b) => a + b, 0)
+	assert.ok(total >= 9 * 60_000 && total <= 11 * 60_000, `waits ${total} ms`)
 })
 test('a registry error that is not a 404 refuses', async () => {
 	const w = world()

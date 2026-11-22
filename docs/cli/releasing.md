@@ -91,9 +91,12 @@ of its own (npm has its own; its message is shown if it expires). Before the fir
 ask again for a few minutes from this address, which saves one approval per package. On the first failure it
 stops and lists which packages were already published and which were not; run the same command again to
 resume, because it skips every version already on the registry. It then verifies every published version
-with `npm view`, retrying for about a minute for registry lag, tags and pushes the new tags to `origin` only after
-every version is visible, and writes `.release/notes/release-<date>-<commit>.md`. If a version
-never shows, no tag is pushed and the message says what to check; nothing is unpublished.
+with `npm view`, retrying for about ten minutes (a large package can take several minutes after npm accepts it
+before it shows), tags and pushes to `origin` the tags it does not have yet, only after every version is
+visible, and writes `.release/notes/release-<date>-<commit>.md`. If a version never shows in that time, no tag
+is pushed and the message says what to check; nothing is unpublished. Once it shows, run the same command
+again: with every version on the registry it publishes nothing and pushes only the tags `origin` lacks (an
+existing tag is never moved). A dry run pushes no tag.
 
 Provenance (`NPM_CONFIG_PROVENANCE`) is a CI feature and is not set here. GitHub Releases are not
 created by this command; `node .github/scripts/backfill-github-releases.mjs` fills them when `gh` can write.
