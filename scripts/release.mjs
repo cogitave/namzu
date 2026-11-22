@@ -288,10 +288,11 @@ export function approvalWatcher(deps) {
  * Runs one npm command whose output may carry approval URLs. Nothing is typed to npm and stdin stays open
  * while it polls; there is no timeout of our own. Returns { status, tail }.
  */
-async function streamWithApproval(deps, cmd, args) {
+async function streamWithApproval(deps, cmd, args, extra = {}) {
 	const watch = approvalWatcher(deps)
 	let tail = ''
 	const r = await deps.stream(cmd, args, {
+		...extra,
 		pty: true,
 		onLine: (line) => {
 			const out = watch(line)
@@ -309,9 +310,14 @@ async function streamWithApproval(deps, cmd, args) {
  * its CI identity. A maintainer's machine has none, and npm then refuses the publish outright ("Automatic
  * provenance generation not supported for provider: null"). A command-line flag outranks `publishConfig`,
  * so a by-hand version is published without a provenance attestation; the workflow path keeps it.
+ *
+ * It runs in the package's own folder, not with `--filter`: a filtered publish is pnpm's recursive one, which
+ * writes npm's arguments itself (tag, registry, access) and drops `--provenance=false`; a single-package
+ * publish hands its arguments to npm as given.
  */
 function publishOne(deps, p) {
-	return streamWithApproval(deps, 'pnpm', ['--filter', p.name, 'publish', '--access', 'public', '--no-git-checks', '--provenance=false'])
+	if (!p.path) fail(`the workspace listing gave no folder for ${p.name}; nothing was published for it.`)
+	return streamWithApproval(deps, 'pnpm', ['publish', '--access', 'public', '--no-git-checks', '--provenance=false'], { cwd: p.path })
 }
 
 // ---- pnpm release login ----------------------------------------------------------------------
@@ -708,7 +714,7 @@ export function realDeps(root) {
 				const wrapped = opts.pty ? ptyCommand(cmd, args, process.platform, process.env.PATH ?? '') : null
 				const [c, a] = wrapped ?? [cmd, args]
 				const child = spawn(c, a, {
-					cwd: root,
+					cwd: opts.cwd ?? root,
 					env: process.env,
 					stdio: ['pipe', 'pipe', 'pipe'],
 				})

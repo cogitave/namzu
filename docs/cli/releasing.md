@@ -81,7 +81,8 @@ It then builds, runs the pre-publish consumer install check
 afterwards, and checks `npm whoami` again. It asks the registry about each package with `npm view <pkg>@<version>`
 and lists what it will publish (a registry error other than a 404 stops it). Then it runs
 publishes the packages one at a time in dependency order, each with
-`pnpm --filter <pkg> publish --provenance=false`, and goes on only after the previous one succeeded.
+`pnpm publish --provenance=false` run in the package's own folder (a `--filter` publish rewrites npm's
+arguments and drops the flag), and goes on only after the previous one succeeded.
 The packages ask for a provenance attestation in `publishConfig`, which only the release workflow's CI
 identity can produce; npm refuses that request on a maintainer's machine, and the flag (which outranks
 `publishConfig`) publishes a by-hand version without one. A version published by the workflow keeps it. npm's output is streamed live. npm asks for an
