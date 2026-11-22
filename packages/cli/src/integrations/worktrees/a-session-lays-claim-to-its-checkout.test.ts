@@ -6,7 +6,7 @@ import { DiskWorkspaceHoldStore, defaultWorktreesDir } from '@namzu/sdk'
 import { afterEach, expect, it } from 'vitest'
 
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
-import { holdSessionCheckout } from './managed.js'
+import { holdSessionCheckout, openManagedWorktrees } from './managed.js'
 
 /**
  * A session started in a managed checkout says so for as long as it runs, and
@@ -60,6 +60,32 @@ it('lays claim to the checkout a session is started in, until it lets go', async
 
 	await release?.()
 	expect(await store.holders(checkout)).toEqual([])
+})
+
+it('writes its holding where the manager that removes it reads it, under a state root', async () => {
+	const root = mkdtempSync(join(tmpdir(), 'namzu-hold-state-root-'))
+	roots.push(root)
+	const repo = join(root, 'main')
+	mkdirSync(repo)
+	git(repo, 'init', '--quiet')
+	git(repo, 'config', 'user.name', 'Namzu Test')
+	git(repo, 'config', 'user.email', 'namzu-test@example.invalid')
+	writeFileSync(join(repo, 'base.txt'), 'base\n')
+	git(repo, 'add', 'base.txt')
+	git(repo, 'commit', '--quiet', '-m', 'base')
+	const stateRoot = join(root, 'state')
+	const manager = await openManagedWorktrees(repo, { stateRoot })
+	const checkout = await manager.create('claim')
+
+	// The holding and the removal share one state root, so the removal is refused
+	// for the session that holds the checkout — not written to some other home.
+	const release = await holdSessionCheckout(checkout.path, 'session:1234', { stateRoot })
+	expect(release).toBeDefined()
+	expect((await manager.holders('claim')).map((held) => held.holder)).toEqual(['session:1234'])
+	expect(await new DiskWorkspaceHoldStore().holders(checkout.path)).toEqual([])
+
+	await release?.()
+	expect(await manager.holders('claim')).toEqual([])
 })
 
 it('lays claim to nothing when the session is started outside a managed checkout', async () => {

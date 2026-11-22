@@ -4,7 +4,7 @@ import { execFile } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import type { Dirent } from 'node:fs'
 import { lstat, mkdir, readdir, realpath, rmdir } from 'node:fs/promises'
-import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
+import { isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { promisify } from 'node:util'
 import {
 	DiskWorkspaceHoldStore,
@@ -12,7 +12,6 @@ import {
 	HookedWorkspaceDriver,
 	asSessionId,
 	defaultWorkspaceHoldsDir,
-	defaultWorktreesDir,
 	generateWorkspaceId,
 } from '@namzu/sdk'
 import type {
@@ -220,40 +219,23 @@ export async function openManagedWorktrees(
  *
  * This is the evidence a removal asks for: a delegated child's checkout that a
  * person resumed in another terminal is kept, and the refusal names both
- * folders. Extras are deliberately cheap here — one Git call and the settings
- * file — because it runs at the start of every interactive session. A failure
- * to record a holding never stops a session from starting.
+ * folders. It asks the same manager a removal goes through, built from the same
+ * state root and settings, so a holding is written where that manager's driver
+ * reads it instead of at the default home — an embedding with a state root of
+ * its own is the case that used to be missed. It runs after the first frame, so
+ * a session's screen is not held up by it, and a failure to record a holding
+ * never stops a session from starting.
  */
 export async function holdSessionCheckout(
 	cwd: string,
 	holder: string,
+	options: ManagedWorktreesOptions = {},
 ): Promise<(() => Promise<void>) | undefined> {
 	try {
-		const directory = await realpath(resolve(cwd))
-		const listing = await git(directory, 'worktree', 'list', '--porcelain', '-z')
-		const first = listing.split('\0', 1)[0]
-		if (!first?.startsWith('worktree ')) return undefined
-		const repoRoot = await realpath(first.slice('worktree '.length))
-		const settings = readWorktreeSettings()
-		let worktreesDir = defaultWorktreesDir(repoRoot)
-		if (settings.location !== undefined) {
-			if (worktreeLocationProblem(settings.location)) return undefined
-			// The chosen folder holds one folder per project, named for the project's slug.
-			const slug = basename(dirname(worktreesDir))
-			worktreesDir = join(await realpath(settings.location), slug)
-		}
-		const root = await realpath(worktreesDir)
-		const below = relative(root, directory)
-		if (below === '' || below === '..' || below.startsWith(`..${sep}`) || isAbsolute(below)) {
-			return undefined
-		}
-		const label = below.split(sep)[0] ?? ''
-		if (!/^[a-z0-9][a-z0-9-]{0,63}$/.test(label)) return undefined
-		return await new DiskWorkspaceHoldStore().add({
-			path: join(root, label),
-			folder: directory,
-			holder,
-		})
+		const managed = await openManagedWorktrees(cwd, options)
+		const checkout = await managed.checkoutAt(cwd)
+		if (!checkout) return undefined
+		return await managed.hold(checkout.label, holder, await realpath(resolve(cwd)))
 	} catch {
 		// Not a Git checkout, a chosen folder that has gone, an unreadable state
 		// root: nothing to hold here, and the session goes ahead.

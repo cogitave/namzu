@@ -2,6 +2,8 @@
 
 ## 2026-11-23
 
+- **Update** [Managed Git worktrees](cli/worktrees.md): a cancelled child lets go of its checkout before its parent hears it idle, so a checkout kept for its uncommitted edit is no longer refused for a `subagent:` that has been stopped; and `holdSessionCheckout` takes the state root and settings of the manager a removal goes through, so an embedding with a state root of its own writes the holding where that manager reads it. `.changeset/worktree-refuses-a-checkout-in-use.md`.
+
 - **Update** [Managed Git worktrees](cli/worktrees.md): a delegated child lets go of its checkout when it ends, whether or not the checkout is kept, so a checkout kept for its changes is not refused later for a `subagent:` that has already finished; a run started with `namzu exec` inside a managed checkout records a holding for the length of that run, like an interactive session does. `.changeset/worktree-refuses-a-checkout-in-use.md`.
 
 ## 2026-11-22
