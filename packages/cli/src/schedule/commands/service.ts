@@ -42,7 +42,12 @@ import {
 import { launchdLabel, launchdPlist } from '../service/launchd.js'
 import { type ServicePlatform, readManifest } from '../service/manifest.js'
 import { checkServiceName, defaultServiceName } from '../service/names.js'
-import { nameClash, readServiceIndex, recordService, removeServices } from '../service/registry.js'
+import {
+	nameClash,
+	readServiceIndexChecked,
+	recordService,
+	removeServices,
+} from '../service/registry.js'
 import { runCommand } from '../service/runner.js'
 import { systemdUnit, systemdUserAvailable } from '../service/systemd.js'
 import { taskXml } from '../service/windows-task.js'
@@ -158,12 +163,14 @@ export async function installCommand(
 			{ paths, run: runCommand, env: process.env, version: CLI_VERSION },
 			{ platform, name, program: prog, atBoot: has(args, 'at-boot') },
 		)
-		recordService({
+		const indexProblem = recordService({
 			name: manifest.name,
 			home: paths.home,
 			platform: manifest.platform,
 			installedAt: manifest.installedAt,
 		})
+		if (indexProblem)
+			ctx.formatter.info(`The service is installed but not listed by name: ${indexProblem}.`)
 		for (const note of notes) ctx.formatter.info(note)
 		if (problems.length > 0) {
 			ctx.formatter.error({ message: `installed with problems:\n${problems.join('\n')}` })
@@ -205,6 +212,12 @@ export async function uninstallCommand(
 		})
 		return EXIT_USAGE
 	}
+	if (args.positionals.length > 0) {
+		ctx.formatter.error({
+			message: `unexpected argument: ${args.positionals.join(' ')}; the service name goes right after the verb: namzu schedule service uninstall [<name>] [options]`,
+		})
+		return EXIT_USAGE
+	}
 	const paths = pathsFor(args)
 	const manifest = readManifest(paths)
 	const endpoint = readEndpoint(paths.endpoint)
@@ -233,18 +246,20 @@ export async function uninstallCommand(
 		ctx.formatter.error({ message: `could not remove everything:\n${problems.join('\n')}` })
 		return 1
 	}
-	removeServices(
-		[...new Set([manifest?.name, named, defaultServiceName(paths.home)])].filter(
-			(n): n is string => n !== undefined,
-		),
-		paths.home,
-	)
 	if (has(args, 'purge-data')) rmSync(paths.root, { recursive: true, force: true })
 	ctx.formatter.print({
 		text: manifest
 			? `Removed ${manifest.name}.${has(args, 'purge-data') ? ' Scheduler data deleted.' : ' Jobs and history are kept.'}`
 			: `No scheduler service was installed for ${paths.home}.${has(args, 'purge-data') ? ' Scheduler data deleted.' : ''}`,
 	})
+	// Best effort and last: a damaged index never undoes the removal above.
+	const indexProblem = removeServices(
+		[...new Set([manifest?.name, named, defaultServiceName(paths.home)])].filter(
+			(n): n is string => n !== undefined,
+		),
+		paths.home,
+	)
+	if (indexProblem) ctx.formatter.info(`The service index was not updated: ${indexProblem}.`)
 	return EXIT_OK
 }
 
@@ -294,6 +309,12 @@ export async function statusCommand(ctx: CommandContext, argv: readonly string[]
 	const args = parseArgs(argv, ['home', 'json!'])
 	if (args.unknown.length > 0) {
 		ctx.formatter.error({ message: `unknown option: ${args.unknown.join(', ')}` })
+		return EXIT_USAGE
+	}
+	if (args.positionals.length > 0) {
+		ctx.formatter.error({
+			message: `unexpected argument: ${args.positionals.join(' ')}; the service name goes right after the verb: namzu schedule service status [<name>] [options]`,
+		})
 		return EXIT_USAGE
 	}
 	const paths = pathsFor(args)
@@ -405,8 +426,9 @@ export async function listCommand(ctx: CommandContext, argv: readonly string[]):
 		ctx.formatter.error({ message: 'usage: namzu schedule service list [--json]' })
 		return EXIT_USAGE
 	}
+	const index = readServiceIndexChecked()
 	const rows = []
-	for (const entry of readServiceIndex()) {
+	for (const entry of index.services) {
 		const paths = schedulePaths(entry.home)
 		let state: 'running' | 'not running' | 'not installed' | 'missing'
 		try {
@@ -419,8 +441,11 @@ export async function listCommand(ctx: CommandContext, argv: readonly string[]):
 		rows.push({ name: entry.name, home: entry.home, platform: entry.platform, state })
 	}
 	if (has(args, 'json') || ctx.formatter.name !== 'text') {
-		const payload = { v: 1, services: rows }
+		const payload = { v: 1, services: rows, ...(index.problem ? { error: index.problem } : {}) }
 		ctx.formatter.print(ctx.formatter.name === 'text' ? JSON.stringify(payload, null, 2) : payload)
+	} else if (index.problem) {
+		ctx.formatter.error({ message: index.problem })
+		return 1
 	} else if (rows.length === 0) {
 		ctx.formatter.print('No scheduler service is installed; namzu schedule service install')
 	} else {
@@ -440,6 +465,16 @@ export async function startStopCommand(
 	verb: 'start' | 'stop',
 ): Promise<number> {
 	const args = parseArgs(argv, ['home'])
+	if (args.unknown.length > 0) {
+		ctx.formatter.error({ message: `unknown option: ${args.unknown.join(', ')}` })
+		return EXIT_USAGE
+	}
+	if (args.positionals.length > 0) {
+		ctx.formatter.error({
+			message: `unexpected argument: ${args.positionals.join(' ')}; the service name goes right after the verb: namzu schedule service ${verb} [<name>] [options]`,
+		})
+		return EXIT_USAGE
+	}
 	const paths = pathsFor(args)
 	const manifest = readManifest(paths)
 	if (!manifest) {

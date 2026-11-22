@@ -2,6 +2,7 @@
 
 ## 2026-11-22
 
+- **Update** [The scheduler service](cli/scheduler-service.md#named-services): a damaged or newer service index is reported in one line and never overwritten, `uninstall` removes the index entry last and best effort, installing a new name for a home replaces that home's old entry, and a word left after the verb's name (`stop --json beta`, `stop beta extra`) is a usage error.
 - **Update** [The scheduler service](cli/scheduler-service.md#named-services): `namzu schedule service install` records each service in a per-user index (`schedule/services.json` in the default home); `service status|start|stop|logs|uninstall <name>` and `--service <name>` on the job commands act on the named service's home, and `service list` shows them all.
 - **Update** [Releasing by hand](cli/releasing.md#npm-packages): `pnpm release local` waits about ten minutes for the registry to show a published version (was about a minute), and a re-run with every version already on the registry pushes the tags `origin` lacks instead of stopping.
 - **Update** [Releasing by hand](cli/releasing.md#npm-packages): each package is published with `pnpm publish --provenance=false` from its own folder; a `--filter` publish rewrites the arguments it hands npm and dropped the flag, so npm still refused the publish for want of a CI identity.

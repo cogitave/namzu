@@ -1083,7 +1083,8 @@ namzu schedule service logs [<name>] [--follow] [--job <name>]
 namzu schedule service list                # installed schedulers: name, home, state
 ```
 
-Every command above takes `--service <name>` to act on the scheduler that service
+Every job command above takes `--service <name>` (the `service` commands take the name
+as a word right after the verb instead) to act on the scheduler that service
 serves instead of the current `NAMZU_HOME`
 (`namzu schedule pause nightly --service autodev`); see
 [the scheduler service](scheduler-service.md#named-services).

@@ -10,7 +10,7 @@ import { existsSync, statSync } from 'node:fs'
 import { resolve } from 'node:path'
 import type { CommandContext } from '../../commands/types.js'
 import { EXIT_USAGE } from '../../exit-codes.js'
-import { type ServiceIndexEntry, findService, readServiceIndex } from './registry.js'
+import { type ServiceIndexEntry, readServiceIndexChecked } from './registry.js'
 
 export interface ServiceTarget {
 	readonly name: string
@@ -58,9 +58,14 @@ export function applyTarget(
 ): Targeted | { code: number } {
 	const { name, rest } = pull(argv, mode)
 	if (name === undefined) return { argv: rest, restore: () => undefined }
-	const entry = findService(name)
+	const index = readServiceIndexChecked()
+	const entry = index.services.find((e) => e.name === name)
 	if (!entry) {
-		const known = readServiceIndex().map((e) => e.name)
+		if (index.problem) {
+			ctx.formatter.error({ message: `cannot look up ${name}: ${index.problem}` })
+			return { code: 1 }
+		}
+		const known = index.services.map((e) => e.name)
 		ctx.formatter.error({
 			message: `no scheduler service is named ${name}; ${
 				known.length > 0 ? `known: ${known.join(', ')}; ` : 'none is installed; '

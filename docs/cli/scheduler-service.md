@@ -237,6 +237,8 @@ service in a per-user index, `schedule/services.json` in the default Namzu home
 - `install --name <n>` refuses a name the index maps to a different home (both homes are
   named; uninstall the other one or pick another `--name`). Installing the same name for
   the same home again updates the entry.
+  Installing a different name for a home that already has one replaces that home's entry:
+  one home has one service, so a name always resolves to the service that has it.
 - `uninstall` removes the entry, also when the supervisor's service was already gone.
 - `status`, `start`, `stop`, `logs` and `uninstall` take an optional service name
   (`namzu schedule service stop autodev`). The command then acts exactly as if run with
@@ -244,6 +246,13 @@ service in a per-user index, `schedule/services.json` in the default Namzu home
   output) and says once which home it resolved to. A name given while `NAMZU_HOME` points
   elsewhere wins, and one line says so. Without a name nothing changes. An unknown name
   fails with the known names and the hint `namzu schedule service list`.
+  The name goes right after the verb; a word left over anywhere else (`stop --json beta`,
+  `stop beta extra`) is refused with a usage error instead of being ignored.
+- A damaged index, or one written by a newer namzu, is never rewritten: `install` still
+  installs and says the service was not listed by name, `list` and a named command report
+  one line (`the service index <path> cannot be read: <reason>; fix or move it`), and
+  `uninstall` finishes the removal before it tries the index and then says it was not
+  updated. Entries that are not well formed (no name, home or platform) are skipped.
 - `list [--json]` shows every indexed service with its name, home, platform and state:
   `running`, `not running`, `not installed`, or `missing` when its home folder is gone.
 - The job commands (`list`, `show`, `history`, `pause`, `resume`, `run`, `remove`, `edit`,

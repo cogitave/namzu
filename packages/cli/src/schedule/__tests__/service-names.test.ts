@@ -4,7 +4,8 @@
  * recording fake; every folder is temporary and HOME is stubbed to one.
  */
 
-import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { dirname } from 'node:path'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -13,6 +14,15 @@ vi.mock('../service/runner.js', () => ({
 	runCommand: async (cmd: string, args: string[]) => {
 		supervisor.calls.push([cmd, ...args].join(' '))
 		return { code: 0, stdout: args.includes('show') ? 'LoadState=not-found' : '', stderr: '' }
+	},
+}))
+
+const fired = vi.hoisted(() => ({ homes: [] as string[] }))
+vi.mock('../fire/fire.js', async (importOriginal) => ({
+	...(await importOriginal<typeof import('../fire/fire.js')>()),
+	runFire: async (_ctx: unknown, paths: { home: string }) => {
+		fired.homes.push(paths.home)
+		return 0
 	},
 }))
 
@@ -30,6 +40,7 @@ beforeEach(() => {
 	homeB = join(sb.osHome, 'home-b')
 	mkdirSync(homeB, { recursive: true })
 	supervisor.calls.length = 0
+	fired.homes.length = 0
 	vi.stubEnv('HOME', sb.osHome)
 	vi.stubEnv('USERPROFILE', sb.osHome)
 	vi.stubEnv('XDG_CONFIG_HOME', join(sb.root, 'config'))
@@ -143,9 +154,16 @@ describe('a service named on a service command', () => {
 		// The stop request landed in beta's home, not alpha's.
 		expect(existsSync(join(homeB, 'schedule'))).toBe(true)
 
+		const logFile = join(schedulePaths(homeB).daemonLog, 'daemon-2999-01-01.jsonl')
+		mkdirSync(dirname(logFile), { recursive: true })
+		writeFileSync(
+			logFile,
+			`${JSON.stringify({ time: '2999-01-01T00:00:00Z', level: 'info', message: 'beta-only-line' })}\n`,
+		)
 		const logs = run(['service', 'logs', 'beta'])
 		expect(await logs.code).toBe(0)
 		expect(logs.out.info[0]).toContain(homeB)
+		expect(logs.out.printed.join('\n')).toContain('beta-only-line')
 
 		supervisor.calls.length = 0
 		const gone = run(['service', 'uninstall', 'beta', '--wait', '0s'])
@@ -232,10 +250,15 @@ describe('--service on the job commands', () => {
 		expect(await paused.code).toBe(0)
 		expect(readJob(other.paths, job.id)?.state).toBe('paused')
 
-		const ran = run(['run', 'ghost', '--service', 'beta'])
-		expect(await ran.code).not.toBe(0)
-		expect(ran.out.errors.join('\n')).toContain('ghost')
-		expect(ran.out.info[0]).toContain(homeB)
+		await run(['resume', 'nightly', '--service', 'beta']).code
+		const ran = run(['run', 'nightly', '--service', 'beta'])
+		expect(await ran.code).toBe(0)
+		expect(ran.out.info[0]).toBe(`Using the scheduler service beta (${homeB}).`)
+		expect(fired.homes).toEqual([homeB])
+
+		const ghost = run(['run', 'ghost', '--service', 'beta'])
+		expect(await ghost.code).not.toBe(0)
+		expect(ghost.out.errors.join('\n')).toContain('ghost')
 	})
 
 	it('fails an unknown service in one line', async () => {
@@ -243,5 +266,98 @@ describe('--service on the job commands', () => {
 		expect(await unknown.code).toBe(64)
 		expect(unknown.out.errors).toHaveLength(1)
 		expect(unknown.out.errors[0]).toContain('namzu schedule service list')
+	})
+})
+
+describe('a service name in the wrong place', () => {
+	beforeEach(async () => {
+		await install('alpha', sb.home)
+		await install('beta', homeB)
+		supervisor.calls.length = 0
+	})
+
+	it('refuses a name after a flag instead of acting on the current home', async () => {
+		vi.stubEnv('NAMZU_HOME', sb.home)
+		const r = run(['service', 'status', '--json', 'beta'])
+		expect(await r.code).toBe(64)
+		expect(r.out.errors).toHaveLength(1)
+		expect(r.out.errors[0]).toContain('unexpected argument: beta')
+		expect(supervisor.calls).toEqual([])
+	})
+
+	it('refuses extra words after the name on every service verb', async () => {
+		for (const verb of ['status', 'start', 'stop', 'logs', 'uninstall']) {
+			const r = run(['service', verb, 'beta', 'extra'])
+			expect(await r.code).toBe(64)
+			expect(r.out.errors[0]).toContain('unexpected argument: extra')
+		}
+		expect(supervisor.calls).toEqual([])
+	})
+})
+
+describe('a damaged or newer index', () => {
+	const writeIndex = (text: string) => {
+		const path = serviceIndexPath(sb.osHome)
+		mkdirSync(dirname(path), { recursive: true })
+		writeFileSync(path, text)
+		return path
+	}
+
+	it('is reported in one line and never overwritten, whatever the command', async () => {
+		for (const text of [
+			'garbage',
+			JSON.stringify({ v: 2, kind: 'schedule-service-index', services: [] }),
+		]) {
+			const path = writeIndex(text)
+			const installed = await install('a', homeB)
+			expect(installed.code).toBe(0)
+			expect(installed.out.info.join('\n')).toContain('cannot be read')
+			expect(readFileSync(path, 'utf8')).toBe(text)
+
+			const status = run(['service', 'status', 'a'])
+			expect(await status.code).toBe(1)
+			expect(status.out.errors[0]).toContain('cannot be read')
+
+			const list = run(['service', 'list'])
+			expect(await list.code).toBe(1)
+			expect(list.out.errors[0]).toContain('fix or move it')
+
+			const gone = run(['service', 'uninstall', '--home', homeB, '--wait', '0s'])
+			expect(await gone.code).toBe(0)
+			expect(JSON.stringify(gone.out.printed)).toContain('Removed')
+			expect(gone.out.info.join('\n')).toContain('not updated')
+			expect(readFileSync(path, 'utf8')).toBe(text)
+		}
+	})
+
+	it('skips entries that are null or lack a home or platform', async () => {
+		writeIndex(
+			JSON.stringify({
+				v: 1,
+				kind: 'schedule-service-index',
+				services: [
+					{ name: 'x' },
+					null,
+					{ name: 'ok', home: homeB, platform: 'systemd-user', installedAt: 'x' },
+				],
+			}),
+		)
+		const list = run(['service', 'list', '--json'])
+		expect(await list.code).toBe(0)
+		expect(
+			JSON.parse(list.out.printed[0] as string).services.map((s: { name: string }) => s.name),
+		).toEqual(['ok'])
+		const status = run(['service', 'status', 'y'])
+		expect(await status.code).toBe(64)
+	})
+})
+
+describe('one home, one name', () => {
+	it('replaces an older name for the same home on install', async () => {
+		await install('a', homeB)
+		expect((await install('b', homeB)).code).toBe(0)
+		expect(readServiceIndex(sb.osHome).map((e) => e.name)).toEqual(['b'])
+		const r = run(['service', 'status', 'a'])
+		expect(await r.code).toBe(64)
 	})
 })
