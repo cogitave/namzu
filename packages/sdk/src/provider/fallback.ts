@@ -574,6 +574,17 @@ export function withProviderFallback(
 					member.provider.acceptsForcedToolChoiceFor?.(member.model ?? model, thinking, effort) ??
 					false,
 			),
+		// A tier is offered only when every member that may serve the request
+		// lists it; a member that cannot say makes the answer unknown.
+		speedTiersFor: (model: string) => {
+			let common: readonly ('fast' | 'ultrafast')[] | undefined
+			for (const member of members) {
+				const tiers = member.provider.speedTiersFor?.(member.model ?? model)
+				if (tiers === undefined) return undefined
+				common = common === undefined ? tiers : common.filter((t) => tiers.includes(t))
+			}
+			return common
+		},
 		reasoningEffortLevelsFor: (model: string, thinking?: ThinkingConfig) =>
 			commonReasoningEffortLevels(members, model, thinking),
 		// Present on the chain wrapper for the same reason the menu method is:

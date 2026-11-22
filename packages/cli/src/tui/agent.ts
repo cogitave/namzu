@@ -1157,8 +1157,8 @@ export interface SendOptions {
 	readonly onMonitorEventsDelivered?: (eventIds: readonly string[]) => void
 	/** Model-specific reasoning effort for this turn's main query. */
 	readonly effort?: ReasoningEffort
-	/** `'fast'` asks the provider for its fast inference mode for this turn; absent is standard. */
-	readonly speed?: 'fast'
+	/** `'fast'` asks the provider for its fast inference mode for this turn, `'ultrafast'` for the tier above it; absent is standard. */
+	readonly speed?: 'fast' | 'ultrafast'
 	/**
 	 * The model the operator picked while this turn runs, read before every
 	 * request. A model this session's provider serves takes effect on the next
@@ -1573,6 +1573,12 @@ export interface AgentSession {
 	 * always publishes the field.
 	 */
 	readonly reasoningEffortLevels?: readonly ReasoningEffort[]
+	/**
+	 * The speed tiers above standard the current provider's own model listing
+	 * offers for `model`; `undefined` until a listing has answered or when the
+	 * provider has none. Read by the fast-mode check.
+	 */
+	readonly speedTiersFor?: (model: string) => readonly ('fast' | 'ultrafast')[] | undefined
 	/**
 	 * Present only on a session opened with `deferEffortCatalogue` whose levels
 	 * were not final at open. Resolves, never rejects, once the model listing has
@@ -6468,6 +6474,8 @@ export async function createAgentSession(
 		get reasoningEffortLevels() {
 			return reasoningEffortLevels
 		},
+		speedTiersFor: (forModel: string) =>
+			providerForSession(scope.sessionId).speedTiersFor?.(forModel),
 		get reasoningEffortDefault() {
 			return reasoningEffortDefault
 		},
@@ -9073,7 +9081,7 @@ async function* runTurn({
 				model,
 				...(sandboxProvider ? { sandbox: { workspace: sandboxWorkspace } } : {}),
 				...(opts?.effort !== undefined ? { effort: opts.effort } : {}),
-				...(opts?.speed === 'fast' ? { speed: opts.speed } : {}),
+				...(opts?.speed === 'fast' || opts?.speed === 'ultrafast' ? { speed: opts.speed } : {}),
 				...(webSearch ? { webSearch } : {}),
 				// The variables hooks set for this session's commands: one live object,
 				// read at each command, so a hook that sets one mid-session is heard.

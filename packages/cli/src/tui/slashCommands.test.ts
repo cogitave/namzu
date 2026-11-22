@@ -1020,18 +1020,78 @@ describe('/effort', () => {
 	})
 })
 
-describe('/fast', () => {
-	it('toggles with no argument and takes an explicit state', () => {
-		expect(runSlash('/fast', context())).toEqual({ kind: 'fast-mode', enabled: 'toggle' })
-		expect(runSlash('/fast on', context())).toEqual({ kind: 'fast-mode', enabled: true })
-		expect(runSlash('/fast off', context())).toEqual({ kind: 'fast-mode', enabled: false })
+describe('/fast and /ultrafast', () => {
+	it('toggle and take no argument', () => {
+		expect(runSlash('/fast', context())).toEqual({ kind: 'fast-mode', tier: 'fast' })
+		expect(runSlash('/ultrafast', context())).toEqual({ kind: 'fast-mode', tier: 'ultrafast' })
 	})
 
-	it('answers a bad argument with its usage', () => {
-		expect(runSlash('/fast sideways', context())).toMatchObject({
-			kind: 'message',
-			content: 'Usage: /fast [on|off]',
+	it('answer any argument, including the old on, off and ultrafast words, with their usage line', () => {
+		for (const arg of ['on', 'OFF', 'ultrafast', 'sideways']) {
+			expect(runSlash(`/fast ${arg}`, context())).toMatchObject({
+				kind: 'message',
+				content: 'Usage: /fast',
+			})
+		}
+		for (const arg of ['on', 'off', 'fast']) {
+			expect(runSlash(`/ultrafast ${arg}`, context())).toMatchObject({
+				kind: 'message',
+				content: 'Usage: /ultrafast',
+			})
+		}
+	})
+
+	describe('in the menu', () => {
+		const names = (tiers: readonly ('fast' | 'ultrafast')[] | undefined, value = '/') =>
+			matchSlashCommands(
+				value,
+				[],
+				CLI_LOCAL_COMMANDS,
+				context(tiers ? { speedTiers: () => tiers } : {}),
+			)
+				.map((c) => c.name)
+				.filter((n) => n === 'fast' || n === 'ultrafast')
+
+		it('lists only the tiers the model offers', () => {
+			expect(names([])).toEqual([])
+			expect(names(['fast'])).toEqual(['fast'])
+			expect(names(['fast', 'ultrafast'])).toEqual(['fast', 'ultrafast'])
+			expect(names(['ultrafast'])).toEqual(['ultrafast'])
 		})
+
+		it('hides both while the answer is not known, and lists everything with no context', () => {
+			expect(names(undefined)).toEqual([])
+			expect(matchSlashCommands('/ult').map((c) => c.name)).toEqual(['ultrafast'])
+		})
+
+		it('keeps /help listing both, with the reason on the one the model lacks', () => {
+			const ctx = context({
+				speedTiers: () => ['fast'],
+				speedTierRefusal: (tier) => (tier === 'ultrafast' ? 'No ultrafast here.' : undefined),
+			})
+			const picker = runSlash('/help', ctx)
+			expect(picker).toMatchObject({ kind: 'command-picker' })
+			const rows = (picker as unknown as { commands: { name: string; problem?: string }[] })
+				.commands
+			expect(rows.find((r) => r.name === 'fast')?.problem).toBeUndefined()
+			expect(rows.find((r) => r.name === 'ultrafast')?.problem).toBe('No ultrafast here.')
+			expect(runSlash('/help ultrafast', ctx)).toMatchObject({
+				content: expect.stringContaining('Unavailable: No ultrafast here.'),
+			})
+		})
+	})
+
+	it('typed while the model lacks the tier, answers with the reason, not Unknown command', () => {
+		const ctx = context({
+			speedTiers: () => [],
+			speedTierRefusal: (tier) => `${tier} is not offered here.`,
+		})
+		expect(runSlash('/ultrafast', ctx)).toEqual({
+			kind: 'message',
+			role: 'system',
+			content: 'ultrafast is not offered here.',
+		})
+		expect(runSlash('/fast', ctx)).toMatchObject({ content: 'fast is not offered here.' })
 	})
 })
 
