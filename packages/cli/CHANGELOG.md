@@ -1,5 +1,27 @@
 # @namzu/cli
 
+## 57.1.0
+
+### Minor Changes
+
+- a51f3a8: Turning on `computerUse.enabled` now works in the conversation you already have open. Before, the computer tool was added only when a conversation started, so enabling it in `/config` or Settings did nothing until a new one. The switch is now read before every message: it applies from your next message, and turning it off takes the tool out again. The desktop helper is started only the first time the switch is on. The model is also told, in one fixed line, that computer use is a switch you control and how you turn it on. The default is unchanged (off). `/config computerUse.enabled` now says "Applies from your next message."; `computerUse.deniedApps` still applies to new conversations. Nothing needs to change for existing configurations.
+- e3c977e: New setting `tui.showTurnDuration` (default on) with `/config showTurnDuration on|off|list`: off leaves the `Worked for 24s · done 10:47 PM` line out after a reply, for live and restored conversations. A reply that delegated work still ends with its `N agents · tokens` line, without the duration.
+
+  Visible changes to know about: a message you send while a reply is running no longer shows a `sent while working` label (an `N files attached` note stays); `/peers` now draws its roster inside the "Waiting for you" picker and writes nothing to the transcript when the picker opens or is dismissed, and when nothing waits for you it writes the screen once as the command's result. Nothing to do on upgrade; to hide the time line, run `/config showTurnDuration off`.
+
+- 7d285ab: A reply the browser paused for a sign-in is no longer a dead end in the terminal. A message you type while it waits now continues it, with your words passed to the model as yours to answer first (before, it was refused and the pause was lost, so Enter did nothing). Esc stops it even with a draft in the box, slash commands such as `/help` leave the pause alone, and Enter on an empty box continues a paused reply whose pause had dropped off the screen, or says why there is nothing to continue. The notices now name Enter, a typed message and Esc, and say the browser is namzu's own profile, not Brave, Chrome or Edge. A mistyped command names the nearest one (`/abondon` suggests `/abandon`).
+
+  With a visible browser window, namzu now looks at the open page every 3 seconds while the pause waits and continues by itself once the page stops asking for you (two looks in a row, at most twice before you act, for up to 10 minutes). It only reads the page: no navigation, typing, clicks, cookies or storage. New `peekHumanRequired()` on `PlaywrightBrowserHost` in `@namzu/browser`. To keep the old behaviour of waiting for Enter, set `browser.signInWatch: false`.
+
+  `@namzu/sdk`: the text of a `browser_human_required` refusal gains one sentence telling the model the browser is namzu's own profile; nothing else changes.
+
+### Patch Changes
+
+- 98933f0: The workflow detail is now as tall as what it lists (never under 8 rows, never more than the free rows) instead of always filling them, so a run with a few agents no longer shows a screenful of blank rows above the input box. Long lists keep the full height and scroll as before.
+- Updated dependencies [7d285ab]
+  - @namzu/browser@3.1.0
+  - @namzu/sdk@68.0.1
+
 ## 57.0.0
 
 ### Major Changes
