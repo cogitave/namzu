@@ -26,7 +26,9 @@ import { decidePending } from '../.github/scripts/pending-changesets.mjs'
 export const FEED_TAG = 'desktop-latest'
 export const ELECTRON_BUILDER_VERSION = '26.17.0'
 export const GATE_DIR = '.release/gates'
-export const VERIFY_DELAYS_MS = [2000, 4000, 8000, 16000, 30000]
+// About ten minutes in all: a large package can take several minutes after npm accepts it ("Your package is being
+// processed") before `npm view` shows it.
+export const VERIFY_DELAYS_MS = [2000, 4000, 8000, 16000, 30000, 60000, 60000, 120000, 120000, 180000]
 
 export class Refusal extends Error {}
 
@@ -320,6 +322,34 @@ function publishOne(deps, p) {
 	return streamWithApproval(deps, 'pnpm', ['publish', '--access', 'public', '--no-git-checks', '--provenance=false'], { cwd: p.path })
 }
 
+/**
+ * Tags HEAD with each `name@version` that origin does not have yet and pushes those tags. A tag that already exists
+ * locally is reused, never moved; one that origin has is left alone. Returns the tags it pushed.
+ */
+function pushMissingTags(deps, ids) {
+	const remote = new Set(
+		must(deps, 'git', ['ls-remote', '--tags', 'origin'], 'listing the tags on origin')
+			.split('\n')
+			.map((l) => l.split('\t')[1] ?? '')
+			.filter((r) => r.startsWith('refs/tags/'))
+			.map((r) => r.slice('refs/tags/'.length).replace(/\^\{\}$/, '')),
+	)
+	const local = new Set(
+		must(deps, 'git', ['tag', '--list'], 'listing tags')
+			.split('\n')
+			.map((s) => s.trim()),
+	)
+	const tags = ids.filter((t) => !remote.has(t))
+	if (tags.length === 0) {
+		deps.log('tags: origin already has every tag')
+		return []
+	}
+	for (const t of tags) if (!local.has(t)) must(deps, 'git', ['tag', t], `tagging ${t}`)
+	must(deps, 'git', ['push', 'origin', ...tags.map((t) => `refs/tags/${t}`)], 'pushing tags')
+	deps.log(`tags pushed: ${tags.join(', ')}`)
+	return tags
+}
+
 // ---- pnpm release login ----------------------------------------------------------------------
 
 export async function loginStep(_flags, deps) {
@@ -369,14 +399,21 @@ export async function releaseLocal(flags, deps) {
 	// Again after the checks: the session can lapse while they run.
 	await ensureSignedIn(flags, deps, dry)
 
+	const ordered = dependencyOrder(deps, publishablePackages(deps))
 	const toPublish = []
-	for (const p of dependencyOrder(deps, publishablePackages(deps))) {
+	for (const p of ordered) {
 		if (onRegistry(deps, p.name, p.version)) deps.log(`skip ${p.name}@${p.version}: already on the registry`)
 		else toPublish.push(p)
 	}
 	if (toPublish.length === 0) {
 		deps.log('nothing to publish: every version is already on the registry.')
-		return { published: [], tags: [] }
+		if (dry) return { published: [], tags: [], dryRun: true, toPublish }
+		// A run that published but stopped before tagging (the registry was slow to show a version) is finished here.
+		const tags = pushMissingTags(
+			deps,
+			ordered.map((p) => `${p.name}@${p.version}`),
+		)
+		return { published: [], tags }
 	}
 	deps.log(`${dry ? 'would publish' : 'publishing'}:`)
 	for (const p of toPublish) deps.log(`  ${p.name}@${p.version}`)
@@ -423,22 +460,15 @@ export async function releaseLocal(flags, deps) {
 	if (missing.length > 0) {
 		fail(
 			`the registry does not show: ${missing.join(', ')}. Tags were NOT pushed. Check \`npm view <pkg> version\` again in a few minutes; ` +
-				'never unpublish. When every version shows, push the tags by hand (git push origin <tag>).',
+				'never unpublish. When every version shows, run the same command again: it publishes nothing and pushes the missing tags.',
 		)
 	}
 	deps.log('registry: every published version is visible')
 
-	const existing = new Set(
-		must(deps, 'git', ['tag', '--list'], 'listing tags')
-			.split('\n')
-			.map((s) => s.trim()),
+	const tags = pushMissingTags(
+		deps,
+		toPublish.map((p) => `${p.name}@${p.version}`),
 	)
-	const tags = toPublish.map((p) => `${p.name}@${p.version}`)
-	for (const t of tags) if (!existing.has(t)) must(deps, 'git', ['tag', t], `tagging ${t}`)
-	if (tags.length > 0) {
-		must(deps, 'git', ['push', 'origin', ...tags.map((t) => `refs/tags/${t}`)], 'pushing tags')
-		deps.log(`tags pushed: ${tags.join(', ')}`)
-	}
 
 	const notePath = join(deps.root, '.release', 'notes', `release-${deps.now().toISOString().slice(0, 10)}-${head.slice(0, 9)}.md`)
 	deps.mkdir(dirname(notePath))
