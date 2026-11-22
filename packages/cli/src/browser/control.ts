@@ -80,6 +80,12 @@ export interface BrowserControl {
 	/** The host the tools are built over. */
 	readonly host: BrowserHost
 	status(): BrowserStatus
+	/**
+	 * Whether the page open in the window still asks for a person, read
+	 * without acting (no navigation, typing, cookies or storage). `unknown`
+	 * when no window is open or it cannot be read.
+	 */
+	peekSignIn(): Promise<'still-required' | 'cleared' | 'unknown'>
 	/** Run under another profile from the next browser call on. Closes the current browser. */
 	switchProfile(name: string): Promise<BrowserStatus>
 	/**
@@ -170,6 +176,10 @@ export function createBrowserControl(
 				sites,
 				keepOpen: options.keepOpen === true,
 			}
+		},
+		async peekSignIn() {
+			if (disposed) return 'unknown'
+			return current.peekHumanRequired()
 		},
 		async switchProfile(name: string): Promise<BrowserStatus> {
 			if (!isBrowserProfileName(name)) {

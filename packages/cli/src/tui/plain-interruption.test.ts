@@ -574,6 +574,19 @@ describe('a message refused because the conversation still holds a turn', () => 
 	it('tells a paused one to be continued or closed', () => {
 		expect(describePlainInterruption(refused('paused'))).toMatch(/Enter.*\/abandon/)
 	})
+
+	it('names Enter, a typed message and /abandon in the terminal', () => {
+		const text = describePlainInterruption(refused('paused'))
+		expect(text).toContain('Press Enter to continue it')
+		expect(text).toContain('type a message to answer it')
+		expect(text).toContain('/abandon')
+	})
+
+	it('points to /resume where there are no keys to press', () => {
+		const text = describePlainInterruption(refused('paused'), { answer: 'command' })
+		expect(text).toContain('Run /resume to continue it')
+		expect(text).not.toContain('Press Enter')
+	})
 })
 
 describe('a conversation another window is still answering', () => {

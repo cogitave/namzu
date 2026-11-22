@@ -3665,6 +3665,7 @@ const BROWSER_KEYS = new Set([
 	'sites',
 	'keepOpen',
 	'signInDetection',
+	'signInWatch',
 ])
 /** `@namzu/browser`'s profile names, restated so reading config does not load Playwright. */
 export const BROWSER_PROFILE_NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
@@ -3676,12 +3677,12 @@ function readBrowserConfig(v: unknown, context: ConfigReaderContext): BrowserCon
 			return invalidConfigValue(
 				context,
 				[key],
-				'is not a browser setting (enabled, defaultProfile, engine, headless, sites, keepOpen, signInDetection)',
+				'is not a browser setting (enabled, defaultProfile, engine, headless, sites, keepOpen, signInDetection, signInWatch)',
 			)
 		}
 	}
 	const raw = v as Record<string, unknown>
-	for (const key of ['enabled', 'keepOpen'] as const) {
+	for (const key of ['enabled', 'keepOpen', 'signInWatch'] as const) {
 		if (raw[key] !== undefined && typeof raw[key] !== 'boolean')
 			return invalidConfigValue(context, [key], 'must be true or false')
 	}
@@ -3732,6 +3733,7 @@ function readBrowserConfig(v: unknown, context: ConfigReaderContext): BrowserCon
 		...(raw.signInDetection !== undefined
 			? { signInDetection: raw.signInDetection as BrowserConfig['signInDetection'] }
 			: {}),
+		...(raw.signInWatch !== undefined ? { signInWatch: raw.signInWatch as boolean } : {}),
 	}
 }
 

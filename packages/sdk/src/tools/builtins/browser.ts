@@ -835,7 +835,7 @@ function hostErrorToResult(tool: string, error: BrowserHostError): ToolResult {
 			}
 			return {
 				...refusal(
-					`${tool}: ${error.origin || 'the page'} is showing ${what}. Stop here and tell the user; do not sign in, solve it or type a password or code.${how}`,
+					`${tool}: ${error.origin || 'the page'} is showing ${what}. Stop here and tell the user; do not sign in, solve it or type a password or code.${how} This browser uses its own Namzu profile, not the user's everyday browser (Brave, Chrome or Edge), so a sign-in they made there is not visible to you; if they ask, say so and that signing in once in the Namzu window is remembered for next time.`,
 					{
 						code: error.code,
 						handoff: { kind: 'human-required', reason: error.reason, detail },
