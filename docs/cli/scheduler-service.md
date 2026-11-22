@@ -46,7 +46,8 @@ service is named `namzu-scheduler` for `~/.namzu`, else
 `namzu-scheduler-<8 hex of the home's hash>`; `--name` overrides it.
 
 When `--name` is omitted the service gets the name above, and that default is what the
-index below records.
+index below records. The name you give is the name you type: `service list`, `status`,
+`start`, `stop`, `logs` and `uninstall` all use it on every platform, WSL included.
 
 `install` refuses a CLI running from the npx cache (it is not kept) and a node
 that is not an absolute path.
@@ -58,7 +59,7 @@ that is not an absolute path.
 | Linux with a systemd user manager | `~/.config/systemd/user/<name>.service` | at login; at boot with `--at-boot` (linger) | `Restart=always` |
 | macOS | `~/Library/LaunchAgents/com.namzu.scheduler[…].plist` | at login | `KeepAlive=true` |
 | Windows | Task Scheduler `\namzu\<name>` | at logon | a trigger repeating every 5 minutes |
-| WSL | Task Scheduler `\namzu\<name>-wsl-<distro>`, through `wsl.exe` | at Windows logon | a trigger repeating every 5 minutes |
+| WSL | Task Scheduler `\namzu\<name>-wsl-<distro>` (the task carries the distro so two distros never collide; the service is still `<name>`), through `wsl.exe` | at Windows logon | a trigger repeating every 5 minutes |
 
 ### `script`/`script+agent` jobs, per backend
 
@@ -246,6 +247,9 @@ service in a per-user index, `schedule/services.json` in the default Namzu home
   output) and says once which home it resolved to. A name given while `NAMZU_HOME` points
   elsewhere wins, and one line says so. Without a name nothing changes. An unknown name
   fails with the known names and the hint `namzu schedule service list`.
+  A WSL service installed by an older version was registered as `<name>-wsl-<distro>`;
+  `<name>` finds it too, `service list` shows it as `<name>`, and the next `install` for
+  that home rewrites the entry. Reading never rewrites the index.
   The name goes right after the verb; a word left over anywhere else (`stop --json beta`,
   `stop beta extra`) is refused with a usage error instead of being ignored.
 - A damaged index, or one written by a newer namzu, is never rewritten: `install` still
