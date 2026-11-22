@@ -34,14 +34,19 @@ scheduler, so an installed service does not break. Reinstalling
 ```sh
 namzu schedule service install [--platform auto|systemd-user|launchd|windows-task|wsl-windows-task] \
                        [--name <service>] [--at-boot] [--dry-run]
-namzu schedule service status [--json]
-namzu schedule service stop | start
-namzu schedule service uninstall [--keep-data | --purge-data] [--wait 10m | --interrupt-runs]
+namzu schedule service status [<name>] [--json]
+namzu schedule service stop [<name>] | start [<name>]
+namzu schedule service logs [<name>] [--follow] [--job <name>] [--since 1h]
+namzu schedule service uninstall [<name>] [--keep-data | --purge-data] [--wait 10m | --interrupt-runs]
+namzu schedule service list [--json]
 ```
 
 `--dry-run` prints the unit, property list or task XML it would write. The
 service is named `namzu-scheduler` for `~/.namzu`, else
 `namzu-scheduler-<8 hex of the home's hash>`; `--name` overrides it.
+
+When `--name` is omitted the service gets the name above, and that default is what the
+index below records.
 
 `install` refuses a CLI running from the npx cache (it is not kept) and a node
 that is not an absolute path.
@@ -216,6 +221,43 @@ wait, or one accepted earlier that was still waiting for a free slot or its
 folder when the wait began, is queued on disk and started by the daemon that
 takes over. The wait
 lasts as long as the longest run in progress.
+
+## Named services
+
+Every `schedule` command acts on the scheduler of the current `NAMZU_HOME`. To stop,
+start or inspect another one by name, without setting `NAMZU_HOME`, `install` records each
+service in a per-user index, `schedule/services.json` in the default Namzu home
+(`~/.namzu`, whatever `NAMZU_HOME` is), written atomically and stamped `v: 1`:
+
+```json
+{ "v": 1, "kind": "schedule-service-index",
+  "services": [{ "name": "autodev", "home": "/data/autodev", "platform": "systemd-user", "installedAt": "2026-11-22T10:00:00.000Z" }] }
+```
+
+- `install --name <n>` refuses a name the index maps to a different home (both homes are
+  named; uninstall the other one or pick another `--name`). Installing the same name for
+  the same home again updates the entry.
+  Installing a different name for a home that already has one replaces that home's entry:
+  one home has one service, so a name always resolves to the service that has it.
+- `uninstall` removes the entry, also when the supervisor's service was already gone.
+- `status`, `start`, `stop`, `logs` and `uninstall` take an optional service name
+  (`namzu schedule service stop autodev`). The command then acts exactly as if run with
+  `NAMZU_HOME` set to that service's home (same manifest, same supervisor calls, same
+  output) and says once which home it resolved to. A name given while `NAMZU_HOME` points
+  elsewhere wins, and one line says so. Without a name nothing changes. An unknown name
+  fails with the known names and the hint `namzu schedule service list`.
+  The name goes right after the verb; a word left over anywhere else (`stop --json beta`,
+  `stop beta extra`) is refused with a usage error instead of being ignored.
+- A damaged index, or one written by a newer namzu, is never rewritten: `install` still
+  installs and says the service was not listed by name, `list` and a named command report
+  one line (`the service index <path> cannot be read: <reason>; fix or move it`), and
+  `uninstall` finishes the removal before it tries the index and then says it was not
+  updated. Entries that are not well formed (no name, home or platform) are skipped.
+- `list [--json]` shows every indexed service with its name, home, platform and state:
+  `running`, `not running`, `not installed`, or `missing` when its home folder is gone.
+- The job commands (`list`, `show`, `history`, `pause`, `resume`, `run`, `remove`, `edit`,
+  `confirm`, `prune`, `add`) take `--service <name>` the same way:
+  `namzu schedule pause nightly --service autodev`.
 
 ## Status
 

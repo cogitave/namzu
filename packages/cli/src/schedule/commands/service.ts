@@ -28,7 +28,7 @@ import { EXIT_STOP_REQUESTED } from '../daemon/exit.js'
 import { daemonLogPath, daemonLogSink } from '../daemon/log.js'
 import { type FireArgs, parseFireArgs, runFire } from '../fire/fire.js'
 import { isFinal, readRunResult, writeRunResult } from '../fire/result.js'
-import type { SchedulePaths } from '../paths.js'
+import { type SchedulePaths, schedulePaths } from '../paths.js'
 import { parkedRunWords, resumeCommand } from '../resume-command.js'
 import { detectPlatform } from '../service/detect.js'
 import {
@@ -42,6 +42,12 @@ import {
 import { launchdLabel, launchdPlist } from '../service/launchd.js'
 import { type ServicePlatform, readManifest } from '../service/manifest.js'
 import { checkServiceName, defaultServiceName } from '../service/names.js'
+import {
+	nameClash,
+	readServiceIndexChecked,
+	recordService,
+	removeServices,
+} from '../service/registry.js'
 import { runCommand } from '../service/runner.js'
 import { systemdUnit, systemdUserAvailable } from '../service/systemd.js'
 import { taskXml } from '../service/windows-task.js'
@@ -139,6 +145,11 @@ export async function installCommand(
 		ctx.formatter.print({ text, platform, name })
 		return EXIT_OK
 	}
+	const clash = nameClash(name, paths.home)
+	if (clash) {
+		ctx.formatter.error({ message: clash })
+		return 1
+	}
 	const existing = readManifest(paths)
 	if (existing && existing.name !== name && existing.platform !== platform) {
 		ctx.formatter.error({
@@ -152,6 +163,14 @@ export async function installCommand(
 			{ paths, run: runCommand, env: process.env, version: CLI_VERSION },
 			{ platform, name, program: prog, atBoot: has(args, 'at-boot') },
 		)
+		const indexProblem = recordService({
+			name: manifest.name,
+			home: paths.home,
+			platform: manifest.platform,
+			installedAt: manifest.installedAt,
+		})
+		if (indexProblem)
+			ctx.formatter.info(`The service is installed but not listed by name: ${indexProblem}.`)
 		for (const note of notes) ctx.formatter.info(note)
 		if (problems.length > 0) {
 			ctx.formatter.error({ message: `installed with problems:\n${problems.join('\n')}` })
@@ -182,12 +201,20 @@ function runsInFlight(paths: SchedulePaths): number {
 export async function uninstallCommand(
 	ctx: CommandContext,
 	argv: readonly string[],
+	/** The name the command line gave, when it gave one. */
+	named?: string,
 ): Promise<number> {
 	const args = parseArgs(argv, ['home', 'keep-data!', 'purge-data!', 'wait', 'interrupt-runs!'])
 	if (args.unknown.length > 0 || (has(args, 'keep-data') && has(args, 'purge-data'))) {
 		ctx.formatter.error({
 			message:
 				'usage: namzu schedule service uninstall [--keep-data | --purge-data] [--wait 10m | --interrupt-runs]',
+		})
+		return EXIT_USAGE
+	}
+	if (args.positionals.length > 0) {
+		ctx.formatter.error({
+			message: `unexpected argument: ${args.positionals.join(' ')}; the service name goes right after the verb: namzu schedule service uninstall [<name>] [options]`,
 		})
 		return EXIT_USAGE
 	}
@@ -225,6 +252,14 @@ export async function uninstallCommand(
 			? `Removed ${manifest.name}.${has(args, 'purge-data') ? ' Scheduler data deleted.' : ' Jobs and history are kept.'}`
 			: `No scheduler service was installed for ${paths.home}.${has(args, 'purge-data') ? ' Scheduler data deleted.' : ''}`,
 	})
+	// Best effort and last: a damaged index never undoes the removal above.
+	const indexProblem = removeServices(
+		[...new Set([manifest?.name, named, defaultServiceName(paths.home)])].filter(
+			(n): n is string => n !== undefined,
+		),
+		paths.home,
+	)
+	if (indexProblem) ctx.formatter.info(`The service index was not updated: ${indexProblem}.`)
 	return EXIT_OK
 }
 
@@ -260,18 +295,31 @@ function daemonNotifications(
 		: { kind: reported.slice(0, at), detail: reported.slice(at + 2) }
 }
 
+/** Is this home's daemon answering, or recently seen? The one rule `status` and `list` share. */
+async function probeHealth(paths: SchedulePaths) {
+	const heartbeat = readHeartbeat(paths)
+	const endpoint = readEndpoint(paths.endpoint)
+	const live = endpoint ? await callEndpoint(endpoint, 'status') : undefined
+	const age = heartbeat ? Date.now() - Date.parse(heartbeat.at) : undefined
+	const healthy = Boolean(live) || (age !== undefined && age < 90_000)
+	return { heartbeat, live, age, healthy }
+}
+
 export async function statusCommand(ctx: CommandContext, argv: readonly string[]): Promise<number> {
 	const args = parseArgs(argv, ['home', 'json!'])
 	if (args.unknown.length > 0) {
 		ctx.formatter.error({ message: `unknown option: ${args.unknown.join(', ')}` })
 		return EXIT_USAGE
 	}
+	if (args.positionals.length > 0) {
+		ctx.formatter.error({
+			message: `unexpected argument: ${args.positionals.join(' ')}; the service name goes right after the verb: namzu schedule service status [<name>] [options]`,
+		})
+		return EXIT_USAGE
+	}
 	const paths = pathsFor(args)
 	const manifest = readManifest(paths)
-	const heartbeat = readHeartbeat(paths)
-	const endpoint = readEndpoint(paths.endpoint)
-	const live = endpoint ? await callEndpoint(endpoint, 'status') : undefined
-	const age = heartbeat ? Date.now() - Date.parse(heartbeat.at) : undefined
+	const { heartbeat, live, age, healthy } = await probeHealth(paths)
 	const supervisor = manifest
 		? await serviceState(
 				{ paths, run: runCommand, env: process.env, version: CLI_VERSION },
@@ -307,7 +355,6 @@ export async function statusCommand(ctx: CommandContext, argv: readonly string[]
 				`installed by namzu ${manifest.cliVersion}, this is ${CLI_VERSION}; the daemon restarts on the new code by itself`,
 			)
 	}
-	const healthy = Boolean(live) || (age !== undefined && age < 90_000)
 	// Runs waiting for the operator, each with the command that answers it:
 	// conversations are stored per folder, so the command carries the folder.
 	const awaitingApproval = jobs.flatMap((job) => {
@@ -372,12 +419,62 @@ export async function statusCommand(ctx: CommandContext, argv: readonly string[]
 	return healthy ? EXIT_OK : EXIT_UNAVAILABLE
 }
 
+/** `schedule service list`: every indexed service with its live state; a gone home is `missing`. */
+export async function listCommand(ctx: CommandContext, argv: readonly string[]): Promise<number> {
+	const args = parseArgs(argv, ['json!'])
+	if (args.unknown.length > 0 || args.positionals.length > 0) {
+		ctx.formatter.error({ message: 'usage: namzu schedule service list [--json]' })
+		return EXIT_USAGE
+	}
+	const index = readServiceIndexChecked()
+	const rows = []
+	for (const entry of index.services) {
+		const paths = schedulePaths(entry.home)
+		let state: 'running' | 'not running' | 'not installed' | 'missing'
+		try {
+			if (!existsSync(entry.home)) state = 'missing'
+			else if (!readManifest(paths)) state = 'not installed'
+			else state = (await probeHealth(paths)).healthy ? 'running' : 'not running'
+		} catch {
+			state = 'missing'
+		}
+		rows.push({ name: entry.name, home: entry.home, platform: entry.platform, state })
+	}
+	if (has(args, 'json') || ctx.formatter.name !== 'text') {
+		const payload = { v: 1, services: rows, ...(index.problem ? { error: index.problem } : {}) }
+		ctx.formatter.print(ctx.formatter.name === 'text' ? JSON.stringify(payload, null, 2) : payload)
+	} else if (index.problem) {
+		ctx.formatter.error({ message: index.problem })
+		return 1
+	} else if (rows.length === 0) {
+		ctx.formatter.print('No scheduler service is installed; namzu schedule service install')
+	} else {
+		const width = Math.max(...rows.map((r) => r.name.length))
+		ctx.formatter.print(
+			rows
+				.map((r) => `${r.name.padEnd(width)}  ${r.state.padEnd(13)}  ${r.platform}  ${r.home}`)
+				.join('\n'),
+		)
+	}
+	return EXIT_OK
+}
+
 export async function startStopCommand(
 	ctx: CommandContext,
 	argv: readonly string[],
 	verb: 'start' | 'stop',
 ): Promise<number> {
 	const args = parseArgs(argv, ['home'])
+	if (args.unknown.length > 0) {
+		ctx.formatter.error({ message: `unknown option: ${args.unknown.join(', ')}` })
+		return EXIT_USAGE
+	}
+	if (args.positionals.length > 0) {
+		ctx.formatter.error({
+			message: `unexpected argument: ${args.positionals.join(' ')}; the service name goes right after the verb: namzu schedule service ${verb} [<name>] [options]`,
+		})
+		return EXIT_USAGE
+	}
 	const paths = pathsFor(args)
 	const manifest = readManifest(paths)
 	if (!manifest) {
