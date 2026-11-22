@@ -1,7 +1,8 @@
 import type { GoalJudgeInput } from '@namzu/sdk'
 import { describe, expect, it } from 'vitest'
 
-import { createGoalJudge, goalJudgeBody, parseJudgement } from '../goal-judge.js'
+import type { SideModel, SideRequest } from '../../integrations/small-model/side-model.js'
+import { createGoalJudge, goalJudgeBody, goalJudgeWiring, parseJudgement } from '../goal-judge.js'
 
 const input: GoalJudgeInput = {
 	sessionId: 's1',
@@ -92,5 +93,66 @@ describe('the judge request', () => {
 		})
 		await judge(input)
 		expect(given).toBe(controller.signal)
+	})
+})
+
+describe('the judge as the session builds it', () => {
+	const fakeSide = (seen: SideRequest[]): SideModel => ({
+		route: async () => {
+			throw new Error('not used')
+		},
+		smallProvider: async () => undefined,
+		ask: async (request) => {
+			seen.push(request)
+			return '{"met": true, "missing": []}'
+		},
+	})
+
+	it('asks the side model on the goal.judgeModel value when the point is on', async () => {
+		const seen: SideRequest[] = []
+		const wiring = goalJudgeWiring({
+			sideModel: () => fakeSide(seen),
+			model: 'openai/terra',
+			mode: () => 'on',
+		})
+		expect(wiring.judgeActive()).toBe(true)
+		expect(await wiring.judge(input)).toEqual({ met: true, missing: [] })
+		expect(seen).toHaveLength(1)
+		expect(seen[0]?.model).toBe('openai/terra')
+		expect(seen[0]?.timing).toBe('beside-turn')
+	})
+
+	it('is not in use when the point is off or shadow, or there is no side model', () => {
+		const side = fakeSide([])
+		for (const mode of ['off', 'shadow']) {
+			expect(
+				goalJudgeWiring({
+					sideModel: () => side,
+					model: undefined,
+					mode: () => mode,
+				}).judgeActive(),
+			).toBe(false)
+		}
+		expect(
+			goalJudgeWiring({
+				sideModel: () => undefined,
+				model: undefined,
+				mode: () => 'on',
+			}).judgeActive(),
+		).toBe(false)
+	})
+
+	it('reads the side model and the mode each time, so a change takes effect', () => {
+		const state: { side: SideModel | undefined; mode: string } = { side: undefined, mode: 'off' }
+		const wiring = goalJudgeWiring({
+			sideModel: () => state.side,
+			model: undefined,
+			mode: () => state.mode,
+		})
+		expect(wiring.judgeActive()).toBe(false)
+		state.mode = 'on'
+		expect(wiring.judgeActive()).toBe(false)
+		state.side = fakeSide([])
+		expect(wiring.judgeActive()).toBe(true)
 	})
 })

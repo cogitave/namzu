@@ -471,11 +471,13 @@ abstract class SessionGoalStoreBase implements SessionGoalStore {
 			} = goal
 			// A resume starts the stall counts again; the round count and the
 			// check-in position are never reset, so a check-in resumed continues.
+			// A rule the host sets on resume replaces the stored one, so a
+			// check-in of 0 turns it off and a looser limit takes effect.
 			const filled = goalGuards(options.guards)
 			const own: GoalGuards | undefined =
 				filled === undefined && goal.guards === undefined
 					? undefined
-					: { ...filled, ...goal.guards }
+					: { ...goal.guards, ...filled }
 			const budget =
 				raisedBudget !== undefined && raisedBudget > (own?.tokenBudget ?? 0)
 					? raisedBudget
@@ -484,9 +486,11 @@ abstract class SessionGoalStoreBase implements SessionGoalStore {
 				own === undefined && budget === undefined
 					? undefined
 					: { ...own, ...(budget !== undefined ? { tokenBudget: budget } : {}) }
-			// A check-in rule added now counts from here, not from the first round.
+			// A check-in rule added or changed now counts from here, not from the first round.
 			const newCheckIn =
-				filled?.checkInEvery !== undefined && goal.guards?.checkInEvery === undefined
+				filled?.checkInEvery !== undefined &&
+				filled.checkInEvery > 0 &&
+				filled.checkInEvery !== goal.guards?.checkInEvery
 			return {
 				...rest,
 				phase: 'active',

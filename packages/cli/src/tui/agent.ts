@@ -585,7 +585,7 @@ import {
 	createCliReminderSource,
 	hypermodeExitOwed,
 } from '../reminders/index.js'
-import { createGoalJudge } from '../rounds/goal-judge.js'
+import { goalJudgeWiring } from '../rounds/goal-judge.js'
 import { createSessionSkillCatalog } from '../skills/catalog.js'
 import { createSkillDirectoryResolver } from '../skills/directory.js'
 import { isInsideFolder, restoreSkillHooks } from '../skills/restore-skill-hooks.js'
@@ -4158,21 +4158,11 @@ export async function createAgentSession(
 				// judge on the small model reads it; without, the report is held once
 				// for a self-audit and no extra model is asked.
 				requireEvidence: true,
-				judge: createGoalJudge({
-					ask: async (request) =>
-						sideModel?.ask({
-							sessionId: request.sessionId as SessionId,
-							turnId: request.turnId as TurnId,
-							instruction: request.instruction,
-							body: request.body,
-							maxTokens: request.maxTokens,
-							signal: request.signal,
-							timing: 'beside-turn',
-							...(request.model !== undefined ? { model: request.model } : {}),
-						}),
+				...goalJudgeWiring({
+					sideModel: () => sideModel,
 					model: options.goalJudgeModel,
+					mode: () => decisionPoints.mode('goal'),
 				}),
-				judgeActive: () => decisionPoints.mode('goal') === 'on' && sideModel !== undefined,
 			})
 		: undefined
 	if (options.sessionGoals) {

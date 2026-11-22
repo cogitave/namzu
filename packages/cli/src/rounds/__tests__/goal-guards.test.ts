@@ -82,6 +82,21 @@ describe('what a finished turn did', () => {
 		expect(roundAction(record())).toBeUndefined()
 	})
 
+	it('does not count a failing check toward a repeat when the turn changed files', () => {
+		const failing = [{ command: 'pnpm test', step: 2, result: 'failed' as const, exitCode: 1 }]
+		const edited = record({
+			verdict: 'failing',
+			checks: failing,
+			changes: { total: 1, paths: ['a.ts'], outsideKnownTools: false },
+		})
+		const bare = { goal: null, tokens: undefined, costUsd: undefined }
+		expect(summarizeRound({ record: edited, ...bare }).failureSignature).toBeUndefined()
+		expect(
+			summarizeRound({ record: record({ verdict: 'failing', checks: failing }), ...bare })
+				.failureSignature,
+		).toBe('pnpm test (exit 1)')
+	})
+
 	it('reads a completion claim as unknown, never as an empty turn', () => {
 		const claimed = { phase: 'complete' } as SessionGoal
 		expect(summarizeRound({ record: record(), goal: claimed, tokens: 5, costUsd: 0.1 })).toEqual({

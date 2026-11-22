@@ -32,6 +32,7 @@ async function fixture(): Promise<{
 }
 
 const empty = { progress: 'empty' as const }
+const progress = { progress: 'progress' as const }
 const worked = { progress: 'progress' as const, action: 'edited a.ts' }
 
 async function admit(
@@ -130,6 +131,25 @@ describe('the stop rules of a goal', () => {
 		expect(resumed.phase).toBe('active')
 		expect(resumed.quietRounds).toBeUndefined()
 		expect(resumed.roundsAdmitted).toBe(2)
+	})
+
+	it('lets the limits given on resume replace the stored ones, so a check-in of 0 turns it off', async () => {
+		const { store, sessionId, tenantId } = await fixture()
+		let goal = await store.createGoal(
+			{ sessionId, objective: 'x', guards: { checkInEvery: 2, stallRounds: 3 } },
+			tenantId,
+		)
+		for (let i = 0; i < 2; i++) {
+			await admit(store, sessionId, tenantId, goal)
+			goal = (await store.recordRound?.(sessionId, tenantId, goal.id, progress)) as SessionGoal
+		}
+		await expect(admit(store, sessionId, tenantId, goal)).rejects.toThrow()
+		const paused = (await store.getGoal(sessionId, tenantId)) as SessionGoal
+		const resumed = await store.resumeGoal(sessionId, tenantId, paused, {
+			guards: { checkInEvery: 0, stallRounds: 5, tokenBudget: 900 },
+		})
+		expect(resumed.guards).toEqual({ checkInEvery: 0, stallRounds: 5, tokenBudget: 900 })
+		await admit(store, sessionId, tenantId, resumed)
 	})
 
 	it('pauses for a check-in every N admitted rounds and resumes without resetting the count', async () => {
@@ -275,7 +295,7 @@ describe('the stop rules of a goal', () => {
 		expect((await admit(store, sessionId, tenantId, resumed)).round).toBe(5)
 	})
 
-	it('keeps the rules a goal already has when a resume offers others', async () => {
+	it('replaces the stored rules a resume names and keeps the ones it leaves out', async () => {
 		const { store, sessionId, tenantId } = await fixture()
 		const goal = await store.createGoal(
 			{ sessionId, objective: 'x', guards: { checkInEvery: 0, stallRounds: 9 } },
@@ -283,9 +303,9 @@ describe('the stop rules of a goal', () => {
 		)
 		const paused = await store.pauseGoal(sessionId, tenantId, goal)
 		const resumed = await store.resumeGoal(sessionId, tenantId, paused, {
-			guards: { stallRounds: 3, checkInEvery: 50, tokenBudget: 100 },
+			guards: { stallRounds: 3, tokenBudget: 100 },
 		})
-		expect(resumed.guards).toEqual({ stallRounds: 9, checkInEvery: 0, tokenBudget: 100 })
+		expect(resumed.guards).toEqual({ stallRounds: 3, checkInEvery: 0, tokenBudget: 100 })
 	})
 
 	it('refuses guards that are not whole numbers', async () => {

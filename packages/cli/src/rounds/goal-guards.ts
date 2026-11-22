@@ -107,7 +107,10 @@ export function summarizeRound(input: RoundSummaryInput): GoalRoundOutcome {
 	const claimed =
 		input.goal !== null &&
 		(input.goal.phase === 'complete' || (input.goal.missing?.length ?? 0) > 0)
-	const failure = roundFailure(input.record)
+	// The record carries the failing command and exit code but not its output,
+	// so the same command can fail for different reasons. A turn that changed
+	// files is work on the failure, not a repeat of it, and counts for neither.
+	const failure = (input.record?.changes.total ?? 0) > 0 ? undefined : roundFailure(input.record)
 	const action = roundAction(input.record)
 	return {
 		progress: claimed ? 'unknown' : roundProgress(input.record),

@@ -10,7 +10,9 @@
  * judgement, and the goal takes the path it takes without one.
  */
 
-import type { GoalJudge, GoalJudgeInput, GoalJudgement } from '@namzu/sdk'
+import type { GoalJudge, GoalJudgeInput, GoalJudgement, SessionId, TurnId } from '@namzu/sdk'
+
+import type { SideModel } from '../integrations/small-model/side-model.js'
 
 /** The longest the check is waited for. */
 export const GOAL_JUDGE_TIMEOUT_MS = 30_000
@@ -103,5 +105,42 @@ export function createGoalJudge(deps: GoalJudgeDeps): GoalJudge {
 		} catch {
 			return undefined
 		}
+	}
+}
+
+export interface GoalJudgeWiring {
+	/** The side model now, or `undefined` while there is none. Read on each use. */
+	readonly sideModel: () => SideModel | undefined
+	/** `goal.judgeModel`. */
+	readonly model: string | undefined
+	/** The mode of the `goal` decision point now. */
+	readonly mode: () => string
+}
+
+/**
+ * The judge and the switch of the goal confirmation. The judge is in use only
+ * while the `goal` decision point is `on` and a side model exists; it asks the
+ * side model, on `goal.judgeModel` when that is set.
+ */
+export function goalJudgeWiring(wiring: GoalJudgeWiring): {
+	readonly judge: GoalJudge
+	readonly judgeActive: () => boolean
+} {
+	return {
+		judge: createGoalJudge({
+			ask: async (request) =>
+				wiring.sideModel()?.ask({
+					sessionId: request.sessionId as SessionId,
+					turnId: request.turnId as TurnId,
+					instruction: request.instruction,
+					body: request.body,
+					maxTokens: request.maxTokens,
+					signal: request.signal,
+					timing: 'beside-turn',
+					...(request.model !== undefined ? { model: request.model } : {}),
+				}),
+			model: wiring.model,
+		}),
+		judgeActive: () => wiring.mode() === 'on' && wiring.sideModel() !== undefined,
 	}
 }
