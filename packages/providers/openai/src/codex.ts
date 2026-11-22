@@ -451,6 +451,19 @@ function buildRequest(
 	return request as ResponseCreateParamsStreaming
 }
 
+/**
+ * What an account's model listing said, kept for the life of the process so a
+ * provider rebuilt around a refreshed token still honours an advertised tier.
+ * Keyed by account and endpoint, never by token.
+ */
+const listingByAccount = new Map<
+	string,
+	{
+		speedTiers: Map<string, readonly FastTier[]>
+		reasoningProfiles: Map<string, SubscriptionReasoningProfile>
+	}
+>()
+
 export class CodexProvider implements LLMProvider {
 	readonly id = 'codex'
 	readonly name = 'OpenAI Codex'
@@ -461,6 +474,7 @@ export class CodexProvider implements LLMProvider {
 	private reasoningProfiles = new Map<string, SubscriptionReasoningProfile>()
 	/** Per model, the speed tiers the account's listing offers. Absent until a listing has answered. */
 	private speedTiers?: Map<string, readonly FastTier[]>
+	private readonly listingKey: string
 
 	constructor(config: CodexConfig) {
 		if (!config.accessToken) throw new Error('Codex access token is required.')
@@ -479,6 +493,12 @@ export class CodexProvider implements LLMProvider {
 			},
 		})
 		this.defaultModel = config.model
+		this.listingKey = `${config.accountId}\u0000${config.baseURL ?? DEFAULT_CODEX_BASE_URL}`
+		const known = listingByAccount.get(this.listingKey)
+		if (known) {
+			this.speedTiers = known.speedTiers
+			this.reasoningProfiles = known.reasoningProfiles
+		}
 	}
 
 	private resolveModel(params: ChatCompletionParams): string {
@@ -848,6 +868,10 @@ export class CodexProvider implements LLMProvider {
 		)
 		this.reasoningProfiles = profiles
 		this.speedTiers = tiersBySlug
+		listingByAccount.set(this.listingKey, {
+			speedTiers: tiersBySlug,
+			reasoningProfiles: profiles,
+		})
 		return models
 	}
 

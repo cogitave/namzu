@@ -578,11 +578,12 @@ import type { TuiExitSummary } from './exit-summary.js'
 import { ExternalEditorError, editDraftInExternalEditor } from './external-editor.js'
 import {
 	type FastTier,
-	fastDroppedMessage,
-	fastLaunchRefusal,
+	fastAfterModelChange,
+	fastModeOptionsFor,
 	fastModeVerdict,
 	fastOffMessage,
 	fastOnMessage,
+	launchFastOutcome,
 	requestedFastTier,
 } from './fast-mode.js'
 import { FullscreenTranscript } from './fullscreen/FullscreenTranscript.js'
@@ -1473,37 +1474,16 @@ type StreamState = {
 }
 
 /** A model as a `pre_model_switch` or `post_model_switch` hook is told it: `provider/model`, or just `auto`. */
-/**
- * What the fast-mode check needs from a session besides the model: the tiers
- * the subscription's model listing offers for it. The listing may still be on
- * its way when the session opens, so a first miss waits for it once.
- */
-async function fastModeOptionsFor(
-	session: {
-		readonly providerId?: string
-		readonly modelSummary: string | null
-		readonly speedTiersFor?: (model: string) => readonly FastTier[] | undefined
-		readonly reasoningSettled?: Promise<unknown>
-	},
-	tier: FastTier,
-): Promise<{ readonly tier: FastTier; readonly advertised?: readonly FastTier[] }> {
-	const model = session.modelSummary
-	if (session.providerId !== 'codex' || !model || !session.speedTiersFor) return { tier }
-	let advertised = session.speedTiersFor(model)
-	if (advertised === undefined && session.reasoningSettled) {
-		await session.reasoningSettled
-		advertised = session.speedTiersFor(model)
-	}
-	return { tier, ...(advertised !== undefined ? { advertised } : {}) }
-}
-
 function modelSwitchLabel(provider: string | undefined, model: string | null | undefined): string {
 	const name = model ?? 'unknown'
 	return provider === undefined || provider === name ? name : `${provider}/${name}`
 }
 
 /** A model as the person reads it in a line of words. */
-function modelSwitchWords(to: { readonly id: string; readonly model: string }): string {
+function modelSwitchWords(to: {
+	readonly id: string
+	readonly model: string
+}): string {
 	return to.id === to.model ? to.model : `${to.id} · ${to.model}`
 }
 
@@ -2214,7 +2194,10 @@ function AppBody({
 	cannotTellReasonRef.current = session?.sandbox?.workspace === 'ephemeral' ? 'copy' : undefined
 	// What the outcome lines already said in the conversation on screen; keyed by
 	// the conversation so another one starts with nothing said.
-	const outcomeToldRef = useRef<{ id: string | undefined; telling: OutcomeTelling }>({
+	const outcomeToldRef = useRef<{
+		id: string | undefined
+		telling: OutcomeTelling
+	}>({
 		id: undefined,
 		telling: NOTHING_TOLD,
 	})
@@ -7055,24 +7038,18 @@ function AppBody({
 				const fastSource = launchFastPendingRef.current
 				launchFastPendingRef.current = undefined
 				// Said once, with what it costs: a saved opt-in must not start billing silently.
-				void fastModeOptionsFor(s, 'fast')
-					.then((options) => fastModeVerdict(s.providerId, s.modelSummary, options))
-					.then((verdict) => {
-						if (verdict.ok) {
-							setFastMode(verdict.tier)
-							pushMessage('system', fastOnMessage(verdict))
-						} else pushMessage('system', fastLaunchRefusal(verdict.reason, fastSource))
-					})
+				void launchFastOutcome(s, fastSource).then((outcome) => {
+					if (outcome.tier !== undefined) setFastMode(outcome.tier)
+					pushMessage('system', outcome.message)
+				})
 			} else if (fastModeRef.current) {
 				// Re-checked under the new model with the tier now on: the mode is kept
 				// (and not announced again) only when the new model offers that tier.
-				void fastModeOptionsFor(s, fastModeRef.current)
-					.then((options) => fastModeVerdict(s.providerId, s.modelSummary, options))
-					.then((verdict) => {
-						if (verdict.ok) return
-						setFastMode(undefined)
-						pushMessage('system', fastDroppedMessage(verdict.reason))
-					})
+				void fastAfterModelChange(s, fastModeRef.current).then((outcome) => {
+					if (outcome === undefined) return
+					setFastMode(undefined)
+					pushMessage('system', outcome)
+				})
 			}
 			// What the effort menu decides once the levels are final: a launch
 			// `--effort`, and the picker a model change asks for. Run at once when the
@@ -9693,7 +9670,14 @@ function AppBody({
 		}
 		if (!offerPick) return
 		const now = decisionSetup.now ?? Date.now
-		if (!shouldOfferDecisionSetup({ record: readOffer(opts), setting, env: opts.env, now: now() }))
+		if (
+			!shouldOfferDecisionSetup({
+				record: readOffer(opts),
+				setting,
+				env: opts.env,
+				now: now(),
+			})
+		)
 			return
 		setSelectedChoice(0)
 		setChoicePicker({
@@ -12745,7 +12729,10 @@ function AppBody({
 	/** `post_model_switch`, run on the session that now serves the conversation. */
 	const announceModelSwitch = useCallback(
 		(
-			from: { readonly provider: string | undefined; readonly model: string | null | undefined },
+			from: {
+				readonly provider: string | undefined
+				readonly model: string | null | undefined
+			},
 			to: { readonly id: string; readonly model: string },
 			source: PluginModelSwitchInfo['source'],
 			requested: string | null,
@@ -13790,9 +13777,10 @@ function AppBody({
 	)
 
 	/** A typed command whose `user_prompt_expansion` hooks have answered, until its line is submitted again. */
-	const expansionAnsweredRef = useRef<{ readonly line: string; readonly context?: string } | null>(
-		null,
-	)
+	const expansionAnsweredRef = useRef<{
+		readonly line: string
+		readonly context?: string
+	} | null>(null)
 	const handleSubmitRef = useRef<
 		| ((
 				value: string,
@@ -15169,7 +15157,10 @@ function AppBody({
 							try {
 								if (verb === 'create' || verb === 'fork') {
 									hookRuntime = session?.worktreeHooks
-										? { hooks: session.worktreeHooks, close: async () => undefined }
+										? {
+												hooks: session.worktreeHooks,
+												close: async () => undefined,
+											}
 										: await openWorktreeHookRuntime({ hooks: initialCtx.hooks }, ctx.cwd, notice)
 								}
 								const manager = await openManagedWorktrees(ctx.cwd, {

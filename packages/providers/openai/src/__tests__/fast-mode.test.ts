@@ -1,4 +1,4 @@
-import { resolveModelPricing } from '@namzu/sdk'
+import { VENDOR_RATES, resolveModelPricing } from '@namzu/sdk'
 import { describe, expect, it } from 'vitest'
 
 import {
@@ -59,14 +59,16 @@ describe('fast mode on the API route', () => {
 	})
 
 	it('agrees with the price catalogue on the multiple of every model it prices', () => {
-		let priced = 0
 		for (const [model, multiplier] of Object.entries(OPENAI_FAST_TABLE)) {
 			const pricing = resolveModelPricing('openai', model)
 			if (pricing === undefined) continue
-			priced += 1
 			expect(pricing.fastMultiplier, model).toBe(multiplier)
 		}
-		expect(priced).toBe(6)
+		const openai = VENDOR_RATES.find((vendor) => vendor.providerId === 'openai')
+		for (const [model, pricing] of openai?.models ?? []) {
+			if (pricing.fastMultiplier === undefined) continue
+			expect(OPENAI_FAST_TABLE[model], model).toBe(pricing.fastMultiplier)
+		}
 	})
 })
 

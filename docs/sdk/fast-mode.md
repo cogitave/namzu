@@ -43,7 +43,9 @@ reads `service_tiers` (objects with an `id`) and the older
 `'fast'` and `ultrafast` to `'ultrafast'`, ignores everything else, and publishes
 the result as `ModelInfo.speedTiers` and `LLMProvider.speedTiersFor(model)`.
 `undefined` means the listing has not answered; once it has, a model it does not
-carry offers none. No model has a default tier, so a request without `speed`
+carry offers none. The listing is kept per account and endpoint for the life of
+the process, so a provider rebuilt around a refreshed token still honours an
+advertised tier without asking again. No model has a default tier, so a request without `speed`
 runs at standard speed.
 
 ## Refused before transport

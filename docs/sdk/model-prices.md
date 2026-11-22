@@ -59,8 +59,8 @@ card. `ModelPricing.fastMultiplier` carries it (`fastMultiplier` in
 `rates.source.json`; 2 on `claude-opus-5-5`, `claude-fable-5-2`,
 `claude-mythos-5-2`, `claude-opus-5` and `claude-opus-4-8`; on the OpenAI side 2
 on `gpt-5.4`, `gpt-5.4-mini`, `gpt-5.6-sol`, `gpt-5.6-terra` and `gpt-5.6-luna`,
-and 2.5 on `gpt-5.5`, whose fast rate is $12.50 in and $75 out against $5 and
-$30) and applies to input, output and cache tokens alike. A driver reports the
+and 2.5 on `gpt-5.5`, which lists fast at $12.50 in and $75 out and standard at
+$5 in and $30 out) and applies to input, output and cache tokens alike. A driver reports the
 speed that served the call as `TokenUsage.speed`; OpenAI reports its fast tier
 there and never as `serviceTier: 'priority'`. A fast call on a card with no
 multiplier is counted as unpriced, never charged at the standard rate, so

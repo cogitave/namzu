@@ -110,6 +110,18 @@ describe('runCli', () => {
 		expect(flat(stdout)).not.toMatch(/--fast (\[|<)/u)
 	})
 
+	it('parses --fast as a bare flag: the word after it is never taken as its value', async () => {
+		expect(await invoke(['--fast', '--model', 'gpt-5.5'])).toBe(0)
+		expect(stdout).toContain('interactive TUI requires a terminal')
+		stdout = ''
+		stderr = ''
+		// A value-taking flag would swallow this word and start the session; a bare
+		// flag leaves it as a stray argument, which the launch refuses.
+		expect(await invoke(['--fast', 'ultrafast'])).not.toBe(0)
+		expect(flat(stderr)).toContain('Too many arguments')
+		expect(stdout).not.toContain('interactive TUI requires a terminal')
+	})
+
 	it('lists the launch flags in --help', async () => {
 		expect(await invoke(['--help'])).toBe(0)
 		for (const flag of [

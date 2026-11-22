@@ -180,3 +180,68 @@ export function fastLaunchRefusal(reason: string, source: 'flag' | 'saved' = 'fl
 export function fastDroppedMessage(reason: string): string {
 	return `Fast mode turned off: ${reason}`
 }
+
+/** What the fast-mode check needs from a session besides the model. */
+export interface FastSessionView {
+	readonly providerId?: string
+	readonly modelSummary: string | null
+	readonly speedTiersFor?: (model: string) => readonly FastTier[] | undefined
+	readonly reasoningSettled?: Promise<unknown>
+}
+
+/**
+ * The tiers the subscription's model listing offers for the session's model.
+ * The listing may still be on its way when the session opens, so a first miss
+ * waits for it once.
+ */
+export async function fastModeOptionsFor(
+	session: FastSessionView,
+	tier: FastTier,
+): Promise<{
+	readonly tier: FastTier
+	readonly advertised?: readonly FastTier[]
+}> {
+	const model = session.modelSummary
+	if (session.providerId !== 'codex' || !model || !session.speedTiersFor) return { tier }
+	let advertised = session.speedTiersFor(model)
+	if (advertised === undefined && session.reasoningSettled) {
+		await session.reasoningSettled
+		advertised = session.speedTiersFor(model)
+	}
+	return { tier, ...(advertised !== undefined ? { advertised } : {}) }
+}
+
+/**
+ * Applies a launch request for fast mode (`--fast`, or the saved setting) to
+ * the opened session: the tier to start in, if any, and the one line to say.
+ * A request the model cannot take starts at standard speed and says why.
+ */
+export async function launchFastOutcome(
+	session: FastSessionView,
+	source: 'flag' | 'saved',
+): Promise<{ readonly tier: FastTier | undefined; readonly message: string }> {
+	const verdict = await fastModeVerdict(
+		session.providerId,
+		session.modelSummary,
+		await fastModeOptionsFor(session, 'fast'),
+	)
+	return verdict.ok
+		? { tier: verdict.tier, message: fastOnMessage(verdict) }
+		: { tier: undefined, message: fastLaunchRefusal(verdict.reason, source) }
+}
+
+/**
+ * After a model change with `current` on: the line saying it ended, or
+ * `undefined` when the new model offers the tier and the mode stays.
+ */
+export async function fastAfterModelChange(
+	session: FastSessionView,
+	current: FastTier,
+): Promise<string | undefined> {
+	const verdict = await fastModeVerdict(
+		session.providerId,
+		session.modelSummary,
+		await fastModeOptionsFor(session, current),
+	)
+	return verdict.ok ? undefined : fastDroppedMessage(verdict.reason)
+}

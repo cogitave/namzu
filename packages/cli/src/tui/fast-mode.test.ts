@@ -2,11 +2,13 @@ import { describe, expect, it } from 'vitest'
 
 import { fitStatusLine } from './StatusBar.js'
 import {
+	fastAfterModelChange,
 	fastDroppedMessage,
 	fastLaunchRefusal,
 	fastModeBlocker,
 	fastModeVerdict,
 	fastOnMessage,
+	launchFastOutcome,
 	rateWords,
 	requestedFastTier,
 } from './fast-mode.js'
@@ -217,5 +219,53 @@ describe('the footer', () => {
 		expect(roomy.effort).toBe('effort high')
 		const tight = fitStatusLine({ ...base, columns: 15, model: null, fast: 'ultrafast' })
 		expect(tight.fast === null && tight.effort !== null).toBe(true)
+	})
+})
+
+describe('applying a launch request to the opened session', () => {
+	it('starts fast and says what it costs once, for a saved setting and for --fast', async () => {
+		const session = { providerId: 'openai', modelSummary: 'gpt-5.5' }
+		for (const source of ['saved', 'flag'] as const) {
+			const outcome = await launchFastOutcome(session, source)
+			expect(outcome.tier).toBe('fast')
+			expect(outcome.message).toBe(
+				'Fast mode on: faster replies, billed at 2.5 times the standard rate. /fast off ends it.',
+			)
+		}
+	})
+
+	it('starts at standard speed and says why when the model cannot take it', async () => {
+		const outcome = await launchFastOutcome(
+			{ providerId: 'openai', modelSummary: 'gpt-4o' },
+			'saved',
+		)
+		expect(outcome.tier).toBeUndefined()
+		expect(outcome.message).toContain('The saved fast mode setting was not applied')
+		expect(outcome.message).toContain('Continuing at standard speed.')
+	})
+
+	it('on the subscription, starts fast only when the account listing offers it', async () => {
+		const listed = {
+			providerId: 'codex',
+			modelSummary: 'gpt-6.2-sol',
+			speedTiersFor: () => ['fast', 'ultrafast'] as const,
+		}
+		expect((await launchFastOutcome(listed, 'flag')).tier).toBe('fast')
+		const none = { ...listed, speedTiersFor: () => [] as const }
+		expect((await launchFastOutcome(none, 'flag')).tier).toBeUndefined()
+	})
+
+	it('keeps the mode across a model change that offers the tier, and ends it with a line otherwise', async () => {
+		const offers = {
+			providerId: 'codex',
+			modelSummary: 'gpt-6.2-sol',
+			speedTiersFor: () => ['fast', 'ultrafast'] as const,
+		}
+		expect(await fastAfterModelChange(offers, 'ultrafast')).toBeUndefined()
+		const fastOnly = { ...offers, speedTiersFor: () => ['fast'] as const }
+		expect(await fastAfterModelChange(fastOnly, 'ultrafast')).toMatch(/^Fast mode turned off: /u)
+		expect(await fastAfterModelChange({ providerId: 'zen', modelSummary: 'm' }, 'fast')).toMatch(
+			/^Fast mode turned off: /u,
+		)
 	})
 })

@@ -104,8 +104,15 @@ describe('Chat Completions fast mode', () => {
 	})
 })
 
-function codexProvider(response: Record<string, unknown> = {}) {
-	const provider = new CodexProvider({ accessToken: 'fixture', accountId: 'fixture' })
+// The listing is remembered per account for the life of the process, so each
+// fixture provider gets an account of its own unless a test says otherwise.
+let accountSeq = 0
+
+function codexProvider(
+	response: Record<string, unknown> = {},
+	accountId = `fixture-${++accountSeq}`,
+) {
+	const provider = new CodexProvider({ accessToken: 'fixture', accountId })
 	const create = vi.fn(async (_request: unknown, _options?: unknown) =>
 		(async function* () {
 			yield {
@@ -135,8 +142,11 @@ function codexProvider(response: Record<string, unknown> = {}) {
 			{ slug: 'flexy', service_tiers: [{ id: 'flex' }] },
 		],
 	}))
-	;(provider as unknown as { client: unknown }).client = { responses: { create }, get }
-	return { provider, create }
+	;(provider as unknown as { client: unknown }).client = {
+		responses: { create },
+		get,
+	}
+	return { provider, create, get }
 }
 
 async function codex(provider: CodexProvider, extra: Partial<ChatCompletionParams>) {
@@ -223,4 +233,31 @@ describe('Codex subscription fast mode', () => {
 		const [standard] = await codex(downgraded.provider, { speed: 'fast' })
 		expect(standard).not.toHaveProperty('speed')
 	})
+})
+it('keeps the listing across a rebuild around a refreshed token', async () => {
+	const first = codexProvider({}, 'refreshed-account')
+	await first.provider.listModels()
+	const rebuilt = new CodexProvider({
+		accessToken: 'newer',
+		accountId: 'refreshed-account',
+	})
+	expect(rebuilt.speedTiersFor('gpt-6.2-sol')).toEqual(['fast', 'ultrafast'])
+	const create = vi.fn(async () =>
+		(async function* () {
+			yield {
+				type: 'response.completed',
+				response: { id: 'r', output: [], usage: {} },
+			}
+		})(),
+	)
+	;(rebuilt as unknown as { client: unknown }).client = {
+		responses: { create },
+	}
+	await codex(rebuilt, { speed: 'fast' })
+	expect(create).toHaveBeenCalledTimes(1)
+	const other = new CodexProvider({
+		accessToken: 'x',
+		accountId: 'another-account',
+	})
+	expect(other.speedTiersFor('gpt-6.2-sol')).toBeUndefined()
 })
