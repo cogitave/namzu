@@ -413,6 +413,7 @@ import {
 	agentViewPageRows,
 	agentWorkflowPageSize,
 	agentWorkflows,
+	cockpitDetailHeight,
 	cockpitEntryFocus,
 	maxAgentTranscriptTailOffset,
 	maxAgentViewTailOffset,
@@ -18840,11 +18841,24 @@ function AppBody({
 		jobSurface === null
 	// Under the detail: the box as measured, the status line, the extension row and rows of the
 	// conversation, so nothing below it is pushed past the bottom of the screen.
-	const detailRows = workflowDetailHeight(
+	const detailCap = workflowDetailHeight(
 		terminal.rows,
 		fullscreen !== undefined,
 		composerBoxRows + 1 + (extensionMarks.length > 0 ? 1 : 0) + 4,
 	)
+	// Sized to what it lists, up to the free rows, so a small run leaves no blank rows in it.
+	const detailRows =
+		workflowDetailOpen && agentSurface?.kind === 'cockpit'
+			? cockpitDetailHeight(
+					subagents,
+					workflowRuns,
+					agentSurface.selectedPhaseId,
+					agentSurface.focus,
+					terminal.rows,
+					terminal.columns,
+					detailCap,
+				)
+			: detailCap
 	const viewRailRows =
 		liveSubagents.length > 0 || liveWorkflows.length > 0
 			? 1 +
