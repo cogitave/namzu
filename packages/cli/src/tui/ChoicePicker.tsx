@@ -33,6 +33,12 @@ export interface ChoicePickerProps {
 	readonly notice?: string
 	/** A quiet line under the title, e.g. `1 running, 2 finished`. */
 	readonly subtitle?: string
+	/**
+	 * Plain lines drawn under the title, above the rows: what the list is about
+	 * when one line of `notice` is not enough, e.g. the `/peers` roster. Each
+	 * line is cut to the width, and the block is capped so the rows keep room.
+	 */
+	readonly body?: readonly string[]
 	/** Replaces the standard key hints, e.g. a list whose Enter opens rather than applies. */
 	readonly hints?: readonly { readonly text: string; readonly rank: number }[]
 	/** Already filtered; each row retains the caller's original option identity. */
@@ -53,6 +59,12 @@ export interface ChoicePickerProps {
 	readonly describeSelected?: boolean
 }
 
+/** The body lines that fit: the first `max`, the last of them saying how many were left out. */
+function capBody(lines: readonly string[], max: number): readonly string[] {
+	if (lines.length <= max) return lines
+	return [...lines.slice(0, max - 1), `… ${lines.length - (max - 1)} more lines`]
+}
+
 /** The most lines the selected option's description takes when it is shown whole. */
 export const SELECTED_DESCRIPTION_LINES = 8
 
@@ -65,6 +77,7 @@ export function ChoicePicker({
 	title,
 	notice,
 	subtitle,
+	body,
 	hints,
 	options,
 	selected,
@@ -108,7 +121,9 @@ export function ChoicePicker({
 		: stacked
 			? SELECTED_DESCRIPTION_LINES - STACKED_DESCRIPTION_LINES
 			: Math.max(0, ...options.map((option) => wholeDescription(option).length))
+	const bodyLines = capBody(body ?? [], Math.max(3, terminal.rows - 14))
 	const pageSize = choicePickerWindowSize({
+		bodyRows: bodyLines.length,
 		rowHeight: stacked
 			? 1 + Math.max(1, ...options.map((option) => stackedDescription(option).length))
 			: 1,
@@ -178,6 +193,12 @@ export function ChoicePicker({
 			{subtitle ? (
 				<Text color={theme.text.muted}>{truncateChoiceText(subtitle, contentWidth)}</Text>
 			) : null}
+			{bodyLines.map((line, lineIndex) => (
+				// biome-ignore lint/suspicious/noArrayIndexKey: a body line has no identity beyond its position.
+				<Text key={`b-${lineIndex}`} color={theme.text.secondary}>
+					{line.length === 0 ? ' ' : truncateChoiceText(line, contentWidth)}
+				</Text>
+			))}
 			{query !== undefined ? (
 				<Text color={query.length > 0 ? theme.text.primary : theme.text.muted}>
 					{truncateChoiceText(`Search: ${query || searchPlaceholder}`, contentWidth)}

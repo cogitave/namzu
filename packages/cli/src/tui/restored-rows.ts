@@ -16,6 +16,7 @@ import {
 	parseTurnOutcome,
 } from '@namzu/sdk'
 
+import { DEFAULT_SHOW_TURN_DURATION } from '../config/turn-duration-default.js'
 import {
 	DEFAULT_AGENT_WORKFLOW,
 	type SubagentActivity,
@@ -472,6 +473,8 @@ export interface RestoreOptions {
 	readonly telling?: OutcomeTelling
 	/** Called once the rows are built, with what they told of the outcomes. */
 	readonly onTold?: (telling: OutcomeTelling) => void
+	/** `tui.showTurnDuration`: false leaves the `Worked for` part of each turn's closing line out. */
+	readonly showTurnDuration?: boolean
 }
 
 /**
@@ -598,6 +601,7 @@ export function createRestoredTurnWriter(
 							stand,
 							new Date(turn.endedAt),
 							turn.agentTokens,
+							options.showTurnDuration ?? DEFAULT_SHOW_TURN_DURATION,
 						)
 					: undefined
 			if (line)

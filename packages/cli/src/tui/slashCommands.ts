@@ -190,6 +190,8 @@ export type SlashAction =
 	| { kind: 'recap-now' }
 	/** `/config tips on|off|list`: the spinner tips' switch, written to the user config. */
 	| { kind: 'spinner-tips'; on: boolean | 'list' }
+	/** `/config showTurnDuration on|off|list`: the turn-end time line's switch, written to the user config. */
+	| { kind: 'turn-duration'; on: boolean | 'list' }
 	/** `/config <key> [value]`: show or change any described setting, as `namzu config` does. */
 	| { kind: 'config-setting'; key: string; text?: string; clear?: boolean }
 	/** Open the finite good/bad chooser for one exact assistant message. */
@@ -941,6 +943,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 				'/config motion [on|off|list]',
 				'/config recap [on|off|list]',
 				'/config tips [on|off|list]',
+				'/config showTurnDuration [on|off|list]',
 				'/config <setting>',
 				'/config <setting> <value>',
 				'/config <setting> unset',
@@ -951,6 +954,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 				'/config theme picks the colours with a preview, the same as /theme; /config theme light sets one by name.',
 				'/config motion on keeps the working line and the composer still, in your user config; /config motion off lets them move again.',
 				'/config tips off hides the tip under the working row, in your user config; /config tips on shows it again. The next task still shows.',
+				'/config showTurnDuration off leaves out the line that closes a reply with how long it took and when it finished, in your user config; /config showTurnDuration on shows it again.',
 				'/config limits.maxIterations shows any setting namzu config lists (its value, default, range and when a change applies); /config limits.maxIterations 30 changes it in your user config; /config limits.maxIterations unset puts the default back. A setting that widens what runs asks first. The same list and checks as namzu config and Desktop Settings.',
 			],
 		},
@@ -969,6 +973,17 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 					return { kind: 'spinner-tips', on: setting === 'on' }
 				if (args.length <= 2 && setting === 'list') return { kind: 'spinner-tips', on: 'list' }
 				return { kind: 'message', role: 'system', content: 'Usage: /config tips [on|off|list]' }
+			}
+			if (args[0] === 'showTurnDuration') {
+				const setting = (args[1] ?? 'list').toLowerCase()
+				if (args.length <= 2 && (setting === 'on' || setting === 'off'))
+					return { kind: 'turn-duration', on: setting === 'on' }
+				if (args.length <= 2 && setting === 'list') return { kind: 'turn-duration', on: 'list' }
+				return {
+					kind: 'message',
+					role: 'system',
+					content: 'Usage: /config showTurnDuration [on|off|list]',
+				}
 			}
 			if (args[0] === 'theme') {
 				if (args.length === 1) return { kind: 'theme-picker' }

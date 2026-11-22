@@ -1,4 +1,5 @@
 import { ConfigLoadError, pendingProjectMcpServers } from '../config/load.js'
+import { DEFAULT_SHOW_TURN_DURATION } from '../config/turn-duration-default.js'
 import { type TurnGuardKey, type TurnGuards, resolveTurnGuards } from '../config/turn-guards.js'
 import { TURN_LIMIT_FIELDS, turnLimitCommands } from './turn-limits-settings.js'
 /**
@@ -767,6 +768,7 @@ import {
 	triggerDefinition,
 } from './triggers/registry.js'
 import { describeComposerTriggers, setComposerTriggers } from './triggers/setting.js'
+import { describeTurnDuration, setShowTurnDuration } from './turn-duration-setting.js'
 import { typedInputOf } from './typed-input.js'
 import { type TypedKeySave, logoutWordFor, saveTypedKey } from './typed-key-save.js'
 import { formatCompactCount } from './units.js'
@@ -1173,6 +1175,8 @@ type ChoicePickerState = {
 			readonly kind: 'peers-network'
 			readonly title: string
 			readonly notice?: string
+			/** The `/peers` screen, drawn under the title. */
+			readonly body?: readonly string[]
 			readonly actions: readonly PeersAction[]
 			readonly values: readonly string[]
 			readonly options: readonly ChoicePickerOption[]
@@ -1553,6 +1557,9 @@ export function projectConversation(
 		...(restore?.cwd ? { cwd: restore.cwd } : {}),
 		...(restore?.cannotTellReason ? { cannotTellReason: restore.cannotTellReason } : {}),
 		...(restore?.telling ? { telling: restore.telling } : {}),
+		...(restore?.showTurnDuration !== undefined
+			? { showTurnDuration: restore.showTurnDuration }
+			: {}),
 	})
 	const out: TranscriptMessage[] = []
 	for (const message of messages) {
@@ -4525,7 +4532,13 @@ function AppBody({
 		closingWaitRef.current = null
 		setClosingWaitVersion((version) => version + 1)
 		if (wait.silent === true) return
-		const line = settleLine(Math.max(0, Date.now() - wait.since - wait.pausedMs), mine, new Date())
+		const line = settleLine(
+			Math.max(0, Date.now() - wait.since - wait.pausedMs),
+			mine,
+			new Date(),
+			undefined,
+			showTurnDurationRef.current,
+		)
 		if (line) pushMessage('system', line, false, CLOSING_GLYPH, undefined, tokenColor('text.muted'))
 	}, [subagents, workflowRuns, state, closingWaitVersion, pushMessage])
 	/** The queue row chosen for editing with Up; null when no row is chosen. */
@@ -4653,6 +4666,12 @@ function AppBody({
 	/** `/config tips on|off` in this session, over whatever the config files say. */
 	const [spinnerTipsOverride, setSpinnerTipsOverride] = useState<boolean | undefined>()
 	const spinnerTipsOn = spinnerTipsOverride ?? ctx.tui?.spinnerTips !== false
+	/** `/config showTurnDuration on|off` in this session, over whatever the config files say. */
+	const [turnDurationOverride, setTurnDurationOverride] = useState<boolean | undefined>()
+	const showTurnDuration =
+		turnDurationOverride ?? ctx.tui?.showTurnDuration ?? DEFAULT_SHOW_TURN_DURATION
+	const showTurnDurationRef = useRef(showTurnDuration)
+	showTurnDurationRef.current = showTurnDuration
 	/** Tool calls the reply in flight has made; the tip picker reads and clears it at the reply's end. */
 	const turnToolCallsRef = useRef(0)
 	const spinnerTip = useSpinnerTip({
@@ -6666,6 +6685,7 @@ function AppBody({
 					cwd: ctxRef.current.cwd,
 					attachmentDir: attachmentDirOf(sessions, asSessionId(requestedConversationId)),
 					...(cannotTellReasonRef.current ? { cannotTellReason: cannotTellReasonRef.current } : {}),
+					showTurnDuration: showTurnDurationRef.current,
 					onTold: (telling) => {
 						outcomeToldRef.current = { id: requestedConversationId, telling }
 					},
@@ -8997,6 +9017,7 @@ function AppBody({
 				cwd: ctxRef.current.cwd,
 				attachmentDir: attachmentDirOf(sessions, conv.id),
 				...(cannotTellReasonRef.current ? { cannotTellReason: cannotTellReasonRef.current } : {}),
+				showTurnDuration: showTurnDurationRef.current,
 				onTold: (telling) => {
 					outcomeToldRef.current = { id: conv.id, telling }
 				},
@@ -10145,6 +10166,7 @@ function AppBody({
 				setMessages(
 					projectConversation(forked.messages, nextId, readablePrefix, {
 						cwd: ctxRef.current.cwd,
+						showTurnDuration: showTurnDurationRef.current,
 						attachmentDir: attachmentDirOf(sessions, forked.id),
 					}),
 				)
@@ -10249,6 +10271,7 @@ function AppBody({
 				setMessages(
 					projectConversation(result.messages, nextId, readable, {
 						cwd: ctxRef.current.cwd,
+						showTurnDuration: showTurnDurationRef.current,
 						...(sessionsRef.current && scopeRef.current
 							? { attachmentDir: attachmentDirOf(sessionsRef.current, scopeRef.current.sessionId) }
 							: {}),
@@ -11486,7 +11509,13 @@ function AppBody({
 						}
 						const closing =
 							closingWaitRef.current === null && (delegated.length > 0 || st.completed)
-								? settleLine(Date.now() - since - pausedMs, delegated, new Date())
+								? settleLine(
+										Date.now() - since - pausedMs,
+										delegated,
+										new Date(),
+										undefined,
+										showTurnDurationRef.current,
+									)
 								: undefined
 						// The workflows this turn ran are over: each says how it ended once.
 						for (const agent of delegated) endedWorkflowTurnsRef.current.add(agent.workflowId)
@@ -12156,7 +12185,7 @@ function AppBody({
 								undefined,
 								undefined,
 								undefined,
-								humanPromptMeta(input.attachedFiles, true),
+								humanPromptMeta(input.attachedFiles),
 								undefined,
 								undefined,
 								undefined,
@@ -14349,27 +14378,24 @@ function AppBody({
 									}
 								}
 								const heldLocal = peers.held()
+								let screen: string
 								if (!summary) {
 									const local = `Peer messaging ${peers.enabled ? 'on' : 'off'} · ${peers.pending} pending\n${localList.map((peer) => `${peer.self ? 'This terminal' : (peer.title as string)} [${peer.ref as string}] · ${peer.state as string} · ${peer.permission_mode as string}${peer.accepts_messages ? '' : ' · not accepting messages'}`).join('\n')}`
 									const off = network && !network.decision.run ? `\n${network.decision.text}` : ''
 									const held = heldLocal.length
 										? `\nHeld (${heldLocal.length}): ${heldLocal.map((item) => `${item.fromName} · ${item.reason}`).join('; ')}`
 										: ''
-									pushMessage('system', `${local}${off}${held}`)
-									if (heldLocal.length === 0) return
+									screen = `${local}${off}${held}`
 								} else {
-									pushMessage(
-										'system',
-										renderPeersScreen({
-											summary,
-											roster,
-											selfRef: peers.ref,
-											heldLocal,
-											now: Date.now(),
-											// The row sits after the two-column mark, and the scroll view keeps a margin.
-											columns: (terminal.columns ?? 80) - 4,
-										}),
-									)
+									screen = renderPeersScreen({
+										summary,
+										roster,
+										selfRef: peers.ref,
+										heldLocal,
+										now: Date.now(),
+										// The picker draws it inside its frame, two columns of padding and a margin in.
+										columns: (terminal.columns ?? 80) - SCREEN_MARGIN - 4,
+									})
 								}
 								const actions = peersActions(
 									summary ?? {
@@ -14385,11 +14411,17 @@ function AppBody({
 									},
 									heldLocal,
 								)
-								if (actions.length === 0) return
+								// Nothing waits for the person: the screen is the command's result, as `/status` is.
+								// Something does: it is the picker's body, and the transcript gets nothing on open.
+								if (actions.length === 0) {
+									pushMessage('system', screen)
+									return
+								}
 								setSelectedChoice(0)
 								setChoicePicker({
 									kind: 'peers-network',
 									title: 'Waiting for you',
+									body: screen.split('\n'),
 									actions,
 									values: actions.map((_, index) => String(index)),
 									options: actions.map((action) => describeAction(action)),
@@ -14599,6 +14631,13 @@ function AppBody({
 								description: spinnerTipsOn
 									? 'On · one short tip shows under the working row. Select to turn off.'
 									: 'Off · no tip under the working row. Select to turn on.',
+							},
+							{
+								name: `config showTurnDuration ${showTurnDuration ? 'off' : 'on'}`,
+								label: 'Show turn duration',
+								description: showTurnDuration
+									? 'On · each reply ends with how long it took and when it finished. Select to turn off.'
+									: 'Off · no time line after a reply. Select to turn on.',
 							},
 							{
 								name: 'config sources',
@@ -16007,6 +16046,22 @@ function AppBody({
 						pushMessage(
 							'system',
 							setSpinnerTips(slash.on, {
+								cwd: ctx.cwd,
+								...(profile ? { profile } : {}),
+							}),
+						)
+						return
+					}
+					case 'turn-duration': {
+						if (slash.on === 'list') {
+							pushMessage('system', describeTurnDuration(showTurnDuration))
+							return
+						}
+						const profile = ctx.configDebug?.selectedProfile?.name
+						setTurnDurationOverride(slash.on)
+						pushMessage(
+							'system',
+							setShowTurnDuration(slash.on, {
 								cwd: ctx.cwd,
 								...(profile ? { profile } : {}),
 							}),
@@ -19292,6 +19347,9 @@ function AppBody({
 												subtitle: choicePicker.subtitle,
 												hints: workflowRunsHints(workflowPickerCanStop, workflowPickerCanResume),
 											}
+										: {})}
+									{...(choicePicker.kind === 'peers-network' && choicePicker.body
+										? { body: choicePicker.body }
 										: {})}
 									{...(choicePicker.kind === 'account' ? { hints: ACCOUNT_PICKER_HINTS } : {})}
 									options={filterChoiceOptions(choicePicker.options, choiceQuery)}
