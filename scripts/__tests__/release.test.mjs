@@ -8,11 +8,12 @@ const TREE = 'a'.repeat(40)
 const HEAD = 'b'.repeat(40)
 const ok = (stdout = '') => ({ status: 0, stdout, stderr: '' })
 const bad = (stderr = 'boom') => ({ status: 1, stdout: '', stderr })
-const PKGS = JSON.stringify([
-	{ name: '@namzu/sdk', version: '2.0.0', private: false },
-	{ name: '@namzu/cli', version: '3.0.0', private: false },
-	{ name: '@namzu/desktop', version: '0.9.0', private: true },
-])
+const PKG_LIST = [
+	{ name: '@namzu/sdk', version: '2.0.0', private: false, path: '/r/packages/sdk' },
+	{ name: '@namzu/cli', version: '3.0.0', private: false, path: '/r/packages/cli' },
+	{ name: '@namzu/desktop', version: '0.9.0', private: true, path: '/r/packages/desktop' },
+]
+const PKGS = JSON.stringify(PKG_LIST)
 const PROOF = `tree ${TREE}\nDONE fail=0\n`
 
 function world(over = {}) {
@@ -30,6 +31,7 @@ function world(over = {}) {
 		visibleAfter: 0, // view calls that fail before a published version shows
 		views: new Map(),
 		streams: [], // [cmd args] of every streamed command
+		cwds: [], // the folder each streamed command ran in (undefined: the repository root)
 		publishLines: {}, // package name -> lines npm prints
 		failPublish: null, // package name whose publish exits 1
 		printed: [], // what the stream runner would print
@@ -64,7 +66,9 @@ function world(over = {}) {
 		stream: async (cmd, args, opts) => {
 			w.calls.push([cmd, ...args])
 			w.streams.push([cmd, ...args])
-			const name = args[1]
+			w.cwds.push(opts.cwd)
+			// A publish runs in its package's folder; any other streamed command is keyed by its second word.
+			const name = opts.cwd ? PKG_LIST.find((p) => p.path === opts.cwd)?.name : args[1]
 			for (const line of w.publishLines[name] ?? []) {
 				const out = opts.onLine(line)
 				if (out !== null) w.printed.push(out ?? line)
@@ -199,11 +203,17 @@ test('publishes one at a time, verifies with bounded retries on a fake clock, th
 	const w = world({ visibleAfter: 2 })
 	const r = await run(['local'], w)
 	const cmds = w.calls.map((c) => c.join(' '))
-	const pubs = cmds.filter((c) => c.startsWith('pnpm --filter'))
+	const pubs = cmds.filter((c) => c.startsWith('pnpm publish'))
 	assert.deepEqual(pubs, [
-		'pnpm --filter @namzu/sdk publish --access public --no-git-checks --provenance=false',
-		'pnpm --filter @namzu/cli publish --access public --no-git-checks --provenance=false',
+		'pnpm publish --access public --no-git-checks --provenance=false',
+		'pnpm publish --access public --no-git-checks --provenance=false',
 	])
+	assert.ok(!cmds.some((c) => c.includes('--filter') && c.includes('publish')), 'a filtered publish drops --provenance=false')
+	assert.deepEqual(
+		w.streams.map((c, i) => [c.join(' '), w.cwds[i]]).filter(([c]) => c.startsWith('pnpm publish')).map(([, d]) => d),
+		['/r/packages/sdk', '/r/packages/cli'],
+		'each publish runs in its own package folder, in dependency order',
+	)
 	const pub = cmds.indexOf(pubs[1])
 	const push = cmds.findIndex((c) => c.startsWith('git push origin'))
 	assert.ok(push > pub, 'tags are pushed after the publish')
@@ -382,10 +392,7 @@ test('re-running after a partial publish skips what the registry has and publish
 		r.published.map((p) => p.name),
 		['@namzu/cli'],
 	)
-	assert.deepEqual(
-		w.streams.map((c) => c[2]),
-		['@namzu/cli'],
-	)
+	assert.deepEqual(w.cwds, ['/r/packages/cli'], 'only the missing package is published')
 	assert.ok(w.logs.some((l) => l.includes('skip @namzu/sdk@2.0.0')))
 })
 test('--otp is not a flag and nothing in the command mentions it', async () => {
