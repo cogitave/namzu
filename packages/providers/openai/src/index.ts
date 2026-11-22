@@ -39,6 +39,21 @@ export {
 	CODEX_CAPABILITIES,
 	CodexProvider,
 } from './codex.js'
+export {
+	OPENAI_FAST_TABLE,
+	PLAN_MULTIPLIER,
+	isFirstPartyOpenAIEndpoint,
+	resolveFastMode as resolveFastModeVerdict,
+	servedSpeed,
+	supportsFastMode,
+} from './fast-mode.js'
+export type {
+	FastTier,
+	OpenAIFastInput,
+	OpenAIFastRate,
+	OpenAIFastRoute,
+	OpenAIFastVerdict,
+} from './fast-mode.js'
 export type {
 	CodexConfig,
 	CodexProviderConfig,
