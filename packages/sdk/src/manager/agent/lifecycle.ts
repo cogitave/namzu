@@ -1085,6 +1085,13 @@ export class AgentManager {
 					} catch (writeError) {
 						failure = writeError
 					}
+					// The child has stopped working in its checkout, whatever keeps that
+					// checkout next. Released BEFORE the parent hears the child idle: a
+					// listener that removes the kept checkout must not be refused by a
+					// holder that has already ended, which is what a cancelled child
+					// used to leave behind — the cancellation marked the task terminal,
+					// and the cleanup below it ran only after the idle event.
+					await this.releaseChildWorkspace(spawnRecord)
 					// The child's turn is over either way; its parent hears so first.
 					await this.settleChildSession(
 						runningTask,
@@ -2398,9 +2405,43 @@ export class AgentManager {
 	}
 
 	/**
+	 * Tell the driver the child stopped working in its checkout.
+	 *
+	 * Every path a child ends by has to reach this before anything decides what
+	 * happens to that checkout: success and failure through
+	 * `disposeChildWorkspace`, and a cancelled child from the run's rejection,
+	 * before its parent hears the child idle. A driver that publishes who is
+	 * working in a checkout then stops naming a session that has ended, even
+	 * when the checkout itself is kept.
+	 *
+	 * Never throws. A release that fails is logged: the child's work is already
+	 * done, and a stale holding is an operator's problem, not the child's result.
+	 */
+	private async releaseChildWorkspace(
+		spawnRecord: Pick<ChildSpawnRecord, 'workspaceRef' | 'subSessionId'>,
+	): Promise<void> {
+		if (!spawnRecord.workspaceRef) return
+		const backend = spawnRecord.workspaceRef.meta.backend
+		if (!this.deps.workspaceRegistry.has(backend)) return
+		const driver = this.deps.workspaceRegistry.get(backend)
+		if (!driver.release) return
+		await driver.release(spawnRecord.workspaceRef).catch((releaseErr) => {
+			this.log.warn('Workspace release failed', {
+				'namzu.manager.backend': backend,
+				'namzu.manager.workspace_id': spawnRecord.workspaceRef?.id,
+				'namzu.sub_session.id': spawnRecord.subSessionId,
+				'exception.message': toErrorMessage(releaseErr),
+			})
+		})
+	}
+
+	/**
 	 * Release the workspace this manager provisioned for a child.
 	 *
-	 * Called on every terminal path, success included. `has(backend)` before
+	 * Called on every terminal path, success included, and it tells the driver
+	 * the child stopped working in its checkout before deciding whether to keep
+	 * it: a checkout that is kept must not go on claiming a live holder.
+	 * `has(backend)` before
 	 * `get(backend)` because the registry is deny-by-default and throws on an
 	 * unknown kind — a driver deregistered mid-turn must not turn cleanup into
 	 * an exception on a child that already finished.
@@ -2414,10 +2455,17 @@ export class AgentManager {
 	private async disposeChildWorkspace(
 		spawnRecord: Pick<ChildSpawnRecord, 'workspaceRef' | 'workspaceRetention' | 'subSessionId'>,
 	): Promise<void> {
-		if (spawnRecord.workspaceRetention === 'retain') return
 		if (!spawnRecord.workspaceRef) return
 		const backend = spawnRecord.workspaceRef.meta.backend
 		if (!this.deps.workspaceRegistry.has(backend)) return
+		const driver = this.deps.workspaceRegistry.get(backend)
+		// The child has ended, so it stops working in its checkout whatever this
+		// does with that checkout next. Told here, BEFORE the retention returns
+		// below: both of those keep the checkout, and a kept checkout must not go
+		// on claiming a holder that finished — that is a removal refused later for
+		// a session that is gone.
+		await this.releaseChildWorkspace(spawnRecord)
+		if (spawnRecord.workspaceRetention === 'retain') return
 		if (spawnRecord.workspaceRetention === 'retain-changed') {
 			// Keep the checkout unless it provably holds nothing. A look that fails,
 			// or a backend that cannot say whether it moved, keeps it too.
@@ -2435,17 +2483,14 @@ export class AgentManager {
 			if (!seen) return
 			if (seen.exists && (seen.isDirty || seen.hasNewCommits !== false)) return
 		}
-		await this.deps.workspaceRegistry
-			.get(backend)
-			.dispose(spawnRecord.workspaceRef)
-			.catch((disposeErr) => {
-				this.log.warn('Workspace dispose failed', {
-					'namzu.manager.backend': backend,
-					'namzu.manager.workspace_id': spawnRecord.workspaceRef?.id,
-					'namzu.sub_session.id': spawnRecord.subSessionId,
-					'exception.message': toErrorMessage(disposeErr),
-				})
+		await driver.dispose(spawnRecord.workspaceRef).catch((disposeErr) => {
+			this.log.warn('Workspace dispose failed', {
+				'namzu.manager.backend': backend,
+				'namzu.manager.workspace_id': spawnRecord.workspaceRef?.id,
+				'namzu.sub_session.id': spawnRecord.subSessionId,
+				'exception.message': toErrorMessage(disposeErr),
 			})
+		})
 	}
 
 	private markCanceled(taskId: TaskId, cause?: CancelCause): void {

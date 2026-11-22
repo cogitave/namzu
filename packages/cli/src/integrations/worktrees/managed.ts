@@ -4,15 +4,23 @@ import { execFile } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import type { Dirent } from 'node:fs'
 import { lstat, mkdir, readdir, realpath, rmdir } from 'node:fs/promises'
-import { join, resolve } from 'node:path'
+import { isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { promisify } from 'node:util'
 import {
+	DiskWorkspaceHoldStore,
 	GitWorktreeDriver,
 	HookedWorkspaceDriver,
 	asSessionId,
+	defaultWorkspaceHoldsDir,
 	generateWorkspaceId,
 } from '@namzu/sdk'
-import type { WorkspaceBackendDriver, WorkspaceRef, WorktreeHookHost } from '@namzu/sdk'
+import type {
+	WorkspaceBackendDriver,
+	WorkspaceHold,
+	WorkspaceHoldStore,
+	WorkspaceRef,
+	WorktreeHookHost,
+} from '@namzu/sdk'
 import {
 	DEFAULT_BRANCH_PREFIX,
 	type WorktreeSettings,
@@ -59,6 +67,12 @@ export interface WorktreeResume {
 	readonly worktree: ManagedWorktree
 	readonly conversationId?: string
 	readonly title?: string
+}
+
+/** A managed checkout that a folder sits in. */
+export interface ManagedCheckout {
+	readonly label: string
+	readonly path: string
 }
 
 export interface ManagedWorktreesOptions {
@@ -144,6 +158,14 @@ export async function openManagedWorktrees(
 	const standardDir = sessions.paths.worktrees()
 	const slug = sessions.slug
 	closeSessions(sessions)
+	// Who is working in a checkout is held beside the project state, so a removal
+	// in this process and one in another both read the same answer.
+	const holds: WorkspaceHoldStore = new DiskWorkspaceHoldStore({
+		root:
+			options.stateRoot !== undefined
+				? join(options.stateRoot, 'workspace-holds')
+				: defaultWorkspaceHoldsDir(),
+	})
 	// A chosen folder holds one folder per project, so two projects with the same worktree name
 	// never meet. It is looked at again here: it may have gone since it was saved.
 	let worktreesDir = standardDir
@@ -169,6 +191,7 @@ export async function openManagedWorktrees(
 					worktreesDir,
 					logger: cliLogger(),
 					branchPrefix: settings.branchPrefix ?? DEFAULT_BRANCH_PREFIX,
+					holds,
 				})
 			: withoutGit(notGit)
 	return new ManagedWorktrees(
@@ -185,7 +208,39 @@ export async function openManagedWorktrees(
 		options,
 		notGit === undefined,
 		settings,
+		holds,
 	)
+}
+
+/**
+ * Record that this process is working in the checkout it was started in, when
+ * it was started in a managed one. Resolves to a release, or `undefined` in a
+ * folder that is not a managed checkout.
+ *
+ * This is the evidence a removal asks for: a delegated child's checkout that a
+ * person resumed in another terminal is kept, and the refusal names both
+ * folders. It asks the same manager a removal goes through, built from the same
+ * state root and settings, so a holding is written where that manager's driver
+ * reads it instead of at the default home — an embedding with a state root of
+ * its own is the case that used to be missed. It runs after the first frame, so
+ * a session's screen is not held up by it, and a failure to record a holding
+ * never stops a session from starting.
+ */
+export async function holdSessionCheckout(
+	cwd: string,
+	holder: string,
+	options: ManagedWorktreesOptions = {},
+): Promise<(() => Promise<void>) | undefined> {
+	try {
+		const managed = await openManagedWorktrees(cwd, options)
+		const checkout = await managed.checkoutAt(cwd)
+		if (!checkout) return undefined
+		return await managed.hold(checkout.label, holder, await realpath(resolve(cwd)))
+	} catch {
+		// Not a Git checkout, a chosen folder that has gone, an unreadable state
+		// root: nothing to hold here, and the session goes ahead.
+		return undefined
+	}
 }
 
 /** The driver of a folder that is not a Git checkout: it can only say so. */
@@ -212,7 +267,39 @@ export class ManagedWorktrees {
 		/** False when this folder is not a Git checkout and only a hook can make worktrees. */
 		readonly isGit = true,
 		private readonly settings: WorktreeSettings = {},
+		private readonly holds: WorkspaceHoldStore = new DiskWorkspaceHoldStore(),
 	) {}
+
+	/**
+	 * The managed checkout `folder` sits in, when it sits in one. Used to tell a
+	 * session started in a checkout from one started in the main tree.
+	 */
+	async checkoutAt(folder: string): Promise<ManagedCheckout | null> {
+		const root = await realpath(this.worktreesDir).catch(() => resolve(this.worktreesDir))
+		const here = await realpath(resolve(folder)).catch(() => resolve(folder))
+		const below = relative(root, here)
+		if (below === '' || below === '..' || below.startsWith(`..${sep}`) || isAbsolute(below)) {
+			return null
+		}
+		const label = below.split(sep)[0] ?? ''
+		if (!/^[a-z0-9][a-z0-9-]{0,63}$/.test(label)) return null
+		return { label, path: join(root, label) }
+	}
+
+	/**
+	 * Publish that `holder` is working in a checkout, until the returned release
+	 * runs. A removal of that checkout is refused while the process is alive.
+	 */
+	async hold(label: string, holder: string, folder?: string): Promise<() => Promise<void>> {
+		const checked = checkedLabel(label)
+		const path = join(this.worktreesDir, checked)
+		return this.holds.add({ path, folder: folder ?? path, holder })
+	}
+
+	/** Live sessions and subagents working in a named checkout. */
+	async holders(label: string): Promise<readonly WorkspaceHold[]> {
+		return this.holds.holders(join(this.worktreesDir, checkedLabel(label)))
+	}
 
 	/** The driver that makes and removes worktrees: hooks first, the kernel's Git logic otherwise. */
 	get workspaceDriver(): WorkspaceBackendDriver {

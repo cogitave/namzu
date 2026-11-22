@@ -283,6 +283,10 @@ export type {
 export type {
 	RegisterSharedSessionPlanInput,
 	SharedSessionWorkspaceConfig,
+	DiskWorkspaceHoldStoreOptions,
+	WorkspaceHold,
+	WorkspaceHoldRequest,
+	WorkspaceHoldStore,
 } from './session/workspace/index.js'
 
 export type {

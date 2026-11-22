@@ -69,6 +69,18 @@ export interface WorkspaceBackendDriver {
 	branch(source: WorkspaceRef, params: BranchWorkspaceParams): Promise<WorkspaceRef>
 	dispose(ref: WorkspaceRef): Promise<void>
 	inspect(ref: WorkspaceRef): Promise<WorkspaceInspection>
+	/**
+	 * The child that worked in `ref` has ended: let go of whatever claim this
+	 * driver still makes on that checkout, whether or not the checkout is kept.
+	 *
+	 * A checkout provisioned with `retain`, or with `retain-changed` when the
+	 * child left something behind, is never passed to {@link dispose}, so without
+	 * this the backend would go on reporting a checkout as in use by a session
+	 * that has already finished. A driver that claims nothing can leave it out.
+	 *
+	 * Called on every terminal path of a child, before the retention decision.
+	 */
+	release?(ref: WorkspaceRef): Promise<void>
 }
 
 export type { WorkspaceBackendKind } from '../../types/workspace/ref.js'
