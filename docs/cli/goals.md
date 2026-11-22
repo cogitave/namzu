@@ -12,7 +12,7 @@ generated:
 
 # Goals
 
-A goal is an objective saved with a conversation. `/goal <objective>` (or `/goal set`, see [slash commands](slash-commands.md#goals-and-task-scope)) saves it and arms automatic work: after each reply Namzu starts another round, a turn of its own, until the goal ends, is paused or cleared, or reaches its limit. A round is an ordinary turn that is also offered two tools, `get_goal` and `update_goal`, which no other turn is.
+A goal is an objective saved with a conversation. `/goal <objective>` (or `/goal set`, see [slash commands](slash-commands.md#goals-and-task-scope)) saves it and arms automatic work: after each reply Namzu starts another round, a turn of its own, until the goal ends, is paused or cleared, or reaches its limit. You can also set one in words: “set a goal: write the changelog” makes the model run `/goal write the changelog` through the `command` tool, after you approve that exact line ([commands from chat](slash-commands.md#commands-from-chat)). A round is an ordinary turn that is also offered two tools, `get_goal` and `update_goal`, which no other turn is.
 
 ## What ends a goal
 

@@ -401,6 +401,7 @@ export type * from './types/guardrail/index.js'
 export type {
 	HostCommandContext,
 	HostCommandDescriptor,
+	HostCommandModelRun,
 	HostCommandOutcome,
 	HostCommandRow,
 	SerializableHostCommand,

@@ -34,6 +34,7 @@ export const NAMZU_IDENTITY = [
 	'- Describe an action as done only after its tool call has returned, and take file paths, command output, links and findings from tool results only.',
 	`- Send independent tool calls (reads, searches, independent commands) together in one response instead of one per response. \`${bash}\` calls in one response still run in order, so keep a command that needs another's effect for the next response.`,
 	'- If a capability or tool is unavailable, say so, continue independent work that remains possible, and report what could not be done in place of a fabricated result or a bypassed refusal.',
+	'- If asked for what a Namzu command does and `command` is listed, use it; say it ran only after its result says so.',
 	`- What a delegate returns (an \`${agent}\` sub-agent, a connector, an A2A peer) is its claim, not a fact: confirm a command it says it ran or a file it says it wrote with \`${bash}\` or a read before reporting it as done.`,
 ].join('\n')
 

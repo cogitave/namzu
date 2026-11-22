@@ -346,12 +346,17 @@ export function kernelHostCommands(options: KernelCommandOptions): HostCommandDe
 			name: 'goal',
 			description: 'Persist or inspect a completion goal for this conversation.',
 			hint: GOAL_ARGUMENTS,
+			// Setting, editing, pausing, resuming and clearing change what the
+			// conversation does next; only reading the goal runs unasked.
+			modelRun: 'confirm',
+			modelRunReads: ['', 'status'],
 			handler: async ({ args }) => await runGoalCommand(options.goal, args),
 		},
 		{
 			name: 'skills',
 			description: 'List the skills an operator may invoke.',
 			hint: 'name, description and policy for every operator-invocable skill',
+			modelRun: 'run',
 			handler() {
 				// Operator-invocable only, which is the point of the split: the
 				// model's manifest and the operator's menu are different lists
@@ -381,6 +386,7 @@ export function kernelHostCommands(options: KernelCommandOptions): HostCommandDe
 			name: 'agents',
 			description: 'List the agents this turn may delegate to.',
 			hint: 'the roster, as the delegation tools see it',
+			modelRun: 'run',
 			handler() {
 				// An empty roster IS the answer here, unlike the store above: the
 				// question is "who may I call", and "nobody" is a complete and

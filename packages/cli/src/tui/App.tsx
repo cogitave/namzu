@@ -532,6 +532,8 @@ import {
 	filterChoiceOptions,
 	moveChoiceSelection,
 } from './choice-selection.js'
+import { builtinCommandCatalogue } from './command-catalogue.js'
+import type { CommandToolHost } from './command-tool.js'
 import { keepRecentRows } from './compact-transcript.js'
 import {
 	COMPACTED_HINT,
@@ -3212,6 +3214,27 @@ function AppBody({
 	const activeTurnTokenRef = useRef<object | null>(null)
 	/** A tool can reserve a switch; only the owning turn's finalizer may publish it. */
 	const pendingModelSwitchRef = useRef<PendingModelSwitch | null>(null)
+	/**
+	 * The `command` tool's way into this terminal. The session is built once and
+	 * the terminal's state moves, so the tool holds the bridge and the bridge
+	 * reads whatever the latest render put in the ref.
+	 */
+	const commandHostRef = useRef<Omit<CommandToolHost, 'catalogue'> | null>(null)
+	const commandHostBridge = useRef<CommandToolHost>({
+		catalogue: builtinCommandCatalogue(),
+		unavailable: (name, args) => commandHostRef.current?.unavailable?.(name, args),
+		run: (line, options) =>
+			commandHostRef.current
+				? commandHostRef.current.run(line, options)
+				: Promise.resolve({
+						kind: 'refused' as const,
+						reason: 'The terminal is not ready to run commands.',
+					}),
+	}).current
+	/** What a command run for the model printed, while one is running. */
+	const commandCaptureRef = useRef<string[] | null>(null)
+	/** The host-command a submit just started, so the tool can wait for its answer. */
+	const hostCommandSettledRef = useRef<Promise<void> | null>(null)
 	const [modelSwitchVersion, setModelSwitchVersion] = useState(0)
 	const cancelPendingModelSwitch = useCallback((): boolean => {
 		const pending = pendingModelSwitchRef.current
@@ -4180,6 +4203,8 @@ function AppBody({
 			contentColor?: string,
 			attachments?: readonly AttachmentRow[],
 		) => {
+			// A command the model ran for the person tells the model what it printed.
+			if (role === 'system') commandCaptureRef.current?.push(content)
 			// A reply's text belongs after the receipt of the agents its turn
 			// launched, so a receipt still waiting out its settle window is
 			// written before the first word of a reply.
@@ -6970,6 +6995,9 @@ function AppBody({
 							planApproval: true,
 							reminders: true,
 							allowModelSwitch: true,
+							// The person can ask for their own commands in words; a Pal has
+							// its own computer and none of them.
+							...(definition ? {} : { commandHost: commandHostBridge }),
 							// The user is at this desktop, so the model may open a page for them.
 							openUrl: true,
 						}),
@@ -14126,6 +14154,7 @@ function AppBody({
 						// a user one: it is not a prompt and must not be offered for editing.
 						pushMessage('system', dispatch.trim(), false, '›', undefined, tokenColor('accent.user'))
 						if (slash.statusRows) {
+							commandCaptureRef.current?.push(slash.content)
 							setMessages((previous) => [
 								...previous,
 								{
@@ -15412,7 +15441,7 @@ function AppBody({
 						const generation = conversationGenRef.current
 						const goalCommand = slash.name === 'goal'
 						if (goalCommand) goalCommandInFlightRef.current = true
-						void (async () => {
+						const hostCommandSettled = (async () => {
 							let goalCommandReleased = false
 							const releaseGoalCommand = () => {
 								if (!goalCommand || goalCommandReleased) return
@@ -15469,6 +15498,7 @@ function AppBody({
 								releaseGoalCommand()
 							}
 						})()
+						hostCommandSettledRef.current = hostCommandSettled
 						return
 					}
 					case 'feedback-picker': {
@@ -16118,6 +16148,34 @@ function AppBody({
 		],
 	)
 	handleSubmitRef.current = handleSubmit
+	commandHostRef.current = {
+		unavailable: (name, args) => {
+			void args
+			return hostCommands.find((command) => command.name === name)?.unavailable?.(slashCtx)
+		},
+		run: async (line, options) => {
+			if (appLifetime.signal.aborted || options.signal?.aborted) {
+				return { kind: 'refused', reason: 'The conversation is closing.' }
+			}
+			// A command that ends or replaces the conversation, or that would start
+			// a turn of its own, waits for this one to finish, in order, as typed.
+			if (options.deferred || slashTiming(line, userCommands, hostCommands) === 'queue') {
+				enqueueQueued({ kind: 'human', text: line, command: true })
+				return { kind: 'queued' }
+			}
+			const captured: string[] = []
+			commandCaptureRef.current = captured
+			hostCommandSettledRef.current = null
+			try {
+				handleSubmitRef.current?.(line, undefined, 'submit', { source: 'queued-command' })
+				await hostCommandSettledRef.current
+			} finally {
+				commandCaptureRef.current = null
+				hostCommandSettledRef.current = null
+			}
+			return { kind: 'ran', output: captured.join('\n') }
+		},
+	}
 	// The "waiting for your input" notice (`tui.notifications` with `idle-prompt`):
 	// a minute after a turn ends with nobody at the keyboard. The condition lives
 	// in `IdleNotifier`; this only tells it what the screen knows.
