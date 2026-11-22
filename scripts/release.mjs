@@ -302,9 +302,16 @@ async function streamWithApproval(deps, cmd, args) {
 	return { status: r.status, tail }
 }
 
-/** Publishes one package. npm waits for the browser approval and has its own limit. */
+/**
+ * Publishes one package. npm waits for the browser approval and has its own limit.
+ *
+ * `--provenance=false`: the packages set `publishConfig.provenance`, which the release workflow satisfies with
+ * its CI identity. A maintainer's machine has none, and npm then refuses the publish outright ("Automatic
+ * provenance generation not supported for provider: null"). A command-line flag outranks `publishConfig`,
+ * so a by-hand version is published without a provenance attestation; the workflow path keeps it.
+ */
 function publishOne(deps, p) {
-	return streamWithApproval(deps, 'pnpm', ['--filter', p.name, 'publish', '--access', 'public', '--no-git-checks'])
+	return streamWithApproval(deps, 'pnpm', ['--filter', p.name, 'publish', '--access', 'public', '--no-git-checks', '--provenance=false'])
 }
 
 // ---- pnpm release login ----------------------------------------------------------------------
@@ -320,6 +327,21 @@ export async function loginStep(_flags, deps) {
 
 // ---- pnpm release local ----------------------------------------------------------------------
 
+/**
+ * npm's browser sign-in lasts hours, not days. A real run signs in again when the session is gone (the same
+ * browser approval as `pnpm release login`); a dry run only says so.
+ */
+async function ensureSignedIn(flags, deps, dry) {
+	const who = deps.run('npm', ['whoami'])
+	if (who.status === 0 && (who.stdout ?? '').trim()) {
+		deps.log(`npm: signed in as ${who.stdout.trim()}`)
+		return who.stdout.trim()
+	}
+	if (dry) fail('not signed in to npm. Run `pnpm release login`, then run this again.')
+	deps.log('npm: not signed in, or the sign-in expired; opening the npm sign-in page')
+	return loginStep(flags, deps)
+}
+
 export async function releaseLocal(flags, deps) {
 	const dry = flags['dry-run'] === true
 	const { head, tree } = requireCleanMain(deps)
@@ -327,6 +349,8 @@ export async function releaseLocal(flags, deps) {
 	requireNoPendingChangesets(deps)
 	deps.log('changesets: none pending')
 	requireGateProof(flags, tree, deps)
+	// Before the checks, which take minutes, so a missing sign-in is found at once.
+	await ensureSignedIn(flags, deps, dry)
 
 	must(deps, 'pnpm', ['-r', 'build'], 'build', { inherit: true })
 	must(deps, 'node', ['--import', 'tsx', '--test', 'scripts/__tests__/verify-consumer-install-snapshot.test.ts'], 'consumer install snapshot test', { inherit: true })
@@ -336,11 +360,8 @@ export async function releaseLocal(flags, deps) {
 	if (after.trim() !== '') fail(`the checks left the working tree dirty:\n${after}`)
 	deps.log('checks: build, consumer install, publish metadata passed')
 
-	const who = deps.run('npm', ['whoami'])
-	if (who.status !== 0 || !(who.stdout ?? '').trim()) {
-		fail('not signed in to npm. Run `pnpm release login`, then run this again.')
-	}
-	deps.log(`npm: signed in as ${who.stdout.trim()}`)
+	// Again after the checks: the session can lapse while they run.
+	await ensureSignedIn(flags, deps, dry)
 
 	const toPublish = []
 	for (const p of dependencyOrder(deps, publishablePackages(deps))) {

@@ -135,10 +135,35 @@ test('--gates accepts an explicit summary', async () => {
 	const w = world({ whoami: bad() })
 	w.files.clear()
 	w.files.set('/s.txt', PROOF)
-	await refused(['local', '--gates', '/s.txt'], w, /not signed in/)
+	await refused(['local', '--gates', '/s.txt', '--dry-run'], w, /not signed in/)
 	assert.ok(w.logs.some((l) => l.includes('gates: passed')))
 })
-test('refuses when not signed in to npm and names the login command', async () => {
+test('a dry run without an npm sign-in refuses before the checks and names the login command', async () => {
+	const w = world({ whoami: bad('ENEEDAUTH') })
+	await refused(['local', '--dry-run'], w, /pnpm release login/)
+	assert.ok(!w.calls.some((c) => c.join(' ') === 'pnpm -r build'), 'refuses before the build')
+	assert.ok(!w.streams.some((c) => c.includes('login')), 'a dry run does not sign in')
+})
+test('a real run whose sign-in expired opens the npm sign-in before the checks, then goes on', async () => {
+	const w = world({ whoami: bad('E401'), registry: new Set(['@namzu/sdk@2.0.0', '@namzu/cli@3.0.0']) })
+	const orig = w.deps.stream
+	w.deps.stream = async (cmd, args, opts) => {
+		const r = await orig(cmd, args, opts)
+		if (cmd === 'npm' && args[0] === 'login') {
+			w.whoami = ok('arda\n')
+			w.published = false
+		}
+		return r
+	}
+	await run(['local'], w)
+	const cmds = w.calls.map((c) => c.join(' '))
+	const login = cmds.indexOf('npm login --auth-type=web')
+	assert.ok(login >= 0, 'signed in')
+	assert.ok(login < cmds.indexOf('pnpm -r build'), 'before the build')
+	assert.ok(w.logs.some((l) => /sign-in expired/.test(l)))
+	assert.ok(w.logs.includes('npm: signed in as arda'))
+})
+test('a real run refuses when the sign-in still fails, names the login command and publishes nothing', async () => {
 	await refused(['local'], world({ whoami: bad('ENEEDAUTH') }), /pnpm release login/)
 })
 test('skips a version already on the registry and publishes nothing when all exist', async () => {
@@ -175,7 +200,10 @@ test('publishes one at a time, verifies with bounded retries on a fake clock, th
 	const r = await run(['local'], w)
 	const cmds = w.calls.map((c) => c.join(' '))
 	const pubs = cmds.filter((c) => c.startsWith('pnpm --filter'))
-	assert.deepEqual(pubs, ['pnpm --filter @namzu/sdk publish --access public --no-git-checks', 'pnpm --filter @namzu/cli publish --access public --no-git-checks'])
+	assert.deepEqual(pubs, [
+		'pnpm --filter @namzu/sdk publish --access public --no-git-checks --provenance=false',
+		'pnpm --filter @namzu/cli publish --access public --no-git-checks --provenance=false',
+	])
 	const pub = cmds.indexOf(pubs[1])
 	const push = cmds.findIndex((c) => c.startsWith('git push origin'))
 	assert.ok(push > pub, 'tags are pushed after the publish')
