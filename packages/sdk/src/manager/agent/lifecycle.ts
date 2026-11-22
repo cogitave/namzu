@@ -2454,16 +2454,14 @@ export class AgentManager {
 			if (!seen) return
 			if (seen.exists && (seen.isDirty || seen.hasNewCommits !== false)) return
 		}
-		await driver
-			.dispose(spawnRecord.workspaceRef)
-			.catch((disposeErr) => {
-				this.log.warn('Workspace dispose failed', {
-					'namzu.manager.backend': backend,
-					'namzu.manager.workspace_id': spawnRecord.workspaceRef?.id,
-					'namzu.sub_session.id': spawnRecord.subSessionId,
-					'exception.message': toErrorMessage(disposeErr),
-				})
+		await driver.dispose(spawnRecord.workspaceRef).catch((disposeErr) => {
+			this.log.warn('Workspace dispose failed', {
+				'namzu.manager.backend': backend,
+				'namzu.manager.workspace_id': spawnRecord.workspaceRef?.id,
+				'namzu.sub_session.id': spawnRecord.subSessionId,
+				'exception.message': toErrorMessage(disposeErr),
 			})
+		})
 	}
 
 	private markCanceled(taskId: TaskId, cause?: CancelCause): void {

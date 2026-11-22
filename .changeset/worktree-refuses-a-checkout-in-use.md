@@ -16,7 +16,10 @@ holds is removed exactly as before. The answer comes from a new
 and the driver takes one through the new `GitWorktreeDriverConfig.holds`
 option.
 
-The CLI records a holding when a session starts inside a managed checkout and
-while a delegated child works in one, so the child's own cleanup and any other
-removal see it. `ManagedWorktrees` gains `checkoutAt`, `hold` and `holders`,
+The CLI records a holding when a session starts inside a managed checkout, when
+a one-shot `namzu exec` run works in one, and while a delegated child works in
+one, so the child's own cleanup and any other removal see it. A child lets go
+of its holding when it ends, whether or not its checkout is kept, so a kept
+checkout is not refused later for a session that is no longer running.
+`ManagedWorktrees` gains `checkoutAt`, `hold` and `holders`,
 and `holdSessionCheckout` is exported for a launch that wants the same record.

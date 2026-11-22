@@ -1,5 +1,9 @@
 # Documentation update log
 
+## 2026-11-23
+
+- **Update** [Managed Git worktrees](cli/worktrees.md): a delegated child lets go of its checkout when it ends, whether or not the checkout is kept, so a checkout kept for its changes is not refused later for a `subagent:` that has already finished; a run started with `namzu exec` inside a managed checkout records a holding for the length of that run, like an interactive session does. `.changeset/worktree-refuses-a-checkout-in-use.md`.
+
 ## 2026-11-22
 
 - **Update** [Permission layers](cli/permission-layers.md#rules-as-lists): a `deny` for a command now matches where that command starts, anywhere in the line, and no longer matches the same letters inside another word (`gh *` no longer refuses `through` or `ghost`); a rule that starts with `*` still matches anywhere. `.changeset/cli-deny-word-boundary.md`.
