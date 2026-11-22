@@ -122,11 +122,10 @@ export function mergeUndeliveredLiveInput<Trigger extends string>(
 	return merged
 }
 
-export function humanPromptMeta(attachedFiles: number, live = false): string | undefined {
-	const parts: string[] = []
-	if (attachedFiles > 0) parts.push(`${attachedFiles} file${attachedFiles > 1 ? 's' : ''} attached`)
-	if (live) parts.push('sent while working')
-	return parts.length > 0 ? parts.join(' · ') : undefined
+export function humanPromptMeta(attachedFiles: number): string | undefined {
+	return attachedFiles > 0
+		? `${attachedFiles} file${attachedFiles > 1 ? 's' : ''} attached`
+		: undefined
 }
 export type QueuePauseOutcome = 'failed' | 'stopped' | 'paused'
 

@@ -15,6 +15,7 @@ import { PREFIX_KEYS } from '../workspaces/prefix.js'
 import { COMPOSER_TRIGGER_DEFAULTS, COMPOSER_TRIGGER_IDS } from './composer-triggers.js'
 import type { ComposerTriggerId } from './schema.js'
 import { TOOL_RESULT_SCREEN_NAMES, type ToolResultScreenName } from './tool-result-screens.js'
+import { DEFAULT_SHOW_TURN_DURATION } from './turn-duration-default.js'
 
 export type SettingSection =
 	| 'general'
@@ -2486,6 +2487,18 @@ const DECLARED: readonly SettingDescriptor[] = [
 		keywords: ['spinner tips'],
 		default: true,
 	}),
+	d(
+		'tui.showTurnDuration',
+		'terminal',
+		'Show turn duration',
+		'Show how long each reply took and when it finished, after the reply',
+		on,
+		{
+			group: 'terminal-look',
+			keywords: ['Worked for', 'reply time', 'duration'],
+			default: DEFAULT_SHOW_TURN_DURATION,
+		},
+	),
 	d(
 		'tui.notifications',
 		'terminal',
