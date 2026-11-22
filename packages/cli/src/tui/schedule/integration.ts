@@ -85,7 +85,7 @@ export interface ScheduleIntegration {
 	/** The tools a person-attended session offers. */
 	tools(): ToolDefinition[]
 	/** `/schedule` and `/loop`; false for any other name. */
-	handleSlash(name: string, args: readonly string[]): boolean
+	handleSlash(name: string, args: readonly string[]): Promise<void> | false
 	startupLine(): string | undefined
 	/**
 	 * After a parked scheduled turn answered here has run: record the run's
@@ -181,12 +181,15 @@ export function createScheduleIntegration(deps: ScheduleIntegrationDeps): Schedu
 		],
 		handleSlash(name, args) {
 			if (name === 'loop') {
-				void runLoopCommand(args, loops, deps.say).then(() => {
-					try {
-						tick()
-					} catch {}
-				})
-				return true
+				return runLoopCommand(args, loops, deps.say)
+					.then(() => {
+						try {
+							tick()
+						} catch {}
+					})
+					.catch((error) => {
+						deps.say(explainFailure(error, 'The loop command failed.'))
+					})
 			}
 			if (name !== 'schedule') return false
 			let ctxHome: string
@@ -194,10 +197,10 @@ export function createScheduleIntegration(deps: ScheduleIntegrationDeps): Schedu
 				ctxHome = home()
 			} catch (error) {
 				deps.say(explainFailure(error, 'Scheduling is not available right now.'))
-				return true
+				return Promise.resolve()
 			}
 			const model = deps.model()
-			void runScheduleCommand(args, {
+			return runScheduleCommand(args, {
 				home: ctxHome,
 				cwd: deps.cwd(),
 				config: deps.config(),
@@ -207,8 +210,12 @@ export function createScheduleIntegration(deps: ScheduleIntegrationDeps): Schedu
 				...(deps.review ? { review: deps.review } : {}),
 				extraRoots: deps.extraRoots(),
 				sourceConversation: deps.sourceConversation(),
-			})
-			return true
+			}).then(
+				() => undefined,
+				(error) => {
+					deps.say(explainFailure(error, 'The schedule command failed.'))
+				},
+			)
 		},
 		startupLine() {
 			const value = deps.home()

@@ -7,13 +7,28 @@
  * escaped: two non-TUI commands import that array from React-adjacent code
  * to build a name list, for facts the kernel owns.
  *
- * **Never model-visible.** No descriptor is handed to a provider, no
- * dispatch path reaches the LLM, and nothing here is a `ToolDefinition`.
+ * **Never model-visible by default.** No descriptor is handed to a provider,
+ * no dispatch path reaches the LLM, and nothing here is a `ToolDefinition`.
  * That separation is the whole point: a `/tasks` readout is a question the
  * operator asked, and turning it into a tool would let the model call it,
  * spend a turn on it, and put its output in the transcript as if the model
  * had discovered something.
+ *
+ * A host that lets the person ask for a command in plain words reads the
+ * `modelRun` declaration below. A command that says nothing is `never`.
  */
+
+/**
+ * Whether the model may run a command for the person, and on what terms.
+ *
+ * - `run`: read-only or cosmetic and reversible, no spend, no change of
+ *   authority. The model runs it at once.
+ * - `confirm`: changes the conversation, files, a schedule, the model, the
+ *   spend rate or stored data. The person approves each call first.
+ * - `never`: signs in, widens authority, edits global configuration, reaches
+ *   other machines or ends the session. The model asks the person to type it.
+ */
+export type HostCommandModelRun = 'run' | 'confirm' | 'never'
 
 /**
  * What a command produces, structured rather than rendered.
@@ -61,6 +76,16 @@ export interface HostCommandDescriptor {
 	readonly hint?: string
 	/** JSON Schema for the arguments, when the command takes any. */
 	readonly args?: Record<string, unknown>
+	/**
+	 * What the model may do with this command. Absent reads as `never`, so a
+	 * new command is never model-runnable by accident.
+	 */
+	readonly modelRun?: HostCommandModelRun
+	/**
+	 * First argument words whose form only reads, and so runs although
+	 * `modelRun` is stricter. The empty string names the form with no arguments.
+	 */
+	readonly modelRunReads?: readonly string[]
 	handler(ctx: HostCommandContext): Promise<HostCommandOutcome> | HostCommandOutcome
 }
 

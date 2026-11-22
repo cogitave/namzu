@@ -591,6 +591,7 @@ import { createSkillDirectoryResolver } from '../skills/directory.js'
 import { isInsideFolder, restoreSkillHooks } from '../skills/restore-skill-hooks.js'
 import { SAVE_SKILL_TOOL_NAME } from '../skills/save.js'
 import { type AttachedSkillHook, createSkillHooksHost } from '../skills/skill-hooks.js'
+import { COMMAND_TOOL_NAME, type CommandToolHost, buildCommandTool } from './command-tool.js'
 import { projectTurnConversation } from './conversation-history.js'
 import { type ModelSwitchOutcome, buildSwitchModelTool } from './model-switch-tool.js'
 import { type ModelSwitchRequest, resolveModelSwitch } from './model-switch.js'
@@ -2517,6 +2518,9 @@ export const EAGER_TOOLS_WHEN_DEFERRED = [
 	// The skills manifest tells the model to load a skill through this tool;
 	// deferring it would make every skill a two-step search first.
 	'skill',
+	// The command listing rides in the description; a search first would hide it
+	// from the very request in which the person asked for a command.
+	COMMAND_TOOL_NAME,
 	// query mounts discovery when absent; an existing discovery tool must stay ready.
 	'search_tools',
 ] as const
@@ -2888,6 +2892,13 @@ export interface AgentSessionOptions {
 	readonly reminders?: boolean
 	/** Mount the current-chat model selection tool in an interactive host. */
 	readonly allowModelSwitch?: boolean
+	/**
+	 * Mount the `command` tool, which runs the person's own Namzu commands when
+	 * they ask in words. Only the main interactive terminal supplies it: a
+	 * sub-agent, a scheduled run and a headless run have nobody to approve a
+	 * change and no composer to run one in.
+	 */
+	readonly commandHost?: CommandToolHost
 	/** See `NamzuCliConfig.hooks`. Attached to the plugin lifecycle manager. */
 	readonly hooks?: HooksConfig
 	/**
@@ -5058,6 +5069,9 @@ export async function createAgentSession(
 				}),
 			]),
 		)
+	}
+	if (options.commandHost) {
+		toolsets.push(toolset('agents:commands', [buildCommandTool(options.commandHost)]))
 	}
 	// `ask_user_question`, where somebody can answer. The SDK tool parks the
 	// run through the handler it was BUILT with, so that handler reads the

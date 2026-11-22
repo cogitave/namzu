@@ -533,6 +533,8 @@ import {
 	filterChoiceOptions,
 	moveChoiceSelection,
 } from './choice-selection.js'
+import { builtinCommandCatalogue } from './command-catalogue.js'
+import type { CommandToolHost } from './command-tool.js'
 import { keepRecentRows } from './compact-transcript.js'
 import {
 	COMPACTED_HINT,
@@ -3215,6 +3217,29 @@ function AppBody({
 	const activeTurnTokenRef = useRef<object | null>(null)
 	/** A tool can reserve a switch; only the owning turn's finalizer may publish it. */
 	const pendingModelSwitchRef = useRef<PendingModelSwitch | null>(null)
+	/**
+	 * The `command` tool's way into this terminal. The session is built once and
+	 * the terminal's state moves, so the tool holds the bridge and the bridge
+	 * reads whatever the latest render put in the ref.
+	 */
+	const commandHostRef = useRef<Omit<CommandToolHost, 'catalogue'> | null>(null)
+	const commandHostBridge = useRef<CommandToolHost>({
+		catalogue: builtinCommandCatalogue(),
+		unavailable: (name, args) => commandHostRef.current?.unavailable?.(name, args),
+		run: (line, options) =>
+			commandHostRef.current
+				? commandHostRef.current.run(line, options)
+				: Promise.resolve({
+						kind: 'refused' as const,
+						reason: 'The terminal is not ready to run commands.',
+					}),
+	}).current
+	/** What a command run for the model printed, while one is running. */
+	const commandCaptureRef = useRef<string[] | null>(null)
+	/** Why a command run for the model was turned away before it reached its action. */
+	const commandRefusalRef = useRef<string | null>(null)
+	/** The host-command a submit just started, so the tool can wait for its answer. */
+	const hostCommandSettledRef = useRef<Promise<void> | null>(null)
 	const [modelSwitchVersion, setModelSwitchVersion] = useState(0)
 	const cancelPendingModelSwitch = useCallback((): boolean => {
 		const pending = pendingModelSwitchRef.current
@@ -4183,6 +4208,8 @@ function AppBody({
 			contentColor?: string,
 			attachments?: readonly AttachmentRow[],
 		) => {
+			// A command the model ran for the person tells the model what it printed.
+			if (role === 'system') commandCaptureRef.current?.push(content)
 			// A reply's text belongs after the receipt of the agents its turn
 			// launched, so a receipt still waiting out its settle window is
 			// written before the first word of a reply.
@@ -6976,6 +7003,9 @@ function AppBody({
 							planApproval: true,
 							reminders: true,
 							allowModelSwitch: true,
+							// The person can ask for their own commands in words; a Pal has
+							// its own computer and none of them.
+							...(definition ? {} : { commandHost: commandHostBridge }),
 							// The user is at this desktop, so the model may open a page for them.
 							openUrl: true,
 						}),
@@ -13869,17 +13899,17 @@ function AppBody({
 			meta: SubmitMeta,
 		) => {
 			if (goalCommandInFlightRef.current) {
-				pushMessage(
-					'system',
-					'A goal command is still being saved. Wait for it to finish before sending another command or prompt.',
-				)
+				const text =
+					'A goal command is still being saved. Wait for it to finish before sending another command or prompt.'
+				if (commandCaptureRef.current) commandRefusalRef.current = text
+				pushMessage('system', text)
 				return
 			}
 			if (exportingRef.current) {
-				pushMessage(
-					'system',
-					'A verified conversation export is still being written. Wait for its result before sending another command or prompt.',
-				)
+				const text =
+					'A verified conversation export is still being written. Wait for its result before sending another command or prompt.'
+				if (commandCaptureRef.current) commandRefusalRef.current = text
+				pushMessage('system', text)
 				return
 			}
 			if (conversationMutationRef.current) {
@@ -13893,10 +13923,9 @@ function AppBody({
 								: conversationMutationRef.current === 'materialize'
 									? 'initialized'
 									: 'moved to a fresh conversation'
-				pushMessage(
-					'system',
-					`Conversation history is being ${operation}. Wait for it to finish before sending another command or prompt.`,
-				)
+				const text = `Conversation history is being ${operation}. Wait for it to finish before sending another command or prompt.`
+				if (commandCaptureRef.current) commandRefusalRef.current = text
+				pushMessage('system', text)
 				return
 			}
 			// An agent is on screen: what is typed goes to it, not to the conversation.
@@ -14146,11 +14175,16 @@ function AppBody({
 			if (slash) {
 				switch (slash.kind) {
 					case 'message':
+						// A usage line is the command turned away, not a result.
+						if (commandCaptureRef.current && slash.content.startsWith('Usage:')) {
+							commandRefusalRef.current = slash.content
+						}
 						// The command as typed, then its answer hung under `⎿`, so a readout
 						// in the scrollback says which command it answers. A system row, not
 						// a user one: it is not a prompt and must not be offered for editing.
 						pushMessage('system', dispatch.trim(), false, '›', undefined, tokenColor('accent.user'))
 						if (slash.statusRows) {
+							commandCaptureRef.current?.push(slash.content)
 							setMessages((previous) => [
 								...previous,
 								{
@@ -15429,7 +15463,12 @@ function AppBody({
 					case 'none':
 						return
 					case 'host-command': {
-						if (scheduleRef.current?.handleSlash(slash.name, slash.args)) return
+						const scheduleSettled = scheduleRef.current?.handleSlash(slash.name, slash.args)
+						if (scheduleSettled) {
+							// The tool waits for the command to finish, as for the others.
+							hostCommandSettledRef.current = scheduleSettled
+							return
+						}
 						// Dispatched through the kernel's registry, built with what
 						// THIS session can answer from. The descriptors used for
 						// the merge above carry no store — they are names — so the
@@ -15437,7 +15476,7 @@ function AppBody({
 						const generation = conversationGenRef.current
 						const goalCommand = slash.name === 'goal'
 						if (goalCommand) goalCommandInFlightRef.current = true
-						void (async () => {
+						const hostCommandSettled = (async () => {
 							let goalCommandReleased = false
 							const releaseGoalCommand = () => {
 								if (!goalCommand || goalCommandReleased) return
@@ -15495,6 +15534,7 @@ function AppBody({
 								releaseGoalCommand()
 							}
 						})()
+						hostCommandSettledRef.current = hostCommandSettled
 						return
 					}
 					case 'feedback-picker': {
@@ -16144,6 +16184,39 @@ function AppBody({
 		],
 	)
 	handleSubmitRef.current = handleSubmit
+	commandHostRef.current = {
+		unavailable: (name, args) => {
+			void args
+			return hostCommands.find((command) => command.name === name)?.unavailable?.(slashCtx)
+		},
+		run: async (line, options) => {
+			if (appLifetime.signal.aborted || options.signal?.aborted) {
+				return { kind: 'refused', reason: 'The conversation is closing.' }
+			}
+			// A command that ends or replaces the conversation, or that would start
+			// a turn of its own, waits for this one to finish, in order, as typed.
+			if (options.deferred || slashTiming(line, userCommands, hostCommands) === 'queue') {
+				enqueueQueued({ kind: 'human', text: line, command: true })
+				return { kind: 'queued' }
+			}
+			const captured: string[] = []
+			commandCaptureRef.current = captured
+			commandRefusalRef.current = null
+			hostCommandSettledRef.current = null
+			let refusal: string | null = null
+			try {
+				handleSubmitRef.current?.(line, undefined, 'submit', { source: 'queued-command' })
+				await hostCommandSettledRef.current
+				refusal = commandRefusalRef.current
+			} finally {
+				commandCaptureRef.current = null
+				commandRefusalRef.current = null
+				hostCommandSettledRef.current = null
+			}
+			if (refusal !== null) return { kind: 'refused', reason: refusal }
+			return { kind: 'ran', output: captured.join('\n') }
+		},
+	}
 	// The "waiting for your input" notice (`tui.notifications` with `idle-prompt`):
 	// a minute after a turn ends with nobody at the keyboard. The condition lives
 	// in `IdleNotifier`; this only tells it what the screen knows.

@@ -167,6 +167,51 @@ What a change applies to:
   <level>. It applies from your next message.`). A message steered into the
   running reply joins it at the level it began with.
 
+## Commands from chat
+
+You do not have to type a slash command. In the interactive session you can
+write what you want in words, for example “set a goal: write the changelog” or
+“turn on fast mode”, and the model runs the command for you through a tool named
+`command`. The tool is mounted only in the main interactive terminal, never for
+a delegated agent, a scheduled run or a headless run, and a Pal chat has none.
+
+Every command declares what the model may do with it, in `modelRun`. A command
+that declares nothing is `never`, and a test fails when a registered command,
+built-in or from the kernel, declares no class.
+
+| Class | What happens | Commands |
+|---|---|---|
+| `run` | The model runs it at once and the answer is shown as if you had typed it. | `help`, `status`, `cost`, `context`, `doctor`, `release notes`, `hooks`, `diff`, `workflows`, `tasks list`, `mcp` (not its prompt and resource forms), `copy`, and the read forms below |
+| `confirm` | You are asked first, with the exact line (“Do you want to run /goal write the changelog?”). On no, nothing runs. | `goal`, `schedule`, `loop`, `fast`, `ultrafast`, `effort`, `hypermode`, `orchestrate`, `model`, `plan`, `compact`, `clear`, `new`, `branch`, `fork`, `worktree`, `rewind`, `undo`, `checkpoint`, `restore`, `memory`, `skills`, `resume`, `abandon`, `review`, `init`, `run`, `export`, `recap`, `btw`, `theme`, `tui`, `vim`, `raw`, `rename` |
+| `never` | The model does not run it and does not ask. It tells you to type the command yourself, naming it. | `setup`, `config`, `settings`, `peers`, `browser`, `feedback`, `archive`, `unarchive`, `exit`, `add dir`, `plugins`, `login`, `auth`, `logout`, `terminal setup`, `permissions` |
+
+A command that both reads and changes takes the class of the form that was
+asked for. These read forms run without asking: `/goal status`, `/schedule` and
+`/schedule list`, `/loop list`, `/memory show` and `/memory list`, `/skills list`,
+`/effort` with no level, `/tui` and `/theme` with no argument. The changing forms ask, and so do `/tui fullscreen`, `/theme light`, `/vim`, `/raw` and `/rename <name>` or `/rename clear`: `/goal <objective>`,
+`/goal pause`, `/schedule add ...`, `/schedule run <job>`, `/loop <interval> ...`,
+`/memory add ...`, `/effort high`. A form that only opens a screen for you (bare
+`/goal`, `/model`, `/memory`, `/skills`, `/tasks`, `/rename`) is `never`; the
+tool's description says to give the form, for example `tasks list`.
+
+The tool takes the command word and its argument words exactly as you would
+type them after the slash, with no aliases: `{ "name": "goal", "args": ["write",
+"the", "changelog"] }`. Its description lists the commands that run or ask, with
+a few words each, within a fixed budget of about 1.5 KB however many skills or
+command files you have; commands the model does not run are named in one last
+line. `action: "list"` answers with every command and its full description.
+User command files and skills are not run through it; the model uses its
+`skill` tool for skills.
+
+A command that is not available right now, for example `/fast` on a model that
+has no fast mode, is refused with its own reason and you are not asked. A
+command that ends or replaces the conversation, or moves it to another model
+(`clear`, `new`, `resume`, `abandon`, `fork`, `branch`, `rewind`, `undo`,
+`checkpoint`, `restore`, `compact`, `worktree`, `model`), is queued and runs
+when the current reply is over, in order, as if you had typed it then; the tool
+result says so. The result also tells the model, in a line or two, what the
+command printed, so it only says a command ran after the tool did. `/schedule` and `/loop` finish before the result goes back. A command turned away before it reached its action (a usage line, or another command still being saved) comes back as not run, and one that printed nothing comes back as possibly having changed nothing, never as "Ran".
+
 ## Settings and model changes
 
 On exit, the CLI prints `namzu resume <id>`: the product command, never the
@@ -340,6 +385,9 @@ fuzzy-matched or inferred from prefixes; unavailable models do not change
 the current session. On a missing ID, up to eight recovery choices are ranked
 by overlap with the requested model's name before the list is bounded. A partial
 family name never silently selects a variant.
+
+Each `switch_model` request asks you first: the box names the model, and
+nothing is queued until you say yes. Answering no changes nothing.
 
 A successful tool result means the switch is queued. Called alone, this
 terminal tool ends the current turn without another model inference. A failed

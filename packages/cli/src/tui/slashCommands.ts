@@ -91,7 +91,9 @@ import { timeLeft } from './background-view.js'
 import { VIM_USAGE, parseVimArgument } from './editor-mode.js'
 import { keysHelpText } from './keymap.js'
 import { isCompletionArgument } from './login-prompt.js'
+import { type ModelRunDeclaration, byForm, declarationOf } from './model-run.js'
 import { terminalSetupText, tuiCommandText } from './screen-command.js'
+import { KEYWORD_COMMANDS, type ParsedSlash, parseSlash } from './slash-parse.js'
 import { THEME_USAGE, parseThemeArgument } from './theme-command.js'
 import type { ThemeSetting } from './theme-palettes.js'
 
@@ -559,6 +561,8 @@ export interface SlashContext {
 	readonly lastAssistantMessageId: () => string | null
 }
 
+export { parseSlash, type ParsedSlash }
+
 export interface SlashCommand {
 	readonly name: string
 	readonly description: string
@@ -588,14 +592,18 @@ export interface SlashCommand {
 	 * command waits: it is queued as typed and runs, in order, after the reply.
 	 */
 	readonly immediate?: boolean | ((args: readonly string[]) => boolean)
+	/**
+	 * What the model may do with this command when the person asks for it in
+	 * chat: `run` at once, `confirm` after the person approves the exact line,
+	 * `never` (the person types it). A function of the argument words, built
+	 * with `byForm`, lets a command read freely and ask before it changes
+	 * anything. Absent means `never`, so a new command is not model-runnable
+	 * until someone decides it is.
+	 */
+	readonly modelRun?: ModelRunDeclaration
 	/** A live precondition shared by discovery and execution. */
 	readonly unavailable?: (ctx: SlashContext) => string | undefined
 	readonly action: (ctx: SlashContext, args: readonly string[]) => SlashAction
-}
-
-export interface ParsedSlash {
-	readonly name: string
-	readonly args: readonly string[]
 }
 
 function renameConversationAction(_ctx: SlashContext, args: readonly string[]): SlashAction {
@@ -727,6 +735,7 @@ export function mergeHostCommands(
 					usage: [`/${descriptor.name}${descriptor.args ? ' [arguments]' : ''}`],
 					...(descriptor.hint ? { details: [descriptor.hint] } : {}),
 				},
+				...(descriptor.modelRun ? { modelRun: declarationOf(descriptor) } : {}),
 				action: (_ctx, args) => ({
 					kind: 'host-command',
 					name: descriptor.name,
@@ -818,16 +827,6 @@ export function slashTiming(
 	return userCommands.some((c) => c.name === parsed.name) ? 'queue' : 'now'
 }
 
-/**
- * Commands spelled as keywords: the command is the first word and the second
- * word picks what it does, so `/add dir` is the command `add dir`.
- */
-const KEYWORD_COMMANDS: readonly { readonly first: string; readonly second: string }[] = [
-	{ first: 'add', second: 'dir' },
-	{ first: 'release', second: 'notes' },
-	{ first: 'terminal', second: 'setup' },
-]
-
 /** Old hyphenated spellings. They run nothing; each names the one new spelling. */
 const RENAMED_SLASH: Readonly<Record<string, string>> = {
 	'add-dir': '/add dir',
@@ -841,20 +840,6 @@ function keywordUsage(first: string): string | undefined {
 	if (!entry) return undefined
 	const command = CLI_LOCAL_COMMANDS.find((c) => c.name === `${entry.first} ${entry.second}`)
 	return command ? `Usage: ${command.help?.usage[0] ?? `/${command.name}`}` : undefined
-}
-
-/** Returns null when the line is not a slash command. */
-export function parseSlash(line: string): ParsedSlash | null {
-	const trimmed = line.trim()
-	if (!trimmed.startsWith('/')) return null
-	const [word, ...rest] = trimmed.slice(1).split(/\s+/)
-	if (!word) return null
-	for (const { first, second } of KEYWORD_COMMANDS) {
-		if (word === first && rest[0] === second) {
-			return { name: `${first} ${second}`, args: rest.slice(1) }
-		}
-	}
-	return { name: word, args: rest }
 }
 
 /** Help reads metadata only: even a mutating or unavailable command is safe to inspect. */
@@ -936,11 +921,13 @@ const CONFIG_USAGE =
 export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	{
 		name: 'setup',
+		modelRun: 'never',
 		description: 'Check provider installation and access; install optional CLIs or connect.',
 		action: () => ({ kind: 'provider-setup' }),
 	},
 	{
 		name: 'config',
+		modelRun: 'never',
 		immediate: (args) => args.length > 0,
 		description: 'View or change model, reasoning, permissions and limits.',
 		help: {
@@ -1026,11 +1013,13 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'recap',
+		modelRun: 'confirm',
 		description: 'Write a short recap of this conversation now.',
 		action: () => ({ kind: 'recap-now' }),
 	},
 	{
 		name: 'btw',
+		modelRun: 'confirm',
 		immediate: true,
 		help: {
 			usage: ['/btw <question>'],
@@ -1046,6 +1035,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'plan',
+		modelRun: 'confirm',
 		help: {
 			usage: ['/plan', '/plan <description>'],
 			details: [
@@ -1069,12 +1059,14 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'settings',
+		modelRun: 'never',
 		immediate: (args) => args.length > 0,
 		description: 'View or change model, reasoning and permissions.',
 		action: () => ({ kind: 'settings-picker' }),
 	},
 	{
 		name: 'peers',
+		modelRun: 'never',
 		immediate: true,
 		description: 'Your sessions and your other machines: list, message, set roles, allow or deny.',
 		help: {
@@ -1092,6 +1084,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'workflows',
+		modelRun: 'run',
 		immediate: true,
 		description: 'List this conversation’s workflows and open one.',
 		help: { usage: ['/workflows'] },
@@ -1099,6 +1092,13 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'goal',
+		modelRun: byForm('confirm', (args) =>
+			args.length === 0 || (args.length === 1 && (args[0] === 'set' || args[0] === 'edit'))
+				? 'never'
+				: args.length === 1 && args[0] === 'status'
+					? 'run'
+					: 'confirm',
+		),
 		immediate: true,
 		description: 'Manage this conversation’s goal and automatic continuation.',
 		help: {
@@ -1127,6 +1127,9 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'schedule',
+		modelRun: byForm('confirm', (args) =>
+			args.length === 0 || args[0] === 'list' ? 'run' : 'confirm',
+		),
 		immediate: true,
 		description: 'Scheduled jobs that run while namzu is closed: list, confirm, pause, run, add.',
 		help: {
@@ -1144,6 +1147,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'browser',
+		modelRun: 'never',
 		immediate: (args) => args.length === 0,
 		description:
 			'The browser this conversation drives: engine, profile, site rules; switch profile.',
@@ -1158,6 +1162,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'loop',
+		modelRun: byForm('confirm', (args) => (args[0] === 'list' ? 'run' : 'confirm')),
 		immediate: true,
 		description: 'Re-send a prompt on an interval, between replies.',
 		help: {
@@ -1170,6 +1175,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'help',
+		modelRun: 'run',
 		immediate: true,
 		description: 'Browse commands, or show usage with /help <command>.',
 		help: {
@@ -1205,6 +1211,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'feedback',
+		modelRun: 'never',
 		immediate: true,
 		help: { usage: ['/feedback', '/feedback good|bad [note]'] },
 		unavailable: (ctx) =>
@@ -1251,6 +1258,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'clear',
+		modelRun: 'confirm',
 		// Changes which conversation is open, so it never runs over a reply: it is
 		// kept as typed and runs, with its guards met, when the reply has ended.
 		description: 'Clear the terminal and start a fresh conversation.',
@@ -1258,6 +1266,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'new',
+		modelRun: 'confirm',
 		// Changes which conversation is open, so it never runs over a reply: it is
 		// kept as typed and runs, with its guards met, when the reply has ended.
 		description: 'Start a fresh conversation without clearing the terminal.',
@@ -1265,22 +1274,26 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'archive',
+		modelRun: 'never',
 		description: 'Archive this conversation and exit after confirmation.',
 		action: () => ({ kind: 'archive-picker' }),
 	},
 	{
 		name: 'unarchive',
+		modelRun: 'never',
 		description: 'Restore an archived conversation in this project.',
 		action: () => ({ kind: 'unarchive' }),
 	},
 	{
 		name: 'exit',
+		modelRun: 'never',
 		immediate: true,
 		description: 'Exit namzu.',
 		action: () => ({ kind: 'exit' }),
 	},
 	{
 		name: 'rename',
+		modelRun: byForm('confirm', (args) => (args.length === 0 ? 'never' : 'confirm')),
 		immediate: true,
 		help: { usage: ['/rename [name]', '/rename clear'] },
 		description:
@@ -1289,6 +1302,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'branch',
+		modelRun: 'confirm',
 		description: 'Create a branch of the current conversation at this point',
 		help: {
 			usage: ['/branch [name]'],
@@ -1305,6 +1319,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 		// Today the same copy as /branch. The name is kept for copying the
 		// conversation into a new background session, which will replace this.
 		name: 'fork',
+		modelRun: 'confirm',
 		// Changes which conversation is open, so it never runs over a reply: it is
 		// kept as typed and runs, with its guards met, when the reply has ended.
 		description: 'Continue in a copy, leaving the original unchanged.',
@@ -1312,6 +1327,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'worktree',
+		modelRun: 'confirm',
 		help: {
 			usage: ['/worktree [list|create [name]|fork [name]|resume <name>]'],
 		},
@@ -1320,6 +1336,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'add dir',
+		modelRun: 'never',
 		immediate: (args) => args.length > 0,
 		help: {
 			usage: ['/add dir [path]'],
@@ -1345,6 +1362,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'rewind',
+		modelRun: 'confirm',
 		help: {
 			usage: ['/rewind'],
 			details: [
@@ -1356,18 +1374,21 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'undo',
+		modelRun: 'confirm',
 		help: { usage: ['/undo'], details: ['Same as /rewind.'] },
 		description: 'Same as /rewind.',
 		action: () => ({ kind: 'rewind' }),
 	},
 	{
 		name: 'checkpoint',
+		modelRun: 'confirm',
 		help: { usage: ['/checkpoint'], details: ['Same as /rewind.'] },
 		description: 'Same as /rewind.',
 		action: () => ({ kind: 'rewind' }),
 	},
 	{
 		name: 'restore',
+		modelRun: 'confirm',
 		help: {
 			usage: ['/restore [number]'],
 			details: ['Run /restore to list restore points before choosing one.'],
@@ -1390,6 +1411,13 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'memory',
+		modelRun: byForm('confirm', (args) =>
+			args.length === 0
+				? 'never'
+				: args.length === 1 && (args[0] === 'show' || args[0] === 'list')
+					? 'run'
+					: 'confirm',
+		),
 		help: {
 			usage: [
 				'/memory',
@@ -1484,6 +1512,9 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'skills',
+		modelRun: byForm('confirm', (args) =>
+			args.length === 0 ? 'never' : args.length === 1 && args[0] === 'list' ? 'run' : 'confirm',
+		),
 		// The list, the picker, and the two commands that compose a turn of their own and
 		// queue themselves behind the running reply; only naming a skill to activate
 		// changes what the conversation is told, so only that waits.
@@ -1530,6 +1561,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'plugins',
+		modelRun: 'never',
 		immediate: true,
 		description: 'See plugins and turn them on or off.',
 		help: {
@@ -1553,6 +1585,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'resume',
+		modelRun: 'confirm',
 		// Changes which conversation is open, so it never runs over a reply: it is
 		// kept as typed and runs, with its guards met, when the reply has ended.
 		description: 'Continue a paused reply, or resume a past conversation.',
@@ -1560,6 +1593,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'abandon',
+		modelRun: 'confirm',
 		immediate: true,
 		description: 'Close a paused or stopped reply without resuming it.',
 		help: { usage: ['/abandon [reason]'] },
@@ -1570,6 +1604,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'model',
+		modelRun: byForm('confirm', (args) => (args.length === 0 ? 'never' : 'confirm')),
 		immediate: true,
 		description: 'Choose a model, or change providers.',
 		help: {
@@ -1583,6 +1618,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'login',
+		modelRun: 'never',
 		description: 'Sign in with a Claude or Codex subscription.',
 		help: {
 			usage: ['/login', '/login <callback-address-or-code>'],
@@ -1597,6 +1633,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'auth',
+		modelRun: 'never',
 		description: 'Choose the account this conversation uses, or add one.',
 		help: {
 			usage: ['/auth', '/auth add', '/auth <account>'],
@@ -1614,6 +1651,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'logout',
+		modelRun: 'never',
 		help: { usage: ['/logout [claude|codex|gemini|all]'] },
 		description: 'Remove a Namzu-owned credential: /logout [claude|codex|gemini|<provider>|all].',
 		action: (_ctx, args) => {
@@ -1636,6 +1674,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'cost',
+		modelRun: 'run',
 		immediate: true,
 		help: { usage: ['/cost [details]', '/cost days [n]'] },
 		description: 'Show usage and cost for the current or latest reply.',
@@ -1657,6 +1696,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'vim',
+		modelRun: 'confirm',
 		immediate: true,
 		help: {
 			usage: ['/vim [on|off]'],
@@ -1674,6 +1714,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'tui',
+		modelRun: byForm('confirm', (args) => (args.length === 0 ? 'run' : 'confirm')),
 		immediate: true,
 		help: {
 			usage: ['/tui [default|fullscreen]'],
@@ -1686,6 +1727,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'terminal setup',
+		modelRun: 'never',
 		immediate: true,
 		help: {
 			usage: ['/terminal setup'],
@@ -1701,6 +1743,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'doctor',
+		modelRun: 'run',
 		immediate: true,
 		help: { usage: ['/doctor'] },
 		description: 'Check that Namzu, its providers and the sandbox are working.',
@@ -1711,6 +1754,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'tasks',
+		modelRun: byForm('run', (args) => (args.length === 1 && args[0] === 'list' ? 'run' : 'never')),
 		immediate: true,
 		description: 'View and manage everything running in the background',
 		help: { usage: ['/tasks', '/tasks list'] },
@@ -1728,6 +1772,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	{
 		// The same dialog under its second name; only /tasks is listed.
 		name: 'bashes',
+		modelRun: 'run',
 		immediate: true,
 		description: 'View and manage everything running in the background',
 		discoverable: false,
@@ -1745,6 +1790,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'release notes',
+		modelRun: 'run',
 		immediate: true,
 		help: { usage: ['/release notes [version]'] },
 		description: 'Show what changed in the version that is running: /release notes [version].',
@@ -1756,6 +1802,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'hooks',
+		modelRun: 'run',
 		immediate: true,
 		description: 'List every hook this conversation runs, and where it came from.',
 		action: (ctx) => ({
@@ -1766,6 +1813,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'context',
+		modelRun: 'run',
 		help: { usage: ['/context [details]'] },
 		description: 'Show where the context goes, as a grid.',
 		action: (ctx, args) => {
@@ -1778,6 +1826,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'review',
+		modelRun: 'confirm',
 		help: {
 			usage: ['/review [instructions]'],
 			details: [
@@ -1792,6 +1841,9 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'mcp',
+		modelRun: byForm('run', (args) =>
+			['prompts', 'prompt', 'resources', 'resource'].includes(args[0] ?? '') ? 'confirm' : 'run',
+		),
 		immediate: (args) => !['prompts', 'prompt', 'resources', 'resource'].includes(args[0] ?? ''),
 		help: {
 			usage: [
@@ -1810,12 +1862,14 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'diff',
+		modelRun: 'run',
 		immediate: true,
 		description: 'Show what is uncommitted in this working tree.',
 		action: () => ({ kind: 'diff' }),
 	},
 	{
 		name: 'compact',
+		modelRun: 'confirm',
 		description: 'Summarise older messages to free up context.',
 		help: {
 			usage: ['/compact [what to keep]'],
@@ -1831,6 +1885,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'copy',
+		modelRun: 'run',
 		// Opens a picker over the latest finished answer; kept as typed and run when
 		// the reply has ended, like the commands that change the conversation.
 		description: 'Copy the latest answer, a code block or a quote.',
@@ -1838,6 +1893,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'run',
+		modelRun: 'confirm',
 		// Finds the shell commands in the latest finished answer and puts the one you
 		// choose in the prompt after `!`: nothing runs until you press Enter.
 		description: 'Put a command from the latest answer in the prompt, to run it.',
@@ -1845,6 +1901,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'raw',
+		modelRun: 'confirm',
 		immediate: true,
 		help: { usage: ['/raw [on|off]'] },
 		description: 'Toggle copy-friendly plain transcript rendering: /raw [on|off].',
@@ -1862,6 +1919,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'export',
+		modelRun: 'confirm',
 		help: {
 			usage: ['/export [path]'],
 			details: [
@@ -1876,6 +1934,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'status',
+		modelRun: 'run',
 		immediate: true,
 		help: { usage: ['/status [details|config|tools]'] },
 		description: 'Show the model, permissions, files and latest cost.',
@@ -1916,6 +1975,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'permissions',
+		modelRun: 'never',
 		immediate: true,
 		description: 'Choose which actions need your approval.',
 		help: {
@@ -1967,6 +2027,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'theme',
+		modelRun: byForm('confirm', (args) => (args.length === 0 ? 'run' : 'confirm')),
 		immediate: true,
 		help: {
 			usage: ['/theme [auto|dark|light|dark-daltonized|light-daltonized|dark-ansi|light-ansi]'],
@@ -1984,6 +2045,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'effort',
+		modelRun: byForm('confirm', (args) => (args.length === 0 ? 'run' : 'confirm')),
 		immediate: true,
 		help: {
 			usage: ['/effort [level|default] [hypermode on|off]'],
@@ -2061,6 +2123,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'hypermode',
+		modelRun: 'confirm',
 		immediate: true,
 		help: {
 			usage: ['/hypermode [on|off]'],
@@ -2074,6 +2137,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'fast',
+		modelRun: 'confirm',
 		immediate: true,
 		help: {
 			usage: ['/fast'],
@@ -2088,6 +2152,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'ultrafast',
+		modelRun: 'confirm',
 		immediate: true,
 		help: {
 			usage: ['/ultrafast'],
@@ -2102,6 +2167,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'orchestrate',
+		modelRun: 'confirm',
 		immediate: true,
 		help: {
 			usage: ['/orchestrate [on|off]'],
@@ -2114,6 +2180,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'init',
+		modelRun: 'confirm',
 		description: 'Write an AGENTS.md describing this project to future agents.',
 		help: {
 			usage: ['/init'],
