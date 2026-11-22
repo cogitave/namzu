@@ -40,6 +40,8 @@ function world(over = {}) {
 		streamedLive: [], // order of onLine calls relative to logs
 		tags: '@namzu/sdk@2.0.0\n@namzu/cli@3.0.0\n',
 		remoteTags: '', // `git ls-remote --tags origin` output
+		failPush: null, // stderr of a failing `git push`
+		failCheck: null, // text found in a check command that exits 1
 		...over,
 	}
 	w.deps = {
@@ -89,6 +91,8 @@ function world(over = {}) {
 			if (k === 'git rev-parse HEAD^{tree}') return ok(TREE)
 			if (k.startsWith('git ls-tree')) return ok(w.lsTree)
 			if (k === 'git tag --list') return ok(w.tags)
+			if (w.failPush && k.startsWith('git push')) return bad(w.failPush)
+			if (w.failCheck && k.includes(w.failCheck)) return bad('check broke')
 			if (k === 'git ls-remote --tags origin') return ok(w.remoteTags)
 			if (k === 'pnpm list -r --depth -1 --json') return ok(PKGS)
 			if (k === 'npm whoami') return w.whoami
@@ -561,4 +565,59 @@ test('desktop publish creates the release when the feed has none', async () => {
 	const w = desktopWorld({ feed: null })
 	await run(['desktop', 'publish', '--installer', '/inst'], w)
 	assert.ok(ghCalls(w).some((c) => c.startsWith('gh release create desktop-latest --prerelease --latest=false')))
+})
+
+const CHECK_RECORD = `/r/.release/checks/${TREE}.txt`
+const CHECK_RE = /pnpm -r build|verify-consumer-install|check-publish-metadata/
+const checkCalls = (w) => w.calls.map((c) => c.join(' ')).filter((c) => CHECK_RE.test(c))
+
+test('passing checks leave a record naming the tree, HEAD and the time', async () => {
+	const w = world()
+	await run(['local'], w)
+	const rec = w.files.get(CHECK_RECORD)
+	assert.match(rec, new RegExp(`^tree ${TREE}\\ncommit ${HEAD}\\nat 2026-11-22T10:00:00.000Z\\n$`))
+})
+test('a dry run that ran the checks writes the record too', async () => {
+	const w = world()
+	await run(['local', '--dry-run'], w)
+	assert.ok(w.files.has(CHECK_RECORD))
+})
+test('a re-run with a record skips the three slow checks, still builds, says so, and still publishes', async () => {
+	const w = world()
+	w.files.set(CHECK_RECORD, `tree ${TREE}\ncommit ${HEAD}\nat 2026-11-22T09:00:00.000Z\n`)
+	const r = await run(['local'], w)
+	assert.deepEqual(checkCalls(w), ['pnpm -r build'])
+	assert.ok(w.logs.some((l) => /checks: passed on this tree at 2026-11-22T09:00:00.000Z, not repeated \(--recheck runs them again\)/.test(l)))
+	assert.equal(r.published.length, 2)
+	assert.ok(w.calls.filter((c) => c.join(' ') === 'npm whoami').length >= 2, 'sign-in is still checked twice')
+})
+test('--recheck runs the checks again even with a record', async () => {
+	const w = world()
+	w.files.set(CHECK_RECORD, `tree ${TREE}\ncommit ${HEAD}\nat 2026-11-22T09:00:00.000Z\n`)
+	await run(['local', '--recheck'], w)
+	assert.equal(checkCalls(w).length, 4)
+})
+test('a record for a different tree is ignored', async () => {
+	const w = world()
+	w.files.set(CHECK_RECORD, `tree ${'e'.repeat(40)}\ncommit ${HEAD}\nat 2026-11-22T09:00:00.000Z\n`)
+	await run(['local', '--dry-run'], w)
+	assert.equal(checkCalls(w).length, 4)
+})
+test('a failed check writes no record', async () => {
+	const w = world({ failCheck: 'check-publish-metadata' })
+	await assert.rejects(run(['local'], w), (e) => e instanceof Refusal && /publish-metadata gate failed/.test(e.message))
+	assert.ok(!w.files.has(CHECK_RECORD))
+})
+test('a tag push that fails after publishing says every package is published and how to finish', async () => {
+	const w = world({ failPush: "fatal: could not read Username for 'https://github.com': terminal prompts disabled" })
+	await assert.rejects(run(['local'], w), (e) => {
+		assert.ok(e instanceof Refusal)
+		assert.match(e.message, /every package is published and visible/)
+		assert.match(e.message, /only the tags were not pushed/)
+		assert.match(e.message, /could not read Username/)
+		assert.match(e.message, /`pnpm release local` again from a shell signed in to GitHub/)
+		assert.match(e.message, /git push origin refs\/tags\/@namzu\/sdk@2\.0\.0 refs\/tags\/@namzu\/cli@3\.0\.0/)
+		assert.ok(!/refused|pushing tags failed/.test(e.message))
+		return true
+	})
 })
