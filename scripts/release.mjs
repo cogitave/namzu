@@ -4,7 +4,10 @@
  *
  *   pnpm release login                        sign in to npm (web approval opens in your browser), then check `npm whoami`
  *   pnpm release version                      run `changeset version`, show the bumps, stop for a PR
- *   pnpm release local [--dry-run]            publish the npm packages (what release.yml's publish does)
+ *   pnpm release local [--dry-run] [--recheck] [--gates <summary>]
+ *                                             publish the npm packages (what release.yml's publish does);
+ *                                             the four pre-publish checks are remembered per tree in
+ *                                             .release/checks and skipped on a re-run, --recheck runs them again
  *   pnpm release record-gates --summary <f>   write the local gate record for this tree
  *   pnpm release desktop  --pal-computer-image <f> --pal-computer-manifest <f>
  *   pnpm release desktop publish --installer <dir> [--dry-run]
@@ -26,6 +29,7 @@ import { decidePending } from '../.github/scripts/pending-changesets.mjs'
 export const FEED_TAG = 'desktop-latest'
 export const ELECTRON_BUILDER_VERSION = '26.17.0'
 export const GATE_DIR = '.release/gates'
+export const CHECK_DIR = '.release/checks'
 // About ten minutes in all: a large package can take several minutes after npm accepts it ("Your package is being
 // processed") before `npm view` shows it.
 export const VERIFY_DELAYS_MS = [2000, 4000, 8000, 16000, 30000, 60000, 60000, 120000, 120000, 180000]
@@ -122,6 +126,28 @@ export function recordGates(flags, deps) {
 	deps.writeFile(path, `tree ${tree}\ncommit ${head}\nat ${deps.now().toISOString()}\n${summary.trimEnd()}\n`)
 	deps.log(`gate record written: ${path}`)
 	return path
+}
+
+export function checkRecordPath(root, tree) {
+	return join(root, CHECK_DIR, `${tree}.txt`)
+}
+
+/** The time the four pre-publish checks passed on exactly this tree, or null when there is no such record. */
+function readCheckRecord(deps, tree) {
+	const path = checkRecordPath(deps.root, tree)
+	if (!deps.exists(path)) return null
+	try {
+		const text = deps.readFile(path)
+		if (!(text.match(/^tree[: ]\s*(\S+)\s*$/m)?.[1] === tree)) return null
+		return text.match(/^at\s+(\S+)\s*$/m)?.[1] ?? null
+	} catch {
+		return null
+	}
+}
+
+function writeCheckRecord(deps, tree, head) {
+	deps.mkdir(join(deps.root, CHECK_DIR))
+	deps.writeFile(checkRecordPath(deps.root, tree), `tree ${tree}\ncommit ${head}\nat ${deps.now().toISOString()}\n`)
 }
 
 function requireGateProof(flags, tree, deps) {
@@ -345,7 +371,18 @@ function pushMissingTags(deps, ids) {
 		return []
 	}
 	for (const t of tags) if (!local.has(t)) must(deps, 'git', ['tag', t], `tagging ${t}`)
-	must(deps, 'git', ['push', 'origin', ...tags.map((t) => `refs/tags/${t}`)], 'pushing tags')
+	const refs = tags.map((t) => `refs/tags/${t}`)
+	const pushed = deps.run('git', ['push', 'origin', ...refs])
+	if (pushed.status !== 0) {
+		const output = `${pushed.stderr ?? ''}\n${pushed.stdout ?? ''}`.split('\n').map((l) => l.trim()).filter(Boolean)
+		const cause = output.find((l) => /^(fatal|error):/i.test(l)) ?? output[0] ?? `git push exited ${pushed.status}`
+		fail(
+			'every package is published and visible on the registry; only the tags were not pushed to origin.\n' +
+				`Git said: ${cause}\n` +
+				'To finish, run `pnpm release local` again from a shell signed in to GitHub: with every version on the registry it publishes nothing and pushes only the missing tags.\n' +
+				`Or push them yourself: git push origin ${refs.join(' ')}`,
+		)
+	}
 	deps.log(`tags pushed: ${tags.join(', ')}`)
 	return tags
 }
@@ -388,13 +425,25 @@ export async function releaseLocal(flags, deps) {
 	// Before the checks, which take minutes, so a missing sign-in is found at once.
 	await ensureSignedIn(flags, deps, dry)
 
+	// The build always runs: the record is keyed on the tree, which says nothing about the ignored build output
+	// that gets published, and some packages build only here. It is cheap when the output is up to date.
 	must(deps, 'pnpm', ['-r', 'build'], 'build', { inherit: true })
-	must(deps, 'node', ['--import', 'tsx', '--test', 'scripts/__tests__/verify-consumer-install-snapshot.test.ts'], 'consumer install snapshot test', { inherit: true })
-	must(deps, 'bash', ['.github/scripts/verify-consumer-install.sh'], 'pre-publish consumer install check', { inherit: true })
-	must(deps, 'node', ['.github/scripts/check-publish-metadata.mjs'], 'publish-metadata gate', { inherit: true })
+	const passedAt = flags.recheck === true ? null : readCheckRecord(deps, tree)
+	if (passedAt) {
+		deps.log(`checks: passed on this tree at ${passedAt}, not repeated (--recheck runs them again); the build was run again`)
+	}
+	if (!passedAt) {
+		must(deps, 'node', ['--import', 'tsx', '--test', 'scripts/__tests__/verify-consumer-install-snapshot.test.ts'], 'consumer install snapshot test', { inherit: true })
+		must(deps, 'bash', ['.github/scripts/verify-consumer-install.sh'], 'pre-publish consumer install check', { inherit: true })
+		must(deps, 'node', ['.github/scripts/check-publish-metadata.mjs'], 'publish-metadata gate', { inherit: true })
+	}
 	const after = must(deps, 'git', ['status', '--porcelain'], 'reading the working tree')
-	if (after.trim() !== '') fail(`the checks left the working tree dirty:\n${after}`)
-	deps.log('checks: build, consumer install, publish metadata passed')
+	if (after.trim() !== '') fail(`the build or checks left the working tree dirty:\n${after}`)
+	if (!passedAt) {
+		// A dry run runs the same checks, so what it proves holds for the real run on this tree.
+		writeCheckRecord(deps, tree, head)
+		deps.log('checks: build, consumer install, publish metadata passed')
+	}
 
 	// Again after the checks: the session can lapse while they run.
 	await ensureSignedIn(flags, deps, dry)
@@ -677,7 +726,7 @@ export async function main(argv, deps) {
 	if (cmd === 'record-gates') return recordGates(flags, deps)
 	if (cmd === 'desktop' && sub === 'publish') return desktopPublish(flags, deps)
 	if (cmd === 'desktop' && sub === undefined) return desktopStage(flags, deps)
-	fail('usage: pnpm release <login | version | local [--dry-run] [--gates <summary>] | record-gates --summary <file> | desktop [publish] ...>\nSee docs/cli/releasing.md.')
+	fail('usage: pnpm release <login | version | local [--dry-run] [--recheck] [--gates <summary>] | record-gates --summary <file> | desktop [publish] ...>\nSee docs/cli/releasing.md.')
 }
 
 const shq = (x) => `'${String(x).replace(/'/g, `'\\''`)}'`

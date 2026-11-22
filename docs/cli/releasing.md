@@ -47,6 +47,29 @@ tagged, uploaded or deleted. Start with one.
    and the command sets no timeout of its own, so it works from a shell without a keyboard, such as a
    chat tool's `!` shell.
 
+### Remembered checks
+
+When the four checks pass and the tree is still clean, the command writes `.release/checks/<tree sha>.txt`
+(git-ignored, per working copy) holding the tree, HEAD and the time. A later `pnpm release local` on exactly
+that tree skips the consumer install snapshot test, the consumer install check and the publish-metadata gate and says `checks: passed on this tree at <time>, not repeated (--recheck runs
+them again)`; every other step still runs: clean main, no pending changesets, the gate record, both sign-in
+checks, dependency order, the registry skip, the approval opener, the registry wait and the tags. This is
+what makes a re-run cheap after npm's browser approval timed out (npm waits only about five minutes). A record
+for another tree is ignored, and a failed check writes none. `--recheck` runs the four checks even when a record
+exists. A dry run runs the same checks, so it writes the record when they really ran and passed, and a
+dry run that found a record skips them like a real run. The build (`pnpm -r build`) always runs, record or not,
+because the record is keyed on the tree and says nothing about the ignored build output that gets published, and
+some packages (the CLI among them) build only there; it is quick when the output is up to date.
+
+### When only the tags failed
+
+If every package was published but the tag push fails (for example in a shell with no GitHub sign-in, where
+git says `could not read Username for 'https://github.com'`), the command says plainly that every package is
+published and visible, that only the tags were not pushed, what git said, and how to finish. Nothing needs to
+be published again. Run `pnpm release local` again from a shell signed in to GitHub: with every version on the
+registry it publishes nothing and pushes only the missing tags. Or run the `git push origin <refs>` line the
+message prints. The exit status is non-zero until the tags are pushed.
+
 ### Approvals open in the browser
 
 npm cannot always open a browser itself (from WSL it says "Set the BROWSER environment variable"), and a
@@ -76,9 +99,10 @@ exec powershell.exe -NoProfile -Command 'Start-Process $env:NAMZU_OPEN_URL'
 
 In order, it refuses unless: the working tree is clean and HEAD equals `origin/main` (it fetches
 first); no changeset is pending (it tells you to run `pnpm release version`); the gate proof holds.
-It then builds, runs the pre-publish consumer install check
+It then builds, runs the consumer install snapshot test and the pre-publish consumer install check
 (`.github/scripts/verify-consumer-install.sh`) and the publish-metadata gate, requires a clean tree
-afterwards, and checks `npm whoami` again. It asks the registry about each package with `npm view <pkg>@<version>`
+afterwards, and checks `npm whoami` again. These four checks take several minutes, so a pass is
+remembered (see below). It asks the registry about each package with `npm view <pkg>@<version>`
 and lists what it will publish (a registry error other than a 404 stops it). Then it runs
 publishes the packages one at a time in dependency order, each with
 `pnpm publish --provenance=false` run in the package's own folder (a `--filter` publish rewrites npm's
