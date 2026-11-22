@@ -6,6 +6,7 @@ import { fixtureUuid } from '../../../test-support/ids.js'
 
 import { removeTempDir } from '../../../__fixtures__/temp-dir.js'
 import { TenantIsolationError } from '../../../session/errors.js'
+import type { SessionGoal } from '../../../types/goal/index.js'
 import type { SessionId, TenantId } from '../../../types/ids/index.js'
 import type { SessionStore } from '../../../types/session/store.js'
 import {
@@ -381,5 +382,39 @@ describe('session ownership is checked before goal storage', () => {
 			fixture.tenantId,
 		)
 		expect(ownerGoal.objective).toBe('owner still wins')
+	})
+})
+
+describe.each(implementations)('%s session goal store, stop rules', (_name, fixture) => {
+	it('keeps the stop rules and the counts of a goal across reads, and a goal without them reads as before', async () => {
+		const { goals, sessionId, tenantId } = await fixture()
+		const created = await goals.createGoal(
+			{
+				sessionId,
+				objective: 'ship',
+				guards: { stallRounds: 3, checkInEvery: 50, tokenBudget: 9000 },
+			},
+			tenantId,
+		)
+		await goals.admitRound(sessionId, tenantId, created)
+		await goals.recordRound?.(sessionId, tenantId, created.id, {
+			progress: 'progress',
+			tokens: 40,
+			costUsd: 0.02,
+			action: 'edited a.ts',
+		})
+		const read = await goals.getGoal(sessionId, tenantId)
+		expect(read).toMatchObject({
+			guards: { stallRounds: 3, checkInEvery: 50, tokenBudget: 9000 },
+			tokensUsed: 40,
+			costUsd: 0.02,
+			lastAction: 'edited a.ts',
+			quietRounds: 0,
+			roundsAdmitted: 1,
+		})
+		await goals.clearGoal(sessionId, tenantId, read as SessionGoal)
+		const plain = await goals.createGoal({ sessionId, objective: 'plain' }, tenantId)
+		expect(plain.guards).toBeUndefined()
+		expect(plain.tokensUsed).toBeUndefined()
 	})
 })

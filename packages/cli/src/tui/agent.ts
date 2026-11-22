@@ -585,6 +585,7 @@ import {
 	createCliReminderSource,
 	hypermodeExitOwed,
 } from '../reminders/index.js'
+import { goalJudgeWiring } from '../rounds/goal-judge.js'
 import { createSessionSkillCatalog } from '../skills/catalog.js'
 import { createSkillDirectoryResolver } from '../skills/directory.js'
 import { isInsideFolder, restoreSkillHooks } from '../skills/restore-skill-hooks.js'
@@ -2947,6 +2948,8 @@ export interface AgentSessionOptions {
 	readonly sessionGoals?: SessionGoalStore
 	/** See `NamzuCliConfig.goal`: what ends a goal that did not choose. Absent is the model's report. */
 	readonly goalConfirmedBy?: 'model' | 'record'
+	/** `goal.judgeModel`: the model that checks a goal's completion report; absent leaves the side-model route. */
+	readonly goalJudgeModel?: string
 	/**
 	 * See `NamzuCliConfig.handBack`: offer the model the way to hand a task back to
 	 * a person. Off when absent: the tool is not offered and the prompt is unchanged.
@@ -4168,6 +4171,15 @@ export async function createAgentSession(
 				store: options.sessionGoals,
 				resolveAuthority: (turnId) => goalAuthorities.get(turnId as TurnId),
 				...(options.goalConfirmedBy ? { defaultConfirmedBy: options.goalConfirmedBy } : {}),
+				// A completion report carries evidence. With the decision model on, a
+				// judge on the small model reads it; without, the report is held once
+				// for a self-audit and no extra model is asked.
+				requireEvidence: true,
+				...goalJudgeWiring({
+					sideModel: () => sideModel,
+					model: options.goalJudgeModel,
+					mode: () => decisionPoints.mode('goal'),
+				}),
 			})
 		: undefined
 	if (options.sessionGoals) {

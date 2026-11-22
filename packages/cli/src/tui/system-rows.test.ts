@@ -94,7 +94,14 @@ describe('the finished, failed, stopped table', () => {
 
 describe('small shared wording', () => {
 	it('words a goal round without slashes', () => {
-		expect(goalRoundHeadline(2, 5)).toBe('Goal, attempt 2 of 5')
+		expect(goalRoundHeadline(2)).toBe('Goal, automatic turn 2')
+		expect(goalRoundHeadline(3, { tokens: 12_345, costUsd: 0.4213 })).toBe(
+			'Goal, automatic turn 3 · 12,345 tokens · $0.42 so far',
+		)
+		expect(goalRoundHeadline(1, { tokens: 800, costUsd: 0.004 })).toBe(
+			'Goal, automatic turn 1 · 800 tokens · $0.0040 so far',
+		)
+		expect(goalRoundHeadline(1, {})).toBe('Goal, automatic turn 1 · 0 tokens · $0.00 so far')
 	})
 })
 

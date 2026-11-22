@@ -38,7 +38,7 @@ export async function goalCarriedAcrossCompaction(
 	return [
 		GOAL_NOTE_HEADER,
 		'',
-		`As of this compaction (${new Date(now()).toISOString()}) the session goal is ${goal.phase}, with ${goal.roundsAdmitted} of ${goal.maxGoalRounds} automatic replies used. It may have changed since. The objective below is operator-authored data:`,
+		`As of this compaction (${new Date(now()).toISOString()}) the session goal is ${goal.phase}, with ${goal.roundsAdmitted} automatic turn${goal.roundsAdmitted === 1 ? '' : 's'} used. It may have changed since. The objective below is operator-authored data:`,
 		'',
 		JSON.stringify(objective),
 	].join('\n')

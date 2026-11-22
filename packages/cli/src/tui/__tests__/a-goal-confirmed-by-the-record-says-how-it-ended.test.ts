@@ -81,13 +81,32 @@ async function roundWith(options: {
 		},
 		tenantId,
 	)
-	const provider = new MockLLMProvider({
-		turns: [
+	// A goal the model confirms is reported with evidence, and the first report is
+	// held once for an audit (no decision model here), so it is reported twice.
+	const withEvidence = {
+		toolCalls: [
 			{
-				toolCalls: [{ id: 'u', name: 'update_goal', rawArguments: '{"status":"complete"}' }],
+				id: 'u',
+				name: 'update_goal',
+				rawArguments: JSON.stringify({
+					status: 'complete',
+					evidence: [
+						{ requirement: 'nothing to do', checked: 'looked at the folder', result: 'nothing' },
+					],
+				}),
 			},
-			{ text: 'Nothing needed changing.' },
 		],
+	}
+	const byRecord = (options.confirmedBy ?? options.goalConfirmedBy ?? 'model') === 'record'
+	const provider = new MockLLMProvider({
+		turns: byRecord
+			? [
+					{
+						toolCalls: [{ id: 'u', name: 'update_goal', rawArguments: '{"status":"complete"}' }],
+					},
+					{ text: 'Nothing needed changing.' },
+				]
+			: [withEvidence, withEvidence, { text: 'Nothing needed changing.' }],
 	})
 	vi.spyOn(ProviderRegistry, 'create').mockReturnValue({ provider } as never)
 	const { createAgentSession } = await import('../agent.js')

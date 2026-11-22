@@ -432,6 +432,7 @@ export type {
 	DiskSessionGoalStoreConfig,
 	EditSessionGoalParams,
 	InMemorySessionGoalStoreConfig,
+	ResumeSessionGoalOptions,
 	SessionGoalStore,
 } from './store/goal/index.js'
 export type { ResolveGoalRoundAuthority } from './tools/goal/index.js'
@@ -441,7 +442,12 @@ export type {
 	GoalDecisionInput,
 	GoalEnding,
 	GoalEndingReport,
+	GoalEvidence,
+	GoalJudge,
+	GoalJudgeInput,
+	GoalJudgement,
 	GoalStatement,
+	SelfAuditDecision,
 } from './tools/goal/confirmation.js'
 export type { ActiveSessionGoal } from './manager/goal/activation.js'
 export type { HandBack, HandBackKind } from './types/session/hand-back.js'

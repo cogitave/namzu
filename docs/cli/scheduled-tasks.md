@@ -1079,8 +1079,15 @@ namzu schedule pause|resume <job>
 namzu schedule run <job>                  # through the scheduler, or here when it is not running
 namzu schedule remove <job> [--yes] [--force]  # history and run files are kept
 namzu schedule prune [--older-than 30d] [--delete] # old runs and their sessions, removed jobs' too
-namzu schedule service logs [--follow] [--job <name>]
+namzu schedule service logs [<name>] [--follow] [--job <name>]
+namzu schedule service list                # installed schedulers: name, home, state
 ```
+
+Every job command above takes `--service <name>` (the `service` commands take the name
+as a word right after the verb instead) to act on the scheduler that service
+serves instead of the current `NAMZU_HOME`
+(`namzu schedule pause nightly --service autodev`); see
+[the scheduler service](scheduler-service.md#named-services).
 
 `remove` refuses a job with a run in progress, waiting for approval or holding
 a result not yet delivered unless you pass `--force`. A forced removal leaves

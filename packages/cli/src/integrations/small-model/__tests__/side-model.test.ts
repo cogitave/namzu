@@ -440,3 +440,30 @@ describe('the small model’s provider for a caller that makes its own call', ()
 		expect(await side.smallProvider(sessionId, new AbortController().signal)).toBeUndefined()
 	})
 })
+
+describe('a request that names its own model', () => {
+	it('goes to that model, whatever the route would have chosen', async () => {
+		const built: { providerId: string; model: string }[] = []
+		const provider = fakeProvider({ reply: 'judged' })
+		const side = createSideModel({
+			active: () => ({ providerId: 'zen', model: 'big' }),
+			configured: 'acme/tiny',
+			isKnownProvider: (id) => id === 'acme' || id === 'other',
+			buildProvider: async (_s, target) => {
+				built.push(target)
+				return provider
+			},
+			ledger: fakeLedger(),
+		})
+
+		await side.ask({ ...baseRequest, timing: 'in-turn', model: 'other/terra' })
+		await side.ask({ ...baseRequest, timing: 'in-turn', model: 'luna' })
+		await side.ask({ ...baseRequest, timing: 'in-turn' })
+
+		expect(built.map(({ providerId, model }) => ({ providerId, model }))).toEqual([
+			{ providerId: 'other', model: 'terra' },
+			{ providerId: 'zen', model: 'luna' },
+			{ providerId: 'acme', model: 'tiny' },
+		])
+	})
+})

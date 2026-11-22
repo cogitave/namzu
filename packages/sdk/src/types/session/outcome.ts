@@ -124,11 +124,13 @@ export interface TurnOutcomeConfig {
 	 * sentence goes to the model as a runtime note and the turn goes on; nothing
 	 * returned lets the turn end. A turn that is being stopped by a limit, a
 	 * cancellation or a forced final answer is not asked, so a limit always wins
-	 * over this hook. At most 16 notes are honoured in one turn. A hook that
+	 * over this hook. `context.finalMessage` is the answer the model just gave.
+	 * At most 16 notes are honoured in one turn. A hook that
 	 * throws is read as nothing returned.
 	 */
 	readonly beforeEnd?: (
 		read: () => Promise<TurnOutcome | undefined>,
+		context?: { readonly finalMessage?: string },
 	) => string | undefined | Promise<string | undefined>
 }
 

@@ -1918,11 +1918,36 @@ const CONFIG_READERS: ConfigReaders = {
 	goal: (v, context) => {
 		if (!isConfigMapping(v)) return invalidConfigValue(context, [], 'must be a mapping')
 		for (const key of Object.keys(v)) {
-			if (key !== 'confirmedBy')
-				return invalidConfigValue(context, [key], 'is not a goal setting (confirmedBy)')
 			const value = (v as Record<string, unknown>)[key]
-			if (value !== 'model' && value !== 'record')
-				return invalidConfigValue(context, [key], 'must be model or record')
+			switch (key) {
+				case 'confirmedBy':
+					if (value !== 'model' && value !== 'record')
+						return invalidConfigValue(context, [key], 'must be model or record')
+					break
+				case 'maxRounds':
+				case 'tokenBudget':
+				case 'stallRounds':
+				case 'checkInEvery': {
+					const minimum = key === 'checkInEvery' ? 0 : 1
+					if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < minimum)
+						return invalidConfigValue(
+							context,
+							[key],
+							`must be a safe whole number at least ${minimum}`,
+						)
+					break
+				}
+				case 'judgeModel':
+					if (typeof value !== 'string' || value.trim() === '')
+						return invalidConfigValue(context, [key], 'must be a model name, as provider/model')
+					break
+				default:
+					return invalidConfigValue(
+						context,
+						[key],
+						'is not a goal setting (confirmedBy, maxRounds, checkInEvery, tokenBudget, stallRounds, judgeModel)',
+					)
+			}
 		}
 		return v as GoalCliConfig
 	},

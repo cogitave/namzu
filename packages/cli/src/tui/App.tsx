@@ -23,7 +23,6 @@ import {
 	type BackgroundJobOutput,
 	CompactionRefusedError,
 	type CostInfo,
-	DEFAULT_MAX_GOAL_ROUNDS,
 	DiskMessageFeedbackStore,
 	HostCommandRegistry,
 	MONITOR_TOOL_NAME,
@@ -41,6 +40,7 @@ import {
 	type SessionTimer,
 	TurnCancelled,
 	type TurnId,
+	type TurnOutcome,
 	type WakeBudget,
 	asSessionId,
 	createAssistantMessage,
@@ -358,6 +358,7 @@ import { type SessionAllow, allowsFor, sameAllow } from '../permissions/session-
 import { resolveProgressNudge } from '../reminders/progress-nudge.js'
 import { type RoundGateFacts, admissionBlocked } from '../rounds/gates.js'
 import { admitGoalRound } from '../rounds/goal-admission.js'
+import { goalDefaults, goalSpentSentence, recordGoalRound } from '../rounds/goal-guards.js'
 import { RoundQueue } from '../rounds/queue.js'
 import {
 	type QueuePause,
@@ -1408,6 +1409,8 @@ type StreamState = {
 	messageTextStart?: number
 	/** Exact provider-visible conversation state returned by the settled kernel run. */
 	conversationMessages?: readonly Message[]
+	/** The kernel's record of what the turn changed and checked, for a goal round's bookkeeping. */
+	turnRecord?: TurnOutcome
 	pending?: string
 	/**
 	 * When arrived text was last put on the screen, and the one timer that puts
@@ -1589,7 +1592,7 @@ export function projectConversation(
 					{
 						id: nextId(),
 						role: 'system',
-						content: goalRoundHeadline(message.source.round, message.source.maxGoalRounds),
+						content: goalRoundHeadline(message.source.round),
 						glyph: SYSTEM_ROW_GLYPH,
 						glyphColor: systemRowStyle('notice').color,
 					},
@@ -6952,6 +6955,9 @@ function AppBody({
 										...(activeCtx.goal?.confirmedBy
 											? { goalConfirmedBy: activeCtx.goal.confirmedBy }
 											: {}),
+										...(activeCtx.goal?.judgeModel
+											? { goalJudgeModel: activeCtx.goal.judgeModel }
+											: {}),
 										conversationSessions: sessionsRef.current,
 									}
 								: {}),
@@ -11372,6 +11378,7 @@ function AppBody({
 					// Persistence and memory use the settled answer, not concatenated
 					// commentary deltas. The transcript keeps each visible part above.
 					if (event.text !== undefined) st.text = event.text
+					st.turnRecord = event.outcome
 					// `turn_completed` is not synonymous with success: budgets,
 					// cancellation and output guardrails arrive through this event too.
 					// Missing remains a normal end for older producers, matching the
@@ -11844,9 +11851,14 @@ function AppBody({
 				// The closing line for what ended is already in the conversation; the
 				// model's report is what follows it. Nothing is added here.
 			} else if (goalRound) {
-				pushSystem('notice', goalRoundHeadline(goalRound.round, goalRound.maxGoalRounds), {
-					continuation: goalRound.objective,
-				})
+				pushSystem(
+					'notice',
+					goalRoundHeadline(goalRound.round, {
+						...(goalRound.tokensUsed !== undefined ? { tokens: goalRound.tokensUsed } : {}),
+						...(goalRound.costUsd !== undefined ? { costUsd: goalRound.costUsd } : {}),
+					}),
+					{ continuation: goalRound.objective },
+				)
 			} else {
 				userEchoId = pushMessage(
 					'user',
@@ -12538,6 +12550,19 @@ function AppBody({
 						? historyBeforeTurn
 						: (conversationMessages ?? [...historyBeforeTurn, ...fallbackTurn])
 				if (stillHere()) saveModeIfChanged()
+				if (goalRound) {
+					// What the turn spent and whether it moved the work, written before
+					// the driver looks at the goal again: the stop rules read these.
+					const stopped = await recordGoalRound({
+						goals: turnSessions?.goals,
+						tenantId: turnSessions?.tenantId,
+						round: goalRound,
+						record: st.turnRecord,
+						tokens: st.lastUsage?.totalTokens,
+						costUsd: st.lastUsage?.cost.totalCost,
+					})
+					if (stopped) pushSystem('warning', stopped)
+				}
 				if (goalRound && (ac.signal.aborted || st.outcome !== 'completed')) {
 					goalActivation.disarm(goalRound.sessionId, goalRound)
 					wakeGoalDriver()
@@ -14608,7 +14633,7 @@ function AppBody({
 							token: textPromptTokenRef.current,
 							kind: slash.edit ? 'goal-edit' : 'goal-create',
 							title: slash.edit ? 'Edit goal' : 'Set a goal',
-							placeholder: `Up to ${goalStatus?.maxGoalRounds ?? DEFAULT_MAX_GOAL_ROUNDS} automatic replies; /goal pause stops continuation.`,
+							placeholder: 'Describe the result you want; /goal pause stops automatic work.',
 							emptyNotice: 'Describe the result you want, or press Esc to cancel.',
 							initialValue: slash.edit ? (goalStatus?.objective ?? '') : '',
 							sessionId: scope.sessionId,
@@ -14688,8 +14713,8 @@ function AppBody({
 									back: choicePickerRef.current?.back,
 									title: 'Goal',
 									notice: goal
-										? `${goal.phase} · ${goal.roundsAdmitted}/${goal.maxGoalRounds} automatic replies · ${goal.objective}`
-										: `No goal set for this conversation. Up to ${DEFAULT_MAX_GOAL_ROUNDS} automatic replies when started.`,
+										? `${goal.phase} · ${goalSpentSentence(goal)} · ${goal.objective}`
+										: 'No goal set for this conversation.',
 									values: commands,
 									options: commands.map((command) => ({
 										label: `/${command.name}`,
@@ -15477,6 +15502,7 @@ function AppBody({
 														...(ctxRef.current.goal?.confirmedBy
 															? { defaultConfirmedBy: ctxRef.current.goal.confirmedBy }
 															: {}),
+														defaults: goalDefaults(ctxRef.current.goal),
 													},
 												}
 											: {}),

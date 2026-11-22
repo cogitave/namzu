@@ -5,6 +5,7 @@
  */
 
 import { EXIT_USAGE } from '../exit-codes.js'
+import { applyTarget } from '../schedule/service/target.js'
 import { withTerminationHandling } from '../termination.js'
 import type { CommandDef } from './types.js'
 
@@ -40,15 +41,20 @@ export const SCHEDULE_HELP = [
 	'  remove <job> [--yes] [--force]',
 	'  run <job>                     Run once now; the schedule is untouched',
 	'  prune [--job <j>] [--older-than 30d] [--delete] [--yes]',
+	'  Every job command takes --service <name> to act on that service’s home,',
+	'  e.g. namzu schedule pause nightly --service autodev',
 	'',
 	'The scheduler service',
 	'  service install [--platform auto|systemd-user|launchd|windows-task|wsl-windows-task]',
 	'          [--name <service>] [--at-boot] [--dry-run]',
-	'  service uninstall [--keep-data | --purge-data] [--wait 10m | --interrupt-runs]',
-	'  service status [--json]       Exit 0 healthy, 69 not running, 2 not installed',
-	'  service start | stop          Through the service manager',
-	'  service logs [--follow] [--job <j>] [--since 1h] [--run <id> --job <j>]',
+	'  service list [--json]         Installed services: name, home, platform, state',
+	'  service uninstall [<name>] [--keep-data | --purge-data] [--wait 10m | --interrupt-runs]',
+	'  service status [<name>] [--json]   Exit 0 healthy, 69 not running, 2 not installed',
+	'  service start [<name>] | service stop [<name>]   Through the service manager',
+	'  service logs [<name>] [--follow] [--job <j>] [--since 1h] [--run <id> --job <j>]',
 	'  service daemon                Run the scheduler in this process',
+	'  A <name> picks a service from `service list` and acts on its home, as if',
+	'  NAMZU_HOME were set to it; without one, the current NAMZU_HOME is used.',
 	'',
 	'--when takes "every 30m", "0 9 * * 1-5" (cron, in --tz), "at 2026-09-24 09:00",',
 	'"at 09:00" or "in 2h". Presets: read-only (read, glob, grep, ls; everything',
@@ -97,45 +103,77 @@ export const scheduleCommand: CommandDef = {
 		const list = () => import('../schedule/commands/list.js')
 		const lifecycle = () => import('../schedule/commands/lifecycle.js')
 		const service = () => import('../schedule/commands/service.js')
+		// A job command's `--service <name>` runs it on that service's home.
+		const onService = async (act: (argv: string[]) => Promise<number>) => {
+			const targeted = applyTarget(ctx, rest, 'flag', true)
+			if ('code' in targeted) return targeted.code
+			try {
+				return await act(targeted.argv)
+			} finally {
+				targeted.restore()
+			}
+		}
 		switch (verb) {
 			case 'add':
-				return (await add()).addCommand(ctx, rest)
+				return onService(async (a) => (await add()).addCommand(ctx, a))
 			case 'edit':
-				return (await add()).editCommand(ctx, rest)
+				return onService(async (a) => (await add()).editCommand(ctx, a))
 			case 'confirm':
-				return (await add()).confirmCommand(ctx, rest)
+				return onService(async (a) => (await add()).confirmCommand(ctx, a))
 			case 'list':
 			case 'ls':
-				return (await list()).listCommand(ctx, rest)
+				return onService(async (a) => (await list()).listCommand(ctx, a))
 			case 'show':
-				return (await list()).showCommand(ctx, rest)
+				return onService(async (a) => (await list()).showCommand(ctx, a))
 			case 'history':
-				return (await list()).historyCommand(ctx, rest)
+				return onService(async (a) => (await list()).historyCommand(ctx, a))
 			case 'pause':
-				return (await lifecycle()).pauseCommand(ctx, rest, false)
+				return onService(async (a) => (await lifecycle()).pauseCommand(ctx, a, false))
 			case 'resume':
-				return (await lifecycle()).pauseCommand(ctx, rest, true)
+				return onService(async (a) => (await lifecycle()).pauseCommand(ctx, a, true))
 			case 'remove':
 			case 'rm':
-				return (await lifecycle()).removeCommand(ctx, rest)
+				return onService(async (a) => (await lifecycle()).removeCommand(ctx, a))
 			case 'run':
-				return (await lifecycle()).runNowCommand(ctx, rest)
+				return onService(async (a) => (await lifecycle()).runNowCommand(ctx, a))
 			case 'prune':
-				return (await lifecycle()).pruneCommand(ctx, rest)
+				return onService(async (a) => (await lifecycle()).pruneCommand(ctx, a))
 			case 'service':
 				switch (rest[0]) {
+					case 'list':
+						return (await service()).listCommand(ctx, rest.slice(1))
+					case 'status':
+					case 'start':
+					case 'stop':
+					case 'logs':
+					case 'uninstall': {
+						const targeted = applyTarget(ctx, rest.slice(1), 'word', false)
+						if ('code' in targeted) return targeted.code
+						try {
+							switch (rest[0]) {
+								case 'status':
+									return await (await service()).statusCommand(ctx, targeted.argv)
+								case 'start':
+								case 'stop':
+									return await (await service()).startStopCommand(ctx, targeted.argv, rest[0])
+								case 'logs':
+									return await (await import('../schedule/commands/logs.js')).logsCommand(
+										ctx,
+										targeted.argv,
+									)
+								default:
+									return await (await service()).uninstallCommand(
+										ctx,
+										targeted.argv,
+										targeted.target?.name,
+									)
+							}
+						} finally {
+							targeted.restore()
+						}
+					}
 					case 'install':
 						return (await service()).installCommand(ctx, rest.slice(1))
-					case 'uninstall':
-						return (await service()).uninstallCommand(ctx, rest.slice(1))
-					case 'status':
-						return (await service()).statusCommand(ctx, rest.slice(1))
-					case 'start':
-						return (await service()).startStopCommand(ctx, rest.slice(1), 'start')
-					case 'stop':
-						return (await service()).startStopCommand(ctx, rest.slice(1), 'stop')
-					case 'logs':
-						return (await import('../schedule/commands/logs.js')).logsCommand(ctx, rest.slice(1))
 					case 'daemon':
 						termination.dispose()
 						return (await service()).daemonCommand(ctx, rest.slice(1))
@@ -143,7 +181,7 @@ export const scheduleCommand: CommandDef = {
 						ctx.formatter.error({
 							message: rest[0]
 								? `unknown schedule service command: ${rest[0]}`
-								: 'a schedule service command is required: install, uninstall, status, start, stop, logs or daemon',
+								: 'a schedule service command is required: install, list, uninstall, status, start, stop, logs or daemon',
 						})
 						return EXIT_USAGE
 				}
