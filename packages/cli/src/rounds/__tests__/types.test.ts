@@ -57,8 +57,8 @@ describe('humanPromptMeta', () => {
 		expect(humanPromptMeta(0)).toBeUndefined()
 	})
 
-	it('counts @files and says when a message was sent while working', () => {
-		expect(humanPromptMeta(1, true)).toBe('1 file attached · sent while working')
+	it('counts @files and never labels a message as sent while working', () => {
+		expect(humanPromptMeta(1)).toBe('1 file attached')
 		expect(humanPromptMeta(2)).toBe('2 files attached')
 	})
 

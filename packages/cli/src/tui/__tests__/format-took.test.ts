@@ -14,3 +14,11 @@ describe('formatTook', () => {
 		expect(formatElapsed(420)).toBe('0s')
 	})
 })
+
+describe('formatElapsed', () => {
+	it('does not pad the smaller units', () => {
+		expect(formatElapsed(65_000)).toBe('1m 5s')
+		expect(formatElapsed(60_000)).toBe('1m 0s')
+		expect(formatElapsed(3_723_000)).toBe('1h 2m 3s')
+	})
+})
