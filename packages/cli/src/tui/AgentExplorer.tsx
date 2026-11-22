@@ -82,6 +82,14 @@ const COCKPIT_CHROME_ROWS = 2
 /** Rows the detail's own furniture takes besides its two lists: rule, title, description, a blank row, the list borders, the key line and the gap above. */
 const DETAIL_CHROME_ROWS = 8
 
+/** The stacked layout (under 64 columns) has no gap row above the key line, so its furniture is one row shorter. */
+function detailChromeRows(sideBySide: boolean): number {
+	return sideBySide ? DETAIL_CHROME_ROWS : DETAIL_CHROME_ROWS - 1
+}
+
+/** The fewest rows the detail's lists are drawn at. */
+const DETAIL_MIN_LIST_ROWS = 2
+
 /** The least the detail is ever cut to, so a very small terminal still shows a title and a row. */
 const DETAIL_MIN_ROWS = 4
 
@@ -107,6 +115,112 @@ export function workflowDetailHeight(
 	const least = rows < 18 ? 8 : 12
 	const height = Math.max(Math.min(wanted, available), Math.min(least, available))
 	return Math.max(DETAIL_MIN_ROWS, height)
+}
+
+/** The least a content-sized workflow detail is drawn at, so a one-agent run still reads as a panel. */
+export const DETAIL_FLOOR_ROWS = 8
+
+/** Left and right pane widths of the detail's two lists, and whether they sit side by side. */
+function detailGeometry(
+	workflow: Pick<AgentWorkflow, 'runStatus'>,
+	phases: readonly AgentPhase[],
+	columns: number,
+): { readonly leftInner: number; readonly rightInner: number; readonly sideBySide: boolean } {
+	const boxWidth = columns - 2
+	const leftTitleCells = Math.min(
+		22,
+		Math.max(6, ...phases.map((item) => stringWidth(oneLine(phaseTitle(item))))),
+	)
+	const countCells = Math.max(
+		3,
+		...phases.map(
+			(item) =>
+				phaseCount(item, workflow.runStatus === 'stopped').length + phaseFailedTail(item).length,
+		),
+	)
+	const leftInner = 5 + leftTitleCells + 1 + countCells + 1
+	const rightInner = boxWidth - 3 - leftInner
+	return { leftInner, rightInner, sideBySide: columns >= DETAIL_WIDE_COLUMNS && rightInner >= 24 }
+}
+
+/**
+ * The rows a workflow detail needs to show everything it has, with no blank rows under the last
+ * agent: its chrome, the `log()` lines it shows, and the longer of the phase list and the selected
+ * phase's agent list (at least one row), plus the phase's own detail text when that is shown.
+ */
+export function workflowDetailContentRows(
+	workflow: AgentWorkflow,
+	phases: readonly AgentPhase[],
+	selectedPhaseIndex: number,
+	level: 1 | 2,
+	terminalRows: number,
+	terminalColumns: number,
+): number {
+	const columns = Math.max(20, terminalColumns)
+	const logLines = Math.min(detailLogLineCount(terminalRows), workflow.logs?.length ?? 0)
+	const phase = phases[selectedPhaseIndex]
+	const agentCount = phase?.agents.length ?? 0
+	const { rightInner, sideBySide } = detailGeometry(workflow, phases, columns)
+	let list: number
+	if (sideBySide) {
+		const detailLines =
+			level === 1 && phase?.detail
+				? wrapPhaseDetailLines(phase.detail, rightInner - 2).slice(0, PHASE_DETAIL_LINE_BUDGET)
+				: []
+		list = Math.max(
+			phases.length,
+			agentCount + (detailLines.length > 0 ? detailLines.length + 1 : 0),
+		)
+	} else {
+		const detailLines =
+			level === 1 && terminalRows >= 20 && phase?.detail
+				? wrapPhaseDetailLines(phase.detail, columns - 4).slice(0, PHASE_DETAIL_LINE_BUDGET)
+				: []
+		list = Math.max(phases.length + detailLines.length, agentCount)
+	}
+	// The lists are never drawn under two rows, so a smaller content would be clipped.
+	return detailChromeRows(sideBySide) + logLines + Math.max(DETAIL_MIN_LIST_ROWS, list)
+}
+
+/** The detail's height: its content, no shorter than {@link DETAIL_FLOOR_ROWS} and no taller than `cap`. */
+export function sizeWorkflowDetail(cap: number, contentRows: number): number {
+	return Math.min(cap, Math.max(DETAIL_FLOOR_ROWS, contentRows))
+}
+
+/**
+ * The height for the detail the cockpit is showing: sized to its content when it is a workflow's
+ * phases or agents, the `cap` itself when it is the list of workflows or has nothing to size from.
+ */
+export function cockpitDetailHeight(
+	agents: readonly SubagentActivity[],
+	runs: readonly WorkflowRunView[],
+	selectedPhaseId: string,
+	focus: AgentCockpitFocus,
+	terminalRows: number,
+	terminalColumns: number,
+	cap: number,
+): number {
+	if (focus === 'workflows') return cap
+	const workflows = agentWorkflows(agents, runs)
+	const workflow = workflows.find((item) =>
+		item.phases.some((phase) => phase.id === selectedPhaseId),
+	)
+	if (!workflow) return cap
+	const index = Math.max(
+		0,
+		workflow.phases.findIndex((phase) => phase.id === selectedPhaseId),
+	)
+	return sizeWorkflowDetail(
+		cap,
+		workflowDetailContentRows(
+			workflow,
+			workflow.phases,
+			index,
+			focus === 'agents' ? 2 : 1,
+			terminalRows,
+			terminalColumns,
+		),
+	)
 }
 const graphemes = new Intl.Segmenter(undefined, { granularity: 'grapheme' })
 
@@ -1547,6 +1661,7 @@ export function WorkflowDetail({
 	now,
 }: WorkflowDetailProps) {
 	const columns = Math.max(20, terminalColumns)
+	const chromeRows = detailChromeRows(detailGeometry(workflow, phases, columns).sideBySide)
 	// The script's last log() line sits under the header; a short detail has fewer of them.
 	// Only lines the script really logged take rows: with none, the list gets them, so a detail of a
 	// given height ends on its key line and leaves no blank rows above the message box.
@@ -1554,11 +1669,24 @@ export function WorkflowDetail({
 	const logLines =
 		height === undefined
 			? detailLogLineCount(terminalRows)
-			: Math.min(detailLogLineCount(terminalRows), Math.max(0, height - 12), loggedLines)
+			: Math.min(
+					detailLogLineCount(terminalRows),
+					// A list of fewer than four rows leaves its spare rows to the log lines.
+					Math.max(
+						0,
+						height -
+							chromeRows -
+							Math.min(
+								4,
+								Math.max(phases.length, phases[selectedPhaseIndex]?.agents.length ?? 0, 1),
+							),
+					),
+					loggedLines,
+				)
 	const pageSize =
 		height === undefined
 			? workflowDetailPageSize(terminalRows)
-			: Math.max(2, height - DETAIL_CHROME_ROWS - logLines)
+			: Math.max(DETAIL_MIN_LIST_ROWS, height - chromeRows - logLines)
 	const phase = phases[selectedPhaseIndex]
 	const isRun = workflow.runId !== undefined
 	// Only an agent that completed counts as done; a failed or stopped one does not.
@@ -1647,7 +1775,7 @@ export function WorkflowDetail({
 		}
 	}
 
-	const boxWidth = columns - 2
+	const { leftInner, rightInner, sideBySide } = detailGeometry(workflow, phases, columns)
 	const leftTitleCells = Math.min(
 		22,
 		Math.max(6, ...phases.map((item) => stringWidth(oneLine(phaseTitle(item))))),
@@ -1659,9 +1787,6 @@ export function WorkflowDetail({
 				phaseCount(item, workflow.runStatus === 'stopped').length + phaseFailedTail(item).length,
 		),
 	)
-	const leftInner = 5 + leftTitleCells + 1 + countCells + 1
-	const rightInner = boxWidth - 3 - leftInner
-	const sideBySide = columns >= DETAIL_WIDE_COLUMNS && rightInner >= 24
 
 	// The two lines before the last one are dim. `slice(-0)` is the whole array, so a
 	// terminal too short for any line must ask for none instead of for a count of zero.

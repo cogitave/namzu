@@ -1,5 +1,9 @@
 # Documentation update log
 
+## 2026-11-23
+
+- **Update** [Workflows](cli/workflows.md) and [Terminal design](cli/terminal-design.md): the workflow detail is sized to its content, from 8 rows up to the free rows (half the screen in the full screen view), so a small run no longer leaves blank rows in it; it is drawn above the input box. `.changeset/cli-workflow-detail-fits-content.md`.
+
 ## 2026-11-22
 
 - **Update** [Terminal design](cli/terminal-design.md#delegated-work-in-the-conversation), [Slash commands](cli/slash-commands.md), [Delegated work](cli/delegated-work.md), [Peer messaging](cli/peer-messaging.md), [Your Namzu network](cli/namzu-network.md): new setting `tui.showTurnDuration` (default on; `/config showTurnDuration on|off|list`, a row in `/config`, label "Show turn duration") leaves the `Worked for … · done …` part of a turn's closing line out for live and restored turns, keeping the agents and spend part when work was delegated; a message sent while a reply runs no longer carries ` · sent while working`; `/peers` draws its roster inside the "Waiting for you" picker and writes nothing to the transcript on open or on Esc (with nothing waiting it writes the screen once as its result). `.changeset/cli-turn-duration-setting.md` (`@namzu/cli` minor).
