@@ -171,7 +171,7 @@ export type SlashAction =
 	 * Turn fast inference on or off (or flip it) for this conversation, or ask for
 	 * the tier above it. `toggle` turns it on when it is off and off otherwise.
 	 */
-	| { kind: 'fast-mode'; mode: 'toggle' | 'off' | 'fast' | 'ultrafast' }
+	| { kind: 'fast-mode'; tier: 'fast' | 'ultrafast'; mode: 'toggle' | 'on' | 'off' }
 	/** `/config triggers on|off|list`: the composer triggers' one switch, written to the user config. */
 	| { kind: 'composer-triggers'; setting: 'on' | 'off' | 'list' }
 	/** Open the theme chooser. */
@@ -359,6 +359,13 @@ export interface CompactionSummary {
 
 export interface SlashContext {
 	readonly columns?: number
+	/**
+	 * The speed tiers the current provider and model offer, read when the menu
+	 * is built or a command runs. Absent reads as none.
+	 */
+	readonly speedTiers?: () => readonly ('fast' | 'ultrafast')[]
+	/** Why the current model does not offer the tier; `undefined` when it does or the answer is not known yet. */
+	readonly speedTierRefusal?: (tier: 'fast' | 'ultrafast') => string | undefined
 	readonly webSearchSummary?: string
 	/** The decision model's one-line state, when the terminal offers one. */
 	readonly decisionSummary?: string
@@ -563,6 +570,13 @@ export interface SlashCommand {
 	/** Compatibility-only commands remain executable but stay out of discovery UI. */
 	readonly discoverable?: false
 	/**
+	 * Whether the dropdown lists the command right now, read from the session's
+	 * state each time the menu is built. When it answers false the command is
+	 * left out of the menu only: typing it still runs it, and `/help` still
+	 * lists it. A command without this field is always listed.
+	 */
+	readonly listedWhen?: (ctx: SlashContext) => boolean
+	/**
 	 * Whether the command runs the moment it is submitted while a reply is
 	 * being written, rather than waiting for the reply to end.
 	 *
@@ -590,6 +604,15 @@ function renameConversationAction(_ctx: SlashContext, args: readonly string[]): 
 	return { kind: 'title', title: text, clear: false }
 }
 
+/** The commands whose `listedWhen` allows them in the menu now; all of them when there is no context to ask. */
+export function listedCommands(
+	commands: readonly SlashCommand[],
+	listing: SlashContext | undefined,
+): readonly SlashCommand[] {
+	if (!listing) return commands
+	return commands.filter((command) => command.listedWhen?.(listing) !== false)
+}
+
 /**
  * Autocomplete matches for a composer value that is a command-in-progress
  * (`/`, `/me`, `/mo…` — slash + a partial name, no space yet). Returns []
@@ -608,6 +631,8 @@ export function matchSlashCommands(
 	 * point. Defaults to the CLI's own for callers with no registry.
 	 */
 	builtins: readonly SlashCommand[] = CLI_LOCAL_COMMANDS,
+	/** The session state `listedWhen` reads; without it every command is listed. */
+	listing?: SlashContext,
 ): SlashCommand[] {
 	const m = /^\/([\w-]*(?: [\w-]*)?)$/.exec(value)
 	if (!m) return []
@@ -626,9 +651,10 @@ export function matchSlashCommands(
 		action: () => ({ kind: 'none' }) as const,
 	}))
 
-	const matches = [...builtins.filter((command) => command.discoverable !== false), ...own].filter(
-		(command) => command.name.startsWith(prefix),
-	)
+	const matches = [
+		...listedCommands(builtins, listing).filter((command) => command.discoverable !== false),
+		...own,
+	].filter((command) => command.name.startsWith(prefix))
 	if (prefix.length === 0) return matches
 	const exact = matches.findIndex((command) => command.name === prefix)
 	if (exact <= 0) return matches
@@ -2050,13 +2076,29 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 		name: 'fast',
 		immediate: true,
 		help: {
-			usage: ['/fast [on|off|ultrafast]'],
+			usage: ['/fast [on|off]'],
 			details: [
-				'Fast mode asks the model for faster replies at a higher price: a multiple of the standard rate on an API key, or more of your plan allowance on a Codex subscription. It exists on a few Anthropic and OpenAI models; on any other it is refused with the reason. Off by default, never saved by this command, and it never changes reasoning effort. With no argument, toggles the current state. `/fast ultrafast` asks for the tier above it, on the Codex subscription models whose account lists it, for this conversation only. `namzu --fast` starts a conversation with fast mode on.',
+				'Fast mode asks the model for faster replies at a higher price: a multiple of the standard rate on an API key, or more of your plan allowance on a Codex subscription. It exists on a few Anthropic and OpenAI models, and the command is listed in the menu only on a model that offers it; typed on any other it is refused with the reason. Off by default, never saved by this command, and it never changes reasoning effort. With no argument, toggles: off turns fast on, fast turns it off, and ultrafast switches to fast. `namzu --fast` starts a conversation with fast mode on.',
 			],
 		},
-		description: 'Toggle fast inference for this conversation: /fast [on|off|ultrafast].',
-		action: (_ctx, args) => fastAction(args),
+		description: 'Toggle fast inference for this conversation: /fast [on|off].',
+		listedWhen: (ctx) => ctx.speedTiers?.().includes('fast') ?? false,
+		unavailable: (ctx) => ctx.speedTierRefusal?.('fast'),
+		action: (_ctx, args) => speedAction('fast', args),
+	},
+	{
+		name: 'ultrafast',
+		immediate: true,
+		help: {
+			usage: ['/ultrafast [on|off]'],
+			details: [
+				'Ultrafast is the tier above fast mode, offered on the Codex subscription models whose account lists it. It uses much more of your plan allowance, applies to this conversation only, is never saved, and never changes reasoning effort. The command is listed in the menu only on a model that offers it; typed on any other it is refused with the reason. With no argument, toggles: off turns ultrafast on, ultrafast turns it off, and fast switches to ultrafast.',
+			],
+		},
+		description: 'Toggle the fastest inference tier for this conversation: /ultrafast [on|off].',
+		listedWhen: (ctx) => ctx.speedTiers?.().includes('ultrafast') ?? false,
+		unavailable: (ctx) => ctx.speedTierRefusal?.('ultrafast'),
+		action: (_ctx, args) => speedAction('ultrafast', args),
 	},
 	{
 		name: 'orchestrate',
@@ -2144,14 +2186,13 @@ export function initPrompt(instructionFiles: readonly string[]): string {
 }
 
 /** The session's shell hooks, by event, in the order the config file gave them. */
-/** `/fast [on|off|ultrafast]`. */
-function fastAction(args: readonly string[]): SlashAction {
+/** `/fast [on|off]` and `/ultrafast [on|off]`. */
+function speedAction(tier: 'fast' | 'ultrafast', args: readonly string[]): SlashAction {
 	const choice = args.join(' ').trim().toLowerCase()
-	if (choice.length === 0) return { kind: 'fast-mode', mode: 'toggle' }
-	if (choice === 'on') return { kind: 'fast-mode', mode: 'fast' }
-	if (choice === 'off') return { kind: 'fast-mode', mode: 'off' }
-	if (choice === 'ultrafast') return { kind: 'fast-mode', mode: 'ultrafast' }
-	return { kind: 'message', role: 'system', content: 'Usage: /fast [on|off|ultrafast]' }
+	if (choice.length === 0) return { kind: 'fast-mode', tier, mode: 'toggle' }
+	if (choice === 'on') return { kind: 'fast-mode', tier, mode: 'on' }
+	if (choice === 'off') return { kind: 'fast-mode', tier, mode: 'off' }
+	return { kind: 'message', role: 'system', content: `Usage: /${tier} [on|off]` }
 }
 
 /** `/hypermode [on|off]`, and its deprecated `/orchestrate` alias. */

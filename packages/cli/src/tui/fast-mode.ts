@@ -1,5 +1,5 @@
 /**
- * Fast mode in the terminal: the `/fast` toggle and the `--fast` launch flag.
+ * Fast mode in the terminal: the `/fast` and `/ultrafast` toggles and the `--fast` launch flag.
  *
  * Off by default. `/fast` and `--fast` choose how this conversation runs and are
  * never saved; the `fast` setting is the saved way to start with it on.
@@ -128,16 +128,20 @@ export async function fastModeBlocker(
 }
 
 /**
- * The tier a `/fast` argument asks for, given the one on now; `undefined` is
- * off. `toggle` turns it on (the fast tier) when it is off, and off when either
- * tier is on.
+ * The tier a `/fast` or `/ultrafast` argument leaves on, given the one on now;
+ * `undefined` is off. `toggle` turns the command's tier on unless it is the
+ * one already on, in which case it turns it off (so `/fast` on ultrafast
+ * switches to fast). `on` asks for the tier. `off` ends the command's own tier
+ * and leaves the other one as it is.
  */
 export function requestedFastTier(
 	current: FastTier | undefined,
-	mode: 'toggle' | 'off' | 'fast' | 'ultrafast',
+	tier: FastTier,
+	mode: 'toggle' | 'on' | 'off',
 ): FastTier | undefined {
-	if (mode === 'toggle') return current === undefined ? 'fast' : undefined
-	return mode === 'off' ? undefined : mode
+	if (mode === 'on') return tier
+	if (mode === 'toggle') return current === tier ? undefined : tier
+	return current === tier ? undefined : current
 }
 
 /** 2 reads `twice`; anything else reads `<n> times`. */
@@ -158,8 +162,8 @@ export function fastOnMessage(verdict?: Extract<FastModeVerdict, { ok: true }>):
 	}
 	if (tier === 'ultrafast') {
 		return rate.multiplier !== undefined
-			? `Ultrafast on: the fastest replies, using your plan allowance ${rate.multiplier}x as fast. /fast off ends it.`
-			: 'Ultrafast on: the fastest replies, using much more of your plan allowance. /fast off ends it.'
+			? `Ultrafast on: the fastest replies, using your plan allowance ${rate.multiplier}x as fast. /ultrafast off ends it.`
+			: 'Ultrafast on: the fastest replies, using much more of your plan allowance. /ultrafast off ends it.'
 	}
 	return rate.multiplier !== undefined
 		? `Fast mode on: faster replies, using your plan allowance ${rate.multiplier}x as fast. /fast off ends it.`

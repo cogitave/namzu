@@ -163,14 +163,14 @@ describe('what turning it on says', () => {
 				await ok('codex', 'gpt-6.2-sol', { advertised: ['ultrafast'], tier: 'ultrafast' }),
 			),
 		).toBe(
-			'Ultrafast on: the fastest replies, using your plan allowance 6x as fast. /fast off ends it.',
+			'Ultrafast on: the fastest replies, using your plan allowance 6x as fast. /ultrafast off ends it.',
 		)
 		expect(
 			fastOnMessage(
 				await ok('codex', 'gpt-5.6-sol', { advertised: ['ultrafast'], tier: 'ultrafast' }),
 			),
 		).toBe(
-			'Ultrafast on: the fastest replies, using much more of your plan allowance. /fast off ends it.',
+			'Ultrafast on: the fastest replies, using much more of your plan allowance. /ultrafast off ends it.',
 		)
 	})
 
@@ -184,15 +184,34 @@ describe('what turning it on says', () => {
 })
 
 describe('the toggle', () => {
-	it('walks off, fast, ultrafast and back to off', () => {
-		let tier = requestedFastTier(undefined, 'toggle')
-		expect(tier).toBe('fast')
-		tier = requestedFastTier(tier, 'ultrafast')
-		expect(tier).toBe('ultrafast')
-		tier = requestedFastTier(tier, 'toggle')
-		expect(tier).toBeUndefined()
-		expect(requestedFastTier('fast', 'off')).toBeUndefined()
-		expect(requestedFastTier(undefined, 'fast')).toBe('fast')
+	const tiers = [undefined, 'fast', 'ultrafast'] as const
+	it('toggles the command own tier, from every state', () => {
+		for (const current of tiers) {
+			expect(requestedFastTier(current, 'fast', 'toggle')).toBe(
+				current === 'fast' ? undefined : 'fast',
+			)
+			expect(requestedFastTier(current, 'ultrafast', 'toggle')).toBe(
+				current === 'ultrafast' ? undefined : 'ultrafast',
+			)
+		}
+	})
+
+	it('on asks for the tier, from every state', () => {
+		for (const current of tiers) {
+			expect(requestedFastTier(current, 'fast', 'on')).toBe('fast')
+			expect(requestedFastTier(current, 'ultrafast', 'on')).toBe('ultrafast')
+		}
+	})
+
+	it('off ends only the command own tier', () => {
+		for (const current of tiers) {
+			expect(requestedFastTier(current, 'fast', 'off')).toBe(
+				current === 'fast' ? undefined : current,
+			)
+			expect(requestedFastTier(current, 'ultrafast', 'off')).toBe(
+				current === 'ultrafast' ? undefined : current,
+			)
+		}
 	})
 })
 

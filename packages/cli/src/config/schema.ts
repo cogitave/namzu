@@ -692,7 +692,7 @@ export interface NamzuCliConfig {
 	 * Start the terminal app with fast inference on, for a model that offers it (a vendor's own
 	 * API models, or a Codex subscription's; it bills at a multiple of the standard rate, or uses
 	 * more of a subscription's allowance). `true` is the fast tier; the faster `ultrafast` tier is
-	 * never saved and is asked for inside a conversation with `/fast ultrafast`. `--fast` and
+	 * never saved and is asked for inside a conversation with `/ultrafast`. `--fast` and
 	 * `/fast` still work; a model that cannot take it leaves fast mode off, with a message. Absent
 	 * means off. Read from the user and managed files only.
 	 */

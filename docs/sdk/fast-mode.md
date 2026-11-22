@@ -98,7 +98,9 @@ understates. Any other model has no stated figure and the terminal gives none.
 
 ## In the terminal
 
-`/fast`, `/fast on`, `/fast off` and `/fast ultrafast`, `--fast` and the saved
+`/fast [on|off]`, `/ultrafast [on|off]`, `--fast` and the saved
 `fast` setting are described in [Slash commands](../cli/slash-commands.md) and
 [Launch flags](../cli/launch-flags.md). `--fast` and the saved setting mean the
-fast tier; ultrafast is never saved and has no launch flag.
+fast tier; ultrafast is never saved and has no launch flag. Each command is listed in the
+command menu only while the selected model offers its tier (typed anyway, it
+answers with the reason), and `/help` always lists both.

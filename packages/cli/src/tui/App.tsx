@@ -861,6 +861,7 @@ import {
 	commitReviewPrompt,
 	hostCommandNames,
 	kernelCommandDescriptors,
+	listedCommands,
 	mergeHostCommands,
 	parseSlash,
 	renderOutcome,
@@ -2119,6 +2120,50 @@ function AppBody({
 				? 'saved'
 				: undefined,
 	)
+	// What the current provider and model offer, kept in step with them for the
+	// command menu: the tiers on offer, and why a missing one is not.
+	const [speedView, setSpeedView] = useState<{
+		readonly tiers: readonly FastTier[]
+		readonly reasons: Partial<Record<FastTier, string>>
+	}>({ tiers: [], reasons: {} })
+	// Recomputed whenever the session (so the provider or model) changes, and
+	// again once the Codex model listing has arrived. While the listing is
+	// unknown the faster tier is left out; fast mode alone is judged without it.
+	useEffect(() => {
+		if (!session?.hasProvider) {
+			setSpeedView({ tiers: [], reasons: {} })
+			return
+		}
+		let current = true
+		const compute = async (): Promise<void> => {
+			const model = session.modelSummary
+			const advertised = model ? session.speedTiersFor?.(model) : undefined
+			const unknown = session.providerId === 'codex' && advertised === undefined
+			const tiers: FastTier[] = []
+			const reasons: Partial<Record<FastTier, string>> = {}
+			for (const tier of ['fast', 'ultrafast'] as const) {
+				if (tier === 'ultrafast' && unknown) {
+					reasons.ultrafast =
+						'Ultrafast needs the list of models your Codex subscription offers, which has not loaded yet. Try again in a moment.'
+					continue
+				}
+				const verdict = await fastModeVerdict(session.providerId, model, {
+					tier,
+					...(advertised !== undefined ? { advertised } : {}),
+				})
+				if (verdict.ok) tiers.push(tier)
+				else reasons[tier] = verdict.reason
+			}
+			if (current) setSpeedView({ tiers, reasons })
+		}
+		void compute()
+		if (session.providerId === 'codex' && session.reasoningSettled) {
+			void session.reasoningSettled.then(() => compute()).catch(() => undefined)
+		}
+		return () => {
+			current = false
+		}
+	}, [session])
 	const setFastMode = useCallback((next: FastTier | undefined) => {
 		fastModeRef.current = next
 		setFastModeState(next)
@@ -5230,24 +5275,30 @@ function AppBody({
 	}, [initialCtx, pushMessage])
 
 	/**
-	 * Turn fast inference on or off for this conversation, or ask for the tier
-	 * above it. Turning it on is refused, with the reason, when the provider,
-	 * endpoint or model cannot take it; it is never saved. `toggle` turns it on
-	 * when it is off, and off when either tier is on.
+	 * `/fast` and `/ultrafast`: turn a tier on or off for this conversation.
+	 * Turning one on is refused, with the reason, when the provider, endpoint or
+	 * model cannot take it; it is never saved. `toggle` flips the command's own
+	 * tier, so `/fast` on ultrafast switches to fast.
 	 */
 	const applyFastMode = useCallback(
-		async (mode: 'toggle' | 'off' | 'fast' | 'ultrafast'): Promise<void> => {
+		async (tier: FastTier, mode: 'toggle' | 'on' | 'off'): Promise<void> => {
 			if (!session?.hasProvider) {
 				pushMessage('system', 'No model is connected yet — pick a provider with /model first.')
 				return
 			}
-			const wanted = requestedFastTier(fastModeRef.current, mode)
+			const wanted = requestedFastTier(fastModeRef.current, tier, mode)
 			if (wanted === undefined) {
-				if (!fastModeRef.current) pushMessage('system', 'Fast mode is off.')
-				else {
+				if (fastModeRef.current !== tier) {
+					pushMessage('system', tier === 'fast' ? 'Fast mode is off.' : 'Ultrafast is off.')
+				} else {
 					setFastMode(undefined)
 					pushMessage('system', fastOffMessage())
 				}
+				return
+			}
+			if (wanted === fastModeRef.current) {
+				// `off` of the other tier: nothing changes.
+				pushMessage('system', tier === 'fast' ? 'Fast mode is off.' : 'Ultrafast is off.')
 				return
 			}
 			const verdict = await fastModeVerdict(
@@ -7977,6 +8028,8 @@ function AppBody({
 
 	const slashCtx: SlashContext = {
 		cwd: ctx.cwd,
+		speedTiers: () => speedView.tiers,
+		speedTierRefusal: (tier) => (session?.hasProvider ? speedView.reasons[tier] : undefined),
 		jobs: () => session?.jobs?.() ?? [],
 		timers: () => scheduleRef.current?.timers.list() ?? [],
 		hooks: () => session?.hooks,
@@ -15903,7 +15956,7 @@ function AppBody({
 						return
 					}
 					case 'fast-mode': {
-						void applyFastMode(slash.mode)
+						void applyFastMode(slash.tier, slash.mode)
 						return
 					}
 					case 'hypermode': {
@@ -19379,7 +19432,7 @@ function AppBody({
 										onStopAllAgents={requestStopAllAgents}
 										railFocused={railFocus !== null}
 										userCommands={userCommands}
-										builtins={hostCommands.map((command) => ({
+										builtins={listedCommands(hostCommands, slashCtx).map((command) => ({
 											...command,
 											description: command.unavailable?.(slashCtx) ?? command.description,
 										}))}
