@@ -27,6 +27,29 @@ function host(overrides: Partial<CommandToolHost> = {}) {
 }
 
 describe('the command tool', () => {
+	it('does not say a command ran when it printed nothing', async () => {
+		const { tool } = host({ run: async () => ({ kind: 'ran', output: '' }) })
+		const result = await tool.execute({ name: 'schedule', args: ['remove', 'x'] }, context())
+		expect(result.output).not.toMatch(/^Ran /u)
+		expect(result.output).toMatch(/may not have changed anything/u)
+		expect(result.data).toMatchObject({ status: 'no-output' })
+	})
+
+	it('reports a refusal from the terminal as not run', async () => {
+		const { tool } = host({
+			run: async () => ({ kind: 'refused', reason: 'Usage: /raw [on|off]' }),
+		})
+		const result = await tool.execute({ name: 'raw', args: ['maybe'] }, context())
+		expect(result.success).toBe(false)
+		expect(result.error).toContain('was not run')
+	})
+
+	it('lists the form to give and does not offer skills as a command to use', () => {
+		const text = renderCommandListing(builtinCommandCatalogue())
+		expect(text).toContain('Give the form')
+		expect(text).not.toContain('use a skill')
+	})
+
 	it('refuses a never command without asking, naming it, and does not run it', async () => {
 		const { run, tool } = host()
 		const input = { name: 'login', args: ['codex'] }

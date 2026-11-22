@@ -32,14 +32,9 @@ describe('what the model may do with each slash command', () => {
 				'help',
 				'hooks',
 				'mcp',
-				'raw',
 				'release notes',
-				'rename',
 				'status',
 				'tasks',
-				'theme',
-				'tui',
-				'vim',
 				'workflows',
 			].sort(),
 		)
@@ -64,7 +59,9 @@ describe('what the model may do with each slash command', () => {
 				'new',
 				'orchestrate',
 				'plan',
+				'raw',
 				'recap',
+				'rename',
 				'restore',
 				'resume',
 				'review',
@@ -72,8 +69,11 @@ describe('what the model may do with each slash command', () => {
 				'run',
 				'schedule',
 				'skills',
+				'theme',
+				'tui',
 				'ultrafast',
 				'undo',
+				'vim',
 				'worktree',
 			].sort(),
 		)
@@ -131,6 +131,16 @@ describe('what the model may do with each slash command', () => {
 		expect(of('effort', 'high')).toBe('confirm')
 		expect(of('model')).toBe('never')
 		expect(of('model', 'x')).toBe('confirm')
+		expect(of('tui')).toBe('run')
+		expect(of('tui', 'fullscreen')).toBe('confirm')
+		expect(of('theme')).toBe('run')
+		expect(of('theme', 'light')).toBe('confirm')
+		expect(of('vim', 'on')).toBe('confirm')
+		expect(of('vim')).toBe('confirm')
+		expect(of('raw', 'on')).toBe('confirm')
+		expect(of('rename', 'x')).toBe('confirm')
+		expect(of('rename', 'clear')).toBe('confirm')
+		expect(of('rename')).toBe('never')
 	})
 
 	it('treats a command that declares nothing as never', () => {

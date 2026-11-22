@@ -1293,7 +1293,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'rename',
-		modelRun: 'run',
+		modelRun: byForm('confirm', (args) => (args.length === 0 ? 'never' : 'confirm')),
 		immediate: true,
 		help: { usage: ['/rename [name]', '/rename clear'] },
 		description:
@@ -1696,7 +1696,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'vim',
-		modelRun: 'run',
+		modelRun: 'confirm',
 		immediate: true,
 		help: {
 			usage: ['/vim [on|off]'],
@@ -1714,7 +1714,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'tui',
-		modelRun: 'run',
+		modelRun: byForm('confirm', (args) => (args.length === 0 ? 'run' : 'confirm')),
 		immediate: true,
 		help: {
 			usage: ['/tui [default|fullscreen]'],
@@ -1901,7 +1901,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'raw',
-		modelRun: 'run',
+		modelRun: 'confirm',
 		immediate: true,
 		help: { usage: ['/raw [on|off]'] },
 		description: 'Toggle copy-friendly plain transcript rendering: /raw [on|off].',
@@ -2027,7 +2027,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'theme',
-		modelRun: 'run',
+		modelRun: byForm('confirm', (args) => (args.length === 0 ? 'run' : 'confirm')),
 		immediate: true,
 		help: {
 			usage: ['/theme [auto|dark|light|dark-daltonized|light-daltonized|dark-ansi|light-ansi]'],

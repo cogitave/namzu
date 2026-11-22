@@ -488,3 +488,11 @@ describe('the reminder texts', () => {
 		expect(full).toContain('cannot be answered in the approval screen')
 	})
 })
+
+describe('the command sentence in the identity prompt', () => {
+	it('tells the model to run the person’s commands when asked and not to claim a refused one ran', async () => {
+		const { NAMZU_IDENTITY } = await import('../identity.js')
+		expect(NAMZU_IDENTITY).toMatch(/asked to run a Namzu command, use `command`/u)
+		expect(NAMZU_IDENTITY).toMatch(/was refused/u)
+	})
+})

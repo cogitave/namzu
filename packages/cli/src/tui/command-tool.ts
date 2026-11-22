@@ -142,7 +142,7 @@ const COMMAND_BLURBS: Readonly<Record<string, string>> = {
 	rewind: 'undo changes',
 	restore: 'restore files',
 	memory: 'saved notes',
-	skills: 'use a skill',
+	skills: 'skill list',
 	resume: 'continue reply',
 	abandon: 'drop paused reply',
 	model: 'switch model',
@@ -159,7 +159,7 @@ const COMMAND_BLURBS: Readonly<Record<string, string>> = {
 }
 
 const LISTING_HEAD =
-	'Runs the person’s Namzu commands when they ask in words, e.g. {name:"goal",args:["write","the","changelog"]}: the command word and its words as typed. Say one ran only after the result says so.'
+	'Runs the person’s Namzu commands when they ask in words, e.g. {name:"goal",args:["write","the","changelog"]}: the command word and its words as typed. Say one ran only after the result says so. Give the form, e.g. tasks list, goal status; a bare /tasks, /goal, /model, /memory or /skills opens a screen and is refused.'
 
 /**
  * The listing the tool description carries, generated from the catalogue so it
@@ -377,8 +377,8 @@ export function buildCommandTool(
 				success: true,
 				output: printed
 					? `Ran ${resolved.line}. It showed the person: ${printed.length > COMMAND_OUTPUT_LIMIT ? `${printed.slice(0, COMMAND_OUTPUT_LIMIT)}…` : printed}`
-					: `Ran ${resolved.line}. Its output is shown to the person.`,
-				data: { status: 'ran', command: resolved.line },
+					: `${resolved.line} finished and printed nothing, so it may not have changed anything (the person may have declined its question). Do not say it did what it was for; check with a read form first.`,
+				data: { status: printed ? 'ran' : 'no-output', command: resolved.line },
 			}
 		},
 	})

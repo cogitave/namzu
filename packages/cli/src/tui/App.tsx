@@ -3233,6 +3233,8 @@ function AppBody({
 	}).current
 	/** What a command run for the model printed, while one is running. */
 	const commandCaptureRef = useRef<string[] | null>(null)
+	/** Why a command run for the model was turned away before it reached its action. */
+	const commandRefusalRef = useRef<string | null>(null)
 	/** The host-command a submit just started, so the tool can wait for its answer. */
 	const hostCommandSettledRef = useRef<Promise<void> | null>(null)
 	const [modelSwitchVersion, setModelSwitchVersion] = useState(0)
@@ -13872,17 +13874,17 @@ function AppBody({
 			meta: SubmitMeta,
 		) => {
 			if (goalCommandInFlightRef.current) {
-				pushMessage(
-					'system',
-					'A goal command is still being saved. Wait for it to finish before sending another command or prompt.',
-				)
+				const text =
+					'A goal command is still being saved. Wait for it to finish before sending another command or prompt.'
+				if (commandCaptureRef.current) commandRefusalRef.current = text
+				pushMessage('system', text)
 				return
 			}
 			if (exportingRef.current) {
-				pushMessage(
-					'system',
-					'A verified conversation export is still being written. Wait for its result before sending another command or prompt.',
-				)
+				const text =
+					'A verified conversation export is still being written. Wait for its result before sending another command or prompt.'
+				if (commandCaptureRef.current) commandRefusalRef.current = text
+				pushMessage('system', text)
 				return
 			}
 			if (conversationMutationRef.current) {
@@ -13896,10 +13898,9 @@ function AppBody({
 								: conversationMutationRef.current === 'materialize'
 									? 'initialized'
 									: 'moved to a fresh conversation'
-				pushMessage(
-					'system',
-					`Conversation history is being ${operation}. Wait for it to finish before sending another command or prompt.`,
-				)
+				const text = `Conversation history is being ${operation}. Wait for it to finish before sending another command or prompt.`
+				if (commandCaptureRef.current) commandRefusalRef.current = text
+				pushMessage('system', text)
 				return
 			}
 			// An agent is on screen: what is typed goes to it, not to the conversation.
@@ -14149,6 +14150,10 @@ function AppBody({
 			if (slash) {
 				switch (slash.kind) {
 					case 'message':
+						// A usage line is the command turned away, not a result.
+						if (commandCaptureRef.current && slash.content.startsWith('Usage:')) {
+							commandRefusalRef.current = slash.content
+						}
 						// The command as typed, then its answer hung under `⎿`, so a readout
 						// in the scrollback says which command it answers. A system row, not
 						// a user one: it is not a prompt and must not be offered for editing.
@@ -15433,7 +15438,12 @@ function AppBody({
 					case 'none':
 						return
 					case 'host-command': {
-						if (scheduleRef.current?.handleSlash(slash.name, slash.args)) return
+						const scheduleSettled = scheduleRef.current?.handleSlash(slash.name, slash.args)
+						if (scheduleSettled) {
+							// The tool waits for the command to finish, as for the others.
+							hostCommandSettledRef.current = scheduleSettled
+							return
+						}
 						// Dispatched through the kernel's registry, built with what
 						// THIS session can answer from. The descriptors used for
 						// the merge above carry no store — they are names — so the
@@ -16165,14 +16175,19 @@ function AppBody({
 			}
 			const captured: string[] = []
 			commandCaptureRef.current = captured
+			commandRefusalRef.current = null
 			hostCommandSettledRef.current = null
+			let refusal: string | null = null
 			try {
 				handleSubmitRef.current?.(line, undefined, 'submit', { source: 'queued-command' })
 				await hostCommandSettledRef.current
+				refusal = commandRefusalRef.current
 			} finally {
 				commandCaptureRef.current = null
+				commandRefusalRef.current = null
 				hostCommandSettledRef.current = null
 			}
+			if (refusal !== null) return { kind: 'refused', reason: refusal }
 			return { kind: 'ran', output: captured.join('\n') }
 		},
 	}

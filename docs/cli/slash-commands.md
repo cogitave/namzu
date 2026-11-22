@@ -181,17 +181,18 @@ built-in or from the kernel, declares no class.
 
 | Class | What happens | Commands |
 |---|---|---|
-| `run` | The model runs it at once and the answer is shown as if you had typed it. | `help`, `status`, `cost`, `context`, `doctor`, `release notes`, `hooks`, `diff`, `workflows`, `tasks list`, `mcp` (not its prompt and resource forms), `theme`, `vim`, `tui`, `raw`, `copy`, `rename`, and the read forms below |
-| `confirm` | You are asked first, with the exact line (“Do you want to run /goal write the changelog?”). On no, nothing runs. | `goal`, `schedule`, `loop`, `fast`, `ultrafast`, `effort`, `hypermode`, `orchestrate`, `model`, `plan`, `compact`, `clear`, `new`, `branch`, `fork`, `worktree`, `rewind`, `undo`, `checkpoint`, `restore`, `memory`, `skills`, `resume`, `abandon`, `review`, `init`, `run`, `export`, `recap`, `btw` |
+| `run` | The model runs it at once and the answer is shown as if you had typed it. | `help`, `status`, `cost`, `context`, `doctor`, `release notes`, `hooks`, `diff`, `workflows`, `tasks list`, `mcp` (not its prompt and resource forms), `copy`, and the read forms below |
+| `confirm` | You are asked first, with the exact line (“Do you want to run /goal write the changelog?”). On no, nothing runs. | `goal`, `schedule`, `loop`, `fast`, `ultrafast`, `effort`, `hypermode`, `orchestrate`, `model`, `plan`, `compact`, `clear`, `new`, `branch`, `fork`, `worktree`, `rewind`, `undo`, `checkpoint`, `restore`, `memory`, `skills`, `resume`, `abandon`, `review`, `init`, `run`, `export`, `recap`, `btw`, `theme`, `tui`, `vim`, `raw`, `rename` |
 | `never` | The model does not run it and does not ask. It tells you to type the command yourself, naming it. | `setup`, `config`, `settings`, `peers`, `browser`, `feedback`, `archive`, `unarchive`, `exit`, `add dir`, `plugins`, `login`, `auth`, `logout`, `terminal setup`, `permissions` |
 
 A command that both reads and changes takes the class of the form that was
 asked for. These read forms run without asking: `/goal status`, `/schedule` and
 `/schedule list`, `/loop list`, `/memory show` and `/memory list`, `/skills list`,
-`/effort` with no level. The changing forms ask: `/goal <objective>`,
+`/effort` with no level, `/tui` and `/theme` with no argument. The changing forms ask, and so do `/tui fullscreen`, `/theme light`, `/vim`, `/raw` and `/rename <name>` or `/rename clear`: `/goal <objective>`,
 `/goal pause`, `/schedule add ...`, `/schedule run <job>`, `/loop <interval> ...`,
 `/memory add ...`, `/effort high`. A form that only opens a screen for you (bare
-`/goal`, `/model`, `/memory`, `/skills`, `/tasks`) is `never`.
+`/goal`, `/model`, `/memory`, `/skills`, `/tasks`, `/rename`) is `never`; the
+tool's description says to give the form, for example `tasks list`.
 
 The tool takes the command word and its argument words exactly as you would
 type them after the slash, with no aliases: `{ "name": "goal", "args": ["write",
@@ -209,7 +210,7 @@ command that ends or replaces the conversation, or moves it to another model
 `checkpoint`, `restore`, `compact`, `worktree`, `model`), is queued and runs
 when the current reply is over, in order, as if you had typed it then; the tool
 result says so. The result also tells the model, in a line or two, what the
-command printed, so it only says a command ran after the tool did.
+command printed, so it only says a command ran after the tool did. `/schedule` and `/loop` finish before the result goes back. A command turned away before it reached its action (a usage line, or another command still being saved) comes back as not run, and one that printed nothing comes back as possibly having changed nothing, never as "Ran".
 
 ## Settings and model changes
 
