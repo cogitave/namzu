@@ -105,6 +105,24 @@ process.env.TMPDIR = canonicalTemporaryRoot
 process.env.TMP = canonicalTemporaryRoot
 process.env.TEMP = canonicalTemporaryRoot
 
+// The terminal the suite happens to be started from must not decide what a
+// test sees. Colour depth and link support are read from these variables
+// (`tui/theme.ts`, `tui/terminal-hyperlinks.ts`): a run inside a terminal that
+// sets `WT_SESSION` or `COLORTERM=truecolor` turned a 256-colour expectation
+// into a 24-bit one, while CI, which sets none of them, passed. A test that
+// needs one stubs it itself with `vi.stubEnv`.
+for (const name of [
+	'WT_SESSION',
+	'WT_PROFILE_ID',
+	'COLORTERM',
+	'TERM_PROGRAM',
+	'TERM_PROGRAM_VERSION',
+	'VTE_VERSION',
+	'KONSOLE_VERSION',
+]) {
+	delete process.env[name]
+}
+
 if (process.env.NAMZU_LOG_LEVEL === undefined) {
 	process.env.NAMZU_LOG_LEVEL = 'silent'
 }
