@@ -1,5 +1,11 @@
 # Changelog
 
+## 7.2.1
+
+### Patch Changes
+
+- 109d0fc: A request with `speed: 'ultrafast'` is now refused before it is sent, with a `bad_request` `ProviderRequestError` whose `providerCode` is `fast_mode_unsupported`, instead of being sent at standard speed. Ultrafast is not an Anthropic mode; use `speed: 'fast'` on a model that offers it, or leave `speed` out.
+
 ## 7.2.0
 
 ### Minor Changes

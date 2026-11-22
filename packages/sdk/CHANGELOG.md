@@ -1,5 +1,19 @@
 # Changelog
 
+## 68.0.0
+
+### Major Changes
+
+- 109d0fc: `InferenceSpeed` and `TokenUsage.speed` gain the value `'ultrafast'`, so a `switch` over either that must be exhaustive stops compiling until it has an `'ultrafast'` case; add one (a driver that has no such tier refuses it, so most callers can treat it like `'fast'` for display and refuse it for pricing). Cost reading changed too: a call served at `'ultrafast'`, and tokens served on the `flex` or `scale` service tier, are now counted as unpriced (like `priority` and `batch`) instead of being charged at the standard rate, so `costLimitUsd` refuses rather than under-counts them. New and optional: `ModelInfo.speedTiers` and `LLMProvider.speedTiersFor(model)` name the speed tiers a listing established for a model (`undefined` unknown, `[]` none), and the retry, idle-timeout, fallback and window-suffix wrappers pass the method through. The model price catalogue gains `fastMultiplier` on six OpenAI rows (`gpt-5.5` is 2.5, `gpt-5.4`, `gpt-5.4-mini` and the three `gpt-5.6` models are 2); the `gpt-6` models have no row, so their fast usage reports unknown.
+
+### Minor Changes
+
+- 431e297: Session goals can be stopped by what they do instead of by a count of rounds, and a completion report can carry evidence. Nothing changes for a host that passes none of the new fields: `DEFAULT_MAX_GOAL_ROUNDS` is still 256 and no stop rule is applied.
+
+  New and optional: `CreateSessionGoalParams.guards` (`stallRounds`, `checkInEvery`, `tokenBudget`); `SessionGoalStore.recordRound` (counts a finished round's tokens, cost, progress and failure, and blocks the goal as `no-progress` or `repeated-failure`); `admitRound` pausing a goal for a check-in (`GoalCheckInError`), giving one last round at the token budget and then blocking it (`GoalBudgetLimitError`); `resumeGoal` taking raised limits and replacing the stored stop rules with the ones it is given, without resetting the round count; `GoalConfirmationOptions.requireEvidence`, `judge` and `judgeActive` with `GoalEvidence`, `GoalJudge` and `parseGoalEvidence`; `update_goal` accepting an `evidence` list; `TurnConfig.outcome.beforeEnd` receiving `{ finalMessage }` as a second argument; and the `/goal set` options `--token-budget` and `--max-rounds` with `GoalCommandScope.defaults`. `/goal status` now prints `Automatic turns: N, up to M` with `Tokens` and `Cost` lines instead of `N / M`.
+
+- 266aa39: `HostCommandDescriptor` gains two optional fields, `modelRun` (`'run' | 'confirm' | 'never'`) and `modelRunReads`, and the type `HostCommandModelRun` is exported. A host that lets the model run commands for the person reads them: `run` goes ahead, `confirm` asks the person first, `never` is refused. A command that declares nothing is `never`, so nothing changes for existing commands. The kernel's `goal` command is `confirm` with `/goal` and `/goal status` as read forms; `skills` and `agents` are `run`.
+
 ## 67.0.0
 
 ### Major Changes

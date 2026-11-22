@@ -1,5 +1,41 @@
 # @namzu/cli
 
+## 56.0.0
+
+### Major Changes
+
+- 431e297: A goal no longer stops after a fixed 256 automatic turns, and it can no longer be completed by a bare report.
+
+  What changes: a goal now stops when 3 automatic turns in a row change and check nothing, or when the same check fails in 3 turns in a row; it pauses for a check-in every 50 automatic turns; it runs up to 1000 turns; and `update_goal complete` needs an `evidence` list with one entry per requirement. With the decision model on, a small model checks the report and sends back what is missing; with it off, the first report of a goal is handed back once for a self-audit.
+
+  To keep a goal going: run `/goal resume` after a check-in or a stop (a check-in resumes with no count reset); raise `goal.maxRounds` for the backstop (a resume takes the larger value); set `goal.checkInEvery` to `0` for no check-ins (a `/goal resume` applies it to a goal that already exists); set `goal.stallRounds` higher for more patience. New settings `goal.tokenBudget` (none by default; one last turn is given at the budget) and `goal.judgeModel`, and `/goal set --token-budget <n> --max-rounds <n>`. The decision point `goal` (on once a decision model is connected, `goal: off` to switch it off) controls the check of the report. `/goal status` and the line that starts each round show automatic turns, tokens and cost; the words "Up to 256 automatic replies" are gone from the goal editor.
+
+- 109d0fc: Fast mode now works on OpenAI models, so a saved `fast: true` now also takes effect on OpenAI models that offer fast mode (an API key on a listed model, or a Codex subscription model whose account lists a fast tier), where it used to be reported as not applied. That costs more on an API key (a multiple of the standard rate, 2.5 times on `gpt-5.5`) and uses more of your plan allowance on a subscription. To keep the old behaviour, remove `fast` from your config file or set it to `false`; `--fast` and `/fast` still start from off. Applying it at launch now says what it costs in one line. New: `/ultrafast` asks for the faster tier on the Codex subscription models whose account lists it, for that conversation only (it is never saved and has no launch flag; `--fast` stays a flag with no value); the footer shows `ultrafast`; `/fast` turns fast mode on, off when it is on, and switches ultrafast to fast, and `/ultrafast` does the same for its tier. Both only toggle: `/fast on` and `/fast off` are gone and answer with the usage line `Usage: /fast`, so type `/fast` alone to switch it. Each command shows in the command menu only on a model that offers the tier (typed anyway, it answers with the reason, and `/help` lists both). A model change keeps the mode only when the new model offers the tier on now, and otherwise turns it off with the reason. Any other provider is still refused, now with "Fast mode is available on Anthropic and OpenAI models only."
+
+### Minor Changes
+
+- 266aa39: You can ask for your Namzu commands in words. "Set a goal: write the changelog" or "turn on fast mode" now makes the model run `/goal` or `/fast` for you through a new `command` tool, in the interactive terminal only (not delegated agents, scheduled runs or headless runs). Each slash command declares what the model may do with it: read forms run at once, changing forms ask you first with the exact line (answer no and nothing runs), and commands such as `/login`, `/config`, `/settings`, `/peers`, `/plugins`, `/permissions` and `/exit` are never run by the model, which tells you to type them. Commands that end or replace the conversation run after the reply ends.
+
+  Behaviour change: the model's `switch_model` tool now asks you to approve each model change. Before, a request in chat switched the model with no question. Nothing is needed to keep the new behaviour; to switch without being asked, type `/model <model>` yourself.
+
+- 2c90bd2: A scheduler service can be stopped, started and inspected by name from any shell. `namzu schedule service install --name <name>` now records the service and the home it serves in `~/.namzu/schedule/services.json`, and `namzu schedule service status|start|stop|logs|uninstall <name>` (new optional name) and `--service <name>` on the job commands act on that service's home without setting `NAMZU_HOME`. New: `namzu schedule service list [--json]`. Install now refuses a `--name` that is already recorded for a different home; uninstall the other service or pick another name. Nothing existing changes: without a name every command acts on the current `NAMZU_HOME` as before.
+
+### Patch Changes
+
+- Updated dependencies [109d0fc]
+- Updated dependencies [109d0fc]
+- Updated dependencies [431e297]
+- Updated dependencies [266aa39]
+- Updated dependencies [109d0fc]
+  - @namzu/anthropic@7.2.1
+  - @namzu/openai@4.6.0
+  - @namzu/sdk@68.0.0
+  - @namzu/browser@3.0.0
+  - @namzu/computer-use@4.4.0
+  - @namzu/ollama@2.4.0
+  - @namzu/openrouter@3.3.0
+  - @namzu/sandbox@43.0.0
+
 ## 55.0.0
 
 ### Major Changes
