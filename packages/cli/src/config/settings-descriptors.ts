@@ -1517,7 +1517,7 @@ const DECLARED: readonly SettingDescriptor[] = [
 		'goal.maxRounds',
 		'agent',
 		'Most automatic turns per goal',
-		'The most automatic turns one goal may take before it stops. This is a safety limit: a goal normally ends when it is done, gets stuck, or reaches a check-in. A stopped goal goes on with /goal resume.',
+		'The most automatic turns one goal may take before it stops. This is a safety limit: a goal normally ends when it is done, gets stuck, or reaches a check-in if you turned them on. A stopped goal goes on with /goal resume.',
 		num(1, undefined, 'turns'),
 		{
 			group: 'helpers-workflows',
@@ -1529,15 +1529,12 @@ const DECLARED: readonly SettingDescriptor[] = [
 		'goal.checkInEvery',
 		'agent',
 		'Check in during a goal every',
-		'A goal pauses after this many automatic turns and tells you what it has used so far. /goal resume carries on without starting the count again. 0 turns check-ins off.',
+		'A goal pauses after this many automatic turns and tells you what it has used so far. /goal resume carries on without starting the count again. 0, the default, turns check-ins off.',
 		num(0, undefined, 'turns'),
 		{
 			group: 'helpers-workflows',
 			keywords: ['goal check-in', 'pause goal', 'checkInEvery'],
-			default: 50,
-			confirm:
-				'With check-ins off, a goal runs until it ends, gets stuck or reaches its turn limit.',
-			confirmWhen: 'zero',
+			default: 0,
 		},
 	),
 	d(

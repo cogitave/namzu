@@ -43,6 +43,7 @@ import { launchdLabel, launchdPlist } from '../service/launchd.js'
 import { type ServicePlatform, readManifest } from '../service/manifest.js'
 import { checkServiceName, defaultServiceName } from '../service/names.js'
 import {
+	displayName,
 	nameClash,
 	readServiceIndexChecked,
 	recordService,
@@ -438,7 +439,7 @@ export async function listCommand(ctx: CommandContext, argv: readonly string[]):
 		} catch {
 			state = 'missing'
 		}
-		rows.push({ name: entry.name, home: entry.home, platform: entry.platform, state })
+		rows.push({ name: displayName(entry), home: entry.home, platform: entry.platform, state })
 	}
 	if (has(args, 'json') || ctx.formatter.name !== 'text') {
 		const payload = { v: 1, services: rows, ...(index.problem ? { error: index.problem } : {}) }
