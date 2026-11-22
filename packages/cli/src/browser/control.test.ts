@@ -23,7 +23,19 @@ class FakeHost {
 	async dispose() {
 		disposed.push(this.profile)
 	}
+	async peekHumanRequired() {
+		return 'cleared' as const
+	}
 }
+
+describe('BrowserControl.peekSignIn', () => {
+	it('asks the current host, and says unknown once closed', async () => {
+		const control = createBrowserControl(FakeHost as never, { profile: 'work' })
+		expect(await control.peekSignIn()).toBe('cleared')
+		await control.dispose()
+		expect(await control.peekSignIn()).toBe('unknown')
+	})
+})
 
 describe('BrowserControl.runAs', () => {
 	it('runs under the job’s profile and sites, then puts the session’s back', async () => {

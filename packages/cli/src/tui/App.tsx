@@ -859,6 +859,7 @@ import {
 	runShellEscape,
 	shellEscapeCommand,
 } from './shell-escape.js'
+import { SIGNIN_AUTO_RESUME_CAP, SIGNIN_WATCH_MS, startSignInWatch } from './sign-in-watch.js'
 import {
 	type CommandPickerEntry,
 	type SlashContext,
@@ -2757,6 +2758,15 @@ function AppBody({
 	}, [])
 	/** How many tries a paused reply has made by itself since the person last acted. */
 	const autoResumeAttemptRef = useRef(0)
+	// Continues a sign-in watch made by itself since the person last acted, and
+	// the pause whose watch ran out (so it is not started again).
+	const signInAutoResumesRef = useRef(0)
+	const signInWatchGaveUpRef = useRef<string | null>(null)
+	const signInWatchStartRef = useRef<{ turnId: string; at: number } | null>(null)
+	// A tool paused this conversation for a person and the pause has not been
+	// answered or stopped since: Enter on an empty composer tries it even when
+	// the on-screen pause was lost.
+	const pausedTurnMayBeWaitingRef = useRef(false)
 	/**
 	 * The row that says a reply is paused while it mends itself. Every failed try
 	 * rewrites this one row instead of adding another; it is forgotten when the
@@ -8218,12 +8228,14 @@ function AppBody({
 					return
 				}
 				await session.abandonTurn(active.turnId as TurnId, reason)
+				setHandoffPark(null)
+				pausedTurnMayBeWaitingRef.current = false
 				pushMessage('system', PAUSED_TURN_LINES.abandoned)
 			} catch (err) {
 				pushSystem('error', explainFailure(err, 'Couldn’t stop the paused reply.'))
 			}
 		},
-		[pushMessage, session, state, pushSystem],
+		[pushMessage, session, state, pushSystem, setHandoffPark],
 	)
 
 	/**
@@ -8237,16 +8249,26 @@ function AppBody({
 		async (resume?: {
 			/** Continuing a turn a tool paused for a person: what the tool asked for. */
 			readonly handoffReason?: string | undefined
+			/** What the person typed while the turn waited: the model reads it as theirs and answers it first. */
+			readonly operatorNote?: string | undefined
 			/** A try the schedule made by itself: it adds no line of its own to the transcript. */
 			readonly automatic?: boolean
+			/** Say why in the transcript when there is nothing to continue, instead of returning false quietly. */
+			readonly explain?: boolean
 		}): Promise<boolean> => {
 			const sessions = sessionsRef.current
 			const scope = scopeRef.current
-			if (!sessions || !scope || !conversationMaterializedRef.current || !session?.hasProvider)
+			if (!sessions || !scope || !conversationMaterializedRef.current || !session?.hasProvider) {
+				if (resume?.explain)
+					pushMessage('system', 'Nothing to continue here: this conversation has no reply yet.')
 				return false
+			}
 			const resumedSessionId = scope.sessionId
 			const active = await activeConversationTurn(sessions, resumedSessionId).catch(() => undefined)
-			if (!active) return false
+			if (!active) {
+				if (resume?.explain) pushMessage('system', 'Nothing to continue here: no reply is paused.')
+				return false
+			}
 			if (abortRef.current || state !== 'idle') {
 				pushMessage(
 					'system',
@@ -8273,6 +8295,7 @@ function AppBody({
 				return true
 			}
 			setHandoffPark(null)
+			pausedTurnMayBeWaitingRef.current = false
 			const ac = new AbortController()
 			abortRef.current = ac
 			replyCutOffRef.current = false
@@ -8345,7 +8368,12 @@ function AppBody({
 								extraSystem: composeSkillsPrompt(activeSkills) || undefined,
 								...(resume?.handoffReason
 									? {
-											systemNote: handoffContinuationNote(resume.handoffReason),
+											systemNote: handoffContinuationNote(
+												resume.handoffReason,
+												undefined,
+												undefined,
+												resume.operatorNote,
+											),
 										}
 									: {}),
 							}),
@@ -8465,6 +8493,68 @@ function AppBody({
 		const timer = setInterval(() => setAutoResumeTick((n) => n + 1), 1_000)
 		return () => clearInterval(timer)
 	}, [autoResumeAt])
+
+	// A turn the browser paused for a sign-in goes on by itself once the open
+	// window stops asking. The watch only looks at the page (no clicks, no
+	// typing, no cookies), runs while a window is visible, stops when the
+	// person acts (the park clears), and gives up after ten minutes.
+	// Each pause is its own object, so a pause that comes back starts a fresh watch.
+	const signInPark = handoffPark?.browserSignIn ? handoffPark : undefined
+	const signInWatchTurn = signInPark?.turnId
+	const signInWatchOn = ctx.browser?.signInWatch !== false
+	// Read at call time, so a change in either does not restart the watch and its ten minutes.
+	const resumeActiveTurnRef = useRef(resumeActiveTurn)
+	resumeActiveTurnRef.current = resumeActiveTurn
+	const pushMessageRef = useRef(pushMessage)
+	pushMessageRef.current = pushMessage
+	// biome-ignore lint/correctness/useExhaustiveDependencies: `signInPark` is not read inside; a new pause object is what restarts the watch.
+	useEffect(() => {
+		if (signInWatchTurn === undefined) signInWatchStartRef.current = null
+		if (signInWatchTurn === undefined || !signInWatchOn) return
+		if (signInWatchGaveUpRef.current === signInWatchTurn) return
+		if (phase !== 'ready' || state !== 'idle') return
+		const control = browserControlRef.current
+		if (!control || control.status().headless) return
+		// A restart (the screen was busy for a moment) keeps the time already spent.
+		const startedAt =
+			signInWatchStartRef.current?.turnId === signInWatchTurn
+				? signInWatchStartRef.current.at
+				: Date.now()
+		signInWatchStartRef.current = { turnId: signInWatchTurn, at: startedAt }
+		const remaining = SIGNIN_WATCH_MS - (Date.now() - startedAt)
+		if (remaining <= 0) return
+		return startSignInWatch({
+			watchMs: remaining,
+			peek: () => control.peekSignIn(),
+			ready: () =>
+				handoffParkRef.current?.turnId === signInWatchTurn &&
+				!composerHasDraftRef.current &&
+				!abortRef.current,
+			onTimeout: () => {
+				if (handoffParkRef.current?.turnId !== signInWatchTurn) return
+				signInWatchGaveUpRef.current = signInWatchTurn
+				pushMessageRef.current(
+					'system',
+					'Still waiting for you to sign in. Press Enter when you have, or Esc to stop.',
+				)
+			},
+			onCleared: () => {
+				const parked = handoffParkRef.current
+				if (parked?.turnId !== signInWatchTurn || parked.reason === undefined) return
+				if (signInAutoResumesRef.current >= SIGNIN_AUTO_RESUME_CAP) {
+					signInWatchGaveUpRef.current = signInWatchTurn
+					pushMessageRef.current(
+						'system',
+						'Stopped checking for your sign-in. Press Enter when you have signed in, or Esc to stop.',
+					)
+					return
+				}
+				signInAutoResumesRef.current += 1
+				pushMessageRef.current('system', 'Looks like you signed in. Continuing.')
+				void resumeActiveTurnRef.current({ handoffReason: parked.reason, automatic: true })
+			},
+		})
+	}, [signInPark, signInWatchTurn, signInWatchOn, phase, state])
 
 	// biome-ignore lint/correctness/useExhaustiveDependencies: the list predates linting of .tsx files; changing it changes when this runs, so it is left as written.
 	const openResumePicker = useCallback(
@@ -9036,6 +9126,7 @@ function AppBody({
 			conversationGenRef.current += 1
 			// A pause belongs to the conversation it paused; another one does not inherit it.
 			setHandoffPark(null)
+			pausedTurnMayBeWaitingRef.current = false
 			autoResumeAttemptRef.current = 0
 			selfMendingPauseRowRef.current.forget()
 			resetSubagentActivity()
@@ -9242,6 +9333,7 @@ function AppBody({
 				conversationGenRef.current += 1
 				// A pause belongs to the conversation it paused; another one does not inherit it.
 				setHandoffPark(null)
+				pausedTurnMayBeWaitingRef.current = false
 				autoResumeAttemptRef.current = 0
 				selfMendingPauseRowRef.current.forget()
 				resetSubagentActivity()
@@ -11563,9 +11655,16 @@ function AppBody({
 						// login`, which needs the profile this session holds.
 						if (browserNotice && browser && browserStatus?.headless) void browser.release()
 						pushSystem('warning', browserNotice ?? describePlainInterruption(event, plainOptions()))
+						pausedTurnMayBeWaitingRef.current = true
 						setHandoffPark({
 							turnId: event.turnId,
 							reason: event.handoff.reason,
+							...(browserNotice &&
+							browserStatus &&
+							!browserStatus.headless &&
+							event.handoff.detail?.cause !== 'http-auth'
+								? { browserSignIn: true }
+								: {}),
 						})
 					} else {
 						const pauseText = describePlainInterruption(event, plainOptions())
@@ -14029,9 +14128,45 @@ function AppBody({
 				}
 				setViewNotice(undefined)
 			}
+			// A turn a tool paused for a person goes on with what they typed: it
+			// is their answer. A slash command that does not take the turn keeps
+			// the pause, so a typo or `/help` does not end it.
+			const parkedForPerson = handoffParkRef.current
+			if (
+				parkedForPerson?.reason !== undefined &&
+				!parkedForPerson.spentAllowance &&
+				meta.source === 'composer' &&
+				!attachments?.length &&
+				!value.trimStart().startsWith('/') &&
+				// `!` and `#` are the operator acting directly, not an answer.
+				shellEscapeCommand(value) === null &&
+				!value.startsWith('#') &&
+				phase === 'ready' &&
+				state === 'idle' &&
+				!abortRef.current
+			) {
+				const answer = value.trim()
+				if (answer.length > 0) {
+					setHandoffPark(null)
+					pausedTurnMayBeWaitingRef.current = false
+					autoResumeAttemptRef.current = 0
+					signInAutoResumesRef.current = 0
+					selfMendingPauseRowRef.current.forget()
+					setHistory((prev) => [...prev, value])
+					recordSentPrompt(sessionsRef.current, scopeRef.current?.sessionId, value, meta.pasted)
+					pushMessage('user', answer)
+					void resumeActiveTurn({
+						handoffReason: parkedForPerson.reason,
+						operatorNote: answer,
+						explain: true,
+					})
+					return
+				}
+			}
 			// The operator moved on; a parked turn is still there for /resume.
-			setHandoffPark(null)
+			if (!(handoffParkRef.current && value.trimStart().startsWith('/'))) setHandoffPark(null)
 			autoResumeAttemptRef.current = 0
+			signInAutoResumesRef.current = 0
 			selfMendingPauseRowRef.current.forget()
 			// A loop is not something the operator typed here, so it is not a line
 			// Up should bring back.
@@ -18552,6 +18687,8 @@ function AppBody({
 			}
 			// A turn a tool paused for a person: Enter on an empty composer
 			// continues it, Esc stops it (the turn is abandoned, like /abandon).
+			// Typing a message continues it too, with that message as the answer
+			// (the submit path). Esc stops it even with a draft in the box.
 			if (
 				handoffParkRef.current &&
 				phase === 'ready' &&
@@ -18562,6 +18699,8 @@ function AppBody({
 			) {
 				const parked = handoffParkRef.current
 				setHandoffPark(null)
+				pausedTurnMayBeWaitingRef.current = false
+				signInAutoResumesRef.current = 0
 				if (parked.spentAllowance) {
 					// The reply stopped on a spent allowance: Enter opens the account list
 					// and runs the same reply again on the one chosen; Esc leaves it.
@@ -18571,8 +18710,24 @@ function AppBody({
 				if (key.return) {
 					autoResumeAttemptRef.current = 0
 					selfMendingPauseRowRef.current.forget()
-					void resumeActiveTurn({ handoffReason: parked.reason })
+					void resumeActiveTurn({ handoffReason: parked.reason, explain: true })
 				} else void abandonActiveTurn('The operator stopped the turn a tool paused for them.')
+				return
+			}
+			// No park is on screen but the conversation's turn is paused (the park
+			// was lost, or the pause came from another window): Enter on an empty
+			// composer still continues it, and says so when there is nothing to.
+			if (
+				key.return &&
+				!composerHasDraft &&
+				!handoffParkRef.current &&
+				phase === 'ready' &&
+				state === 'idle' &&
+				!abortRef.current &&
+				pausedTurnMayBeWaitingRef.current
+			) {
+				pausedTurnMayBeWaitingRef.current = false
+				void resumeActiveTurn({ explain: true })
 				return
 			}
 			// A queued message chosen for editing: Esc only leaves the choice.
@@ -18824,7 +18979,7 @@ function AppBody({
 											? CONTINUE_WITH_ANOTHER_ACCOUNT
 											: handoffPark.autoResume
 												? `trying again in ${formatSpan(Math.max(0, handoffPark.autoResume.at - Date.now()))} · enter try now · esc stop`
-												: 'enter continue · esc stop'
+												: 'enter continue · or type a message · esc stop'
 										: goalStatus && phase === 'ready' && state === 'idle'
 											? undefined
 											: hintForPhase(phase, state, composerHasDraft)

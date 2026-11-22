@@ -840,11 +840,10 @@ export class PlaywrightBrowserHost implements BrowserHost {
 		})
 	}
 
-	/** Throw `browser_human_required` if the page needs a person. */
-	private async checkHuman(tab: Tab): Promise<void> {
+	/** What the page shows that decides whether it needs a person. Reads the page; changes nothing. */
+	private async pageSignals(tab: Tab): Promise<BrowserPageSignals> {
 		const page = tab.page
 		const url = page.url()
-		if (originOf(url) === 'null' || this.pendingDialog?.tab === tab) return
 		const counts = await page
 			.evaluate(countCredentialFields)
 			.catch(() => ({ passwordFields: 0, oneTimeCodeFields: 0 }))
@@ -861,7 +860,7 @@ export class PlaywrightBrowserHost implements BrowserHost {
 				// A frame that went away while we looked is not a challenge.
 			}
 		}
-		const signals: BrowserPageSignals = {
+		return {
 			url,
 			title: await this.title(tab),
 			...(tab.status !== undefined ? { status: tab.status } : {}),
@@ -870,6 +869,36 @@ export class PlaywrightBrowserHost implements BrowserHost {
 			...counts,
 			frameUrls,
 		}
+	}
+
+	/**
+	 * Whether the page already open still needs a person, read without acting:
+	 * it never starts the browser, navigates, types, clicks or reads cookies or
+	 * storage. `unknown` when no page is open or it cannot be read.
+	 */
+	async peekHumanRequired(): Promise<'still-required' | 'cleared' | 'unknown'> {
+		if (!this.running) return 'unknown'
+		const tab = this.activeTabId ? this.tabs.get(this.activeTabId) : undefined
+		if (!tab || tab.page.isClosed()) return 'unknown'
+		try {
+			if (originOf(tab.page.url()) === 'null') return 'unknown'
+			const signals = await this.pageSignals(tab)
+			const classifier: BrowserHumanClassifierOptions = {
+				...(this.options.signInAddresses ? { signInAddresses: this.options.signInAddresses } : {}),
+				...(this.options.signInDetection ? { signInDetection: this.options.signInDetection } : {}),
+			}
+			return classifyHumanRequired(signals, classifier) ? 'still-required' : 'cleared'
+		} catch {
+			return 'unknown'
+		}
+	}
+
+	/** Throw `browser_human_required` if the page needs a person. */
+	private async checkHuman(tab: Tab): Promise<void> {
+		const page = tab.page
+		const url = page.url()
+		if (originOf(url) === 'null' || this.pendingDialog?.tab === tab) return
+		const signals = await this.pageSignals(tab)
 		const classifier: BrowserHumanClassifierOptions = {
 			...(this.options.signInAddresses ? { signInAddresses: this.options.signInAddresses } : {}),
 			...(this.options.signInDetection ? { signInDetection: this.options.signInDetection } : {}),

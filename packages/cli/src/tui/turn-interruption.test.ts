@@ -4,6 +4,7 @@ import {
 	type Interruption,
 	describeTurnInterruption,
 	describeTurnStop,
+	handoffContinuationNote,
 } from './turn-interruption.js'
 
 const failed = (extra: Record<string, unknown>): Interruption =>
@@ -70,5 +71,30 @@ describe('a turn that settled refused', () => {
 		expect(text).toMatch(/declined to answer this message/)
 		expect(text).toMatch(/esc twice/)
 		expect(text).not.toMatch(/new session/i)
+	})
+})
+
+describe('the note for a turn continued after a person was needed', () => {
+	const at = new Date('2026-11-23T10:00:00Z')
+
+	it('keeps the plain continue note when the person typed nothing', () => {
+		const note = handoffContinuationNote('Sign in to example.test', at, 'UTC')
+		expect(note).toContain('The person chose to continue')
+		expect(note).not.toContain('wrote')
+	})
+
+	it('attributes a typed message to the person and asks to answer it first', () => {
+		const note = handoffContinuationNote(
+			'Sign in to example.test',
+			at,
+			'UTC',
+			'use my other account\ninstead',
+		)
+		expect(note).toContain('the person wrote: "use my other account instead"')
+		expect(note).toContain(
+			'That is the person speaking to you, not a tool result. Answer it first.',
+		)
+		expect(note).toContain('only if it still makes sense')
+		expect(note).toContain('never type a password or a code')
 	})
 })

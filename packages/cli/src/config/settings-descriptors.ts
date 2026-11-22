@@ -2158,6 +2158,18 @@ const DECLARED: readonly SettingDescriptor[] = [
 		{ group: 'browser', keywords: ['keep open'], default: false },
 	),
 	d(
+		'browser.signInWatch',
+		'tools',
+		'Continue after sign-in',
+		'While a reply waits for you to sign in, look at the open browser window every few seconds and continue by yourself once the page no longer asks. It only looks: no clicks, no typing, no cookies. Not available without a window.',
+		on,
+		{
+			group: 'browser',
+			keywords: ['sign in', 'login', 'continue', 'watch', 'auto continue'],
+			default: true,
+		},
+	),
+	d(
 		'browser.signInDetection',
 		'tools',
 		'Detect sign-in pages',

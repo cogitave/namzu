@@ -3,6 +3,7 @@
 ## 2026-11-23
 
 - **Update** [Workflows](cli/workflows.md) and [Terminal design](cli/terminal-design.md): the workflow detail is sized to its content, from 8 rows up to the free rows (half the screen in the full screen view), so a small run no longer leaves blank rows in it; it is drawn above the input box. `.changeset/cli-workflow-detail-fits-content.md`.
+- **Update** [The browser](cli/browser.md#when-a-page-needs-you), [Tool handoff](sdk/tool-handoff.md#in-the-cli), [Browser tools](sdk/browser-tools.md), [Browser host](sdk/browser-host.md#a-person-is-needed): a turn paused for a sign-in goes on with a typed message as the person's answer (Enter still continues, Esc stops even with a draft, slash commands leave the pause, Enter on an empty box continues a paused turn whose pause was lost); the notices name Enter, a typed message and Esc and say the browser is namzu's own profile, not Brave, Chrome or Edge; with a visible window a read-only look every 3 seconds (`peekHumanRequired`) continues the turn by itself once the page stops asking, at most twice, for 10 minutes (`browser.signInWatch`, default on); a mistyped command names the nearest one. `.changeset/signin-pause-typed-answer.md`.
 
 ## 2026-11-22
 

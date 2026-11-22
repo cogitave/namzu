@@ -134,6 +134,11 @@ export interface HandoffPark<Trigger extends string = string> {
 	readonly turnId: string
 	readonly reason?: string
 	/**
+	 * The browser paused the reply for a sign-in or a check, and a window is
+	 * open: the page can be looked at until it stops asking.
+	 */
+	readonly browserSignIn?: boolean
+	/**
 	 * The reply stopped because the account used up its allowance. Enter opens
 	 * the account list and runs the same reply again on the one chosen.
 	 */
