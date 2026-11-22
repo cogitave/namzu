@@ -162,7 +162,7 @@ describe('/goal is direct host control over durable session state', () => {
 			message: expect.stringContaining('Automatic continuation: enabled'),
 		})
 		expect(created).toMatchObject({
-			message: expect.stringContaining(`Automatic turns: 0 / ${goal?.maxGoalRounds}`),
+			message: expect.stringContaining(`Automatic turns: 0, up to ${goal?.maxGoalRounds}`),
 		})
 		expect(await registry.dispatch('/goal pause')).toMatchObject({
 			kind: 'ack',

@@ -1,4 +1,6 @@
 import {
+	GoalBudgetLimitError,
+	GoalCheckInError,
 	type GoalRoundAuthority,
 	GoalRoundLimitError,
 	type SessionGoal,
@@ -117,12 +119,12 @@ describe('admitGoalRound', () => {
 		})
 		expect(await admitGoalRound(deps)).toEqual({
 			kind: 'blocked',
-			message: 'Goal blocked after 2 admitted rounds: No more rounds.',
+			message: 'Goal stopped after 2 automatic turns: No more rounds.',
 		})
 		expect(activation.get(sessionId)).toBeNull()
 	})
 
-	it('says "round" for one and falls back when no reason was given', async () => {
+	it('says "turn" for one and falls back when no reason was given', async () => {
 		const goal = { ...activeGoal, roundsAdmitted: 1 } as unknown as SessionGoal
 		const { deps } = setup({
 			store: {
@@ -133,8 +135,82 @@ describe('admitGoalRound', () => {
 		})
 		expect(await admitGoalRound(deps)).toEqual({
 			kind: 'blocked',
-			message: 'Goal blocked after 1 admitted round: the round limit was reached',
+			message: 'Goal stopped after 1 automatic turn: a limit was reached',
 		})
+	})
+
+	it('says what a stopped goal spent and how to go on, for the backstop', async () => {
+		const goal = {
+			...activeGoal,
+			phase: 'blocked',
+			maxGoalRounds: 1000,
+			roundsAdmitted: 1000,
+			tokensUsed: 2_500_000,
+			costUsd: 41.5,
+			blockedReason: { code: 'round-limit', message: 'Reached the 1000-round limit.' },
+		} as unknown as SessionGoal
+		const { activation, deps } = setup({
+			store: {
+				admitRound: async () => {
+					throw new GoalRoundLimitError(goal)
+				},
+			},
+		})
+		expect(await admitGoalRound(deps)).toEqual({
+			kind: 'blocked',
+			message:
+				'Goal stopped: Reached the 1000-round limit. 1000 automatic turns, 2,500,000 tokens, $41.50 so far. Run /goal resume to go on (raise goal.maxRounds first for more).',
+		})
+		expect(activation.get(sessionId)).toBeNull()
+	})
+
+	it('pauses for a check-in with the spend so far and says /goal resume continues', async () => {
+		const goal = {
+			...activeGoal,
+			phase: 'paused',
+			roundsAdmitted: 50,
+			tokensUsed: 120_000,
+			costUsd: 1.234,
+			pauseReason: {
+				code: 'check-in',
+				message: 'Paused for a check-in after 50 automatic turns, 120,000 tokens, $1.23.',
+			},
+		} as unknown as SessionGoal
+		const { activation, deps } = setup({
+			store: {
+				admitRound: async () => {
+					throw new GoalCheckInError(goal)
+				},
+			},
+		})
+		expect(await admitGoalRound(deps)).toEqual({
+			kind: 'blocked',
+			message:
+				'Paused for a check-in after 50 automatic turns, 120,000 tokens, $1.23. Run /goal resume to continue.',
+		})
+		expect(activation.get(sessionId)).toBeNull()
+	})
+
+	it('names the budget when the last round was given and spent', async () => {
+		const goal = {
+			...activeGoal,
+			phase: 'blocked',
+			roundsAdmitted: 4,
+			tokensUsed: 10_300,
+			costUsd: 0.2,
+			blockedReason: { code: 'budget-limited', message: 'Reached the 10,000-token budget.' },
+		} as unknown as SessionGoal
+		const { deps } = setup({
+			store: {
+				admitRound: async () => {
+					throw new GoalBudgetLimitError(goal)
+				},
+			},
+		})
+		const result = await admitGoalRound(deps)
+		expect(result).toMatchObject({ kind: 'blocked' })
+		expect((result as { message: string }).message).toContain('Goal stopped at its token budget')
+		expect((result as { message: string }).message).toContain('goal.tokenBudget')
 	})
 
 	it('stays silent when the goal changed under the write', async () => {

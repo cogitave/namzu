@@ -4,9 +4,11 @@ import { TenantIsolationError } from '../../session/errors.js'
 import type {
 	GoalBlockReason,
 	GoalConfirmedBy,
+	GoalGuards,
 	GoalPhase,
 	GoalRef,
 	GoalRoundAuthority,
+	GoalRoundOutcome,
 	SessionGoal,
 } from '../../types/goal/index.js'
 import type { GoalId, SessionId, TenantId } from '../../types/ids/index.js'
@@ -26,10 +28,23 @@ export const MAX_GOAL_OBJECTIVE_CHARS = 4_000
 /** Source-aligned default; hosts may choose a smaller positive finite cap. */
 export const DEFAULT_MAX_GOAL_ROUNDS = 256
 
+/**
+ * Automatic turns in a row without progress, or ending on the same failure,
+ * after which a host that applies the stop rules blocks the goal. Three: a
+ * first empty turn is normal (the model looked around), a second can be a
+ * check that needed a rerun, a third is a loop.
+ */
+export const DEFAULT_GOAL_STALL_ROUNDS = 3
+
+/** Admitted rounds between check-in pauses that a host applying them may choose. */
+export const DEFAULT_GOAL_CHECK_IN_ROUNDS = 50
+
 export interface CreateSessionGoalParams {
 	readonly sessionId: SessionId
 	readonly objective: string
 	readonly maxGoalRounds?: number
+	/** Stop rules for this goal; absent fields are not applied. */
+	readonly guards?: GoalGuards
 	/** Set only when this goal chooses; absent leaves the choice to the host's setting. */
 	readonly confirmedBy?: GoalConfirmedBy
 }
@@ -48,7 +63,12 @@ export interface SessionGoalStore {
 		changes: EditSessionGoalParams,
 	): Promise<SessionGoal>
 	pauseGoal(sessionId: SessionId, tenantId: TenantId, ref: GoalRef): Promise<SessionGoal>
-	resumeGoal(sessionId: SessionId, tenantId: TenantId, ref: GoalRef): Promise<SessionGoal>
+	resumeGoal(
+		sessionId: SessionId,
+		tenantId: TenantId,
+		ref: GoalRef,
+		options?: ResumeSessionGoalOptions,
+	): Promise<SessionGoal>
 	/** Durably reserve one automatic round before any provider work begins. */
 	admitRound(sessionId: SessionId, tenantId: TenantId, ref: GoalRef): Promise<GoalRoundAuthority>
 	completeGoal(sessionId: SessionId, tenantId: TenantId, ref: GoalRef): Promise<SessionGoal>
@@ -59,6 +79,51 @@ export interface SessionGoalStore {
 		reason: GoalBlockReason,
 	): Promise<SessionGoal>
 	clearGoal(sessionId: SessionId, tenantId: TenantId, ref: GoalRef): Promise<void>
+	/**
+	 * Write down what one finished automatic turn did: what it spent, whether it
+	 * moved the work, and the failure it ended on. The stop rules read these
+	 * counts, so a goal that did nothing for `stallRounds` turns in a row, or
+	 * ended on the same failure that many times, is blocked here. Optional so a
+	 * store written before it existed still satisfies the interface; without it a
+	 * host's goals are never stopped by those rules. Returns `null` when the
+	 * session has no goal of that id.
+	 */
+	recordRound?(
+		sessionId: SessionId,
+		tenantId: TenantId,
+		goalId: GoalId,
+		outcome: GoalRoundOutcome,
+	): Promise<SessionGoal | null>
+}
+
+/** What a resume may raise so that a goal stopped by a limit can go on. */
+export interface ResumeSessionGoalOptions {
+	/** Replaces the round cap when larger than the current one. */
+	readonly maxGoalRounds?: number
+	/** Replaces the token budget when larger than the current one. */
+	readonly tokenBudget?: number
+	/**
+	 * Stop rules to fill in for a goal that has none of its own, such as one saved
+	 * before they existed. A rule the goal already has is kept.
+	 */
+	readonly guards?: GoalGuards
+}
+
+/** What a goal has cost so far, as a dollar amount. */
+export function goalCostText(goal: Pick<SessionGoal, 'costUsd'>): string {
+	const cost = goal.costUsd ?? 0
+	return cost > 0 && cost < 0.01 ? `$${cost.toFixed(4)}` : `$${cost.toFixed(2)}`
+}
+
+/** What a goal has tokens-spent so far, as a number with separators. */
+export function goalTokensText(goal: Pick<SessionGoal, 'tokensUsed'>): string {
+	return (goal.tokensUsed ?? 0).toLocaleString('en-US')
+}
+
+/** The sentence that says what a goal has spent: automatic turns, tokens and cost. */
+export function goalUsageSentence(goal: SessionGoal): string {
+	const rounds = goal.roundsAdmitted
+	return `${rounds} automatic turn${rounds === 1 ? '' : 's'}, ${goalTokensText(goal)} tokens, ${goalCostText(goal)}`
 }
 
 /** A mutation was based on a goal revision that is no longer current. */
@@ -120,6 +185,27 @@ export class GoalRoundLimitError extends Error {
 		this.name = 'GoalRoundLimitError'
 	}
 }
+
+/** Admission paused the goal for a check-in instead of starting another round. */
+export class GoalCheckInError extends Error {
+	constructor(readonly goal: SessionGoal) {
+		super(`Goal ${goal.id} paused for a check-in after ${goal.roundsAdmitted} automatic rounds.`)
+		this.name = 'GoalCheckInError'
+	}
+}
+
+/** Admission blocked the goal because its token budget was spent and its last round given. */
+export class GoalBudgetLimitError extends Error {
+	constructor(readonly goal: SessionGoal) {
+		super(`Goal ${goal.id} reached its token budget.`)
+		this.name = 'GoalBudgetLimitError'
+	}
+}
+
+type AdmitOutcome =
+	| { readonly kind: 'admitted'; readonly authority: GoalRoundAuthority }
+	| { readonly kind: 'exhausted'; readonly goal: SessionGoal }
+	| { readonly kind: 'check-in'; readonly goal: SessionGoal }
 
 interface SessionGoalRecord {
 	readonly sessionId: SessionId
@@ -202,6 +288,27 @@ function maxGoalRounds(value: number | undefined): number {
 	return resolved
 }
 
+function guardNumber(name: string, value: number | undefined, minimum: number): number | undefined {
+	if (value === undefined) return undefined
+	if (!Number.isSafeInteger(value) || value < minimum) {
+		throw new TypeError(`${name} must be a safe integer of at least ${minimum}, got ${value}.`)
+	}
+	return value
+}
+
+function goalGuards(value: GoalGuards | undefined): GoalGuards | undefined {
+	if (value === undefined) return undefined
+	const stallRounds = guardNumber('stallRounds', value.stallRounds, 1)
+	const checkInEvery = guardNumber('checkInEvery', value.checkInEvery, 0)
+	const tokenBudget = guardNumber('tokenBudget', value.tokenBudget, 1)
+	const guards: GoalGuards = {
+		...(stallRounds !== undefined ? { stallRounds } : {}),
+		...(checkInEvery !== undefined ? { checkInEvery } : {}),
+		...(tokenBudget !== undefined ? { tokenBudget } : {}),
+	}
+	return Object.keys(guards).length > 0 ? guards : undefined
+}
+
 function blockReason(value: GoalBlockReason): GoalBlockReason {
 	if (
 		typeof value?.code !== 'string' ||
@@ -276,6 +383,7 @@ abstract class SessionGoalStoreBase implements SessionGoalStore {
 		const sessionId = await this.requireSession(params.sessionId, tenantId)
 		const text = objective(params.objective)
 		const maxRounds = maxGoalRounds(params.maxGoalRounds)
+		const guards = goalGuards(params.guards)
 		if (
 			params.confirmedBy !== undefined &&
 			params.confirmedBy !== 'model' &&
@@ -300,6 +408,7 @@ abstract class SessionGoalStoreBase implements SessionGoalStore {
 				phase: 'active',
 				maxGoalRounds: maxRounds,
 				roundsAdmitted: 0,
+				...(guards !== undefined ? { guards } : {}),
 				...(params.confirmedBy !== undefined ? { confirmedBy: params.confirmedBy } : {}),
 				createdAt: now,
 				updatedAt: now,
@@ -337,15 +446,62 @@ abstract class SessionGoalStoreBase implements SessionGoalStore {
 		return await this.transition(sessionId, tenantId, ref, 'pause', ['active'], 'paused')
 	}
 
-	async resumeGoal(sessionId: SessionId, tenantId: TenantId, ref: GoalRef): Promise<SessionGoal> {
-		return await this.transition(
-			sessionId,
-			tenantId,
-			ref,
-			'resume',
-			['paused', 'blocked'],
-			'active',
-		)
+	async resumeGoal(
+		sessionId: SessionId,
+		tenantId: TenantId,
+		ref: GoalRef,
+		options: ResumeSessionGoalOptions = {},
+	): Promise<SessionGoal> {
+		const checked = await this.requireSession(sessionId, tenantId)
+		const expected = validRef(ref)
+		const raisedRounds = guardNumber('maxGoalRounds', options.maxGoalRounds, 1)
+		const raisedBudget = guardNumber('tokenBudget', options.tokenBudget, 1)
+		return await this.mutate(checked, tenantId, expected, (goal) => {
+			if (goal.phase !== 'paused' && goal.phase !== 'blocked') {
+				throw new GoalTransitionError(goal.phase, 'resume')
+			}
+			const {
+				blockedReason: _blockedReason,
+				pauseReason: _pauseReason,
+				quietRounds: _quietRounds,
+				failureRounds: _failureRounds,
+				failureSignature: _failureSignature,
+				wrapUpRound: _wrapUpRound,
+				...rest
+			} = goal
+			// A resume starts the stall counts again; the round count and the
+			// check-in position are never reset, so a check-in resumed continues.
+			// A rule the host sets on resume replaces the stored one, so a
+			// check-in of 0 turns it off and a looser limit takes effect.
+			const filled = goalGuards(options.guards)
+			const own: GoalGuards | undefined =
+				filled === undefined && goal.guards === undefined
+					? undefined
+					: { ...goal.guards, ...filled }
+			const budget =
+				raisedBudget !== undefined && raisedBudget > (own?.tokenBudget ?? 0)
+					? raisedBudget
+					: own?.tokenBudget
+			const guards: GoalGuards | undefined =
+				own === undefined && budget === undefined
+					? undefined
+					: { ...own, ...(budget !== undefined ? { tokenBudget: budget } : {}) }
+			// A check-in rule added or changed now counts from here, not from the first round.
+			const newCheckIn =
+				filled?.checkInEvery !== undefined &&
+				filled.checkInEvery > 0 &&
+				filled.checkInEvery !== goal.guards?.checkInEvery
+			return {
+				...rest,
+				phase: 'active',
+				...(newCheckIn ? { checkedInAtRound: goal.roundsAdmitted } : {}),
+				maxGoalRounds:
+					raisedRounds !== undefined && raisedRounds > goal.maxGoalRounds
+						? raisedRounds
+						: goal.maxGoalRounds,
+				...(guards !== undefined ? { guards } : {}),
+			}
+		})
 	}
 
 	async admitRound(
@@ -355,22 +511,20 @@ abstract class SessionGoalStoreBase implements SessionGoalStore {
 	): Promise<GoalRoundAuthority> {
 		const checked = await this.requireSession(sessionId, tenantId)
 		const expected = validRef(ref)
-		const outcome = await backendFor(this).transact<
-			| { readonly kind: 'admitted'; readonly authority: GoalRoundAuthority }
-			| { readonly kind: 'exhausted'; readonly goal: SessionGoal }
-		>(checked, (existing) => {
+		const outcome = await backendFor(this).transact<AdmitOutcome>(checked, (existing) => {
 			const goal = currentGoal(existing, checked, tenantId, expected)
 			if (goal.phase !== 'active') throw new GoalTransitionError(goal.phase, 'admit a round for')
 			const now = this.now()
-			if (goal.roundsAdmitted >= goal.maxGoalRounds) {
+			const stop = (
+				reason: GoalBlockReason,
+				extra: Partial<SessionGoal> = {},
+			): { record: SessionGoalRecord; result: AdmitOutcome } => {
 				const blocked: SessionGoal = {
 					...goal,
+					...extra,
 					revision: goal.revision + 1,
 					phase: 'blocked',
-					blockedReason: {
-						code: 'round-limit',
-						message: `Reached the ${goal.maxGoalRounds}-round limit.`,
-					},
+					blockedReason: reason,
 					updatedAt: now,
 				}
 				return {
@@ -384,11 +538,57 @@ abstract class SessionGoalStoreBase implements SessionGoalStore {
 					result: { kind: 'exhausted', goal: blocked },
 				}
 			}
+			if (goal.roundsAdmitted >= goal.maxGoalRounds) {
+				return stop({
+					code: 'round-limit',
+					message: `Reached the ${goal.maxGoalRounds}-round limit.`,
+				})
+			}
+			const budget = goal.guards?.tokenBudget
+			const overBudget = budget !== undefined && (goal.tokensUsed ?? 0) >= budget
+			if (overBudget && goal.wrapUpRound !== undefined) {
+				return {
+					...stop({
+						code: 'budget-limited',
+						message: `Reached the ${budget.toLocaleString('en-US')}-token budget after ${goalUsageSentence(goal)}.`,
+					}),
+				}
+			}
+			const checkInEvery = goal.guards?.checkInEvery ?? 0
+			if (
+				!overBudget &&
+				checkInEvery > 0 &&
+				goal.roundsAdmitted - (goal.checkedInAtRound ?? 0) >= checkInEvery
+			) {
+				const paused: SessionGoal = {
+					...goal,
+					revision: goal.revision + 1,
+					phase: 'paused',
+					pauseReason: {
+						code: 'check-in',
+						message: `Paused for a check-in after ${goalUsageSentence(goal)}.`,
+					},
+					checkedInAtRound: goal.roundsAdmitted,
+					updatedAt: now,
+				}
+				return {
+					record: {
+						sessionId: checked,
+						tenantId,
+						storageRevision: (existing?.storageRevision ?? 0) + 1,
+						goal: paused,
+						updatedAt: now,
+					},
+					result: { kind: 'check-in', goal: paused },
+				}
+			}
 
+			const { missing: _missing, ...withoutMissing } = goal
 			const admitted: SessionGoal = {
-				...goal,
+				...withoutMissing,
 				revision: goal.revision + 1,
 				roundsAdmitted: goal.roundsAdmitted + 1,
+				...(overBudget ? { wrapUpRound: goal.roundsAdmitted + 1 } : {}),
 				updatedAt: now,
 			}
 			const authority: GoalRoundAuthority = {
@@ -399,6 +599,10 @@ abstract class SessionGoalStoreBase implements SessionGoalStore {
 				objective: admitted.objective,
 				round: admitted.roundsAdmitted,
 				maxGoalRounds: admitted.maxGoalRounds,
+				...(goal.tokensUsed !== undefined ? { tokensUsed: goal.tokensUsed } : {}),
+				...(goal.costUsd !== undefined ? { costUsd: goal.costUsd } : {}),
+				...(overBudget ? { wrapUp: true } : {}),
+				...(goal.missing && goal.missing.length > 0 ? { missing: goal.missing } : {}),
 			}
 			return {
 				record: {
@@ -411,8 +615,103 @@ abstract class SessionGoalStoreBase implements SessionGoalStore {
 				result: { kind: 'admitted', authority },
 			}
 		})
-		if (outcome.kind === 'exhausted') throw new GoalRoundLimitError(outcome.goal)
+		if (outcome.kind === 'check-in') throw new GoalCheckInError(outcome.goal)
+		if (outcome.kind === 'exhausted') {
+			if (outcome.goal.blockedReason?.code === 'budget-limited') {
+				throw new GoalBudgetLimitError(outcome.goal)
+			}
+			throw new GoalRoundLimitError(outcome.goal)
+		}
 		return outcome.authority
+	}
+
+	async recordRound(
+		sessionId: SessionId,
+		tenantId: TenantId,
+		goalId: GoalId,
+		outcome: GoalRoundOutcome,
+	): Promise<SessionGoal | null> {
+		const checked = await this.requireSession(sessionId, tenantId)
+		const id = asGoalId(goalId)
+		const before = await backendFor(this).read(checked)
+		if (!before || before.goal?.id !== id) return null
+		return await backendFor(this).transact<SessionGoal | null>(checked, (existing) => {
+			if (!existing) throw new GoalNotFoundError(checked)
+			assertTenant(existing, tenantId)
+			const goal = existing.goal
+			const now = this.now()
+			if (!goal || goal.id !== id) {
+				// The goal was replaced while this was read: nothing to add to.
+				return {
+					record: {
+						sessionId: checked,
+						tenantId,
+						storageRevision: existing.storageRevision + 1,
+						goal: existing.goal,
+						updatedAt: now,
+					},
+					result: null,
+				}
+			}
+			const guards = goal.guards
+			const empty = outcome.progress === 'empty'
+			const quietRounds = empty ? (goal.quietRounds ?? 0) + 1 : 0
+			const sameFailure =
+				outcome.failureSignature !== undefined && outcome.failureSignature === goal.failureSignature
+			const failureRounds =
+				outcome.failureSignature === undefined ? 0 : sameFailure ? (goal.failureRounds ?? 0) + 1 : 1
+			const { failureSignature: _drop, missing: _missing, lastAction: _lastAction, ...rest } = goal
+			const lastAction = outcome.action ?? goal.lastAction
+			const missing = outcome.missing !== undefined ? outcome.missing : goal.missing
+			let updated: SessionGoal = {
+				...rest,
+				tokensUsed: (goal.tokensUsed ?? 0) + Math.max(0, outcome.tokens ?? 0),
+				costUsd: (goal.costUsd ?? 0) + Math.max(0, outcome.costUsd ?? 0),
+				quietRounds,
+				failureRounds,
+				...(outcome.failureSignature !== undefined
+					? { failureSignature: outcome.failureSignature }
+					: {}),
+				...(lastAction !== undefined ? { lastAction } : {}),
+				...(missing !== undefined && missing.length > 0 ? { missing } : {}),
+				updatedAt: now,
+			}
+			const stall = guards?.stallRounds
+			if (goal.phase === 'active' && stall !== undefined) {
+				const after = lastAction !== undefined ? ` Last action: ${lastAction}.` : ''
+				if (quietRounds >= stall) {
+					updated = {
+						...updated,
+						revision: goal.revision + 1,
+						phase: 'blocked',
+						blockedReason: {
+							code: 'no-progress',
+							message: `${stall} automatic turns in a row changed nothing and checked nothing.${after}`,
+						},
+					}
+				} else if (failureRounds >= stall && outcome.failureSignature !== undefined) {
+					updated = {
+						...updated,
+						revision: goal.revision + 1,
+						phase: 'blocked',
+						blockedReason: {
+							code: 'repeated-failure',
+							message: `The same failure ended ${stall} automatic turns in a row: ${outcome.failureSignature}.${after}`,
+						},
+					}
+				}
+			}
+			return {
+				record: {
+					sessionId: checked,
+					tenantId,
+					storageRevision: existing.storageRevision + 1,
+					goal: updated,
+					updatedAt: now,
+				},
+				result: updated,
+			}
+		})
 	}
 
 	async completeGoal(sessionId: SessionId, tenantId: TenantId, ref: GoalRef): Promise<SessionGoal> {

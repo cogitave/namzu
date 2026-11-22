@@ -2117,7 +2117,7 @@ export class IterationOrchestrator {
 						}
 						const endNote =
 							!forceFinalize && closingStopReason === undefined
-								? await this.askBeforeEnd()
+								? await this.askBeforeEnd(response.message.content ?? '')
 								: undefined
 						if (endNote !== undefined) {
 							recorder.pushMessage(createRuntimeContextMessage(endNote, 'progress-nudge'))
@@ -3617,14 +3617,17 @@ export class IterationOrchestrator {
 	 * for the model, or `undefined` to let the turn end. Bounded, and a hook that
 	 * fails never fails the turn.
 	 */
-	async askBeforeEnd(): Promise<string | undefined> {
+	async askBeforeEnd(finalMessage = ''): Promise<string | undefined> {
 		const hook = this.ctx.turnConfig.outcome?.beforeEnd
 		if (hook === undefined || this.beforeEndNotes >= MAX_BEFORE_END_NOTES) return undefined
 		try {
-			const note = await hook(async () => {
-				this.hydrateOutcome()
-				return await this.outcomeLedger.preview()
-			})
+			const note = await hook(
+				async () => {
+					this.hydrateOutcome()
+					return await this.outcomeLedger.preview()
+				},
+				{ finalMessage },
+			)
 			if (typeof note !== 'string' || note.trim() === '') return undefined
 			this.beforeEndNotes += 1
 			return note

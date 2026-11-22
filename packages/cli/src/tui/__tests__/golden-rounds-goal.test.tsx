@@ -307,9 +307,9 @@ it('G1 runs a goal to completion across three admitted rounds and records each s
 		roundLog.lines().map((line) => line.replace(/"Admitted.*?"/, '"<round text>"')),
 	).toMatchInlineSnapshot(`
 		[
-		  "#0 goal-round round=1 rows=6 "<round text>"",
-		  "#1 goal-round round=2 rows=6 "<round text>"",
-		  "#2 goal-round round=3 rows=6 "<round text>"",
+		  "#0 goal-round round=1 rows=7 "<round text>"",
+		  "#1 goal-round round=2 rows=7 "<round text>"",
+		  "#2 goal-round round=3 rows=7 "<round text>"",
 		]
 	`)
 	expect(
@@ -322,20 +322,23 @@ it('G1 runs a goal to completion across three admitted rounds and records each s
 		),
 	).toMatchInlineSnapshot(`
 		[
-		  "{"goalId":"<id>","goalRevision":2,"round":1,"maxGoalRounds":256,"objective":"finish the golden objective"}
+		  "{"goalId":"<id>","goalRevision":2,"round":1,"maxGoalRounds":1000,"objective":"finish the golden objective"}
 
 		Continue working toward this durable completion goal. Inspect the current repository and conversation state before acting.
-		Use get_goal to confirm the admitted goal. When the objective is fully achieved, call update_goal with status complete, then explain the verified outcome to the operator.
+		Use get_goal to confirm the admitted goal.
+		Completion needs an audit. Before calling update_goal with status complete: restate each requirement in the objective, check each one against the current state (open the file, run the check, read the output), and pass one evidence entry per requirement (the requirement, what you checked, what it showed). Intent, earlier work or a plausible answer is not proof. If any evidence is weak, keep working instead of reporting. Then explain the verified outcome to the operator.
 		Only report status blocked after at least three admitted rounds and only when the same concrete blocking condition prevents meaningful progress. Otherwise keep making progress in this turn.",
-		  "{"goalId":"<id>","goalRevision":3,"round":2,"maxGoalRounds":256,"objective":"finish the golden objective"}
+		  "{"goalId":"<id>","goalRevision":3,"round":2,"maxGoalRounds":1000,"objective":"finish the golden objective"}
 
 		Continue working toward this durable completion goal. Inspect the current repository and conversation state before acting.
-		Use get_goal to confirm the admitted goal. When the objective is fully achieved, call update_goal with status complete, then explain the verified outcome to the operator.
+		Use get_goal to confirm the admitted goal.
+		Completion needs an audit. Before calling update_goal with status complete: restate each requirement in the objective, check each one against the current state (open the file, run the check, read the output), and pass one evidence entry per requirement (the requirement, what you checked, what it showed). Intent, earlier work or a plausible answer is not proof. If any evidence is weak, keep working instead of reporting. Then explain the verified outcome to the operator.
 		Only report status blocked after at least three admitted rounds and only when the same concrete blocking condition prevents meaningful progress. Otherwise keep making progress in this turn.",
-		  "{"goalId":"<id>","goalRevision":4,"round":3,"maxGoalRounds":256,"objective":"finish the golden objective"}
+		  "{"goalId":"<id>","goalRevision":4,"round":3,"maxGoalRounds":1000,"objective":"finish the golden objective"}
 
 		Continue working toward this durable completion goal. Inspect the current repository and conversation state before acting.
-		Use get_goal to confirm the admitted goal. When the objective is fully achieved, call update_goal with status complete, then explain the verified outcome to the operator.
+		Use get_goal to confirm the admitted goal.
+		Completion needs an audit. Before calling update_goal with status complete: restate each requirement in the objective, check each one against the current state (open the file, run the check, read the output), and pass one evidence entry per requirement (the requirement, what you checked, what it showed). Intent, earlier work or a plausible answer is not proof. If any evidence is weak, keep working instead of reporting. Then explain the verified outcome to the operator.
 		Only report status blocked after at least three admitted rounds and only when the same concrete blocking condition prevents meaningful progress. Otherwise keep making progress in this turn.",
 		]
 	`)
@@ -344,7 +347,7 @@ it('G1 runs a goal to completion across three admitted rounds and records each s
 		roundsAdmitted: 3,
 	})
 	expect(notificationRequests).toEqual([])
-	expect(harness.frames.join('\n')).toContain('Goal, attempt 3 of 256')
+	expect(harness.frames.join('\n')).toContain('Goal, automatic turn 3')
 }, 30_000)
 
 it('G1 blocks at a cap of two admitted rounds and sends no third', async () => {
@@ -362,7 +365,7 @@ it('G1 blocks at a cap of two admitted rounds and sends no third', async () => {
 	const { root, harness } = await mountedApp('namzu-golden-goal-cap-')
 	await submit(harness, '/goal stop at two')
 	await until(
-		() => harness.frames.join('\n').includes('Goal blocked after 2 admitted rounds'),
+		() => harness.frames.join('\n').includes('Goal stopped: Reached the 2-round limit'),
 		'the exhausted goal was not blocked',
 	)
 	const sessions = await openSessions(root)

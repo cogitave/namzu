@@ -29,3 +29,39 @@ describe('goal.confirmedBy', () => {
 		expect(() => load('goal:\n  maxRefusals: 2\n')).toThrow(/maxRefusals/u)
 	})
 })
+
+describe('the goal limits', () => {
+	it('reads the round backstop, the check-in, the budget, the stall count and the judge model', () => {
+		const goal = load(
+			'goal:\n  maxRounds: 400\n  checkInEvery: 20\n  tokenBudget: 750000\n  stallRounds: 4\n  judgeModel: openai/terra\n',
+		).goal
+		expect(goal).toEqual({
+			maxRounds: 400,
+			checkInEvery: 20,
+			tokenBudget: 750_000,
+			stallRounds: 4,
+			judgeModel: 'openai/terra',
+		})
+	})
+
+	it('reads 0 as no check-ins', () => {
+		expect(load('goal:\n  checkInEvery: 0\n').goal?.checkInEvery).toBe(0)
+	})
+
+	it('refuses a number that is not a whole number in range, naming the key', () => {
+		for (const [key, bad] of [
+			['maxRounds', '0'],
+			['maxRounds', '1.5'],
+			['tokenBudget', '0'],
+			['stallRounds', '0'],
+			['checkInEvery', '-1'],
+			['maxRounds', '"many"'],
+		] as const) {
+			expect(() => load(`goal:\n  ${key}: ${bad}\n`)).toThrow(new RegExp(key, 'u'))
+		}
+	})
+
+	it('refuses an empty judge model', () => {
+		expect(() => load('goal:\n  judgeModel: ""\n')).toThrow(/judgeModel/u)
+	})
+})

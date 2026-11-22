@@ -186,17 +186,24 @@ describe('decisionStatusLine', () => {
 				connected: true,
 				env: {},
 			}),
-		).toBe('Connected · notify on, pick shadow')
+		).toBe('Connected · notify on, pick shadow, goal on')
 	})
 
-	it('shows pick as on when it is not named, and as off when the operator turned it off', () => {
+	it('shows pick and goal as on when they are not named, and as off when the operator turned them off', () => {
 		const base = { provider: 'http', url: 'u' } as const
 		expect(decisionStatusLine({ config: base, connected: true, env: {} })).toBe(
-			'Connected · pick on',
+			'Connected · pick on, goal on',
 		)
 		expect(
 			decisionStatusLine({
 				config: { ...base, points: { pick: 'off' } },
+				connected: true,
+				env: {},
+			}),
+		).toBe('Connected · goal on')
+		expect(
+			decisionStatusLine({
+				config: { ...base, points: { pick: 'off', goal: 'off' } },
 				connected: true,
 				env: {},
 			}),

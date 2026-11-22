@@ -230,8 +230,12 @@ export { StaleObjectiveError } from './types/topic/objective.js'
 // consumes this store; automatic continuation is a separate driver rather
 // than a side effect hidden inside persistence.
 export {
+	DEFAULT_GOAL_CHECK_IN_ROUNDS,
+	DEFAULT_GOAL_STALL_ROUNDS,
 	DEFAULT_MAX_GOAL_ROUNDS,
 	DiskSessionGoalStore,
+	GoalBudgetLimitError,
+	GoalCheckInError,
 	GoalExistsError,
 	GoalNotFoundError,
 	GoalRoundLimitError,
@@ -240,6 +244,9 @@ export {
 	InMemorySessionGoalStore,
 	MAX_GOAL_OBJECTIVE_CHARS,
 	StaleGoalError,
+	goalCostText,
+	goalTokensText,
+	goalUsageSentence,
 } from './store/goal/index.js'
 
 export {
@@ -286,10 +293,12 @@ export {
 } from './tools/goal/index.js'
 export {
 	DEFAULT_GOAL_REFUSALS,
+	GOAL_AUDIT_RUBRIC,
 	GoalConfirmation,
 	NO_CHECK_REASON_CODE,
 	decideGoalConfirmation,
 	describeGoalEnding,
+	parseGoalEvidence,
 	recordSentence,
 } from './tools/goal/confirmation.js'
 export { SessionGoalActivation } from './manager/goal/activation.js'
