@@ -63,6 +63,8 @@ const SCHEMAS: Record<string, number> = {
 	'pal-message-operation': 2,
 	'pal-message-permission': 1,
 	'resident-agenda': 6,
+	// Still 2: the stop rules, spend counters and `missing` are optional fields of the stored goal.
+	// An older engine rewrites a goal through a spread, so it keeps fields it does not know.
 	'session-goal': 2,
 	'session-store': 4,
 	'task-store': 2,

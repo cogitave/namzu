@@ -6,9 +6,11 @@ import {
 	GoalTransitionError,
 	type SessionGoalStore,
 	StaleGoalError,
+	goalCostText,
+	goalTokensText,
 } from '../../store/goal/index.js'
 import type { HostCommandDescriptor } from '../../types/command/index.js'
-import type { GoalConfirmedBy, GoalRef, SessionGoal } from '../../types/goal/index.js'
+import type { GoalConfirmedBy, GoalGuards, GoalRef, SessionGoal } from '../../types/goal/index.js'
 import type { SessionId, TenantId } from '../../types/ids/index.js'
 import type { Skill } from '../../types/skills/index.js'
 import { isInvocableBy, skillInvocation } from '../../types/skills/index.js'
@@ -50,10 +52,21 @@ export interface GoalCommandScope {
 	readonly activation?: SessionGoalActivation
 	/** What a goal that does not choose is confirmed by; shown by `/goal status`. Default `model`. */
 	readonly defaultConfirmedBy?: GoalConfirmedBy
+	/**
+	 * What a goal created here gets when the command does not say: the round cap
+	 * and the stop rules the host applies. Absent leaves the kernel's own cap and
+	 * no stop rules.
+	 */
+	readonly defaults?: GoalCommandDefaults
+}
+
+export interface GoalCommandDefaults {
+	readonly maxGoalRounds?: number
+	readonly guards?: GoalGuards
 }
 
 const GOAL_ARGUMENTS =
-	'[status|set [--confirmed-by record|model] <objective>|<objective>|edit <objective>|pause|resume|clear]'
+	'[status|set [--confirmed-by record|model] [--token-budget <n>] [--max-rounds <n>] <objective>|<objective>|edit <objective>|pause|resume|clear]'
 const GOAL_USAGE = `Usage: /goal ${GOAL_ARGUMENTS}`
 
 type ParsedGoalCommand =
@@ -81,58 +94,85 @@ function parseGoalCommand(args: readonly string[]): ParsedGoalCommand {
 	return { kind: 'create', objective: input }
 }
 
-type ConfirmedByFlag =
-	| {
-			readonly kind: 'ok'
-			readonly args: readonly string[]
-			readonly confirmedBy?: GoalConfirmedBy
-	  }
-	| { readonly kind: 'invalid' }
+interface GoalFlags {
+	readonly confirmedBy?: GoalConfirmedBy
+	readonly tokenBudget?: number
+	readonly maxRounds?: number
+}
+
+type TakenFlags =
+	| { readonly kind: 'ok'; readonly args: readonly string[]; readonly flags: GoalFlags }
+	| { readonly kind: 'invalid'; readonly flag: string }
+
+const GOAL_FLAG_NAMES = ['--confirmed-by', '--token-budget', '--max-rounds'] as const
+type GoalFlagName = (typeof GOAL_FLAG_NAMES)[number]
+
+/** `--name value` or `--name=value` at `args[i]`; the flag, its value and how many words it took. */
+function flagAt(
+	args: readonly string[],
+	i: number,
+): { readonly name: GoalFlagName; readonly value: string; readonly width: number } | undefined {
+	const arg = args[i] ?? ''
+	for (const name of GOAL_FLAG_NAMES) {
+		if (arg === name) return { name, value: args[i + 1] ?? '', width: 2 }
+		if (arg.startsWith(`${name}=`)) return { name, value: arg.slice(name.length + 1), width: 1 }
+	}
+	return undefined
+}
+
+function applyFlag(flags: GoalFlags, name: GoalFlagName, value: string): GoalFlags | undefined {
+	if (name === '--confirmed-by') {
+		return value === 'model' || value === 'record' ? { ...flags, confirmedBy: value } : undefined
+	}
+	if (!/^[1-9][0-9]{0,15}$/u.test(value)) return undefined
+	const n = Number(value)
+	if (!Number.isSafeInteger(n)) return undefined
+	return name === '--token-budget' ? { ...flags, tokenBudget: n } : { ...flags, maxRounds: n }
+}
 
 /**
- * Takes `--confirmed-by <model|record>` (or `=`) out of the arguments, but only
- * where a flag stands: at the front, right after `set`, or closing the command. In the middle the words
- * belong to the objective, so a goal about the flag itself keeps its text.
+ * Takes `--confirmed-by <model|record>`, `--token-budget <n>` and `--max-rounds
+ * <n>` (or `=`) out of the arguments, but only where a flag stands: at the
+ * front, right after `set`, or closing the command. In the middle the words
+ * belong to the objective, so a goal about a flag itself keeps its text.
  */
-function takeConfirmedBy(args: readonly string[]): ConfirmedByFlag {
+function takeGoalFlags(args: readonly string[]): TakenFlags {
 	const head: string[] = []
 	let i = 0
 	if ((args[0] ?? '').toLowerCase() === 'set') {
 		head.push(args[0] ?? '')
 		i = 1
 	}
-	let found: GoalConfirmedBy | undefined
-	for (; i < args.length; i++) {
-		const arg = args[i] ?? ''
-		let value: string
-		if (arg === '--confirmed-by') {
-			value = args[i + 1] ?? ''
-			i++
-		} else if (arg.startsWith('--confirmed-by=')) {
-			value = arg.slice('--confirmed-by='.length)
+	let flags: GoalFlags = {}
+	for (;;) {
+		const found = flagAt(args, i)
+		if (!found) break
+		const next = applyFlag(flags, found.name, found.value)
+		if (!next) return { kind: 'invalid', flag: found.name }
+		flags = next
+		i += found.width
+	}
+	let tail = args.slice(i)
+	// Flags may also close the command; in the middle their words are the objective's.
+	for (;;) {
+		const last = tail.length - 1
+		const one = flagAt(tail, last)
+		const two = last >= 1 ? flagAt(tail, last - 1) : undefined
+		if (one && one.width === 1) {
+			const next = applyFlag(flags, one.name, one.value)
+			if (!next) return { kind: 'invalid', flag: one.name }
+			flags = next
+			tail = tail.slice(0, -1)
+		} else if (two && two.width === 2) {
+			const next = applyFlag(flags, two.name, two.value)
+			if (!next) return { kind: 'invalid', flag: two.name }
+			flags = next
+			tail = tail.slice(0, -2)
 		} else {
 			break
 		}
-		if (value !== 'model' && value !== 'record') return { kind: 'invalid' }
-		found = value
 	}
-	let tail = args.slice(i)
-	// A flag may also close the command; in the middle its words are the objective's.
-	const last = tail[tail.length - 1] ?? ''
-	const beforeLast = tail[tail.length - 2] ?? ''
-	let closing: string | undefined
-	if (last.startsWith('--confirmed-by=')) {
-		closing = last.slice('--confirmed-by='.length)
-		tail = tail.slice(0, -1)
-	} else if (beforeLast === '--confirmed-by') {
-		closing = last
-		tail = tail.slice(0, -2)
-	}
-	if (closing !== undefined) {
-		if (closing !== 'model' && closing !== 'record') return { kind: 'invalid' }
-		found = closing
-	}
-	return { kind: 'ok', args: [...head, ...tail], ...(found ? { confirmedBy: found } : {}) }
+	return { kind: 'ok', args: [...head, ...tail], flags }
 }
 
 function goalRef(goal: SessionGoal): GoalRef {
@@ -163,9 +203,21 @@ function renderGoal(
 			? ['Confirmed by: the record of the work']
 			: []),
 		`Automatic continuation: ${armed ? 'enabled' : 'paused'}`,
-		`Automatic turns: ${goal.roundsAdmitted} / ${goal.maxGoalRounds}`,
+		`Automatic turns: ${goal.roundsAdmitted}, up to ${goal.maxGoalRounds}`,
+		`Tokens: ${goalTokensText(goal)}`,
+		`Cost: ${goalCostText(goal)}`,
+		...(goal.guards?.tokenBudget !== undefined
+			? [`Token budget: ${goal.guards.tokenBudget.toLocaleString('en-US')}`]
+			: []),
+		...(goal.guards?.checkInEvery
+			? [`Check-in: every ${goal.guards.checkInEvery} automatic turns`]
+			: []),
+		...(goal.pauseReason ? [`Paused: ${goal.pauseReason.message}`] : []),
 		...(goal.blockedReason
 			? [`Blocker: ${goal.blockedReason.code}: ${goal.blockedReason.message}`]
+			: []),
+		...(goal.missing && goal.missing.length > 0
+			? [`Still missing: ${goal.missing.join('; ')}`]
 			: []),
 		`Objective: ${goal.objective}`,
 		'',
@@ -196,18 +248,22 @@ async function runGoalCommand(scope: GoalCommandScope | undefined, args: readonl
 			reason: 'Goals need a durable session. This host did not supply one for the current command.',
 		}
 	}
-	const flag = takeConfirmedBy(args)
-	if (flag.kind === 'invalid') {
+	const taken = takeGoalFlags(args)
+	if (taken.kind === 'invalid') {
 		return {
 			kind: 'refused' as const,
-			reason: `--confirmed-by takes record or model.\n${GOAL_USAGE}`,
+			reason:
+				taken.flag === '--confirmed-by'
+					? `--confirmed-by takes record or model.\n${GOAL_USAGE}`
+					: `${taken.flag} takes a whole number of at least 1.\n${GOAL_USAGE}`,
 		}
 	}
-	const command = parseGoalCommand(flag.args)
-	if (flag.confirmedBy !== undefined && command.kind !== 'create') {
+	const flag = taken.flags
+	const command = parseGoalCommand(taken.args)
+	if (Object.keys(flag).length > 0 && command.kind !== 'create') {
 		return {
 			kind: 'refused' as const,
-			reason: `--confirmed-by is chosen when a goal is set.\n${GOAL_USAGE}`,
+			reason: `Flags such as --confirmed-by, --token-budget and --max-rounds are chosen when a goal is set.\n${GOAL_USAGE}`,
 		}
 	}
 	try {
@@ -237,10 +293,18 @@ async function runGoalCommand(scope: GoalCommandScope | undefined, args: readonl
 						reason: `A goal is already ${current.phase}. Use /goal edit <objective> to change it or /goal clear before replacing it.`,
 					}
 				}
+				const defaults = scope.defaults
+				const guards: GoalGuards = {
+					...defaults?.guards,
+					...(flag.tokenBudget !== undefined ? { tokenBudget: flag.tokenBudget } : {}),
+				}
+				const maxGoalRounds = flag.maxRounds ?? defaults?.maxGoalRounds
 				const created = await scope.store.createGoal(
 					{
 						sessionId: scope.sessionId,
 						objective: command.objective,
+						...(maxGoalRounds !== undefined ? { maxGoalRounds } : {}),
+						...(Object.keys(guards).length > 0 ? { guards } : {}),
 						...(flag.confirmedBy !== undefined ? { confirmedBy: flag.confirmedBy } : {}),
 					},
 					scope.tenantId,
@@ -255,7 +319,14 @@ async function runGoalCommand(scope: GoalCommandScope | undefined, args: readonl
 				if (!current) return missingGoal('edit')
 				if (current.phase === 'complete') {
 					const replacement = await scope.store.createGoal(
-						{ sessionId: scope.sessionId, objective: command.objective },
+						{
+							sessionId: scope.sessionId,
+							objective: command.objective,
+							...(scope.defaults?.maxGoalRounds !== undefined
+								? { maxGoalRounds: scope.defaults.maxGoalRounds }
+								: {}),
+							...(scope.defaults?.guards ? { guards: scope.defaults.guards } : {}),
+						},
 						scope.tenantId,
 					)
 					scope.activation?.arm(replacement)
@@ -299,10 +370,20 @@ async function runGoalCommand(scope: GoalCommandScope | undefined, args: readonl
 						message: renderScopedGoal('Goal resumed', current, scope),
 					}
 				}
+				// A goal stopped by a limit goes on when the setting now allows more.
 				const resumed = await scope.store.resumeGoal(
 					scope.sessionId,
 					scope.tenantId,
 					goalRef(current),
+					{
+						...(scope.defaults?.maxGoalRounds !== undefined
+							? { maxGoalRounds: scope.defaults.maxGoalRounds }
+							: {}),
+						...(scope.defaults?.guards?.tokenBudget !== undefined
+							? { tokenBudget: scope.defaults.guards.tokenBudget }
+							: {}),
+						...(scope.defaults?.guards ? { guards: scope.defaults.guards } : {}),
+					},
 				)
 				scope.activation?.arm(resumed)
 				return {
