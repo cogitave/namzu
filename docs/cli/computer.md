@@ -29,6 +29,12 @@ image reference is the manifest's `imageRef`, else `namzu-local-computer:2`.
 With `NAMZU_PAL_COMPUTER_ENGINE=wslc`, no `NAMZU_PAL_COMPUTER_IMAGE` and a
 bundle, the Pal runtime uses that same `imageRef`; an explicit image wins.
 
+## Not the same as computer use for your own desktop
+
+This command is about the Pal computer. The `computer_use` tool that drives your own desktop is a different
+thing, switched by `computerUse.enabled` ([Computer use settings](computer-use-settings.md)). In WSL it
+drives the Windows desktop, and the first time it is turned on it may download its small helper.
+
 ## What people see
 
 `status` prints one sentence, for example "This PC is ready for Pal computers.",

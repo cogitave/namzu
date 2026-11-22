@@ -6960,8 +6960,12 @@ function AppBody({
 									flushLearnedRef.current()
 								},
 							},
-							// Off until the user's own settings turn it on (`computerUse.enabled`).
-							enableComputerUse: activeCtx.computerUse?.enabled === true,
+							// Offered here; whether it is on is the user's own setting
+							// (`computerUse.enabled`, off until they turn it on), read at the top
+							// of every turn so a change applies from the next message.
+							enableComputerUse: true,
+							computerUseSwitch:
+								activeCtx.readComputerUseEnabled ?? (() => activeCtx.computerUse?.enabled === true),
 							...(activeCtx.computerUse?.deniedApps?.length
 								? { deniedComputerApps: activeCtx.computerUse.deniedApps }
 								: {}),

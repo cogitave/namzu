@@ -553,3 +553,92 @@ describe('decision tool reachability', () => {
 		expect(without.toolNames()).not.toContain('decide')
 	})
 })
+
+describe('computer use follows its switch in an open conversation', () => {
+	async function createSwitched(read: () => boolean) {
+		const { createAgentSession } = await import('../agent.js')
+		const session = await createAgentSession(prefs, detected, {
+			toolLoading: 'eager',
+			cwd: workDir,
+			enableComputerUse: true,
+			computerUseSwitch: read,
+		})
+		open.push(session)
+		return session
+	}
+	async function sendOnce(session: Awaited<ReturnType<typeof createSwitched>>) {
+		for await (const _ of session.send([
+			{ role: 'user', content: 'look at the screen' } as never,
+		])) {
+			// drain into the mocked query boundary
+		}
+	}
+
+	it('keeps the host down while the switch is off, then brings the tool in and takes it out again', async () => {
+		let on = false
+		const session = await createSwitched(() => on)
+		expect(desktop.initialize).not.toHaveBeenCalled()
+
+		await sendOnce(session)
+		expect(queryToolNames).not.toContain('computer_use')
+		expect(desktop.initialize).not.toHaveBeenCalled()
+
+		on = true
+		await sendOnce(session)
+		expect(queryToolNames).toContain('computer_use')
+		expect(desktop.initialize).toHaveBeenCalledTimes(1)
+
+		on = false
+		await sendOnce(session)
+		expect(queryToolNames).not.toContain('computer_use')
+
+		// Back on: the host that already started is reused, not started again.
+		on = true
+		await sendOnce(session)
+		expect(queryToolNames).toContain('computer_use')
+		expect(desktop.initialize).toHaveBeenCalledTimes(1)
+	})
+
+	it('starts at build when the switch is already on, as before', async () => {
+		const session = await createSwitched(() => true)
+		expect(desktop.initialize).toHaveBeenCalledTimes(1)
+		await sendOnce(session)
+		expect(queryToolNames).toContain('computer_use')
+	})
+
+	it('leaves a host that did not start suspended and tries again only after off and on', async () => {
+		desktop.failInitialize = true
+		let on = true
+		const session = await createSwitched(() => on)
+		expect(desktop.initialize).toHaveBeenCalledTimes(1)
+		await sendOnce(session)
+		expect(queryToolNames).not.toContain('computer_use')
+		await sendOnce(session)
+		expect(desktop.initialize).toHaveBeenCalledTimes(1)
+
+		on = false
+		await sendOnce(session)
+		desktop.failInitialize = false
+		on = true
+		await sendOnce(session)
+		expect(desktop.initialize).toHaveBeenCalledTimes(2)
+		expect(queryToolNames).toContain('computer_use')
+	})
+
+	it('tells the model the switch exists whether it is on or off, and only where it can appear', async () => {
+		let on = false
+		const session = await createSwitched(() => on)
+		await sendOnce(session)
+		const off = querySystemPrompt
+		expect(off).toContain(
+			'Computer use (seeing the screen, the mouse and the keyboard) is a switch',
+		)
+		on = true
+		await sendOnce(session)
+		expect(querySystemPrompt).toBe(off)
+
+		const bare = await createSession(false)
+		await sendOnce(bare as never)
+		expect(querySystemPrompt).not.toContain('is a switch the person controls')
+	})
+})

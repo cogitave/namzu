@@ -238,6 +238,13 @@ export interface EnvironmentFacts {
 	readonly osVersion?: string
 	/** The resolver used by host command execution, never the login `$SHELL`. */
 	readonly executionShell?: CommandShell
+	/**
+	 * This surface offers computer use as a switch the person controls. Said whether the switch is
+	 * on or off, so turning it on never rewrites the cached prompt prefix.
+	 */
+	readonly computerUseOffer?: boolean
+	/** The switch is on but the desktop did not start: why, in one line. */
+	readonly computerUseFailure?: string
 }
 
 /**
@@ -354,6 +361,13 @@ export const DESKTOP_PREVIEW_FACT =
 const FACTS_FRAMING =
 	'These are facts about right now. Prefer them over any date or branch you would otherwise assume. Do not narrate them unless asked or relevant.'
 
+/**
+ * Computer use is a switch the person controls. Static on purpose: it is true while the tool is
+ * offered and while it is not, so a flip never changes the prompt.
+ */
+export const COMPUTER_USE_OFFER_FACT =
+	'Computer use (seeing the screen, the mouse and the keyboard) is a switch the person controls. When no computer_use tool is in your tool list it is off, or it is on and could not start (a reason is given to you when that is so). The person turns it on with /config computerUse.enabled on (or Settings, Tools), and the tool appears from their next message. You never turn it on yourself; if you need it, say so in one line and tell them that.'
+
 export function composeEnvironmentPrompt(
 	facts: EnvironmentFacts,
 	options: EnvironmentPromptOptions = {},
@@ -392,6 +406,11 @@ export function composeEnvironmentPrompt(
 	if (facts.boundary) lines.push(...boundaryLines(facts.boundary, stable))
 	if (facts.wsl) lines.push(...wslLines(facts.wsl, facts.boundary))
 	if (facts.host === 'desktop') lines.push(DESKTOP_PREVIEW_FACT)
+	if (facts.computerUseOffer) lines.push(COMPUTER_USE_OFFER_FACT)
+	if (facts.computerUseOffer && facts.computerUseFailure)
+		lines.push(
+			`Computer use is on, but it could not start: ${facts.computerUseFailure} Tell the person; it is tried again after they turn it off and on in /config.`,
+		)
 	return `## Environment\n\n${lines.join('\n')}`
 }
 
