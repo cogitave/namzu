@@ -1,8 +1,10 @@
 import {
+	chmodSync,
 	existsSync,
 	mkdirSync,
 	readFileSync,
 	readdirSync,
+	statSync,
 	symlinkSync,
 	writeFileSync,
 } from 'node:fs'
@@ -37,6 +39,27 @@ async function temp(prefix: string): Promise<string> {
 }
 
 describe('the conversation layout under NAMZU_HOME', () => {
+	it.runIf(process.platform !== 'win32')(
+		'creates a new home and its conversation index owner-only, and leaves an existing home as it is',
+		async () => {
+			const cwd = await temp('namzu-central-workspace-')
+			const stateRoot = join(await temp('namzu-central-parent-'), 'home')
+
+			const sessions = await openSessions(cwd, { stateRoot })
+			await startConversation(sessions)
+			sessions.index.close()
+
+			expect(statSync(stateRoot).mode & 0o777).toBe(0o700)
+			expect(statSync(join(stateRoot, 'index.sqlite')).mode & 0o777).toBe(0o600)
+
+			const shared = await temp('namzu-central-shared-')
+			chmodSync(shared, 0o750)
+			const again = await openSessions(cwd, { stateRoot: shared })
+			again.index.close()
+			expect(statSync(shared).mode & 0o777).toBe(0o750)
+		},
+	)
+
 	it('files a conversation as projects/<slug>/<session-id>.jsonl, never inside the workspace', async () => {
 		const cwd = await temp('namzu-central-workspace-')
 		const stateRoot = await temp('namzu-central-home-')

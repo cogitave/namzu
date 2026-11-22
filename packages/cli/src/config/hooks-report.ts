@@ -43,13 +43,13 @@ import {
 	type ConfigSource,
 	type DeclaredHookLayer,
 	type DeclaredHooks,
-	LOCAL_CONFIG_FILE,
 	loadBootstrapConfigWithProvenance,
 	loadConfigWithProvenance,
 	shortHomePath,
 	withHookLayerSink,
 	withHookProblemSink,
 } from './load.js'
+import { allFolderConfigFiles } from './project-files.js'
 import type { HookEntry, HooksConfig, NamzuCliConfig } from './schema.js'
 import { readSkillHooks, withoutSessionStart } from './skill-hooks-reader.js'
 
@@ -475,9 +475,7 @@ export async function describeFolderHooks(
 		}
 	}
 	const folderLabels = new Set(folderLayers.map((layer) => layer.label))
-	const folderFiles = [resolve(cwd, 'namzu.config.json'), resolve(cwd, LOCAL_CONFIG_FILE)].map(
-		shortHomePath,
-	)
+	const folderFiles = allFolderConfigFiles(cwd).map((file) => shortHomePath(file.path))
 	for (const problem of full.problems) {
 		const inFolder =
 			folderLabels.has(problem.file) ||

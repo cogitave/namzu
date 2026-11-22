@@ -36,6 +36,14 @@ describe('nextCycleMode', () => {
 		expect(nextCycleMode('plan', AUTO)).toBe('classify')
 	})
 
+	it('takes a session that started in auto by default to prompt first, and back round to auto', () => {
+		const walk = ['classify']
+		for (let i = 0; i < 4; i++) {
+			walk.push(nextCycleMode(walk.at(-1) as never, AUTO))
+		}
+		expect(walk).toEqual(['classify', 'prompt', 'accept-edits', 'plan', 'classify'])
+	})
+
 	it('leaves strict and the unattended default for prompt, whatever is open', () => {
 		for (const available of [NEITHER, BYPASS, AUTO, BOTH]) {
 			expect(nextCycleMode('strict', available)).toBe('prompt')

@@ -1,7 +1,8 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { beforeEach, describe, expect, it } from 'vitest'
+
+import { makeTempDir } from '../__fixtures__/temp-dir.js'
 
 import { loadConfigWithProvenance, takeConfigWarnings } from './load.js'
 
@@ -14,7 +15,7 @@ import { loadConfigWithProvenance, takeConfigWarnings } from './load.js'
 type Files = { user?: unknown; project?: unknown; local?: unknown; managed?: unknown }
 
 function layout(files: Files) {
-	const root = mkdtempSync(join(tmpdir(), 'namzu-sandbox-layers-'))
+	const root = makeTempDir('namzu-sandbox-layers-')
 	const home = join(root, 'home')
 	const cwd = join(root, 'work')
 	mkdirSync(join(home, '.namzu'), { recursive: true })

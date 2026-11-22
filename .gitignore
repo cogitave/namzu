@@ -24,6 +24,9 @@ packages/agents/
 packages/api/
 packages/docs/
 
+# Local release records, stage folders and notes (scripts/release.mjs)
+.release/
+
 # claude-code local launch config (per-machine)
 .claude/launch.json
 eval-report.json

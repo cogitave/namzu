@@ -91,7 +91,7 @@ describe('in a sandbox rooted at the working directory', () => {
 			resolve({ name: 'shared', directory: shared }, { sandbox: sandboxAt(project) })
 
 		expect(await ask()).toBeUndefined()
-		// `/add-dir` during the session.
+		// `/add dir` during the session.
 		mounts.push(added)
 		expect(await ask()).toBe(shared)
 	})

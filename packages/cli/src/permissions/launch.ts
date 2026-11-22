@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs'
 
 import {
 	type PermissionMode,
+	autoAvailable,
 	bypassAvailable,
 	permissionModeFromName,
 	unknownPermissionModeMessage,
@@ -67,10 +68,17 @@ export function launchRefusal(
 }
 
 export interface LaunchPlan {
-	/** The mode the session starts in. */
+	/**
+	 * The mode the session starts in. For `auto-default` it is `classify` on
+	 * the condition that the session's classifier can reach a model; the
+	 * terminal settles that once the session is built (`defaultStartMode`).
+	 */
 	readonly mode: PermissionMode
-	/** Why: the flag, the bypass alias, the configured default, or nothing. */
-	readonly source: 'launch-flag' | 'launch-bypass' | 'config-default' | 'default'
+	/**
+	 * Why: the flag, the bypass alias, the configured default, Namzu's own
+	 * default for the interactive terminal (auto), or nothing (`prompt`).
+	 */
+	readonly source: 'launch-flag' | 'launch-bypass' | 'config-default' | 'auto-default' | 'default'
 	/** Whether Shift+Tab and `/permissions` may reach bypass in this session. */
 	readonly bypassAvailable: boolean
 }
@@ -83,6 +91,13 @@ export interface LaunchPlan {
  * neither, the configured `permissions.defaultMode` applies, and a default that
  * the settings switched off falls back to `prompt` rather than refusing to
  * start: nobody typed it on this launch.
+ *
+ * With none of them, an interactive terminal starts in auto mode, unless
+ * `permissions.disableAutoMode` is set in any layer: the plan says `classify`
+ * with the source `auto-default`, and the terminal keeps it only when the
+ * session's classifier can reach a model (`defaultStartMode`), starting in
+ * `prompt` otherwise, without a word. Every other caller (a message sent to a
+ * terminal, anything without a person at a terminal) keeps `prompt`.
  */
 export function planLaunchMode(opts: {
 	readonly permissionModeFlag?: string | undefined
@@ -90,6 +105,8 @@ export function planLaunchMode(opts: {
 	readonly allowBypassFlag?: boolean | undefined
 	readonly settings?: PermissionSettings | undefined
 	readonly environment?: LaunchEnvironment | undefined
+	/** The launch opens the interactive terminal, where auto is the default. */
+	readonly interactive?: boolean | undefined
 }): { readonly plan: LaunchPlan } | { readonly error: string } {
 	const settings = opts.settings
 	let mode: PermissionMode | undefined
@@ -107,6 +124,9 @@ export function planLaunchMode(opts: {
 			mode = configured
 			source = 'config-default'
 		}
+	} else if (opts.interactive === true && settings?.disableAutoMode !== true) {
+		mode = 'classify'
+		source = 'auto-default'
 	}
 	const chosen = mode ?? 'prompt'
 	// A mode a person typed is refused plainly; one the configuration chose was
@@ -134,4 +154,34 @@ export function planLaunchMode(opts: {
 				}) && launchRefusal('bypass', opts) === undefined,
 		},
 	}
+}
+
+/**
+ * The mode a terminal session that nobody chose a mode for starts in, once the
+ * session exists: the classifier's reach is known only then.
+ *
+ * A Pal's session runs unattended. Auto is kept when the launch left the choice
+ * to Namzu's default (`autoDefault`), nothing has switched it off since (a
+ * project file read after the folder was trusted can), and the classifier can
+ * reach a model, the same test Shift+Tab applies. Anything else is `prompt`,
+ * as a terminal started before auto was the default.
+ */
+export function defaultStartMode(opts: {
+	readonly pal: boolean
+	readonly autoDefault: boolean
+	readonly settings?: PermissionSettings | undefined
+	readonly classifierUsable: boolean
+}): PermissionMode {
+	if (opts.pal) return 'auto'
+	if (
+		opts.autoDefault &&
+		opts.settings?.defaultMode === undefined &&
+		autoAvailable({
+			disabled: opts.settings?.disableAutoMode,
+			classifierUsable: opts.classifierUsable,
+		})
+	) {
+		return 'classify'
+	}
+	return 'prompt'
 }

@@ -20,6 +20,8 @@ import {
 	apiKeysPath,
 	credentialsPath,
 	googleApiKeyPath,
+	locateStoredCodexCredential,
+	locateStoredSubscriptionCredential,
 	readStoredApiKeys,
 	readStoredCodexCredential,
 	readStoredGeminiApiKey,
@@ -59,8 +61,11 @@ export type DetectionSource =
 	 * namzu's own credential store — a subscription the operator signed in to
 	 * from inside namzu. Carries the path because "where did this come from"
 	 * is the first question asked of a credential nobody typed.
+	 *
+	 * `shared: 'desktop'` marks a sign-in read in place from Namzu Desktop's store on the
+	 * paired Windows side (see `desktop-sign-in.ts`); `path` is that file.
 	 */
-	| { readonly kind: 'stored'; readonly path: string }
+	| { readonly kind: 'stored'; readonly path: string; readonly shared?: 'desktop' }
 	/**
 	 * Typed into a running namzu and held in memory for this session.
 	 *
@@ -161,6 +166,17 @@ export function signedInSubscriptionProviders(
 }
 
 const DEFAULT_PROBE_TIMEOUT_MS = 300
+
+function storedSource(
+	location: ReturnType<typeof locateStoredSubscriptionCredential>,
+	home: string | undefined,
+): Extract<DetectionSource, { kind: 'stored' }> {
+	if (location?.shared) return { kind: 'stored', path: location.path, shared: location.shared }
+	return {
+		kind: 'stored',
+		path: location?.path ?? credentialsPath(...(home === undefined ? [] : [home])),
+	}
+}
 
 export async function discoverProviders(
 	opts: DiscoverOptions = {},
@@ -325,10 +341,7 @@ export async function discoverProviders(
 						origin: 'stored',
 					}
 				}
-				sources.push({
-					kind: 'stored',
-					path: credentialsPath(...(opts.home === undefined ? [] : [opts.home])),
-				})
+				sources.push(storedSource(locateStoredSubscriptionCredential(opts.home), opts.home))
 			}
 		}
 
@@ -336,22 +349,18 @@ export async function discoverProviders(
 			const credential = usableCodexFileCredential?.credential ?? storedCodexCredential
 			if (!credential) throw new Error('unreachable')
 			apiKey = credential.accessToken
-			sources.push({
-				kind: usableCodexFileCredential ? 'codex-file' : 'stored',
-				path: usableCodexFileCredential
-					? usableCodexFileCredential.path
-					: credentialsPath(...(opts.home === undefined ? [] : [opts.home])),
-			})
+			sources.push(
+				usableCodexFileCredential
+					? { kind: 'codex-file', path: usableCodexFileCredential.path }
+					: storedSource(locateStoredCodexCredential(opts.home), opts.home),
+			)
 			codex = {
 				accountId: credential.accountId,
 				expiresAt: credential.expiresAt,
 				origin: usableCodexFileCredential ? 'codex-file' : 'stored',
 			}
 			if (storedCodexCredential && usableCodexFileCredential) {
-				sources.push({
-					kind: 'stored',
-					path: credentialsPath(...(opts.home === undefined ? [] : [opts.home])),
-				})
+				sources.push(storedSource(locateStoredCodexCredential(opts.home), opts.home))
 			}
 			for (const candidate of codexFileCredentials) {
 				if (candidate !== usableCodexFileCredential) {

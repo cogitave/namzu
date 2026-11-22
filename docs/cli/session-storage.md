@@ -29,6 +29,8 @@ rewritten.
 ```text
 ~/.namzu/
 ├── config.yaml, credentials.json, preferences.json, trust.json, cli.json, plugin-settings/
+├── accounts.json, mcp-approvals.json, tip-history.json, hint-counts.json
+├── backups/                          recovery copies: <file>.backup.<ms>, <file>.corrupted.<ms>
 ├── attachments/, skills/, agents/, commands/, plugins/, MEMORY.md
 ├── index.sqlite                      rebuildable index over every session log
 ├── cli/zen-catalogue.json            last-good Zen model catalogue (background refresh)
@@ -42,7 +44,7 @@ rewritten.
 │   ├── runs/<job-id>/<run-id>.json   each run's result; <run-id>.log beside it is the run's output
 │   ├── daemon/                       lease.<fence>.json, lease.json, endpoint.json, heartbeat.json, notify.json, stop.json, log/
 │   ├── daemon.env                    optional KEY=value credentials for scheduled runs (0600)
-│   ├── service.json                  what `namzu schedule install` created
+│   ├── service.json                  what `namzu schedule service install` created
 │   └── seen.json                     when the TUI last summarised scheduled runs
 └── projects/
     └── <slug>/                       one per working directory
@@ -68,8 +70,9 @@ A temporary scratch directory per session lives outside the home, at
 `<temp base>/namzu-<user>/<slug>/<session-id>/scratchpad/`. Every session that runs
 commands on this machine has one, an ephemeral `exec` run included: it is created
 when the first turn starts, with mode 0700, and refused if it is a symlink or owned by
-another user. A sub-agent uses its parent's. Nothing removes it when the process ends; the
-operating system clears it with the rest of its temporary files. Background job output
+another user. A sub-agent uses its parent's. Nothing removes it when the process ends; the terminal app's
+[temporary folder sweep](#clearing-the-temporary-folder) removes it once it has been idle for seven
+days, because the operating system does not always clear its temporary files. Background job output
 files are in its `jobs/` folder ([Where files go](where-files-go.md)).
 For a confirmed no-project script job, a separate private working directory
 is created beside `NAMZU_HOME`, under `<NAMZU_HOME>-schedule-workspaces/<job-id>/`.
@@ -98,6 +101,24 @@ which a separate package writes and which does not depend on the newest kernel.
 When the disk fills while a session runs, the session keeps going and says so once; see
 [Session log](../sdk/session-log.md#a-volume-that-stops-accepting-writes).
 
+### Who can read these files
+
+Everything that holds what was said or done in a conversation is readable by
+you alone:
+
+- The Namzu home is created with mode 0700 when Namzu creates it (the terminal,
+  the Desktop engine and the installer's fallback alike). A home that already
+  exists keeps its mode, since `NAMZU_HOME` can name a folder you share on
+  purpose; the files below are private either way.
+- `projects/` and each `projects/<slug>/` are 0700, and an existing one is
+  narrowed to 0700 at start.
+- Session logs, `lease.<fence>.json`, tool-result spills and the
+  `file-history/` copies (with their folders, 0700) are 0600. A `/restore`
+  writes back the file's own mode, not the copy's.
+- `index.sqlite` is 0600, and an index an earlier version left readable by
+  others is narrowed to 0600 the next time it is opened.
+- `logs/crash-<time>.log` is 0600, in a `logs/` folder created with mode 0700.
+
 ## What each piece is
 
 | Path | What it is | Safe to delete? |
@@ -112,6 +133,7 @@ When the disk fills while a session runs, the session keeps going and says so on
 | `<session-id>/file-history/` | Copies of files taken before a tool changed them, for `/restore`. | Deleting disables `/restore` for that session. |
 | `<session-id>/lease.json` | The current writer's claim and fencing token. A process stopped by SIGTERM, SIGHUP or SIGINT releases it before it exits; one killed outright (SIGKILL, a crash) holds it until it expires, at most five minutes, and then it is taken over, so a session is never locked for good. | Not while a process is using the session. |
 | `<session-id>/lease.<fence>.json` | One file per claim, named by its fencing token; the highest is the current holding, and `lease.json` is a readable copy of it. A release writes the next fence with an empty holder. Older holdings are pruned, so a few remain. A child session has its own under `subagents/<child-id>/`. | No: the highest fence is what decides who may write. |
+| `backups/` | Recovery copies of the state files below: each file as it was before a change, and any that could not be read. See [State files several processes change](#state-files-several-processes-change). | Yes, but then there is nothing to go back to. |
 | `index.sqlite` | Sessions, turns, child sessions, pending decisions, external ids and full-text search, all derived from the logs. | Yes. It is rebuilt on the next launch. |
 | `cli/zen-catalogue.json` | The last Zen and Zen Go model catalogue a launch's background refresh derived and validated; see [The model catalogue refresh](model-catalogue.md). | Yes. The next launch uses the bundled catalogue until its refresh lands and writes a new one. |
 | `project.json` | The project's id and canonical path. | Deleting it gives the directory a new project id on the next launch. |
@@ -122,6 +144,94 @@ When the disk fills while a session runs, the session keeps going and says so on
 | `schedule/claims/` | Which occurrences already started. | Only while the scheduler is stopped: deleting one while it runs can re-run an occurrence after a backward clock jump inside the catch-up window. |
 | `schedule/state/` | The scheduler's memory of each job, including source results still awaiting delivery. | Only while the scheduler is stopped and no delivery is pending; occurrences within the catch-up window may then be caught up again. |
 | Old run sessions | The scheduler **archives** (never deletes) a job's completed-run sessions beyond its newest `retention.keepSessions` (default 20), so `/resume` stays usable. | `namzu schedule prune --delete` deletes old runs and their sessions after listing them, a removed job's included, and a removed job's history once none of its runs is left. |
+
+## State files several processes change
+
+The terminal, the Desktop engine and `exec` can all run at once, and Desktop itself
+writes the trusted folders list, so a few small files in the Namzu home are changed
+by more than one process. Each change to them holds a lock file beside the file,
+`<file>.lock`, reads the file again under it, makes its one change, and writes the
+whole file through a temporary file that is flushed to disk before it is renamed
+over the old one. Two processes that change the same file at the same moment both
+keep their change. The lock is the SDK's
+[state file lock](../sdk/state-files.md#the-lock). The next change takes over a lock
+left by a process that has exited, a lock that never got its owner written into it
+(the disk was full, or the process was killed right after creating it) once it is ten
+seconds old, and a lock that carries the pid of the process now running but was left
+by an earlier one (as after a container restart). A process that finds the lock held
+by a live process waits up to about two seconds and then refuses with "... is being
+saved by another Namzu process right now, so this change was not made. Try again in a
+moment."
+
+| File | Locked | Recovery copy before a change | A file that cannot be read |
+|---|---|---|---|
+| `config.yaml` | yes, one lock across a whole Settings save, a `namzu mcp add` and a server edit | yes | refused, as before ("... is not valid YAML ...; fix it first."), now naming the newest recovery copy |
+| `trust.json` | yes, also by Desktop's **Remove** and **Start a new list** | yes | trusts nothing; a change is refused and the file kept (below) |
+| `mcp-approvals.json` | yes | yes | approves nothing; a change is refused and the file kept (below) |
+| `accounts.json` | yes (as before) | yes; a removed API key is cut out of every copy | refused, as before, now naming the newest recovery copy |
+| `account-activity.json`, `terminal-state.json` | yes (as before) | no | read as empty |
+| `preferences.json` | written whole | yes | "needs re-pick", as before |
+| `tip-history.json`, `hint-counts.json` | yes, for a short wait; a count that cannot get the lock is dropped | no | read as empty |
+
+Recovery copies are in `backups/` in the Namzu home, named
+`<file>.backup.<epoch ms>`: the file as it was just before a change, at most one a
+minute per file, the newest five kept, none taken when it would equal the newest or
+when the file is empty. A copy is therefore the file before the change it was taken
+for: that change, and any made in the minute after it, are not in it. The number in
+the name only grows, also after the computer's clock went back, so the highest number
+is always the newest copy; the copy's modification time is when it was taken. Every
+copy is mode 0600, also of a file that was wider, because some of these files hold
+keys. `credentials.json`, `api-keys.json` and `gemini-api-key.json` get no copy on
+purpose: they hold sign-in tokens and keys that signing in again or pasting the key
+replaces, and an old copy would keep a revoked one on disk. A tool server's headers
+and environment in `config.yaml` can hold tokens too: `namzu mcp remove` cuts the
+server out of every `config.yaml` copy, but a header or environment value you change
+stays in the copies taken before the change until five newer copies replace them.
+
+A `trust.json` or `mcp-approvals.json` that exists but is not valid JSON, is not the
+expected shape, or carries a newer `version` used to read as empty, and the next grant
+replaced it with a file holding only that grant. Now:
+
+- Reading it trusts nothing and approves nothing, so no folder or server is let in by
+  a damaged file. A file that is empty or holds only blank space has nothing to keep
+  and reads as no file at all.
+- A change is refused. The file's bytes are copied first to
+  `backups/<file>.corrupted.<epoch ms>` (once per distinct content), and the refusal
+  says so in one sentence that names the file, the copy and the newest `.backup.` copy,
+  for example "~/.namzu/trust.json could not be read (not valid JSON), so it was not
+  changed. Its contents are kept in ~/.namzu/backups/trust.json.corrupted.&lt;ms&gt;. The
+  newest recovery copy is ~/.namzu/backups/trust.json.backup.&lt;ms&gt;, the file as it was
+  before a change at 2026-11-21 16:03; that change and any later one are not in it. To
+  go back to it, copy it over ~/.namzu/trust.json. Fix or remove the file, then try
+  again."
+- In the terminal the trust box says the list could not be read, that a yes holds for
+  this session only, and offers **s start a new list with this folder**. `namzu exec`
+  refuses with a line that names the list instead of "a folder nobody has trusted".
+  Creating a Pal is refused before anything is made. In Desktop, trusting a folder is
+  refused with a sentence that points to **Settings, Trusted folders, Start a new
+  list**. For `mcp-approvals.json` the refusal names `namzu mcp approve --new-list`.
+- Starting a new list keeps the old file in `backups/<file>.corrupted.<epoch ms>`,
+  reads the copy back and compares it, and only then writes the new list (the folder
+  being trusted, an empty Desktop list, or the approvals being given). If the copy
+  cannot be made or the file changes meanwhile, nothing is replaced. A list that
+  reads again by then is not replaced.
+- Entries this version does not understand (a list entry that is not text, a key a
+  newer writer added, another folder's odd answer) are kept as written when the file is
+  changed.
+
+`namzu doctor` has a `runtime.state-files` line. It fails, naming the file and the
+reason, when `trust.json` or `mcp-approvals.json` cannot be read, or when a lock file
+at the top of the Namzu home cannot be read (nothing can take that one over: close
+Namzu and remove it). It warns, naming each one, about a lock left by a process that
+has exited or never given an owner, which the next change takes over. Otherwise it
+says where the recovery copies are and which files they cover.
+
+Nothing is restored on its own. To go back to a copy, close Namzu (the terminal and
+Desktop) and copy the newest `<file>.backup.<epoch ms>` over the file, for example
+`cp ~/.namzu/backups/trust.json.backup.<epoch ms> ~/.namzu/trust.json`. To start a new
+list instead, use the trust box's **s**, Desktop's **Start a new list** or
+`namzu mcp approve --new-list`; removing the file by hand works too, since its damaged
+bytes are already in `backups/` once a change was refused.
 
 ## Why one log per session
 
@@ -150,6 +260,60 @@ reply, a later revision, or a legacy message without that event remains
 visible. These display rows do not change the journal or model replay, and
 cold history does not reconstruct tool receipts or reasoning.
 
+## Keeping conversations: `cleanupPeriodDays`
+
+`cleanupPeriodDays` (Settings, Projects, *Keep conversations for*) is the number of days a conversation is
+kept on this computer after it last changed. It is a whole number, at least 1, and 30 when unset; to keep
+everything, set a large number such as 3650 (there is no 0). It is read from your own file and the managed
+file only: a project file that sets it is ignored with a warning, because a repository cannot decide what is
+removed from your computer. If the files cannot be read, nothing is removed.
+
+When the terminal app starts it runs one sweep, at most once a day (`$NAMZU_HOME/.last-cleanup` records the
+time, under a lock, so two starts do not both sweep). For each project folder under `$NAMZU_HOME/projects/`
+it removes a conversation, whose log and folder have both been unchanged for the period: the log
+`<session-id>.jsonl` first, then its folder (tool results, plans, tasks, goals, budgets, file history,
+sub-agent conversations), then the conversation's scratch folder in the temporary folder. It also drops the
+lines of `history.jsonl` that old and brings the index up to date. It is kept, whatever its age, when its turn
+is open (running or waiting on a decision), its writer lease is live (the sweep takes the lease before it
+removes anything), its folder is not trusted, a running Namzu has it on screen or this start is about to open
+it, the desktop app started it, a scheduled job delivers its results to it (or results for it are still queued), or its log cannot be read. Archived conversations are swept the same way after the period, so an archive is restorable only until then. Nothing outside `projects/` and the temporary
+folder is touched: not a project's memory, learning data, worktrees or `project.json`, and not the shared
+attachment store. Opening a conversation with `-c` or `/resume` counts as a change.
+
+The first time an installation reaches the sweep with the default period, it only counts what is older and
+says so once, in the transcript, naming the setting; it removes nothing until seven days after that notice
+was shown on screen (an exit before it appeared starts no week, and the notice comes again).
+A period you set yourself applies at once.
+
+## Prompt history: `history.jsonl`
+
+`$NAMZU_HOME/history.jsonl` keeps the prompts you send from the terminal app's box, so Up and Ctrl+R in a
+new conversation bring back the earlier prompts of the same project (the checkout folder), after this
+conversation's own. One JSON line per prompt:
+`{"display":"…","project":"<folder>","sessionId":"…","timestamp":<ms>}`, plus `pasted` ranges
+(`{ offset, length, sha256 }`) when text was pasted. The file is mode 0600, refused when it is a link or not a
+regular file, appended under `history.jsonl.lock`, and keeps the newest 2000 lines.
+
+Pasted text is not copied here: it is cut out of `display`, and recall reads it back from the conversation's
+own log, which already holds it. A line whose conversation was removed, or whose paste cannot be found, is
+not recalled. Not written: a prompt carrying a credential shape (a vendor key, a bearer header, a private key
+block) or `/login` with its code, a loop or queued command or keybinding line, anything typed into a process a
+session started (sub-agents, `namzu exec`), and everything when `promptHistory` is `false` (Settings,
+Projects, *Remember sent prompts*; your own file and the managed file only; the file is left as it is). The
+first start in a project from before the file existed seeds it once from that project's newest 20
+conversations. The desktop application does not read or write this file. Remove the file to forget all
+prompts; `cleanupPeriodDays` also drops lines that old. A prompt's text stays in the conversation's log
+either way: that log, not this file, is the full record, and it has mode 0600 inside a 0700 folder.
+
+## Clearing the temporary folder
+
+At the same start, the sweep clears what sessions left in `<temp base>/namzu-<user>/`, once a day
+(`.last-cleanup` inside it): `<slug>/<session-id>/` folders in which nothing changed for seven days and whose
+session is not live (the age is the newest change inside, since every home on the machine shares the folder);
+`hook-env*` folders whose owner process has exited (each records `owner.json` with its process id and start
+time), or, for one made before that, that are as old; and `s-<hex>` short names whose folder is gone. Links
+are never followed and entries of another user are never touched.
+
 ## Archiving idle conversations
 
 `archiveInactive` (Settings, Projects, *Archive inactive conversations*) is `never` by default, or `1d`, `7d`
@@ -161,8 +325,8 @@ listing, but not within ten minutes of a refusal). A listing looks at up to 2000
 longest idle first, and archives at most five each time, so a project with a long backlog catches up over a few
 listings while the list shown stays at the 100 newest. Archiving only moves a conversation to the archive, where it stays readable and can be restored; it
 never deletes a conversation and it never touches a worktree, so a worktree with uncommitted changes stays on
-disk. The terminal app has no sweep of its own: the setting is applied where the conversation list is drawn by
-the desktop app.
+disk. The terminal app has no archive sweep of its own: the setting is applied where the conversation list is drawn by
+the desktop app. Deleting old conversations is a separate setting, [`cleanupPeriodDays`](#keeping-conversations-cleanupperioddays).
 
 When the app asks for it (`idleArchivedRows: true` in the request), the listing names each conversation it
 archived (an extra row `{ id, idleArchived: true }`); an app that does not ask gets no such rows. The desktop
@@ -223,9 +387,19 @@ the restore failed without changing anything.
 
 ## What is never written
 
-- Nothing under the working directory. `<cwd>/.namzu` is read for the files you
-  author there and never written.
-- No crash dumps, no per-run directories, no `sessions.sqlite`, no
+- No conversation, checkpoint, file copy, memory or index under the working
+  directory. `<cwd>/.namzu` is read for the files you author there; the CLI
+  writes there only on request: the project's local settings file
+  `settings.local.json`, when you save a "don't ask again" answer or a
+  `/permissions` rule (see
+  [Permission layers](permission-layers.md#the-local-file)), a skill saved
+  with `save_skill`, and workflows added by `namzu github install`. When the
+  settings file replaces an earlier `namzu.config.local.json`, that file's
+  bytes are kept in the Namzu home, under `backups/projects/<folder>/`, not in
+  the project.
+- Crash logs are not conversation data: `logs/crash-<time>.log` in the Namzu
+  home is 0600 and the newest ten are kept.
+- No conversation dumps, no per-run directories, no `sessions.sqlite`, no
   `transcript.jsonl`, `messages.json` or `report.md`. An earlier CLI wrote
   those; `namzu state` reports what is left of them as `legacy`, and this
   version never reads them.

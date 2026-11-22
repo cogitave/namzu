@@ -64,4 +64,4 @@ export const MANUAL_REDIRECT_URI = 'https://platform.claude.com/oauth/code/callb
  * hand-curated list of what Namzu later uses.
  */
 export const OAUTH_SCOPES =
-	'org:create_api_key user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload'
+	'org:create_api_key user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload user:plugins user:privacy_consents:write'

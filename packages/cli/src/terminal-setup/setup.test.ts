@@ -44,7 +44,7 @@ describe('identifyTerminal', () => {
 	})
 })
 
-describe('/terminal-setup in an editor', () => {
+describe('/terminal setup in an editor', () => {
 	const dir = () => join(home, '.config', 'Code', 'User')
 
 	it('adds the key, the scroll setting and the GPU setting, with a backup of what was there', () => {
@@ -121,7 +121,7 @@ describe('/terminal-setup in an editor', () => {
 	})
 })
 
-describe('/terminal-setup elsewhere', () => {
+describe('/terminal setup elsewhere', () => {
 	it('appends the Alacritty binding once, with a backup', () => {
 		const file = join(home, '.config', 'alacritty', 'alacritty.toml')
 		mkdirSync(join(home, '.config', 'alacritty'), { recursive: true })

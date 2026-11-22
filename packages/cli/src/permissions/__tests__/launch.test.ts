@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest'
 
-import { launchRefusal, planLaunchMode } from '../launch.js'
+import { defaultStartMode, launchRefusal, planLaunchMode } from '../launch.js'
+import {
+	type PermissionSettings,
+	mergePermissionSettings,
+	splitPermissionsTable,
+} from '../settings.js'
 
 const USER = { root: false, sandboxed: false } as const
 const ROOT = { root: true, sandboxed: false } as const
@@ -172,5 +177,156 @@ describe('the root guard', () => {
 			mode: 'prompt',
 			bypassAvailable: false,
 		})
+	})
+})
+
+describe('auto as the interactive terminal’s default', () => {
+	const interactive = (input: Parameters<typeof planLaunchMode>[0] = {}) =>
+		plan({ interactive: true, ...input })
+
+	it('starts in auto with nothing chosen, and says the default chose it', () => {
+		expect(interactive()).toEqual({
+			mode: 'classify',
+			source: 'auto-default',
+			bypassAvailable: false,
+		})
+	})
+
+	it.each([
+		['--permission-mode prompt', { permissionModeFlag: 'prompt' }, 'prompt', 'launch-flag'],
+		['--permission-mode auto', { permissionModeFlag: 'auto' }, 'classify', 'launch-flag'],
+		['--yolo', { skipPermissions: true }, 'bypass', 'launch-bypass'],
+		['defaultMode: prompt', { settings: { defaultMode: 'prompt' } }, 'prompt', 'config-default'],
+		[
+			'defaultMode: accept-edits',
+			{ settings: { defaultMode: 'accept-edits' } },
+			'accept-edits',
+			'config-default',
+		],
+		['defaultMode: auto', { settings: { defaultMode: 'auto' } }, 'classify', 'config-default'],
+		[
+			'a defaultMode the settings shut',
+			{ settings: { defaultMode: 'bypass', disableBypassMode: true } },
+			'prompt',
+			'default',
+		],
+		['disableAutoMode', { settings: { disableAutoMode: true } }, 'prompt', 'default'],
+	] as const)('does not apply over %s', (_what, input, mode, source) => {
+		expect(interactive(input as Parameters<typeof planLaunchMode>[0])).toMatchObject({
+			mode,
+			source,
+		})
+	})
+
+	it('is not the default anywhere but the interactive terminal', () => {
+		expect(plan({})).toEqual({ mode: 'prompt', source: 'default', bypassAvailable: false })
+		expect(plan({ interactive: false })).toMatchObject({ mode: 'prompt', source: 'default' })
+	})
+
+	describe('read from every layer the configuration has', () => {
+		const layered = (...tables: [Record<string, unknown>, 'operator' | 'workspace'][]) =>
+			tables.reduce<PermissionSettings | undefined>(
+				(merged, [table, authority]) =>
+					mergePermissionSettings(
+						merged,
+						splitPermissionsTable(table, authority, 'a file').settings,
+					),
+				undefined,
+			)
+
+		it.each([
+			['the user file', [[{ defaultMode: 'prompt' }, 'operator']]],
+			[
+				'the managed file',
+				[
+					[{}, 'operator'],
+					[{ defaultMode: 'plan' }, 'operator'],
+				],
+			],
+			[
+				'the project file',
+				[
+					[{}, 'operator'],
+					[{ defaultMode: 'prompt' }, 'workspace'],
+				],
+			],
+		] as const)('a defaultMode in %s keeps the configured mode', (_where, tables) => {
+			const settings = layered(
+				...(tables as unknown as [Record<string, unknown>, 'operator' | 'workspace'][]),
+			)
+			expect(interactive({ settings }).source).toBe('config-default')
+		})
+
+		it.each([
+			[
+				'the user file',
+				[
+					[{ disableAutoMode: true }, 'operator'],
+					[{}, 'workspace'],
+				],
+			],
+			[
+				'the project file',
+				[
+					[{}, 'operator'],
+					[{ disableAutoMode: true }, 'workspace'],
+				],
+			],
+			[
+				'one layer, whatever a later one says',
+				[
+					[{ disableAutoMode: true }, 'operator'],
+					[{ disableAutoMode: false }, 'workspace'],
+				],
+			],
+		] as const)('disableAutoMode in %s starts the terminal asking', (_where, tables) => {
+			const settings = layered(
+				...(tables as unknown as [Record<string, unknown>, 'operator' | 'workspace'][]),
+			)
+			expect(interactive({ settings })).toMatchObject({ mode: 'prompt', source: 'default' })
+		})
+
+		it('lets the default stand where a project wrote a mode it may not choose', () => {
+			// A project cannot make a no-asking mode its default; that does not
+			// make it the one to say the terminal starts by asking either.
+			const settings = layered([{}, 'operator'], [{ defaultMode: 'bypass' }, 'workspace'])
+			expect(settings?.ignored?.[0]).toContain('is ignored')
+			expect(interactive({ settings }).source).toBe('auto-default')
+		})
+	})
+})
+
+describe('the mode a defaulted session starts in once it is built', () => {
+	it('is auto when the default chose it and the classifier can reach a model', () => {
+		expect(defaultStartMode({ pal: false, autoDefault: true, classifierUsable: true })).toBe(
+			'classify',
+		)
+	})
+
+	it('is prompt, without a word, when the classifier cannot reach a model', () => {
+		expect(defaultStartMode({ pal: false, autoDefault: true, classifierUsable: false })).toBe(
+			'prompt',
+		)
+	})
+
+	it('is prompt when the settings switched auto off or named a default since', () => {
+		for (const settings of [{ disableAutoMode: true }, { defaultMode: 'prompt' as const }]) {
+			expect(
+				defaultStartMode({ pal: false, autoDefault: true, settings, classifierUsable: true }),
+			).toBe('prompt')
+		}
+	})
+
+	it('is prompt when the launch did not leave the choice to the default', () => {
+		expect(defaultStartMode({ pal: false, autoDefault: false, classifierUsable: true })).toBe(
+			'prompt',
+		)
+	})
+
+	it('is the unattended mode for a Pal, whatever else holds', () => {
+		expect(defaultStartMode({ pal: true, autoDefault: true, classifierUsable: true })).toBe('auto')
+		expect(defaultStartMode({ pal: true, autoDefault: false, classifierUsable: false })).toBe(
+			'auto',
+		)
 	})
 })

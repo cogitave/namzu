@@ -73,6 +73,11 @@ export const PeerRecordSchema = z
 		limitedUntil: z.number().int().positive().optional(),
 		/** The latest exchanges with other terminals, newest last; absent for a terminal that has had none or does not report them. */
 		trail: z.array(PeerExchangeSchema).max(PEER_TRAIL_MAX).optional(),
+		/** A role another machine (or the person) set for this session; descriptive only, never a permission. */
+		role: z.string().min(1).max(500).optional(),
+		/** The name of the machine that set the role. */
+		roleBy: z.string().min(1).max(80).optional(),
+		roleAt: z.number().int().nonnegative().optional(),
 	})
 	.strict()
 

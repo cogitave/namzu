@@ -425,7 +425,10 @@ import {
 	unresolvedMembers,
 	unsupportedProviderMessage,
 } from '../integrations/providers/index.js'
-import { migrateAccountKeys } from '../integrations/providers/key-migration.js'
+import {
+	retireDuplicateStartupKeys,
+	retirementNotice,
+} from '../integrations/providers/key-migration.js'
 import {
 	PickerProviderTimeoutError,
 	runPickerProviderOperation,
@@ -454,6 +457,10 @@ import { buildSessionCostTool, fileLogBytes } from '../integrations/spend/sessio
 import { resolveNamzuHome } from '../integrations/state/home.js'
 import { readIdentity } from '../integrations/state/identity.js'
 import { ensurePrivateStateDirectory } from '../integrations/state/private-directory.js'
+import {
+	describeLegacyExclude,
+	excludeProjectLegacy,
+} from '../integrations/state/project-legacy.js'
 import { cliProjectRoot } from '../integrations/state/project.js'
 import { CLI_CHECKPOINT_RETENTION } from '../integrations/state/retention.js'
 import type {
@@ -560,8 +567,10 @@ import {
 	createLiveModeControl,
 	permissionChangeReason,
 } from '../permissions/live-mode.js'
+import { settleLocalSettings } from '../permissions/local-settings.js'
 import type { PermissionMode } from '../permissions/mode.js'
 import { cliGate } from '../permissions/read-only-gate.js'
+import { tableHoldsRule } from '../permissions/rule-screen.js'
 import { withSandboxShell } from '../permissions/sandbox-shell.js'
 import { type SessionAllow, createSessionAllows } from '../permissions/session-allow.js'
 import type { PermissionSettings } from '../permissions/settings.js'
@@ -576,11 +585,13 @@ import {
 	createCliReminderSource,
 	hypermodeExitOwed,
 } from '../reminders/index.js'
+import { goalJudgeWiring } from '../rounds/goal-judge.js'
 import { createSessionSkillCatalog } from '../skills/catalog.js'
 import { createSkillDirectoryResolver } from '../skills/directory.js'
 import { isInsideFolder, restoreSkillHooks } from '../skills/restore-skill-hooks.js'
 import { SAVE_SKILL_TOOL_NAME } from '../skills/save.js'
 import { type AttachedSkillHook, createSkillHooksHost } from '../skills/skill-hooks.js'
+import { COMMAND_TOOL_NAME, type CommandToolHost, buildCommandTool } from './command-tool.js'
 import { projectTurnConversation } from './conversation-history.js'
 import { type ModelSwitchOutcome, buildSwitchModelTool } from './model-switch-tool.js'
 import { type ModelSwitchRequest, resolveModelSwitch } from './model-switch.js'
@@ -1148,8 +1159,8 @@ export interface SendOptions {
 	readonly onMonitorEventsDelivered?: (eventIds: readonly string[]) => void
 	/** Model-specific reasoning effort for this turn's main query. */
 	readonly effort?: ReasoningEffort
-	/** `'fast'` asks the provider for its fast inference mode for this turn; absent is standard. */
-	readonly speed?: 'fast'
+	/** `'fast'` asks the provider for its fast inference mode for this turn, `'ultrafast'` for the tier above it; absent is standard. */
+	readonly speed?: 'fast' | 'ultrafast'
 	/**
 	 * The model the operator picked while this turn runs, read before every
 	 * request. A model this session's provider serves takes effect on the next
@@ -1210,9 +1221,13 @@ export interface SendOptions {
 	 * `prompt` and says so. Called once per limit, with a sentence fit to show.
 	 * Absent, the kernel asks the person about the call that tripped it, or ends
 	 * the turn when there is nobody to ask.
+	 *
+	 * `unavailable`: three answers in a row gave no verdict. The kernel has
+	 * already refused the batch and ended the turn; the host only says so, and
+	 * leaves the mode as it is.
 	 */
 	readonly onAutoModeLimit?: (event: {
-		readonly limit: 'consecutive' | 'total'
+		readonly limit: 'consecutive' | 'total' | 'unavailable'
 		readonly reason: string
 	}) => void
 	/**
@@ -1461,7 +1476,7 @@ export interface SessionWorkflows {
  * tool names a path outside the working directory and the added directories.
  */
 const OUTSIDE_ROOT_REFUSAL =
-	'Your settings (permissions.outsideRoot: refuse) do not allow files outside the working directory and its added directories, so Namzu does not ask. Work inside those folders, or tell the user the folder has to be added (--add-dir or /add-dir) or the setting changed.'
+	'Your settings (permissions.outsideRoot: refuse) do not allow files outside the working directory and its added directories, so Namzu does not ask. Work inside those folders, or tell the user the folder has to be added (--add-dir or /add dir) or the setting changed.'
 
 /** Most bytes of a page `web_fetch` reads (ten mebibytes). */
 const WEB_FETCH_MAX_BYTES = 10 * 1024 * 1024
@@ -1560,6 +1575,12 @@ export interface AgentSession {
 	 * always publishes the field.
 	 */
 	readonly reasoningEffortLevels?: readonly ReasoningEffort[]
+	/**
+	 * The speed tiers above standard the current provider's own model listing
+	 * offers for `model`; `undefined` until a listing has answered or when the
+	 * provider has none. Read by the fast-mode check.
+	 */
+	readonly speedTiersFor?: (model: string) => readonly ('fast' | 'ultrafast')[] | undefined
 	/**
 	 * Present only on a session opened with `deferEffortCatalogue` whose levels
 	 * were not final at open. Resolves, never rejects, once the model listing has
@@ -1700,7 +1721,7 @@ export interface AgentSession {
 	 * so the next edit is refused until the model reads the file again.
 	 */
 	markFilesChanged?(paths: readonly string[]): Promise<void>
-	/** The directories besides the working directory the file tools may reach; `/add-dir` adds one. */
+	/** The directories besides the working directory the file tools may reach; `/add dir` adds one. */
 	readonly directories?: SessionDirectories
 	/** Be told when one of this session's jobs ends, whether or not a turn is running. */
 	readonly onJobExit?: (listener: (job: BackgroundJob) => void) => () => void
@@ -1926,8 +1947,10 @@ export interface AgentSession {
 	readonly configNotices: readonly string[]
 	/**
 	 * Save an operator note (`#note`, `/memory add`) as a typed memory file in
-	 * this session's stored memory, default type `project`. Absent on a session
-	 * with no store, where notes go to the curated project file as before.
+	 * this session's stored memory, default type `project`. A refused session
+	 * has it too once the folder's saved data opened. Absent only where no store
+	 * could be opened; the note is then refused, never written into the
+	 * repository's `.namzu/MEMORY.md`.
 	 */
 	readonly rememberNote?: (text: string, type?: MemoryType) => Promise<TypedNoteResult>
 	/**
@@ -1979,7 +2002,7 @@ export interface AgentSession {
 	readonly resetApprovalLatch?: () => void
 	/**
 	 * Remember "don't ask again" answers: for the rest of the session, and in
-	 * the project's `namzu.config.local.json` for the next. They apply behind
+	 * the project's `.namzu/settings.local.json` for the next. They apply behind
 	 * the operator's rules and never cover an escape or a path outside the
 	 * roots. Returns a sentence when the file could not be written. Absent
 	 * where the host has no such store, in which case the prompt offers no
@@ -1988,6 +2011,8 @@ export interface AgentSession {
 	readonly allowForSession?: (allows: readonly SessionAllow[]) => string | undefined
 	/** The allows given at a prompt and held for this conversation. */
 	readonly rememberedAllows?: () => readonly SessionAllow[]
+	/** Withdraw the held answers that `rule` (as `/permissions remove` takes it) names; whether any went. */
+	readonly forgetRememberedAllow?: (rule: string) => boolean
 	/**
 	 * Tell the configured `notification` hooks that the operator's attention is
 	 * wanted (a review is waiting, a turn settled). Fire-and-forget: a hook that
@@ -2365,11 +2390,15 @@ export async function probeAgentSession(
 	// and nothing after is this step.
 	const discoveryStartedAt = Date.now()
 	cliLogger().debug('discovering provider credentials')
-	// Keys an earlier build kept only in `accounts.json` move, once, to the
-	// store discovery reads, so they are found below rather than asked for again.
-	const keyMigrationNotice = await migrateAccountKeys(openCliAccounts().registry, {
-		labelOf: (id) => accountProductName(id),
-	}).catch(() => null)
+	// A startup copy of an `/auth` account's key, left by an earlier build, is
+	// removed once the account is verified to hold the same key.
+	const keyMigrationNotice = (() => {
+		try {
+			return retirementNotice(retireDuplicateStartupKeys().retired, (id) => accountProductName(id))
+		} catch {
+			return null
+		}
+	})()
 	const detected = await discoverProviders(options.env ? { env: options.env } : {})
 	cliLogger().debug('provider credentials discovered', {
 		'namzu.boot.discovery_ms': Date.now() - discoveryStartedAt,
@@ -2489,6 +2518,9 @@ export const EAGER_TOOLS_WHEN_DEFERRED = [
 	// The skills manifest tells the model to load a skill through this tool;
 	// deferring it would make every skill a two-step search first.
 	'skill',
+	// The command listing rides in the description; a search first would hide it
+	// from the very request in which the person asked for a command.
+	COMMAND_TOOL_NAME,
 	// query mounts discovery when absent; an existing discovery tool must stay ready.
 	'search_tools',
 ] as const
@@ -2860,6 +2892,13 @@ export interface AgentSessionOptions {
 	readonly reminders?: boolean
 	/** Mount the current-chat model selection tool in an interactive host. */
 	readonly allowModelSwitch?: boolean
+	/**
+	 * Mount the `command` tool, which runs the person's own Namzu commands when
+	 * they ask in words. Only the main interactive terminal supplies it: a
+	 * sub-agent, a scheduled run and a headless run have nobody to approve a
+	 * change and no composer to run one in.
+	 */
+	readonly commandHost?: CommandToolHost
 	/** See `NamzuCliConfig.hooks`. Attached to the plugin lifecycle manager. */
 	readonly hooks?: HooksConfig
 	/**
@@ -2874,7 +2913,7 @@ export interface AgentSessionOptions {
 	 * attach. Absent, the trust the person recorded decides.
 	 */
 	readonly folderTrusted?: boolean
-	/** See `NamzuCliConfig.additionalDirectories`, absolute. `/add-dir` extends it for the session. */
+	/** See `NamzuCliConfig.additionalDirectories`, absolute. `/add dir` extends it for the session. */
 	readonly additionalDirectories?: readonly string[]
 	/**
 	 * See `NamzuCliConfig.toolResultScreens`. Absent leaves the kernel's
@@ -2909,6 +2948,8 @@ export interface AgentSessionOptions {
 	readonly sessionGoals?: SessionGoalStore
 	/** See `NamzuCliConfig.goal`: what ends a goal that did not choose. Absent is the model's report. */
 	readonly goalConfirmedBy?: 'model' | 'record'
+	/** `goal.judgeModel`: the model that checks a goal's completion report; absent leaves the side-model route. */
+	readonly goalJudgeModel?: string
 	/**
 	 * See `NamzuCliConfig.handBack`: offer the model the way to hand a task back to
 	 * a person. Off when absent: the tool is not offered and the prompt is unchanged.
@@ -3065,6 +3106,8 @@ export async function createAgentSession(
 	// `cwd` is settled further down; the store reads it when an answer arrives.
 	const sessionAllows = createSessionAllows(commandArguments, {
 		cwd: () => cwd,
+		// An untrusted folder's local file is not read, so an answer there is not written to it.
+		trusted: () => options.folderTrusted === true || isTrusted(cwd),
 	})
 	// The operator's rules and the remembered answers; the in-sandbox shell
 	// allowance is added behind them once the sandbox below is resolved.
@@ -3176,6 +3219,12 @@ export async function createAgentSession(
 			describeError(error),
 		)
 	}
+	// From here on this folder's stored memory is open, so a session refused
+	// below (no provider, an account to sign in again, plugins that would not
+	// load) still saves a `#note` where a working session would: plain files
+	// under the Namzu home, no provider needed. Never the repository's file.
+	const refuse = (hint: string, kind?: 'invocation' | 'environment', raw?: string): AgentSession =>
+		emptySession(hint, kind, raw, { rememberNote: storedNoteSaver(paths) })
 	const scope = options.scope ?? mintScope(projectId, options.sessionId)
 	// Failures and unrecovered stops this conversation already classifies are kept
 	// as learning observations (references and a short redacted sentence, local
@@ -3203,7 +3252,7 @@ export async function createAgentSession(
 		// The one failure on this path that whoever asked can fix by asking for
 		// something else: `--provider` is a flag, and this id is not a provider.
 		// Every other refusal below is about the machine.
-		return emptySession(`Unknown provider "${primary.id}" — pick another.`, 'invocation')
+		return refuse(`Unknown provider "${primary.id}" — pick another.`, 'invocation')
 	}
 	// An account other than the usual sign-in: its credential is read now, so a
 	// withdrawn or unreadable one is refused before the session exists and the
@@ -3214,16 +3263,13 @@ export async function createAgentSession(
 		accountsHandle = options.accounts ?? openCliAccounts()
 		const found = accountsHandle.registry.get(primary.account)
 		if (!found || found.provider !== primary.id) {
-			return emptySession(
-				'That account is no longer set up. Choose another with /auth.',
-				'invocation',
-			)
+			return refuse('That account is no longer set up. Choose another with /auth.', 'invocation')
 		}
 		let resolved: ResolvedAccountCredential
 		try {
 			resolved = await accountsHandle.registry.resolve(found.id, AbortSignal.timeout(30_000))
 		} catch (err) {
-			return emptySession(
+			return refuse(
 				err instanceof AccountCredentialWithdrawnError
 					? `${found.label} needs to be signed in again. Choose it in /auth to add it once more, or pick another account.`
 					: explainFailure(err, `Namzu could not use the account ${found.label}.`),
@@ -3265,14 +3311,14 @@ export async function createAgentSession(
 		// pieces of advice below are real: an environment variable, or
 		// `--provider`. Keeping the refusal is what makes those turns fail rather
 		// than quietly start on something else.
-		return emptySession(
+		return refuse(
 			`No credential found for ${entry.label}${entry.id === 'zen' ? ' with the selected model. Free models such as space-bunny-free need no key, though Zen may refuse them' : ''}. Set one of: ${entry.envVars.join(', ')} — or pass --provider with one that is configured.`,
 		)
 	}
 	try {
 		await ensureRegistered(primary.id)
 	} catch (err) {
-		return emptySession(
+		return refuse(
 			explainFailure(err, `Namzu could not load ${entry.label}.`),
 			'environment',
 			describeError(err),
@@ -3285,7 +3331,7 @@ export async function createAgentSession(
 	const disagreements = chainCapabilityDisagreements(prefs.providers, resolvedCapabilities)
 	if (disagreements.length > 0 && prefs.allowCapabilityMismatch !== true) {
 		const refusal = describeCapabilityRefusal(disagreements)
-		if (refusal) return emptySession(refusal)
+		if (refusal) return refuse(refusal)
 	}
 	const capabilityNotice = disagreements.length > 0 ? describeAcceptedMismatch(disagreements) : null
 	// Not folded into the refusal: a member whose declaration could not be read
@@ -3326,7 +3372,7 @@ export async function createAgentSession(
 			sessionId: scope.sessionId,
 		})
 	} catch (err) {
-		return emptySession(
+		return refuse(
 			explainFailure(err, `Namzu could not start ${entry.label}.`),
 			'environment',
 			describeError(err),
@@ -3752,7 +3798,7 @@ export async function createAgentSession(
 			monitorInbox.addEnd(job, jobRegistry.monitorStats(job.id))
 		})
 	}
-	// Session-scoped and mutable: `/add-dir` adds to it, and every turn reads
+	// Session-scoped and mutable: `/add dir` adds to it, and every turn reads
 	// it fresh — the query, the sandbox binds and the environment prompt.
 	const directories: string[] = []
 	for (const dir of options.additionalDirectories ?? []) {
@@ -3789,6 +3835,14 @@ export async function createAgentSession(
 		.then(() => checkpoints.open())
 		.catch(() => undefined)
 	const toolsets: Toolset[] = [withCheckpointsWrap(builtin, checkpoints), memory]
+	// A trusted checkout whose `.namzu` still holds state an earlier Namzu kept
+	// there: git is told to leave it out of this clone, and the person hears
+	// it once, when that is first written. Git runs only when such a name is
+	// there, so an ordinary start pays one directory read.
+	const legacyStateNotice =
+		options.folderTrusted === true || isTrusted(cwd)
+			? describeLegacyExclude(await excludeProjectLegacy({ cwd }))
+			: undefined
 	// Once per store, idempotently: a launch that finds nothing to move moves
 	// nothing, and one interrupted halfway is finished by the next. A failure
 	// is a notice, never a refusal to start — the curated files and the store
@@ -3800,6 +3854,21 @@ export async function createAgentSession(
 	})
 		.then((report) => describeMemoryMigration(report, memoryDirectory))
 		.catch((error: unknown) => [explainFailure(error, 'Stored memory migration did not run.')])
+	// The local settings file's earlier place (`namzu.config.local.json`) moves
+	// into `.namzu/settings.local.json`, once, in a trusted folder only: an
+	// untrusted one's files are not read, and an archive can carry one.
+	// What git ignoring the file comes to is awaited only when the notices are put together.
+	let localSettingsNotices: readonly string[] = []
+	let localSettingsIgnore: Promise<readonly string[]> = Promise.resolve([])
+	if (options.folderTrusted === true || isTrusted(cwd)) {
+		try {
+			const settled = settleLocalSettings(cwd)
+			localSettingsNotices = settled.said
+			localSettingsIgnore = settled.ignore
+		} catch (error) {
+			localSettingsNotices = [explainFailure(error, 'The local settings file was not checked.')]
+		}
+	}
 	// Records an earlier version derived on its own and the screen would not
 	// write today are archived, once per store, after the session is
 	// underway. It fails open and logs counts only.
@@ -4102,6 +4171,15 @@ export async function createAgentSession(
 				store: options.sessionGoals,
 				resolveAuthority: (turnId) => goalAuthorities.get(turnId as TurnId),
 				...(options.goalConfirmedBy ? { defaultConfirmedBy: options.goalConfirmedBy } : {}),
+				// A completion report carries evidence. With the decision model on, a
+				// judge on the small model reads it; without, the report is held once
+				// for a self-audit and no extra model is asked.
+				requireEvidence: true,
+				...goalJudgeWiring({
+					sideModel: () => sideModel,
+					model: options.goalJudgeModel,
+					mode: () => decisionPoints.mode('goal'),
+				}),
 			})
 		: undefined
 	if (options.sessionGoals) {
@@ -4992,6 +5070,9 @@ export async function createAgentSession(
 			]),
 		)
 	}
+	if (options.commandHost) {
+		toolsets.push(toolset('agents:commands', [buildCommandTool(options.commandHost)]))
+	}
 	// `ask_user_question`, where somebody can answer. The SDK tool parks the
 	// run through the handler it was BUILT with, so that handler reads the
 	// turn's answerer through a holder the prelude fills: the tool is per
@@ -5394,7 +5475,7 @@ export async function createAgentSession(
 		)
 	} catch (error) {
 		await Promise.allSettled([mcp.close(), computerUseHost?.dispose(), browserControl?.dispose()])
-		return emptySession(
+		return refuse(
 			`${explainFailure(error, 'Namzu could not load your plugins.')} ${PLUGIN_CHECK_HINT}`,
 			'environment',
 			describeError(error),
@@ -6382,6 +6463,7 @@ export async function createAgentSession(
 			return undefined
 		}
 	})()
+	const localSettingsIgnoreNotices = await localSettingsIgnore
 	const agentSession: AgentSession = {
 		hasProvider: true,
 		...(accountBadge ? { account: accountBadge } : {}),
@@ -6418,6 +6500,8 @@ export async function createAgentSession(
 		get reasoningEffortLevels() {
 			return reasoningEffortLevels
 		},
+		speedTiersFor: (forModel: string) =>
+			providerForSession(scope.sessionId).speedTiersFor?.(forModel),
 		get reasoningEffortDefault() {
 			return reasoningEffortDefault
 		},
@@ -7044,6 +7128,9 @@ export async function createAgentSession(
 			...(pluginRuntime?.takePluginHookWarnings() ?? []),
 			...compatibleEndpointNotices(),
 			...memoryMigrationNotices,
+			...localSettingsNotices,
+			...localSettingsIgnoreNotices,
+			...(legacyStateNotice ? [legacyStateNotice] : []),
 			...computerUseNotices,
 		],
 		rememberNote: (text, type) => saveTypedNote(memoryStore, text, type),
@@ -7097,6 +7184,8 @@ export async function createAgentSession(
 		// Reads the same object the handler mutates, at call time.
 		allowForSession: (allows) => sessionAllows.add(allows),
 		rememberedAllows: () => sessionAllows.list(),
+		forgetRememberedAllow: (rule) =>
+			sessionAllows.forget((permissions) => tableHoldsRule(permissions, rule)) > 0,
 		notifyHooks: (info) => {
 			if (!sessionPlugins) return
 			void sessionPlugins.manager
@@ -7111,8 +7200,9 @@ export async function createAgentSession(
 			? {
 					reloadPermissionRules: () => {
 						options.reloadPermissionRules?.()
-						// Saved rules now own remembered answers too. Do not let the old cache
-						// silently re-authorize a rule the operator just removed.
+						// Saved rules now own the answers they carry. Do not let the old cache
+						// silently re-authorize a rule the operator just removed; an answer held
+						// for this conversation only is in no file, and stays.
 						sessionAllows.clear()
 					},
 				}
@@ -8568,7 +8658,7 @@ export function isCredentialRejection(err: unknown): boolean {
 /**
  * The same question, flattened to a list for callers that cannot act on why.
  *
- * `providers-json` emits a JSON roster for a host UI and has always rendered an
+ * `providers list --json` emits a JSON roster for a host UI and has always rendered an
  * empty list as "fall back to free text". That contract is unchanged, and this
  * is the one place the reason is deliberately discarded — everywhere else uses
  * `describeProviderModels` and says which case it hit.
@@ -8594,7 +8684,7 @@ export interface SessionScope {
 	readonly tenantId: TenantId
 }
 
-/** What `/add-dir` talks to. */
+/** What `/add dir` talks to. */
 export type { SessionDirectories } from '../context/directories.js'
 
 /** The newest user turn's text, for labels. */
@@ -9017,7 +9107,7 @@ async function* runTurn({
 				model,
 				...(sandboxProvider ? { sandbox: { workspace: sandboxWorkspace } } : {}),
 				...(opts?.effort !== undefined ? { effort: opts.effort } : {}),
-				...(opts?.speed === 'fast' ? { speed: opts.speed } : {}),
+				...(opts?.speed === 'fast' || opts?.speed === 'ultrafast' ? { speed: opts.speed } : {}),
 				...(webSearch ? { webSearch } : {}),
 				// The variables hooks set for this session's commands: one live object,
 				// read at each command, so a hook that sets one mid-session is heard.
@@ -9241,9 +9331,12 @@ export interface ReviewExtras {
 	 */
 	readonly registry?: Pick<ToolManager, 'get' | 'sourceOf'>
 	readonly classifier?: AutoReviewClassifier
-	/** The classifier has blocked enough that this session should stop relying on it. */
+	/**
+	 * The classifier has blocked enough that this session should stop relying
+	 * on it, or (`unavailable`) gave no verdict often enough that the turn ended.
+	 */
 	readonly onClassifierLimit?: (event: {
-		readonly limit: 'consecutive' | 'total'
+		readonly limit: 'consecutive' | 'total' | 'unavailable'
 		readonly reason: string
 	}) => void
 	/** The conversation was too long for the classifier to read. */
@@ -9273,7 +9366,13 @@ function reviewOptionsOf(mode: PermissionMode, extras: ReviewExtras) {
 		...(mode === 'classify' && extras.classifier
 			? {
 					classifier: extras.classifier,
-					...(extras.onClassifierLimit ? { onClassifierLimit: extras.onClassifierLimit } : {}),
+					...(extras.onClassifierLimit
+						? {
+								onClassifierLimit: extras.onClassifierLimit,
+								onClassifierUnavailable: ({ reason }: { readonly reason: string }) =>
+									extras.onClassifierLimit?.({ limit: 'unavailable', reason }),
+							}
+						: {}),
 					...(extras.onClassifierTranscriptTooLong
 						? {
 								onClassifierTranscriptTooLong: extras.onClassifierTranscriptTooLong,
@@ -10367,6 +10466,8 @@ function emptySession(
 	errorKind: 'invocation' | 'environment' = 'environment',
 	/** The raw text behind a plain hint: logged, never shown. */
 	rawDetail?: string,
+	/** What a refusal that came after the folder's saved data opened can still do. */
+	opened: { readonly rememberNote?: AgentSession['rememberNote'] } = {},
 ): AgentSession {
 	// Every path into this function is a boot refusal — `createAgentSession`
 	// is the whole extent of the session-construction half of the boot
@@ -10414,6 +10515,7 @@ function emptySession(
 		// Nothing ran, so there is no configuration in force to report on.
 		configNotices: [],
 		errorHint,
+		...(opened.rememberNote ? { rememberNote: opened.rememberNote } : {}),
 		// No turn can run here, so no prompt can have been answered.
 		// No registry was built, so there is no roster to report on.
 		promptExemptTools: () => [],
@@ -10434,6 +10536,20 @@ function emptySession(
 		close: async () => {
 			// Nothing was ever connected on this path.
 		},
+	}
+}
+
+/**
+ * `#note` and `/memory add` for a refused session: the same typed store under
+ * `projects/<slug>/memory` a working session saves to, opened on first use.
+ */
+function storedNoteSaver(paths: SessionPaths): NonNullable<AgentSession['rememberNote']> {
+	let store: MarkdownMemoryStore | undefined
+	return (text, type) => {
+		store ??= new MarkdownMemoryStore({
+			directory: ensurePrivateStateDirectory(paths.projectDir(), 'memory'),
+		})
+		return saveTypedNote(store, text, type)
 	}
 }
 

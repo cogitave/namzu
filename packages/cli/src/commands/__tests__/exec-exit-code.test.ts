@@ -165,3 +165,23 @@ describe('namzu exec exit code reflects whether the turn finished', () => {
 		expect(errors.join('')).toContain('output above is partial')
 	})
 })
+
+describe('namzu exec when auto mode could not get a verdict', () => {
+	it('says why the turn stopped and exits 1', async () => {
+		sessionStub.send = ((_messages: unknown, opts?: Parameters<AgentSession['send']>[1]) =>
+			(async function* () {
+				opts?.onAutoModeLimit?.({ limit: 'unavailable', reason: 'the check could not run' })
+				yield { kind: 'done', stopReason: 'cancelled' }
+			})()) as AgentSession['send']
+		const { ctx, errors } = contextCapturing()
+		const code = (await execCommand.handler({ rawArgs: ['hello'], ctx } as never)) as number
+		expect(code).toBe(1)
+		expect(errors.join('')).toContain('auto mode could not get a safety decision three times')
+	})
+
+	it('reads a cancelled turn as before when auto mode did not stop it', async () => {
+		const { code, errors } = await runWith([{ kind: 'done', stopReason: 'cancelled' }])
+		expect(code).toBe(1)
+		expect(errors.join('')).toContain('turn did not finish normally: cancelled')
+	})
+})

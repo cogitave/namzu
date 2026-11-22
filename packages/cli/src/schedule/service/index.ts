@@ -1,7 +1,7 @@
 /**
- * `schedule install | uninstall | start | stop` over the four supervisors,
+ * `schedule service install | uninstall | start | stop` over the four supervisors,
  * with the manifest as the record of what exists. The service always runs
- * `"<absolute node>" "<absolute CLI>" schedule daemon --home "<NAMZU_HOME>"`,
+ * `"<absolute node>" "<absolute CLI>" schedule service daemon --home "<NAMZU_HOME>"`,
  * both paths resolved at install: no shell, no PATH lookup, no profile.
  */
 
@@ -83,7 +83,7 @@ function refuseUnsafeProgram(program: ServiceProgram): void {
 	}
 	if (isEphemeralBin(program.bin)) {
 		throw new ServiceRefusal(
-			`namzu is running from the npx cache (${program.bin}), which is not kept; install it (npm i -g @namzu/cli) and run schedule install from that`,
+			`namzu is running from the npx cache (${program.bin}), which is not kept; install it (npm i -g @namzu/cli) and run schedule service install from that`,
 		)
 	}
 }
@@ -182,6 +182,7 @@ export async function installService(
 					request.program.node,
 					request.program.bin,
 					'schedule',
+					'service',
 					'daemon',
 					'--home',
 					request.program.namzuHome,
@@ -227,8 +228,10 @@ export async function installService(
 				bin: request.program.bin,
 				namzuHome: request.program.namzuHome,
 			})
-			const name = wslTaskName(request.name, distro)
-			const path = taskPath(name)
+			// The Windows task carries the distro so two distros never collide in
+			// Task Scheduler; the service itself keeps the name the person gave.
+			const taskName = wslTaskName(request.name, distro)
+			const path = taskPath(taskName)
 			// The XML goes where Windows can read it without a UNC path.
 			const localAppData = (
 				await run(tools.cmd, ['/d', '/c', 'echo', '%LOCALAPPDATA%'], { cwd: tools.drive })
@@ -239,7 +242,7 @@ export async function installService(
 			if (!linuxDir.startsWith(tools.mountRoot))
 				throw new ServiceRefusal(`could not map ${localAppData} into WSL`)
 			mkdirSync(linuxDir, { recursive: true })
-			const linuxFile = join(linuxDir, `${name}.xml`)
+			const linuxFile = join(linuxDir, `${taskName}.xml`)
 			writeFileSync(linuxFile, taskXmlBytes(taskXml(definition)))
 			const problems: string[] = []
 			try {
@@ -265,7 +268,6 @@ export async function installService(
 			}
 			const manifest: ServiceManifest = {
 				...base,
-				name,
 				artifacts: [{ type: 'windows-task', taskPath: path }],
 				windows: {
 					taskPath: path,

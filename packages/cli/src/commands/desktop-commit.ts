@@ -10,7 +10,10 @@ import { looksSecret } from '../memory/anchors.js'
  * - only in a folder the person trusted (a repository's own config can run code);
  * - never a skipped hook, never a push, an amend, a reset or a branch switch, and never a name or
  *   email set here: git's own identity answers or refuses;
- * - files that commonly hold a secret are left out of the commit and out of the message request.
+ * - files that commonly hold a secret are left out of the commit and out of the message request,
+ *   and so are Namzu's own settings for this computer (`.namzu/settings.local.json` and its earlier
+ *   name `namzu.config.local.json`, with their lock and staging files): they hold one person's
+ *   remembered answers, which are not the repository's.
  *
  * Two requests: `preview` says what would be committed and suggests a message, and `commit` does it
  * for the files the person confirmed. Git is run without a shell, with an argument list.
@@ -42,6 +45,8 @@ export interface CommitPreview {
 	readonly otherDirty: number
 	/** Files left out because their name says they may hold a secret. */
 	readonly skippedSecrets: number
+	/** Namzu's settings for this computer that the conversation changed: never committed from here. */
+	readonly skippedLocalSettings?: number
 	readonly branch: string | null
 	readonly detached: boolean
 	readonly suggestedMessage: string
@@ -52,6 +57,15 @@ export interface CommitPreview {
 
 /** A refusal the person can read and act on: said back as an answer, not as a failure of the request. */
 export class CommitRefused extends Error {}
+
+/** Namzu's per-computer settings files, with their lock and staging files, at any depth. */
+const LOCAL_SETTINGS_PATH =
+	/(?:^|\/)(?:namzu\.config\.local\.json(?:\.\d+\.tmp)?|\.namzu\/settings\.local\.json(?:\.[^/]*)?)$/i
+
+/** Whether a repository-relative path names one of Namzu's local settings files. */
+export function isLocalSettingsPath(rel: string): boolean {
+	return LOCAL_SETTINGS_PATH.test(rel.replaceAll('\\', '/'))
+}
 
 export interface CommitResult {
 	readonly hash: string
@@ -253,8 +267,11 @@ export function createProjectCommit(options: ProjectCommitOptions): ProjectCommi
 			}
 			const wanted = new Set(normalizeCommitPaths(cwd, sessionPaths))
 			const mine = status.filter((entry) => wanted.has(entry.path))
-			const safe = mine.filter((entry) => !looksSecret(entry.path)).slice(0, COMMIT_MAX_FILES)
-			const skippedSecrets = mine.length - mine.filter((entry) => !looksSecret(entry.path)).length
+			const settings = mine.filter((entry) => isLocalSettingsPath(entry.path))
+			const rest = mine.filter((entry) => !isLocalSettingsPath(entry.path))
+			const safe = rest.filter((entry) => !looksSecret(entry.path)).slice(0, COMMIT_MAX_FILES)
+			const skippedSecrets = rest.length - rest.filter((entry) => !looksSecret(entry.path)).length
+			const skippedLocalSettings = settings.length
 			const otherDirty = status.length - mine.length
 			let branch: string | null = null
 			let detached = false
@@ -290,6 +307,7 @@ export function createProjectCommit(options: ProjectCommitOptions): ProjectCommi
 				files,
 				otherDirty,
 				skippedSecrets,
+				...(skippedLocalSettings > 0 ? { skippedLocalSettings } : {}),
 				branch,
 				detached,
 				suggestedMessage: suggested ?? plain,
@@ -312,6 +330,10 @@ export function createProjectCommit(options: ProjectCommitOptions): ProjectCommi
 			if (paths.length > COMMIT_MAX_FILES) throw new CommitRefused('Too many files for one commit.')
 			if (paths.some((path) => looksSecret(path)))
 				throw new CommitRefused('A file that may hold a secret is never committed from here.')
+			if (paths.some((path) => isLocalSettingsPath(path)))
+				throw new CommitRefused(
+					'Namzu’s settings for this computer (.namzu/settings.local.json) are never committed from here.',
+				)
 			const blocker = await inProgress(cwd)
 			if (blocker) throw new CommitRefused(blocker)
 			const fingerprints =

@@ -602,3 +602,153 @@ describe('classify limits and long conversations', () => {
 		expect(await handler(review(bash('npm run build')))).toMatchObject({ action: 'abort' })
 	})
 })
+
+describe('a classifier that gives no verdict', () => {
+	const noVerdict = (
+		extra: {
+			readonly noVerdictLimitReached?: true
+			readonly limitReached?: 'consecutive' | 'total'
+		} = {},
+	) =>
+		block('the safety check could not be completed, so the action was not run', {
+			cause: 'unavailable',
+			stage: 0,
+			...extra,
+		})
+
+	it('holds a call back with words that say no check was made', async () => {
+		const { classifier } = scripted(() => noVerdict())
+		const decision = await createReviewHandler({
+			mode: 'classify',
+			classifier,
+			prompt: approve(),
+			registry,
+		})(review(bash('npm run build')))
+		expect(decision).toEqual({
+			action: 'reject_tools',
+			feedback:
+				'Auto mode could not check this action: the safety check could not be completed, so the action was not run. Nothing was run. This is not a judgement on the action: if it is still needed, it may be tried again, and if the check keeps failing, tell the user.',
+		})
+	})
+
+	it.each([
+		['with a person to ask', true],
+		['with nobody to ask', false],
+	])('ends the turn %s when the run of no verdicts is complete', async (_what, attended) => {
+		const onClassifierUnavailable = vi.fn()
+		const onClassifierLimit = vi.fn()
+		// The same block can also complete a run of blocks; ending the turn wins.
+		const { classifier } = scripted(() =>
+			noVerdict({ noVerdictLimitReached: true, limitReached: 'consecutive' }),
+		)
+		const prompt = approve()
+		const decision = await createReviewHandler({
+			mode: 'classify',
+			classifier,
+			...(attended ? { prompt } : {}),
+			registry,
+			onClassifierUnavailable,
+			onClassifierLimit,
+		})(review(bash('npm run build'), bash('npm test')))
+		expect(decision).toMatchObject({
+			action: 'reject_tools',
+			endTurn: true,
+			feedback: expect.stringMatching(/^Auto mode could not check this action: /),
+		})
+		// Every host shows the start of the refusal on the call's card, so the
+		// person reads there why the turn stopped.
+		expect((decision as { feedback: string }).feedback.slice(0, 200)).toContain(
+			'the turn was stopped',
+		)
+		expect(onClassifierUnavailable).toHaveBeenCalledWith({
+			reason: 'the safety check could not be completed, so the action was not run',
+		})
+		expect(onClassifierLimit).not.toHaveBeenCalled()
+		expect(prompt).not.toHaveBeenCalled()
+	})
+
+	it('tells an action too long to read to be split up, not tried again as it is', async () => {
+		const { classifier } = scripted(() =>
+			block('the action is too long for the safety check to read in full, so it was not run', {
+				cause: 'oversized',
+				stage: 0,
+			}),
+		)
+		const decision = await createReviewHandler({
+			mode: 'classify',
+			classifier,
+			prompt: approve(),
+			registry,
+		})(review(bash('npm run build')))
+		expect(decision).toMatchObject({
+			action: 'reject_tools',
+			feedback: expect.stringContaining('split it into smaller steps'),
+		})
+		expect(decision).not.toHaveProperty('endTurn')
+	})
+
+	it('still falls back to a person at the block limit when the verdicts were real', async () => {
+		const onClassifierUnavailable = vi.fn()
+		const { classifier } = scripted(() => block('too risky', { limitReached: 'consecutive' }))
+		const prompt = approve()
+		expect(
+			await createReviewHandler({
+				mode: 'classify',
+				classifier,
+				prompt,
+				registry,
+				onClassifierUnavailable,
+			})(review(bash('npm run build'))),
+		).toEqual({ action: 'approve_tools' })
+		expect(prompt).toHaveBeenCalledTimes(1)
+		expect(onClassifierUnavailable).not.toHaveBeenCalled()
+	})
+})
+
+describe('the working tree before a destructive git command', () => {
+	const decide = () => {
+		const { classifier, seen } = scripted()
+		return {
+			handler: createReviewHandler({ mode: 'classify', classifier, prompt: approve(), registry }),
+			seen,
+		}
+	}
+
+	it('hands the classifier the status the turn reads for the shell line', async () => {
+		const { handler, seen } = decide()
+		const gitStatus = vi.fn(async (line: string) =>
+			line.includes('reset --hard') ? '## main\n M a.ts' : undefined,
+		)
+		const context: ResumeContext = { transcript: () => [], gitStatus }
+		await handler(review(bash('git reset --hard')), context)
+		expect(gitStatus).toHaveBeenCalledWith('git reset --hard', expect.any(String))
+		expect(seen[0]?.gitStatus).toBe('## main\n M a.ts')
+		await handler(review(bash('npm run build')), context)
+		expect(seen).toHaveLength(2)
+		expect(seen[1]).not.toHaveProperty('gitStatus')
+	})
+
+	it('reviews as before when the status cannot be read', async () => {
+		const { handler, seen } = decide()
+		const context: ResumeContext = {
+			transcript: () => [],
+			gitStatus: async () => {
+				throw new Error('git exploded')
+			},
+		}
+		expect(await handler(review(bash('git clean -fd')), context)).toEqual({
+			action: 'approve_tools',
+		})
+		expect(seen[0]).not.toHaveProperty('gitStatus')
+	})
+
+	it('asks for none for a tool that runs no shell line', async () => {
+		const { handler } = decide()
+		const gitStatus = vi.fn(async () => '## main')
+		await handler(review(call('write', { path: 'a.txt', content: 'git reset --hard' })), {
+			transcript: () => [],
+			gitStatus,
+		})
+		expect(gitStatus).not.toHaveBeenCalled()
+	})
+})

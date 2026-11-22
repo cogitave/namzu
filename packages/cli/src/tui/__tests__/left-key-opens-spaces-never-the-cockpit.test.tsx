@@ -28,6 +28,25 @@ vi.mock('ink', async (importOriginal) => {
 const PREFS: Preferences = { version: 3, providers: [{ id: 'openai' }], subagents: { active: [] } }
 
 vi.mock('../../integrations/trust/store.js', () => ({ isTrusted: () => true, trustDir: () => {} }))
+// Peer messaging starts on mount and resolves the working folder with realpath, which fails for the
+// fixture's `/w`; the row that failure pushes would land between two whole-screen snapshots. These
+// tests are not about peers, so the start is stubbed and nothing touches the filesystem.
+vi.mock('../../integrations/peers/runtime.js', async (importOriginal) => {
+	const actual = await importOriginal<typeof import('../../integrations/peers/runtime.js')>()
+	return {
+		...actual,
+		openLivePeers: async () => ({
+			enabled: true,
+			publish: () => {},
+			peek: () => [],
+			take: () => [],
+			roleContext: () => undefined,
+			held: () => [],
+			takeExact: () => undefined,
+			close: async () => {},
+		}),
+	}
+})
 vi.mock('../../integrations/updates.js', () => ({ checkUpdates: async () => [] }))
 vi.mock('../../integrations/sessions/store.js', () => ({
 	activeConversationTurn: async () => undefined,

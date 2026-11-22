@@ -83,8 +83,10 @@ export interface TranscriptMessage {
 	 * the model and never counted as something the person typed. `shell`: the
 	 * echo of a `!command` the person ran themselves; a user row, but not a
 	 * prompt (no reply follows it and no rewind point stands at it).
+	 * `announcement`: a one-time notice from Namzu itself, its first line in
+	 * bold and the rest dim (the auto mode default notice).
 	 */
-	readonly kind?: 'recap' | 'shell'
+	readonly kind?: 'recap' | 'shell' | 'announcement'
 	/** Host-only schedule result from the active conversation's sidecar inbox. */
 	readonly sourceDelivery?: true
 	/** Structured operator status snapshot; plain content remains available for raw/export. */
@@ -209,8 +211,17 @@ export interface TuiContext {
 	 * alone decide.
 	 */
 	readonly bypassAvailable?: boolean
-	/** Where the starting mode came from, when a configured default chose it. */
-	readonly permissionSource?: 'launch-flag' | 'launch-bypass' | 'config-default' | 'default'
+	/**
+	 * Where the starting mode came from. `auto-default`: nothing chose one, so
+	 * the terminal starts in auto when the session's classifier can reach a
+	 * model (and says so once), in `prompt` when it cannot.
+	 */
+	readonly permissionSource?:
+		| 'launch-flag'
+		| 'launch-bypass'
+		| 'config-default'
+		| 'auto-default'
+		| 'default'
 	/** `permissions.disableAutoMode` and friends, for the status and the picker. */
 	readonly permissionSettings?: import('../permissions/settings.js').PermissionSettings
 	/**
@@ -337,6 +348,14 @@ export interface TuiContext {
 	readonly sandbox?: SandboxConfig
 	/** Opted-in terminal notification settings from the resolved CLI config. */
 	readonly tui?: TuiConfig
+	/** Your Namzu network settings; absent means the defaults. */
+	readonly network?: import('../config/schema.js').NetworkConfig
+	/**
+	 * True only when the real terminal launcher started this App for a person: it may then run your Namzu
+	 * network (still subject to `network.enabled` and to the network being private). Absent for a Pal, an
+	 * embedded App and every hand-built test fixture, so none of them opens a listener or advertises.
+	 */
+	readonly runNetwork?: boolean
 	/** The resolved `telemetry` block, for the health checks `/doctor` runs. */
 	readonly telemetry?: NamzuCliConfig['telemetry']
 	/** The `updates` settings of the resolved CLI config. */

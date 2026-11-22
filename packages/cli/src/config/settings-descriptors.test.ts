@@ -150,6 +150,7 @@ describe('the typed setting description', () => {
 			'plugins.enabled': 'next-start',
 			'telemetry.otlp.endpoint': 'next-start',
 			modelCatalogueRefresh: 'next-start',
+			shareDesktopSignIn: 'next-start',
 			routing: 'next-start',
 			format: 'next-start',
 			model: 'next-start',
@@ -243,7 +244,9 @@ describe('the typed setting description', () => {
 		expect(text('updates.auto')).toMatch(/^on\. Off in automated runs/)
 		expect(text('learningGenerator.enabled')).toBe('on')
 		expect(text('composerTriggers.languages')).toBe('English, Turkish')
-		expect(text('permissions.defaultMode')).toBe('Ask before risky actions')
+		expect(text('permissions.defaultMode')).toBe(
+			'A model decides. In the terminal app, when a model can check actions; otherwise Ask before risky actions.',
+		)
 		expect(text('sandbox.enabled')).toMatch(/^off\./)
 		// Words written by hand are left alone.
 		expect(text('limits.maxIterations')).toBe('no limit')
@@ -310,7 +313,7 @@ describe('where each setting sits', () => {
 	it('keeps the terminal app rows apart from the command line rows', () => {
 		const terminal = SETTING_DESCRIPTORS.filter((entry) => entry.section === 'terminal')
 		for (const row of terminal) {
-			const app = /^(tui\.|composerTriggers\.|statusLine$)/.test(row.path)
+			const app = /^(tui\.|composerTriggers\.|network\.|statusLine$)/.test(row.path)
 			if (!app) expect(row.group, row.path).toBe('command-line')
 			else expect(row.group, row.path).toMatch(/^terminal-/)
 		}

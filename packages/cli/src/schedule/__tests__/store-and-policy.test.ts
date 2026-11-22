@@ -588,21 +588,21 @@ describe('what a scheduled run may do', () => {
 			'namzu sche\\\ndule confirm probe',
 			'nam\\\nzu schedule confirm probe',
 			'namzu \\\nschedule \\\nconfirm probe',
-			'namzu \\\n  --home /x \\\n  schedule stop',
-			'node x/bin\\\n.js schedule stop',
+			'namzu \\\n  --home /x \\\n  schedule service stop',
+			'node x/bin\\\n.js schedule service stop',
 			'systemctl --user \\\nstop namzu-scheduler',
 			'sys\\\ntemctl --user sto\\\np namzu-sched\\\nuler',
 			'launchctl \\\nbootout gui/501/com.namzu.scheduler',
 			'schtasks /Delete \\\n/TN \\namzu\\x /F',
 			'pkill \\\n  namzu',
-			'echo done\nnamzu schedule stop',
+			'echo done\nnamzu schedule service stop',
 		])
 			expect(decide(g, 'bash', { command }), command).toBe('deny')
 		for (const command of [
 			// The regex floor searched for the verb past the end of the command
 			// that named the CLI, and denied these. The lexer knows where each
 			// command ends: `./schedule` is a program of its own.
-			'echo namzu\n./schedule stop',
+			'echo namzu\n./schedule service stop',
 			'namzu schedule list',
 			'namzu schedule \\\nlist',
 			'systemctl --user status namzu-scheduler',
@@ -613,35 +613,35 @@ describe('what a scheduled run may do', () => {
 	it('denies every scheduler command that changes something, however the CLI is reached', () => {
 		const g = gate(scheduledRunFloor(sb.home))
 		for (const command of [
-			'npx @namzu/cli schedule stop',
+			'npx @namzu/cli schedule service stop',
 			'node /usr/lib/node_modules/@namzu/cli/dist/bin.js schedule confirm x',
-			'node packages/cli/dist/bin.js schedule stop',
+			'node packages/cli/dist/bin.js schedule service stop',
 			'namzu schedule resume paused-job',
-			'namzu schedule run-now other-job',
+			'namzu schedule run other-job',
 			'namzu schedule prune --delete --yes',
 			'namzu schedule add --every 1m x',
-			'namzu --home /x schedule start',
+			'namzu --home /x schedule service start',
 			'namzu schedule --home /x stop',
 			'namzu schedule "stop"',
 			"namzu 'schedule' re''sume x",
-			'true; namzu schedule uninstall',
-			'namzu schedule list && namzu schedule stop',
+			'true; namzu schedule service uninstall',
+			'namzu schedule list && namzu schedule service stop',
 			// A separator inside a quoted option value ends no command.
 			"namzu --add-dir ';' schedule confirm x",
 			"namzu --add-dir 'a|b' schedule confirm x",
 			'namzu --profile "x&y" schedule run x',
-			'namzu --add-dir a\\;b schedule stop',
-			'node x/bin.js --add-dir ";" schedule stop',
+			'namzu --add-dir a\\;b schedule service stop',
+			'node x/bin.js --add-dir ";" schedule service stop',
 		])
 			expect(decide(g, 'bash', { command }), command).toBe('deny')
 		for (const command of [
 			// Denied by the regex floor, which searched past the command's end.
-			'echo namzu; ./schedule stop',
+			'echo namzu; ./schedule service stop',
 			'namzu schedule list',
 			'namzu schedule show nightly',
-			'namzu schedule "status"',
+			'namzu schedule service "status"',
 			'namzu schedule history nightly --json',
-			'namzu schedule logs --job nightly',
+			'namzu schedule service logs --job nightly',
 			'npm run scheduled-report',
 		])
 			expect(decide(g, 'bash', { command }), command).not.toBe('deny')

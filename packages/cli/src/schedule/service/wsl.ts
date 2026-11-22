@@ -151,6 +151,7 @@ export function wslTaskDefinition(options: {
 			options.node,
 			options.bin,
 			'schedule',
+			'service',
 			'daemon',
 			'--home',
 			options.namzuHome,

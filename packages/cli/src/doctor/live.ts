@@ -12,6 +12,7 @@ import type { NamzuCliConfig } from '../config/schema.js'
 import { CLI_VERSION } from '../version.js'
 import { broadAllowCheck } from './checks/broad-allow.js'
 import { cacheLifetimeCheck } from './checks/cache-lifetime.js'
+import { folderFilesCheck } from './checks/folder-files.js'
 import { hooksCheck } from './checks/hooks.js'
 import { builtInDoctorChecks } from './checks/index.js'
 import { sessionExportCheck } from './checks/session-export.js'
@@ -32,6 +33,7 @@ export function buildDoctorRegistry(config: NamzuCliConfig = {}): DoctorRegistry
 	registry.register(cacheLifetimeCheck(config))
 	registry.register(hooksCheck(config))
 	registry.register(broadAllowCheck())
+	registry.register(folderFilesCheck())
 	return registry
 }
 

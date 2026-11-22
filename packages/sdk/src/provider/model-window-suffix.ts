@@ -17,6 +17,7 @@ const MODEL_FIRST_METHODS: ReadonlySet<string> = new Set([
 	'supportsHostedWebSearchFor',
 	'supportsImageInputFor',
 	'reasoningEffortLevelsFor',
+	'speedTiersFor',
 	'reasoningEffortDefaultFor',
 	'acceptsForcedToolChoiceFor',
 	'effortLevelsFor',

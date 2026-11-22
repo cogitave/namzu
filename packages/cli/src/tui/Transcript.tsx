@@ -29,6 +29,7 @@ import {
 	RECAP_LABEL,
 	RESULT_GUTTER_INDENT,
 	RESULT_GUTTER_WIDTH,
+	SYSTEM_ROW_GLYPH,
 } from './system-rows.js'
 import { expandTabs, terminalDisplayText } from './terminal-display.js'
 import { terminalFileHyperlink } from './terminal-hyperlinks.js'
@@ -435,6 +436,34 @@ function RawMessageRow({
 	)
 }
 
+/** A one-time notice from Namzu: the notice dot, a bold first line, the rest dim. */
+function AnnouncementRow({
+	message,
+	prev,
+}: {
+	readonly message: TranscriptMessage
+	readonly prev: TranscriptMessage | undefined
+}) {
+	const [headline = '', ...rest] = terminalDisplayText(message.content).split('\n')
+	return (
+		<Box flexDirection="row" marginTop={prev ? 1 : 0}>
+			<Box width={2} flexShrink={0}>
+				<Text color={theme.text.muted}>{SYSTEM_ROW_GLYPH}</Text>
+			</Box>
+			<Box flexGrow={1} flexDirection="column">
+				<Text bold wrap="wrap">
+					{headline}
+				</Text>
+				{rest.length > 0 ? (
+					<Text color={theme.text.muted} wrap="wrap">
+						{rest.join('\n')}
+					</Text>
+				) : null}
+			</Box>
+		</Box>
+	)
+}
+
 /** The away recap: `※`, a bold `recap:` label and the text in italics, all dim. */
 function RecapRow({
 	message,
@@ -476,6 +505,7 @@ export function MessageRow({
 	// The row is memoised on its props; the epoch makes a new theme repaint it.
 	useThemeEpoch()
 	if (message.kind === 'recap') return <RecapRow message={message} prev={prev} />
+	if (message.kind === 'announcement') return <AnnouncementRow message={message} prev={prev} />
 	if (message.contextView) {
 		return (
 			<Box marginTop={prev ? 1 : 0}>

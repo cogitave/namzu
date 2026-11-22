@@ -57,6 +57,7 @@ import {
 	mirrorParts,
 	moveHighlight,
 	pickSlash,
+	renamedSlash,
 	slashLine,
 	slashQuery,
 } from './composer-menu-model.js'
@@ -653,6 +654,11 @@ export function Composer({
 	// Enter and the send button first ask whether the box holds a command; one runs and sends no reply.
 	const submit = () => {
 		if (commandsEnabled) {
+			const renamed = renamedSlash(draft)
+			if (renamed) {
+				setPasteNotice(renamed)
+				return
+			}
 			const line = slashLine(rows, draft)
 			const row = line && rows.find((item) => item.name === line.entry.name)
 			if (row && line) {
@@ -1263,7 +1269,8 @@ export function Composer({
 														return
 													case 'send':
 														event.preventDefault()
-														if (commandsEnabled && slashLine(rows, draft)) submit()
+														if (commandsEnabled && (renamedSlash(draft) || slashLine(rows, draft)))
+															submit()
 														else if (noProvider) focusConnectCard()
 														else if (!attachmentsStranded) onSend()
 														return

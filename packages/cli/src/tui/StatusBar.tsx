@@ -34,8 +34,11 @@ export interface StatusBarProps {
 	readonly model: string | null
 	/** An explicit reasoning-effort override; omitted/undefined means the model's own default, which this footer does not name. */
 	readonly effort?: string | null
-	/** Fast inference is on for this conversation: shown as `fast`, never when off. */
-	readonly fast?: boolean
+	/**
+	 * Fast inference is on for this conversation: shown as `fast`, or `ultrafast`
+	 * for the faster tier (`true` is the fast tier), never when off.
+	 */
+	readonly fast?: boolean | 'fast' | 'ultrafast'
 	/** Ambient durable goal status; interaction hints take precedence. */
 	readonly goal?: string | null
 	readonly state: 'idle' | 'thinking' | 'tool' | 'awaiting-permission'
@@ -567,7 +570,7 @@ export function fitStatusLine(input: {
 	readonly provider: string | null
 	readonly model: string | null
 	readonly effort?: string | null
-	readonly fast?: boolean
+	readonly fast?: boolean | 'fast' | 'ultrafast'
 	readonly hint?: string | undefined
 	/** The notice that is up; ahead of the goal, behind a hint. */
 	readonly notice?: string | null | undefined
@@ -621,7 +624,12 @@ export function fitStatusLine(input: {
 	let pr = input.pr ?? null
 	// Hypermode is not said here: the composer frame's upper right names it, once.
 	let effort: string | null = input.effort ? `effort ${input.effort}` : null
-	let fast: string | null = input.fast === true ? 'fast' : null
+	let fast: string | null =
+		input.fast === 'ultrafast'
+			? 'ultrafast'
+			: input.fast === true || input.fast === 'fast'
+				? 'fast'
+				: null
 
 	const parts = (): string[] =>
 		[

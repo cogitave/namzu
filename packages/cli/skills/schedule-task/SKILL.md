@@ -277,7 +277,7 @@ operator manages them with `/schedule` or `namzu schedule list`.
 
 To change a job, call `schedule` with `action: "update"`, `job` (its name) and only the fields that change (`permissions` as the whole new set). The operator confirms what changes and the job keeps its history, which a delete and re-create would lose. Jobs run only when the scheduler service is installed: if
 the result says none is installed, tell the user to run
-`namzu schedule install`; do not say the job is set up and running.
+`namzu schedule service install`; do not say the job is set up and running.
 
 ## Browser access
 

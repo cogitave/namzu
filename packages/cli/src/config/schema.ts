@@ -167,6 +167,26 @@ export interface TuiConfig {
 	readonly syntaxHighlight?: boolean
 }
 
+/** See `NamzuCliConfig.network`. */
+export interface NetworkConfig {
+	/**
+	 * `auto` (default): on in an interactive terminal on a network known to be private, off elsewhere and
+	 * for every headless run. `true`: on in an interactive terminal on any network. `false`: off entirely
+	 * (no advertisement, no listener).
+	 */
+	readonly enabled?: 'auto' | boolean
+	/** Messages from your other machines: `members` delivers, `hold` always asks first, `off` refuses. */
+	readonly acceptMail?: 'members' | 'hold' | 'off'
+	/** What this machine is called to the others; absent means its host name. At most 40 characters. */
+	readonly machineName?: string
+	/**
+	 * Whether a new machine on your network joins without asking you: `trusted-networks` (default) when it is
+	 * on a network you marked as trusted, `always` on any private network (anyone on that network can then
+	 * join), `never` to be asked every time.
+	 */
+	readonly autoAdmit?: 'trusted-networks' | 'always' | 'never'
+}
+
 /** Release channel the background updater follows. */
 export type UpdateChannel = 'latest' | 'stable'
 
@@ -251,6 +271,31 @@ export interface GoalCliConfig {
 	 * `record` in a later major release.
 	 */
 	readonly confirmedBy?: 'model' | 'record'
+	/**
+	 * The most automatic turns one goal may be given before it stops (a backstop,
+	 * not the way a goal normally ends). Default 1000. `/goal resume` raises a
+	 * stopped goal to this when it is larger.
+	 */
+	readonly maxRounds?: number
+	/**
+	 * Pause a goal for a check-in after this many automatic turns, and again after
+	 * each further batch. The pause says what has been spent; `/goal resume`
+	 * continues with no count reset. Default 0: no check-ins. A positive number turns them on.
+	 */
+	readonly checkInEvery?: number
+	/** Tokens a goal's automatic turns may spend; one last turn is given at the budget. Unset: no budget. */
+	readonly tokenBudget?: number
+	/**
+	 * Automatic turns in a row that change nothing, or end on the same failure,
+	 * after which a goal stops. Default 3.
+	 */
+	readonly stallRounds?: number
+	/**
+	 * The model that checks a goal's completion report when the decision model is
+	 * on, as `provider/model` or a model of the current provider. Unset: the
+	 * model for quick tasks.
+	 */
+	readonly judgeModel?: string
 }
 
 /** See `NamzuCliConfig.handBack`. */
@@ -267,7 +312,7 @@ export interface HandBackCliConfig {
 export interface WorktreesCliConfig {
 	/** A new worktree's branch is `<branchPrefix>/<name>`. Default `namzu`. */
 	readonly branchPrefix?: string
-	/** The folder new worktrees are made in. Absent means inside the project's Namzu folder. */
+	/** The folder new worktrees are made in. Absent means `<NAMZU_HOME>/projects/<slug>/worktrees`. */
 	readonly location?: string
 	/** Folders of the project a new worktree holds; the rest is left out of its files. */
 	readonly sparseFolders?: readonly string[]
@@ -641,6 +686,21 @@ export interface NamzuCliConfig {
 	 */
 	readonly archiveInactive?: ArchiveInactiveAfter
 	/**
+	 * Days a conversation is kept on this computer after it last changed. The terminal app removes
+	 * older ones when it starts, at most once a day, with their folders, their scratch folders and the
+	 * prompt history lines that old. A whole number, at least 1; absent means 30. To keep
+	 * everything, set a large number such as 3650. Read from the user and managed files only: a
+	 * repository cannot decide what is removed from the person's computer.
+	 */
+	readonly cleanupPeriodDays?: number
+	/**
+	 * Whether the prompts sent from the terminal app's box are kept in `history.jsonl`, so Up and
+	 * Ctrl+R in a new conversation bring back the project's earlier ones. Absent means on; off
+	 * writes and recalls nothing (the file is left as it is). Read from the user and managed files
+	 * only.
+	 */
+	readonly promptHistory?: boolean
+	/**
 	 * Whether the desktop app marks a conversation in its sidebar when it needs the person, is
 	 * running, failed or has a new reply. Absent means on. The marks come from state the app
 	 * already holds, never from a model call, so turning them off saves nothing but screen space.
@@ -654,10 +714,12 @@ export interface NamzuCliConfig {
 	 */
 	readonly effort?: ReasoningEffort
 	/**
-	 * Start the terminal app with fast inference on, for a model that offers it (it bills at
-	 * twice the standard rate). `--fast` and `/fast` still work; a model that cannot take it
-	 * leaves fast mode off, with a message. Absent means off. Read from the user and managed
-	 * files only.
+	 * Start the terminal app with fast inference on, for a model that offers it (a vendor's own
+	 * API models, or a Codex subscription's; it bills at a multiple of the standard rate, or uses
+	 * more of a subscription's allowance). `true` is the fast tier; the faster `ultrafast` tier is
+	 * never saved and is asked for inside a conversation with `/ultrafast`. `--fast` and
+	 * `/fast` still work; a model that cannot take it leaves fast mode off, with a message. Absent
+	 * means off. Read from the user and managed files only.
 	 */
 	readonly fast?: boolean
 	/**
@@ -835,7 +897,7 @@ export interface NamzuCliConfig {
 	/**
 	 * Directories besides the working directory the file tools may reach,
 	 * relative to the project or absolute. Bound read-write into the sandbox.
-	 * `--add-dir` and `/add-dir` add to this list for one launch or session.
+	 * `--add-dir` and `/add dir` add to this list for one launch or session.
 	 */
 	readonly additionalDirectories?: readonly string[]
 	/**
@@ -881,6 +943,12 @@ export interface NamzuCliConfig {
 	/** Interactive-terminal-only behaviour. Absent leaves notifications off. */
 	readonly tui?: TuiConfig
 	/**
+	 * Your Namzu network: finding your other machines and messaging their sessions. Absent means the
+	 * defaults (`enabled: auto`, `acceptMail: members`, the machine's host name). Your own config files
+	 * only: a repository cannot open a listener on your machine.
+	 */
+	readonly network?: NetworkConfig
+	/**
 	 * How the terminal keeps Namzu itself up to date. Absent means the
 	 * defaults: check in the background, install quietly where Namzu may,
 	 * `latest` channel, and no installing in CI. Your own config files only
@@ -902,6 +970,13 @@ export interface NamzuCliConfig {
 	 * before a project is trusted, so a project file does not affect it.
 	 */
 	readonly modelCatalogueRefresh?: boolean
+	/**
+	 * Inside WSL, read a subscription sign-in made in Namzu Desktop on Windows in place when
+	 * this terminal has none of its own. Absent or `true` means on; `false` keeps the terminal to
+	 * its own sign-ins. Read before a project is trusted, so a project file does not affect it.
+	 * `NAMZU_SHARE_DESKTOP_SIGNIN` overrides it.
+	 */
+	readonly shareDesktopSignIn?: boolean
 	/**
 	 * Start with hypermode on. Absent or `false` means off. The interactive
 	 * terminal starts every conversation with the mode on (`/hypermode off`
@@ -1065,7 +1140,7 @@ export interface ScheduleConfig {
  * environment variable that holds a credential, never the credential itself.
  */
 /** Every decision point the host knows, in the order the docs list them. */
-export const DECISION_POINT_IDS = ['notify', 'memory', 'skill', 'pick'] as const
+export const DECISION_POINT_IDS = ['notify', 'memory', 'skill', 'pick', 'goal'] as const
 
 export type DecisionPointId = (typeof DECISION_POINT_IDS)[number]
 
@@ -1220,7 +1295,7 @@ export interface SandboxConfig {
 	 * working directory and the added directories is an approval request,
 	 * not a refusal. `true` confines each command to the working directory
 	 * and the added directories, with the network cut where the platform can
-	 * cut it; whatever the sandbox cannot reach then needs `/add-dir` or a
+	 * cut it; whatever the sandbox cannot reach then needs `/add dir` or a
 	 * per-command escape the user approves.
 	 *
 	 * Unset, it is on when `requireIsolation` names a control or `workspace`

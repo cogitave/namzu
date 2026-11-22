@@ -260,6 +260,10 @@ export function permissionTitle(toolCalls: readonly PermissionToolCall[], cwd?: 
 				return 'Start an agent'
 			case 'workflow':
 				return resumesWorkflow(first) ? 'Resume a workflow' : 'Start a workflow'
+			case 'command':
+				return 'Run a Namzu command'
+			case 'switch_model':
+				return 'Change the model'
 			default:
 				return connectorToolLabel(first.name)
 		}
@@ -278,6 +282,27 @@ function resumesWorkflow(call: PermissionToolCall | undefined): boolean {
 		input !== null &&
 		typeof (input as { resumeFromRunId?: unknown }).resumeFromRunId === 'string'
 	)
+}
+
+/** The command line a `command` call stands for, as a person would type it. */
+function commandLineOfInput(input: unknown): string {
+	if (input === null || typeof input !== 'object') return 'a command'
+	const { name, args } = input as { name?: unknown; args?: unknown }
+	if (typeof name !== 'string') return 'a command'
+	const words = [name, ...(Array.isArray(args) ? args.filter((a) => typeof a === 'string') : [])]
+		.join(' ')
+		.split(/\s+/u)
+		.filter((word) => word.length > 0)
+	if (words[0]?.startsWith('/')) words[0] = words[0].slice(1)
+	return `/${words.join(' ')}`
+}
+
+/** The model a `switch_model` call names, with its provider when it gave one. */
+function modelOfInput(input: unknown): string {
+	if (input === null || typeof input !== 'object') return 'another model'
+	const { model, provider } = input as { model?: unknown; provider?: unknown }
+	if (typeof model !== 'string') return 'another model'
+	return typeof provider === 'string' && provider.length > 0 ? `${provider}/${model}` : model
 }
 
 /** The one question under the operation. */
@@ -299,6 +324,10 @@ export function permissionQuestion(toolCalls: readonly PermissionToolCall[]): st
 				return 'Do you want to write this file?'
 			case 'Agent':
 				return 'Do you want to start this agent?'
+			case 'command':
+				return `Do you want to run ${commandLineOfInput(first.input)}?`
+			case 'switch_model':
+				return `Do you want to switch this conversation to ${modelOfInput(first.input)}?`
 			case 'workflow':
 				return resumesWorkflow(first)
 					? 'Do you want to resume this workflow?'
@@ -369,7 +398,7 @@ export interface PermissionAnswerOptions {
 	readonly mode?: PermissionMode
 	/** Tools whose command line is one argument, when this session can remember allows. */
 	readonly commandArguments?: ReadonlyMap<string, string>
-	/** The folder the answer is saved for (`namzu.config.local.json` there), as the person sees it. */
+	/** The folder the answer is saved for (`.namzu/settings.local.json` there), as the person sees it. */
 	readonly rememberWhere?: string
 	/** The review leaves part of this batch out, so only a one-time yes is offered. */
 	readonly withheld?: boolean

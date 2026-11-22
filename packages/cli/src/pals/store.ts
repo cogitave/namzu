@@ -4,7 +4,7 @@ import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'nod
 import { DiskPalStore, type PalCreate, type PalDefinition, type PalUpdate } from '@namzu/sdk'
 import { restrictToOwner } from '../integrations/providers/credential-store.js'
 import { resolveNamzuHome } from '../integrations/state/home.js'
-import { trustDir } from '../integrations/trust/store.js'
+import { assertTrustListWritable, trustDir } from '../integrations/trust/store.js'
 
 export type Pal = PalDefinition
 export type { PalAppearance, PalCreate, PalModel, PalUpdate } from '@namzu/sdk'
@@ -84,6 +84,8 @@ export function listPals(home?: string): Pal[] {
 	return cliPalStore(home).list()
 }
 export function createPal(input: PalCreate, home?: string): Pal {
+	// Refuse before anything is created: a Pal whose workspace could not be trusted is half made.
+	assertTrustListWritable()
 	const pal = cliPalStore(home).create(input)
 	// The create action authorizes only this newly allocated, empty control directory.
 	trustDir(pal.workspace)

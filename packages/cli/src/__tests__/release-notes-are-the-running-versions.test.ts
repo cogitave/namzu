@@ -17,7 +17,7 @@ const changelog = `# @namzu/cli
 - def: the big one.
 `
 
-describe('/release-notes', () => {
+describe('/release notes', () => {
 	it('finds the section for a version and stops at the next', () => {
 		expect(changelogSection(changelog, '18.1.0')?.body).toBe(
 			'### Minor Changes\n\n- abc: two modes.',

@@ -2,7 +2,8 @@ import { resolve } from 'node:path'
 import { AuthorizationGate, type AuthorizationRule, NOOP_LOGGER } from '@namzu/sdk'
 
 import { readPermissionLayers } from '../config/load.js'
-import { localConfigPath } from './local-settings.js'
+import { isTrusted } from '../integrations/trust/store.js'
+import { legacyLocalConfigPath, localSettingsPath } from './local-settings.js'
 import { type PermissionsConfig, compilePermissionLayers, permissionTableSource } from './rules.js'
 
 /** Stable predicates captured by running gates; only the local layer is replaceable. */
@@ -10,10 +11,21 @@ export function createLivePermissionRules(options: {
 	readonly cwd: string
 	readonly layers: readonly PermissionsConfig[]
 	readonly browserRules?: readonly AuthorizationRule[]
+	/**
+	 * Whether the folder is trusted, asked at each reload. Its local files are
+	 * read only while it is. Absent: the trusted-folder list decides.
+	 */
+	readonly trusted?: () => boolean
 }) {
-	const localPath = resolve(localConfigPath(options.cwd))
-	const fixed = options.layers.filter((table) => permissionTableSource(table) !== localPath)
-	const initialLocal = options.layers.filter((table) => permissionTableSource(table) === localPath)
+	const trusted = options.trusted ?? (() => isTrusted(options.cwd))
+	// Both local files are replaceable: the earlier one is read until it moves.
+	const localPaths = new Set([
+		resolve(localSettingsPath(options.cwd)),
+		resolve(legacyLocalConfigPath(options.cwd)),
+	])
+	const isLocal = (table: PermissionsConfig) => localPaths.has(permissionTableSource(table) ?? '')
+	const fixed = options.layers.filter((table) => !isLocal(table))
+	const initialLocal = options.layers.filter(isLocal)
 	const gate = (rules: readonly AuthorizationRule[]) =>
 		new AuthorizationGate(
 			{
@@ -52,9 +64,11 @@ export function createLivePermissionRules(options: {
 	return {
 		rules,
 		reload(): void {
-			const local = readPermissionLayers({ cwd: options.cwd }).filter(
-				(layer) => layer.source === 'local-file',
-			)
+			// A folder that is not trusted has its local files left unread, as at launch.
+			const local = readPermissionLayers({
+				cwd: options.cwd,
+				...(trusted() ? {} : { includeProject: false }),
+			}).filter((layer) => layer.source === 'local-file')
 			const next = compile(local.map((layer) => layer.permissions))
 			// Publish only after every rule validated. Failure retains the previous policy.
 			current = next

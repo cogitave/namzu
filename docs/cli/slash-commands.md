@@ -22,6 +22,13 @@ it answers. A command that composes a message for the model also shows what you 
 only the model receives the rewritten sentence. The `/help` list shows each description up to its first
 clause, so no line ends mid-sentence.
 
+Commands that take a second word spell it as a word, never with a hyphen:
+`/add dir`, `/release notes`, `/terminal setup`. The palette and completion show
+that form, and the first word alone (`/terminal`) answers with the usage of its
+second word. The old hyphenated spellings (`/add-dir`, `/release-notes`,
+`/terminal-setup`) run nothing: typed, each shows one line naming the new
+spelling.
+
 | Command | What it does |
 | --- | --- |
 | `/help [command]` | Search commands and choose an action, or read one command's usage without running it. |
@@ -50,7 +57,7 @@ clause, so no line ends mid-sentence.
 | `/cost` | Show tokens and cost for the latest reply, one fact per line, plus what the agents it started used; `/cost details` adds pricing and scope information; `/cost days [n]` shows spend across conversations by local day and model for the last `n` days (30 by default), as [Spend by day and model](cost.md) describes. |
 | `/tasks` (alias `/bashes`) | View and manage everything running in the background: the `Background` dialog lists this session's background commands (Shells), monitors (Monitors), running subagents (Local agents), the timers the model set that are still pending (Timers: the prompt and the time left, `↻` for a repeating one) and finished agents (Completed). Up/Down select, Enter opens the details or the agent's transcript, `x` stops a running one or cancels a timer (the model's timer list no longer shows it), Esc closes; `/tasks list` prints a text summary of the commands and pending timers. It replaces `/jobs`, which no longer exists. See [Background jobs in the CLI](background-jobs.md). |
 | `/peers [list\|on\|off\|send <ref> <message>]` | Find and message independent live terminals in this project; control this terminal's participation. Peer text carries no operator authority. See [Messages between live terminals](peer-messaging.md). |
-| `/release-notes` | Show what changed in the version that is running: /release-notes [version]. |
+| `/release notes` | Show what changed in the version that is running: /release notes [version]. |
 | `/hooks` | List every hook this conversation runs, where it came from, which tool names it receives and the names its `env` sets, then any hook a file declared that could not be loaded ([Hooks](../sdk/hooks.md#a-hooks-block-in-the-common-shape)), then the hook entries enabled plugins ship (the plugin, event, command and matcher, apart from the plugins' JavaScript hooks) and what their files declared that could not be loaded, the hooks skills and agent files attach, the names of the variables hooks set for shell commands and the files watched for `file_changed` ([Hooks](../sdk/hooks.md#files-and-folders-and-variables-for-later-commands)). From a shell, `namzu hooks [--cwd <path>] [--json]` answers the same question for a folder without starting a session, and for a folder nobody has trusted too ([Hooks](../sdk/hooks.md#what-runs-by-itself-here-one-answer-for-a-program)). |
 | `/context` | Show where the context goes: a grid that stands for the window, a legend of categories (system prompt, system tools, MCP tools and instructions, custom agents, memory files, skills, messages, free space), lists of MCP tools, agents, memory files and skills with their sizes, and advice when something is large. `/context details` adds how older messages were summarised; `/context all` is accepted and shows the same. |
 | `/review` | Choose a review target, or provide custom instructions: /review [instructions]. |
@@ -67,16 +74,17 @@ clause, so no line ends mid-sentence.
 | `/status` | Show model, permissions, files and latest cost, with the folder written from `~` or its last folders. The card leaves out the conversation id and the tool count; `/status details` adds the full conversation id, expands rules and isolation; `/status config` shows setting sources; `/status tools` lists callable tools. |
 | `/doctor` | Run the health checks (providers and sign-ins, sandbox, scheduler, browser, code index, folders and the rest) and show them in plain words: a row per check with a mark (a newer version shows as `✓ Updates: Namzu 9.9.9 is available` with the command to get it), and for each one that needs attention a short reason and what to try. The later lines of a long reason are behind `ctrl+o`. `namzu doctor` prints the full technical report, with `--json` and exit codes. |
 | `/permissions` | Choose Ask before changes, Accept edits or Plan (read-only). More options contains Auto-approve tools, Preapproved tools only and View rules. |
-| `/terminal-setup` | Make Shift+Enter start a new line in the terminal Namzu runs in. VS Code, Cursor and Windsurf get a key binding (plus a faster scroll setting and GPU acceleration off), Zed and Alacritty get a key binding, and Terminal.app gets Option+Enter; every file it changes is copied to `<file>.<8 hex>.bak` first and the reply says what changed. Where it cannot write (a remote editor session, a file it cannot read) it prints the steps. iTerm2, WezTerm, Ghostty, Kitty, Warp and Windows Terminal need nothing and are told so. It runs only when you type it. See [Terminal setup](terminal-design.md#terminal-setup-and-the-fullscreen-fallback). |
+| `/terminal setup` | Make Shift+Enter start a new line in the terminal Namzu runs in. VS Code, Cursor and Windsurf get a key binding (plus a faster scroll setting and GPU acceleration off), Zed and Alacritty get a key binding, and Terminal.app gets Option+Enter; every file it changes is copied to `<file>.<8 hex>.bak` first and the reply says what changed. Where it cannot write (a remote editor session, a file it cannot read) it prints the steps. iTerm2, WezTerm, Ghostty, Kitty, Warp and Windows Terminal need nothing and are told so. It runs only when you type it. See [Terminal setup](terminal-design.md#terminal-setup-and-the-fullscreen-fallback). |
 | `/vim` | Switch the message box between the usual keys and vim keys: `/vim` flips it, `/vim on` and `/vim off` name the mode. It applies at once, is saved as `tui.editorMode` in your user config, and says the new mode in one line. The box starts in INSERT; Esc goes to NORMAL. See [Vim keys in the message box](composer-vim.md). |
 | `/tui` | `/tui` says which screen Namzu is using; `/tui fullscreen` or `/tui default` saves `tui.fullscreen` in your user config and forgets any failed fullscreen starts, for the next start. |
 | `/theme` | Change the colors: `/theme [name]`. Opens a picker with a live preview, or applies `auto`, `dark`, `light`, `dark-daltonized`, `light-daltonized`, `dark-ansi` or `light-ansi` directly. See [Themes](themes.md). |
 | `/effort` | Choose reasoning effort for future replies: /effort [level\|default] [hypermode on\|off]. Hypermode is an option of the effort, for any level and this conversation only; see [Hypermode](#hypermode). |
 | `/hypermode` | Toggle hypermode for this conversation: /hypermode [on\|off]. An independent on/off, shown beside effort and never changing it: while on, the model is told to use the `workflow` tool for every substantial task. |
-| `/fast` | Toggle fast inference for this conversation: /fast [on\|off]. Faster replies at twice the standard rate, on the Anthropic models that offer it (Opus 5.5, Fable 5.2, Mythos 5.2, and Opus 5 in preview); any other model, and any custom or compatible `ANTHROPIC_BASE_URL`, is refused with the reason. Off by default, never saved, shown as `fast` in the footer, and it never changes reasoning effort. A model change that cannot keep it turns it off and says so. |
+| `/fast` | Toggle fast inference for this conversation. Faster replies at a higher price, on the models that offer it: Anthropic (Opus 5.5, Fable 5.2, Mythos 5.2, and Opus 5 in preview; twice the standard rate), OpenAI on an API key (a listed set of models, twice the standard rate, 2.5 times on gpt-5.5), and OpenAI through a Codex subscription (the models whose account lists a fast tier; more of your plan allowance, with the figure where it is published). Any other model, and any custom or compatible `ANTHROPIC_BASE_URL` or `OPENAI_BASE_URL`, is refused with the reason, and turning it on says what it costs. Listed in the command menu only while the selected model offers it; typed on another model it answers with the reason, and `/help` always lists it. It turns fast mode on, off when it is on, and switches ultrafast to fast; it takes no argument. Off by default, never saved, shown as `fast` or `ultrafast` in the footer, and it never changes reasoning effort. A model change that cannot keep the tier turns it off and says so. See [Fast mode on OpenAI models](../sdk/fast-mode.md). |
+| `/ultrafast` | Toggle the fastest inference tier for this conversation. The tier above fast mode, on the Codex subscription models whose account lists it; it uses much more of your plan allowance. Listed in the command menu only while the selected model offers it; typed on another model it answers with the reason, and `/help` always lists it. It turns ultrafast on, off when it is on, and switches fast to ultrafast; it takes no argument. Never saved, no launch flag, shown as `ultrafast` in the footer. See [Fast mode on OpenAI models](../sdk/fast-mode.md). |
 | `/orchestrate` | Deprecated alias of `/hypermode`, from before the mode was renamed. It prints a line saying so, then does what `/hypermode` does. It will be removed in a later major version. |
 | `/init` | Write an AGENTS.md describing this project to future agents. |
-| `/goal` | Open this conversation’s goal menu. `/goal status` reads progress; `/goal set` opens the objective editor. |
+| `/goal` | Open this conversation’s goal menu. `/goal status` reads progress, with the automatic turns, tokens and cost so far; `/goal set` opens the objective editor. |
 | `/schedule` | List [scheduled jobs](scheduled-tasks.md) and what needs you: a run waiting for approval, a job waiting for confirmation or on hold. `/schedule confirm|pause|resume|run|remove <job>` acts on one; `/schedule add <name> "<when>" <read-only|edit-in-folder> <prompt…>` creates one after showing it. |
 | `/browser` | The [browser](browser.md) this session drives: engine, window or none, running or not, profile and site rules. `/browser profile <name>` switches profile for the rest of the session (closing the browser if it was open), and a rebuilt session keeps it. |
 | `/loop` | Re-send a prompt to this conversation on an interval, between turns: `/loop 10m <prompt>`, `/loop list`, `/loop stop <id>|all`. See [Session loops](session-loops.md). |
@@ -111,11 +119,11 @@ every command either way.
   `/status`, `/cost`, `/tasks`, `/permissions`, `/hooks`, `/mcp` (reports only),
   `/btw`, `/exit`, `/rename`, `/skills` (the list), `/plugins`, `/goal`,
   `/workflows`, `/feedback`, `/help`, `/theme`, `/diff`, `/raw`, `/hypermode`,
-  `/doctor`, `/terminal-setup`, `/tui`, `/vim`, `/release-notes`, `/peers`, `/schedule`, `/loop`, `/abandon`,
+  `/doctor`, `/terminal setup`, `/tui`, `/vim`, `/release notes`, `/peers`, `/schedule`, `/loop`, `/abandon`,
   `/copy`, and `/skills save` and `/skills new`, which line themselves up behind
   the reply. `/clear`, `/new`, `/fork` and `/resume` also run at once: they take
   the conversation over and abandon the running reply on purpose.
-  `/config`, `/settings` and `/add-dir` run at once only with an argument;
+  `/config`, `/settings` and `/add dir` run at once only with an argument;
   `/browser` only without one.
 - **Waits.** Anything that changes or reads the conversation itself, a saved
   prompt command or a skill: `/clear`, `/new`, `/fork`, `/resume`, `/copy` and `/run`
@@ -158,6 +166,51 @@ What a change applies to:
   while a reply runs applies from your next message (`Reasoning effort set to
   <level>. It applies from your next message.`). A message steered into the
   running reply joins it at the level it began with.
+
+## Commands from chat
+
+You do not have to type a slash command. In the interactive session you can
+write what you want in words, for example “set a goal: write the changelog” or
+“turn on fast mode”, and the model runs the command for you through a tool named
+`command`. The tool is mounted only in the main interactive terminal, never for
+a delegated agent, a scheduled run or a headless run, and a Pal chat has none.
+
+Every command declares what the model may do with it, in `modelRun`. A command
+that declares nothing is `never`, and a test fails when a registered command,
+built-in or from the kernel, declares no class.
+
+| Class | What happens | Commands |
+|---|---|---|
+| `run` | The model runs it at once and the answer is shown as if you had typed it. | `help`, `status`, `cost`, `context`, `doctor`, `release notes`, `hooks`, `diff`, `workflows`, `tasks list`, `mcp` (not its prompt and resource forms), `copy`, and the read forms below |
+| `confirm` | You are asked first, with the exact line (“Do you want to run /goal write the changelog?”). On no, nothing runs. | `goal`, `schedule`, `loop`, `fast`, `ultrafast`, `effort`, `hypermode`, `orchestrate`, `model`, `plan`, `compact`, `clear`, `new`, `branch`, `fork`, `worktree`, `rewind`, `undo`, `checkpoint`, `restore`, `memory`, `skills`, `resume`, `abandon`, `review`, `init`, `run`, `export`, `recap`, `btw`, `theme`, `tui`, `vim`, `raw`, `rename` |
+| `never` | The model does not run it and does not ask. It tells you to type the command yourself, naming it. | `setup`, `config`, `settings`, `peers`, `browser`, `feedback`, `archive`, `unarchive`, `exit`, `add dir`, `plugins`, `login`, `auth`, `logout`, `terminal setup`, `permissions` |
+
+A command that both reads and changes takes the class of the form that was
+asked for. These read forms run without asking: `/goal status`, `/schedule` and
+`/schedule list`, `/loop list`, `/memory show` and `/memory list`, `/skills list`,
+`/effort` with no level, `/tui` and `/theme` with no argument. The changing forms ask, and so do `/tui fullscreen`, `/theme light`, `/vim`, `/raw` and `/rename <name>` or `/rename clear`: `/goal <objective>`,
+`/goal pause`, `/schedule add ...`, `/schedule run <job>`, `/loop <interval> ...`,
+`/memory add ...`, `/effort high`. A form that only opens a screen for you (bare
+`/goal`, `/model`, `/memory`, `/skills`, `/tasks`, `/rename`) is `never`; the
+tool's description says to give the form, for example `tasks list`.
+
+The tool takes the command word and its argument words exactly as you would
+type them after the slash, with no aliases: `{ "name": "goal", "args": ["write",
+"the", "changelog"] }`. Its description lists the commands that run or ask, with
+a few words each, within a fixed budget of about 1.5 KB however many skills or
+command files you have; commands the model does not run are named in one last
+line. `action: "list"` answers with every command and its full description.
+User command files and skills are not run through it; the model uses its
+`skill` tool for skills.
+
+A command that is not available right now, for example `/fast` on a model that
+has no fast mode, is refused with its own reason and you are not asked. A
+command that ends or replaces the conversation, or moves it to another model
+(`clear`, `new`, `resume`, `abandon`, `fork`, `branch`, `rewind`, `undo`,
+`checkpoint`, `restore`, `compact`, `worktree`, `model`), is queued and runs
+when the current reply is over, in order, as if you had typed it then; the tool
+result says so. The result also tells the model, in a line or two, what the
+command printed, so it only says a command ran after the tool did. `/schedule` and `/loop` finish before the result goes back. A command turned away before it reached its action (a usage line, or another command still being saved) comes back as not run, and one that printed nothing comes back as possibly having changed nothing, never as "Ran".
 
 ## Settings and model changes
 
@@ -333,6 +386,9 @@ the current session. On a missing ID, up to eight recovery choices are ranked
 by overlap with the requested model's name before the list is bounded. A partial
 family name never silently selects a variant.
 
+Each `switch_model` request asks you first: the box names the model, and
+nothing is queued until you say yes. Answering no changes nothing.
+
 A successful tool result means the switch is queued. Called alone, this
 terminal tool ends the current turn without another model inference. A failed
 request still returns to the model for correction; a mixed tool batch retains
@@ -374,7 +430,7 @@ again for <that> this session". A remembered answer is consulted after your
 or tool shown, and never covers a sandbox escape, a path outside the working
 directory, a call a rule asks about, or a destructive one. It is kept in memory
 for the session and is gone when it ends.
-The menu lists every mode with a sentence each (Ask before changes, Accept edits, Plan, Bypass permissions, Auto), and a mode this session cannot enter says why; only Preapproved tools only and the rules are under "More options". For typed shortcuts, `/permissions prompt`, `accept-edits`, `plan`, `bypass`, `auto` and `strict` are accepted ([Permission modes](permission-modes.md)); `bypass` is refused unless the launch opened it. `/permissions details` opens the rule report directly. View rules (and `/permissions rules [allow|ask|deny]`) lists every rule you have set, with the file it comes from: your user settings, this project, this project's local file (where "Yes, and don't ask again" writes), and an answer held for this conversation only that no file carries; `/permissions add <allow|ask|deny> <rule>` and `/permissions remove <rule>` write `Tool(specifier)` rules to `namzu.config.local.json` (the local project file, which git does not track) and apply to later calls in the running session; rules from other files are listed and changed in those files. `/permissions denied` lists the last twenty calls auto mode refused in this conversation, newest first, and `/permissions dirs` lists the folders the file tools can reach.
+The menu lists every mode with a sentence each (Ask before changes, Accept edits, Plan, Bypass permissions, Auto), and a mode this session cannot enter says why; only Preapproved tools only and the rules are under "More options". For typed shortcuts, `/permissions prompt`, `accept-edits`, `plan`, `bypass`, `auto` and `strict` are accepted ([Permission modes](permission-modes.md)); `bypass` is refused unless the launch opened it. `/permissions details` opens the rule report directly. View rules (and `/permissions rules [allow|ask|deny]`) lists every rule you have set, with the file it comes from: your user settings, this project, this project's local file (where "Yes, and don't ask again" writes), and an answer held for this conversation only that no file carries; `/permissions add <allow|ask|deny> <rule>` and `/permissions remove <rule>` write `Tool(specifier)` rules to `.namzu/settings.local.json` (this computer's settings for the project, which Namzu keeps out of git with a global ignore line after each edit) and apply to later calls in the running session; a remove also takes the rule out of `namzu.config.local.json`, the file's earlier name, while that one is still read, says which file it could not change, and takes the rule out of the answers held for this conversation only. An added rule that looks like it holds a password or a token is refused, and so is a save into a local file git tracks; both refuse a folder that is not trusted ([Permission layers](permission-layers.md#the-local-file)). Rules from other files are listed and changed in those files. `/status` lists the folder's settings files and says when two of one kind are read. `/permissions denied` lists the last twenty calls auto mode refused in this conversation, newest first, and `/permissions dirs` lists the folders the file tools can reach.
 
 An explicit `ask` in the configured permissions table is retained as a review
 rule, including when it precedes a broader wildcard `allow`. It also prevents
@@ -394,10 +450,15 @@ about every launch. See [Delegated work](delegated-work.md#which-launches-are-as
 the goal. `/goal pause`, `/goal resume` and `/goal clear` control automatic
 continuation. Direct `/goal <objective>` input also remains supported.
 `/goal set --confirmed-by record <objective>` makes this goal end only as the
-record of the work allows; see [Goals](goals.md).
+record of the work allows; `--token-budget <n>` gives this goal a token budget
+and `--max-rounds <n>` its own cap on automatic turns (each also as `--name=<n>`,
+at the front, right after `set`, or closing the command). A goal that stops
+for no progress, the same failure, a check-in or its budget goes on with
+`/goal resume`; see [Goals](goals.md).
 
-Creating or resuming a goal enables automatic work. The menu and objective
-editor show the automatic-turn allowance before submission. Pausing or
+Creating or resuming a goal enables automatic work. `/goal status` shows the
+automatic turns, the tokens and the cost so far, and the menu shows the same
+beside the phase. Pausing or
 clearing prevents further automatic replies; it does not undo a running tool
 call or interrupt the current turn. Goal reports distinguish the saved status
 from whether automatic continuation is enabled or paused.

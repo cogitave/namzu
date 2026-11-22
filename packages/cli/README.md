@@ -159,20 +159,20 @@ Every command, with its options, is in [Slash commands](https://github.com/cogit
 
 **Tool servers and plugins.** External tool servers are configured with `mcpServers` and checked with `/mcp`. Plugins are off by default and turn on with `plugins.enabled: true`. [Tool servers](https://github.com/cogitave/namzu/blob/main/docs/cli/mcp-servers.md) · [Plugins](https://github.com/cogitave/namzu/blob/main/docs/cli/plugins.md)
 
-**Where Namzu keeps its data.** Namzu keeps its state under `~/.namzu`, or under the directory named by `NAMZU_HOME` if you set it. Its own state and conversation records stay out of your project folder. `namzu state` lists that state without changing it. [Session storage](https://github.com/cogitave/namzu/blob/main/docs/cli/session-storage.md)
+**Where Namzu keeps its data.** Namzu keeps its state under `~/.namzu`, or under the directory named by `NAMZU_HOME` if you set it. Its own state and conversation records stay out of your project folder. `namzu state` lists that state without changing it, and `namzu state move legacy` moves what an earlier Namzu left in a project's `.namzu` folder into `~/.namzu/legacy/`. [Session storage](https://github.com/cogitave/namzu/blob/main/docs/cli/session-storage.md)
 
 ## Scheduled jobs
 
 A scheduled job is a prompt that runs later in a folder while Namzu is closed. You choose its permissions when you create it. A call the job does not allow waits for you, or is refused. It is never approved on its own.
 
 ```sh
-namzu schedule install
+namzu schedule service install
 namzu schedule add nightly-deps --prompt "Check for outdated dependencies." \
   --when "0 3 * * *" --permissions read-only
-namzu schedule status
+namzu schedule service status
 ```
 
-`namzu schedule install` sets up the scheduler service for your user. Each run is a conversation you can open with `/resume`, and it may send a desktop notification and adds a line to the job's history. A job takes effect only after a person confirms it, in a terminal or with `/schedule`. A job created with `--yes` from a script waits, inert, until someone confirms it. The permission presets, the scheduler service on each platform, and how missed runs are handled are in [Scheduled tasks](https://github.com/cogitave/namzu/blob/main/docs/cli/scheduled-tasks.md) and [The scheduler service](https://github.com/cogitave/namzu/blob/main/docs/cli/scheduler-service.md).
+`namzu schedule service install` sets up the scheduler service for your user. Each run is a conversation you can open with `/resume`, and it may send a desktop notification and adds a line to the job's history. A job takes effect only after a person confirms it, in a terminal or with `/schedule`. A job created with `--yes` from a script waits, inert, until someone confirms it. The permission presets, the scheduler service on each platform, and how missed runs are handled are in [Scheduled tasks](https://github.com/cogitave/namzu/blob/main/docs/cli/scheduled-tasks.md) and [The scheduler service](https://github.com/cogitave/namzu/blob/main/docs/cli/scheduler-service.md).
 
 ## Scripts and headless use
 

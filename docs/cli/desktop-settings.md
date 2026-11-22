@@ -30,11 +30,12 @@ therefore cannot reach the loader without a decision about Desktop.
 ## Which layer decides a value
 
 A saved value is not always the one in force. The engine merges, weakest to strongest, the defaults, the
-user file, the project's `namzu.config.json`, the project's `namzu.config.local.json`, a profile, the
+user file, the project's `namzu.config.json` and `.namzu/settings.json` (in that order), the project's
+local files (the earlier `namzu.config.local.json`, then `.namzu/settings.local.json`), a profile, the
 environment, and the managed (administrator) file. `namzu/config/get` therefore says, per setting, when
 a layer other than the user file decides:
 
-- `layer`: `project`, `local` (the project's git-ignored file, which wins over `project`), `managed` or
+- `layer`: `project`, `local` (the project's git-ignored files, which win over `project`), `managed` or
   `env`. Desktop words both project files as "this project". Absent means the user file, or the default
   when nothing is saved. A profile is not reported: which one is in force belongs to a launch.
 - `effective`: the value that layer gives, as the loader reads it (a number, a switch, a word). Absent
@@ -42,7 +43,7 @@ a layer other than the user file decides:
 - `env`: `{variable, value}` for `env`, the same field that already carried `NAMZU_SMALL_MODEL`. It now
   covers every setting an environment variable decides: `limits.maxResponseTokens`
   (`NAMZU_MAX_OUTPUT_TOKENS`), `compaction.autoCompactWindowTokens` (`NAMZU_AUTO_COMPACT_WINDOW`),
-  `smallModel`, `format`, `quiet`, `disableHooks`, `modelCatalogueRefresh`, `updates.auto`,
+  `smallModel`, `format`, `quiet`, `disableHooks`, `modelCatalogueRefresh`, `shareDesktopSignIn`, `updates.auto`,
   `updates.check`, `updates.channel` and `tui.fullscreen` (`NAMZU_FULLSCREEN`, which beats the saved
   value). The table is `ENVIRONMENT_BINDINGS` in `config/setting-layers.ts`; a variable the loader does
   not read for a key is not listed. Values are models, sizes, switches and channels, never secrets.

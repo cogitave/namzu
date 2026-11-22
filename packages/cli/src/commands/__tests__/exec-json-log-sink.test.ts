@@ -4,7 +4,7 @@ import { openSessions } from '../../integrations/sessions/store.js'
 import { cliLogger } from '../../logging.js'
 import { fakeAgentSession } from '../../tui/__fixtures__/agent-session.js'
 import { createAgentSession, probeAgentSession } from '../../tui/agent.js'
-import { providersJSONCommand } from '../host-queries.js'
+import { providersCommand } from '../providers.js'
 import type { CommandContext } from '../types.js'
 import { execJsonCommand } from './exec-json-command.js'
 
@@ -19,6 +19,7 @@ vi.mock('../../integrations/sessions/store.js', () => ({
 
 const trusted = { value: true }
 vi.mock('../../integrations/trust/store.js', () => ({
+	trustListProblem: () => undefined,
 	isTrusted: () => trusted.value,
 	trustDir: () => {},
 }))
@@ -141,7 +142,7 @@ describe('namzu exec --json installs a live stderr sink instead of silencing the
 	})
 })
 
-describe('namzu providers-json installs a live stderr sink instead of silencing the SDK logger', () => {
+describe('namzu providers list --json installs a live stderr sink instead of silencing the SDK logger', () => {
 	it('now receives ctx and installs the sink at its resolved level', async () => {
 		const lines: string[] = []
 		const spy = vi.spyOn(process.stderr, 'write').mockImplementation((chunk: unknown) => {
@@ -149,9 +150,9 @@ describe('namzu providers-json installs a live stderr sink instead of silencing 
 			return true
 		})
 		try {
-			await providersJSONCommand.handler({ ctx: ctxAt('debug'), rawArgs: [] })
-			cliLogger().debug('providers-json probe')
-			expect(lines.join('')).toContain('providers-json probe')
+			await providersCommand.handler({ ctx: ctxAt('debug'), rawArgs: ['list', '--json'] })
+			cliLogger().debug('providers list probe')
+			expect(lines.join('')).toContain('providers list probe')
 		} finally {
 			spy.mockRestore()
 		}

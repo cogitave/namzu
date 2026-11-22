@@ -187,6 +187,14 @@ export interface LLMProvider {
 	 * stale on the next model release and goes stale SILENTLY — surfacing as
 	 * a vendor rejection rather than a failing build.
 	 */
+	/**
+	 * The speed tiers above standard that `model` offers on this route, when the
+	 * driver learned them from the account's own model listing. `undefined`
+	 * means unknown (the listing has not answered, or the model is not in it);
+	 * `[]` means none. Same convention as {@link ModelInfo.speedTiers}.
+	 */
+	speedTiersFor?(model: string): readonly ('fast' | 'ultrafast')[] | undefined
+
 	reasoningEffortLevelsFor?(
 		model: string,
 		thinking?: import('./chat.js').ThinkingConfig,

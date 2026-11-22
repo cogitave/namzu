@@ -96,7 +96,8 @@ export function writeStandingInstructions(
 		if (lstatSafe(file)) unlinkSync(file)
 		return { text: '', limit: MAX_CHARS_PER_FILE, revision: revisionOf('') }
 	}
-	mkdirSync(resolveNamzuHome(), { recursive: true })
+	// The Namzu home is owner-only when Namzu is the one creating it.
+	mkdirSync(resolveNamzuHome(), { recursive: true, mode: 0o700 })
 	// Written beside the file and moved into place, so a reader never sees half of it.
 	const staging = `${file}.${process.pid}.tmp`
 	try {

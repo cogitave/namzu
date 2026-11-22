@@ -2,9 +2,9 @@
  * A digest of the project configuration that runs code, pinned when a job is
  * confirmed.
  *
- * `namzu.config.json` in the job's folder is repository content: a `git pull`
- * in one run can add a hook, a tool server, a plugin or a permission before the
- * next. A folder check compares a path; this compares what is IN it. The
+ * `namzu.config.json` and `.namzu/settings.json` in the job's folder are
+ * repository content: a `git pull` in one run can add a hook, a tool server, a
+ * plugin or a permission before the next. A folder check compares a path; this compares what is IN it. The
  * sections that execute code or change what may run are hashed, plus the
  * project's command files and plugin bundles. A change gives the next run
  * `blocked-config` until the operator confirms the job again.
@@ -35,10 +35,10 @@ function sha(text: string | Buffer): string {
 	return createHash('sha256').update(text).digest('hex')
 }
 
-function configSections(folder: string): string {
+function configSections(folder: string, name = 'namzu.config.json'): string {
 	let raw: string
 	try {
-		raw = readFileSync(join(folder, 'namzu.config.json'), 'utf8').replace(/^\uFEFF/, '')
+		raw = readFileSync(join(folder, ...name.split('/')), 'utf8').replace(/^\uFEFF/, '')
 	} catch {
 		return 'absent'
 	}
@@ -119,10 +119,15 @@ function treeDigest(root: string): string {
 
 /** The digest of `folder`'s code-executing project configuration now. */
 export function computeProjectDigest(folder: string): ProjectDigest {
+	// `.namzu/settings.json` is the project's other shared file. Its entry is
+	// there only when the file runs something, so a job confirmed before the
+	// file existed keeps the digest it was confirmed with.
+	const settings = configSections(folder, '.namzu/settings.json')
 	return {
 		algo: 'sha256',
 		files: {
 			'namzu.config.json': configSections(folder),
+			...(settings === 'absent' ? {} : { '.namzu/settings.json': settings }),
 			'.namzu/commands': treeDigest(join(folder, '.namzu', 'commands')),
 			'.namzu/plugins': treeDigest(join(folder, '.namzu', 'plugins')),
 		},

@@ -4,10 +4,12 @@
  * Resolution order (highest priority first):
  *   1. CLI flags (handled by Commander, merged in `cli.ts`)
  *   2. Environment variables prefixed `NAMZU_`
- *   3. Local config: `./namzu.config.local.json`, the project's own file that
- *      git ignores; where "don't ask again" answers are written
- *   4. Project config: `./namzu.config.json` (TS variant added in a later
- *      milestone when a build step is justified)
+ *   3. Local config: `./.namzu/settings.local.json`, this computer's file for
+ *      the project, which git ignores; where "don't ask again" answers are
+ *      written. `./namzu.config.local.json`, its earlier name, is read under it
+ *      until a session moves it (see `project-files.ts`)
+ *   4. Project config: `./.namzu/settings.json` over `./namzu.config.json`,
+ *      the project's shared files; both are read
  *   5. User config: `$NAMZU_HOME/config.yaml` (`~/.namzu/config.yaml` by default)
  *   6. Built-in defaults from `schema.ts`
  *
@@ -94,6 +96,14 @@ import {
 	mergeLearningGenerator,
 } from './learning-generator.js'
 import { positiveTokenCount } from './model-environment.js'
+import {
+	type FolderConfigFile,
+	allLocalConfigFiles,
+	folderFileRoot,
+	isFolderConfigPath,
+	localConfigFiles,
+	projectConfigFiles,
+} from './project-files.js'
 import type {
 	BrowserConfig,
 	CodeAnalysisConfig,
@@ -201,7 +211,7 @@ export type ConfigSource =
 	| { readonly kind: 'default' }
 	| { readonly kind: 'user-file'; readonly path: string }
 	| { readonly kind: 'project-file'; readonly path: string }
-	/** The project's git-ignored local file, over the project file; see {@link LOCAL_CONFIG_FILE}. */
+	/** The project's git-ignored local file, over the project files; see `project-files.ts`. */
 	| { readonly kind: 'local-file'; readonly path: string }
 	/**
 	 * A selected profile, and the file it was declared in.
@@ -288,8 +298,9 @@ function resolveConfigWithProvenance(
 		resolveNamzuHome({ ...(opts.home ? { home: opts.home } : {}), env }),
 		'config.yaml',
 	)
-	const projectPath = resolve(cwd, 'namzu.config.json')
-	const localPath = resolve(cwd, LOCAL_CONFIG_FILE)
+	const projectFiles = projectConfigFiles(cwd)
+	// Telling a moved copy from a second file reads both, so it waits for trust like every read.
+	const localFiles = mode.includeProject ? localConfigFiles(cwd) : allLocalConfigFiles(cwd)
 	const sharedMcpPath = resolve(cwd, PROJECT_MCP_FILE)
 
 	const managedPath = opts.managedPath ?? MANAGED_CONFIG_PATH
@@ -309,7 +320,7 @@ function resolveConfigWithProvenance(
 		return resolved === undefined ? rest : { ...rest, decision: resolved }
 	})
 	// `decision` points the agent at a network endpoint and names the env var
-	// that holds a bearer token. A project's `namzu.config.json` is checked-in,
+	// that holds a bearer token. A project's files are checked-in,
 	// attacker-reachable config: honouring `decision` from it would let any repo
 	// redirect the agent's decisions to its own endpoint and, for the azure
 	// provider, exfiltrate the operator's Entra token to that endpoint. So it is
@@ -320,34 +331,17 @@ function resolveConfigWithProvenance(
 	// conversation, and a repo must not redirect that. (A project profile still
 	// carries it only when the operator selects that profile by name, an explicit
 	// choice, not a drive-by.)
-	const projectCfg = mode.includeProject
-		? readJsonIfExists(projectPath, PROJECT_FILE_LABEL, [
-				'decision',
-				'model',
-				'routing',
-				'smallModel',
-				'effort',
-				'fast',
-				'respectGitignore',
-				'outputStyle',
-				'attribution',
-				'promptSuggestions',
-				'memory.select',
-				'profiles.*.memory.select',
-				'memory.curation',
-				'profiles.*.memory.curation',
-				'memory.retireAfterDays',
-				'profiles.*.memory.retireAfterDays',
-				'memory.fromConversations',
-				'profiles.*.memory.fromConversations',
-				'memory.searchPastConversations',
-				'profiles.*.memory.searchPastConversations',
-			])
-		: {}
+	const projectCfgs = projectFiles.map((file) => ({
+		file,
+		config: mode.includeProject
+			? readJsonIfExists(file.path, folderFileLabel(file), PROJECT_DROPPED_KEYS)
+			: {},
+	}))
 	// `.mcp.json`: the project's shared tool servers. Read under the same trust
-	// as `namzu.config.json`, so a folder nobody has trusted starts none of
-	// them. A server the project file also names keeps the project file's
-	// entry; the rest are added.
+	// as the project files, so a folder nobody has trusted starts none of
+	// them. A server a project file also names keeps that file's entry; the
+	// rest are added, to each project file that declares servers, so the
+	// later one does not drop them.
 	// A server in it starts only once the person approved that server for this
 	// folder (and the entry still reads as it did then).
 	const sharedServers = mode.includeProject
@@ -357,29 +351,22 @@ function resolveConfigWithProvenance(
 				cwd,
 			)
 		: undefined
-	if (sharedServers && projectCfg.mcpServers !== undefined) {
-		projectCfg.mcpServers = { ...sharedServers, ...projectCfg.mcpServers }
+	const projectDeclaresServers = projectCfgs.some(({ config }) => config.mcpServers !== undefined)
+	if (sharedServers) {
+		for (const { config } of projectCfgs) {
+			if (config.mcpServers !== undefined)
+				config.mcpServers = { ...sharedServers, ...config.mcpServers }
+		}
 	}
-	// The project's own file that git ignores: a person's answers for this
-	// folder. Read under the same trust as the project file and held to the
+	// The project's own files that git ignores: a person's answers for this
+	// folder. Read under the same trust as the project files and held to the
 	// same limits, since a folder that arrives as an archive can carry one.
-	const localCfg = mode.includeProject
-		? readJsonIfExists(localPath, LOCAL_FILE_LABEL, [
-				'decision',
-				'model',
-				'routing',
-				'memory.select',
-				'profiles.*.memory.select',
-				'memory.curation',
-				'profiles.*.memory.curation',
-				'memory.retireAfterDays',
-				'profiles.*.memory.retireAfterDays',
-				'memory.fromConversations',
-				'profiles.*.memory.fromConversations',
-				'memory.searchPastConversations',
-				'profiles.*.memory.searchPastConversations',
-			])
-		: {}
+	const localCfgs = localFiles.map((file) => ({
+		file,
+		config: mode.includeProject
+			? readJsonIfExists(file.path, folderFileLabel(file), LOCAL_DROPPED_KEYS)
+			: {},
+	}))
 	const managedCfg = readJsonIfExists(managedPath, shortHomePath(managedPath))
 	const { config: envCfg, variables: envVariables } = readEnv(env)
 
@@ -387,22 +374,22 @@ function resolveConfigWithProvenance(
 	// variable is this shell — so the narrower statement wins, the way it does
 	// everywhere else here.
 	const profileName = opts.profile ?? env.NAMZU_PROFILE
+	const folderCfgs = [...projectCfgs, ...localCfgs]
 	const profiles = profileLayers(
 		profileName,
 		[
 			[userCfg, userPath],
-			[projectCfg, projectPath],
-			[localCfg, localPath],
+			...folderCfgs.map(({ config, file }) => [config, file.path] as const),
 			[managedCfg, managedPath],
 		],
 		mode.deferUnknownProfile,
-		new Set([projectPath, localPath]),
+		new Set(folderCfgs.map(({ file }) => file.path)),
 	)
 
 	const layers: readonly ConfigLayer[] = [
 		constantLayer(DEFAULT_CONFIG, { kind: 'default' }),
 		constantLayer(userCfg, { kind: 'user-file', path: userPath }),
-		...(sharedServers && projectCfg.mcpServers === undefined
+		...(sharedServers && !projectDeclaresServers
 			? [
 					constantLayer(
 						asConfigObject(sharedMcpPath, { mcpServers: sharedServers }, SHARED_MCP_LABEL),
@@ -410,8 +397,12 @@ function resolveConfigWithProvenance(
 					),
 				]
 			: []),
-		constantLayer(projectCfg, { kind: 'project-file', path: projectPath }),
-		constantLayer(localCfg, { kind: 'local-file', path: localPath }),
+		...folderCfgs.map(({ config, file }) =>
+			constantLayer(config, {
+				kind: file.layer === 'project' ? 'project-file' : 'local-file',
+				path: file.path,
+			}),
+		),
 		// After both files and before the environment. A profile is a
 		// deliberate choice about a set of settings, so it beats the ambient
 		// values in the file it came from; a variable is a statement about this
@@ -491,24 +482,22 @@ export function readPermissionLayers(
 		resolveNamzuHome({ ...(opts.home ? { home: opts.home } : {}), env }),
 		'config.yaml',
 	)
-	const projectPath = resolve(cwd, 'namzu.config.json')
-	const localPath = resolve(cwd, LOCAL_CONFIG_FILE)
 	const managedPath = opts.managedPath ?? MANAGED_CONFIG_PATH
 	const layers: PermissionLayer[] = []
+	const folder = (file: FolderConfigFile) =>
+		[
+			file.layer === 'project' ? 'project-file' : 'local-file',
+			file.path,
+			opts.includeProject === false ? {} : readJsonIfExists(file.path, folderFileLabel(file)),
+		] as const
 	for (const [source, path, config] of [
-		['user-file', userPath, readYamlIfExists(userPath)],
-		[
-			'project-file',
-			projectPath,
-			opts.includeProject === false ? {} : readJsonIfExists(projectPath, PROJECT_FILE_LABEL),
-		],
-		[
-			'local-file',
-			localPath,
-			opts.includeProject === false ? {} : readJsonIfExists(localPath, LOCAL_FILE_LABEL),
-		],
-		['managed', managedPath, readJsonIfExists(managedPath, shortHomePath(managedPath))],
-	] as const) {
+		['user-file', userPath, readYamlIfExists(userPath)] as const,
+		...projectConfigFiles(cwd).map(folder),
+		...(opts.includeProject === false ? allLocalConfigFiles(cwd) : localConfigFiles(cwd)).map(
+			folder,
+		),
+		['managed', managedPath, readJsonIfExists(managedPath, shortHomePath(managedPath))] as const,
+	]) {
 		const browserDenies = Object.entries(config.browser?.sites ?? {})
 			.filter(([site, level]) => site !== '*' && level === 'deny')
 			.map(([site]) => site)
@@ -520,6 +509,7 @@ export function readPermissionLayers(
 					splitPermissionsTable(config.permissions ?? {}, 'operator', source).rules,
 					path,
 					source === 'local-file',
+					source === 'project-file' || source === 'local-file' ? folderFileRoot(path) : undefined,
 				),
 				...(browserDenies.length > 0 ? { browserDenies } : {}),
 			})
@@ -666,8 +656,51 @@ function readYamlIfExists(
 	return asConfigObject(path, prepare(parsed))
 }
 
-/** How the project's own file is named to a person: it is the one in the folder they are in. */
-const PROJECT_FILE_LABEL = 'namzu.config.json in this project'
+/** How a folder's own file is named to a person: it is the one in the folder they are in. */
+function folderFileLabel(file: FolderConfigFile): string {
+	return `${file.name} in this project`
+}
+
+/** Keys a project file cannot carry; see the note where the project files are read. */
+const PROJECT_DROPPED_KEYS = [
+	'decision',
+	'model',
+	'routing',
+	'smallModel',
+	'effort',
+	'fast',
+	'respectGitignore',
+	'outputStyle',
+	'attribution',
+	'promptSuggestions',
+	'memory.select',
+	'profiles.*.memory.select',
+	'memory.curation',
+	'profiles.*.memory.curation',
+	'memory.retireAfterDays',
+	'profiles.*.memory.retireAfterDays',
+	'memory.fromConversations',
+	'profiles.*.memory.fromConversations',
+	'memory.searchPastConversations',
+	'profiles.*.memory.searchPastConversations',
+] as const
+
+/** Keys a local file cannot carry: the same limits, less the person's own taste. */
+const LOCAL_DROPPED_KEYS = [
+	'decision',
+	'model',
+	'routing',
+	'memory.select',
+	'profiles.*.memory.select',
+	'memory.curation',
+	'profiles.*.memory.curation',
+	'memory.retireAfterDays',
+	'profiles.*.memory.retireAfterDays',
+	'memory.fromConversations',
+	'profiles.*.memory.fromConversations',
+	'memory.searchPastConversations',
+	'profiles.*.memory.searchPastConversations',
+] as const
 const SHARED_MCP_LABEL = '.mcp.json in this project'
 
 function approvedSharedServers(
@@ -709,15 +742,6 @@ function readSharedMcpServers(path: string): McpServersConfig | undefined {
 		throw cause
 	}
 }
-
-/**
- * The project's local config: the same settings as the project file, kept out
- * of git. It is where a "don't ask again" answer is written, and it sits over
- * the project file in the cascade (user < project < local < profile < env <
- * managed).
- */
-export const LOCAL_CONFIG_FILE = 'namzu.config.local.json'
-const LOCAL_FILE_LABEL = 'namzu.config.local.json in this project'
 
 /** A path for a person to read: home as `~`, the way every other path on screen is shown. */
 export function shortHomePath(path: string): string {
@@ -981,6 +1005,10 @@ const CONFIG_READERS: ConfigReaders = {
 		if (typeof v === 'boolean') return v
 		return invalidConfigValue(context, [], 'must be a boolean')
 	},
+	shareDesktopSignIn: (v, context) => {
+		if (typeof v === 'boolean') return v
+		return invalidConfigValue(context, [], 'must be a boolean')
+	},
 	hypermode: (v, context) => {
 		if (typeof v === 'boolean') return v
 		return invalidConfigValue(context, [], 'must be a boolean')
@@ -992,6 +1020,58 @@ const CONFIG_READERS: ConfigReaders = {
 	hooksManagedOnly: (v, context) => {
 		if (typeof v === 'boolean') return v
 		return invalidConfigValue(context, [], 'must be a boolean')
+	},
+	network: (v, context) => {
+		if (!isConfigMapping(v)) return invalidConfigValue(context, [], 'must be a mapping')
+		const raw = v as Record<string, unknown>
+		for (const key of Object.keys(raw)) {
+			if (key !== 'enabled' && key !== 'acceptMail' && key !== 'machineName' && key !== 'autoAdmit')
+				return invalidConfigValue(
+					context,
+					[key],
+					'is not a network setting (enabled, acceptMail, machineName, autoAdmit)',
+				)
+		}
+		// The Settings screen saves its choice as text, so "true" and "false" read as the booleans.
+		if (raw.enabled === 'true') raw.enabled = true
+		else if (raw.enabled === 'false') raw.enabled = false
+		if (raw.enabled !== undefined && raw.enabled !== 'auto' && typeof raw.enabled !== 'boolean')
+			return invalidConfigValue(context, ['enabled'], 'must be "auto", true or false')
+		if (
+			raw.acceptMail !== undefined &&
+			raw.acceptMail !== 'members' &&
+			raw.acceptMail !== 'hold' &&
+			raw.acceptMail !== 'off'
+		)
+			return invalidConfigValue(context, ['acceptMail'], 'must be "members", "hold" or "off"')
+		if (
+			raw.autoAdmit !== undefined &&
+			raw.autoAdmit !== 'trusted-networks' &&
+			raw.autoAdmit !== 'always' &&
+			raw.autoAdmit !== 'never'
+		)
+			return invalidConfigValue(
+				context,
+				['autoAdmit'],
+				'must be "trusted-networks", "always" or "never"',
+			)
+		if (
+			raw.machineName !== undefined &&
+			(typeof raw.machineName !== 'string' ||
+				raw.machineName.trim().length === 0 ||
+				Array.from(raw.machineName).length > 40)
+		)
+			return invalidConfigValue(context, ['machineName'], 'must be a name of 1 to 40 characters')
+		return {
+			...(raw.enabled !== undefined ? { enabled: raw.enabled as 'auto' | boolean } : {}),
+			...(raw.acceptMail !== undefined
+				? { acceptMail: raw.acceptMail as 'members' | 'hold' | 'off' }
+				: {}),
+			...(raw.machineName !== undefined ? { machineName: (raw.machineName as string).trim() } : {}),
+			...(raw.autoAdmit !== undefined
+				? { autoAdmit: raw.autoAdmit as 'trusted-networks' | 'always' | 'never' }
+				: {}),
+		}
 	},
 	updates: (v, context) => {
 		if (!isConfigMapping(v)) return invalidConfigValue(context, [], 'must be a mapping')
@@ -1838,11 +1918,36 @@ const CONFIG_READERS: ConfigReaders = {
 	goal: (v, context) => {
 		if (!isConfigMapping(v)) return invalidConfigValue(context, [], 'must be a mapping')
 		for (const key of Object.keys(v)) {
-			if (key !== 'confirmedBy')
-				return invalidConfigValue(context, [key], 'is not a goal setting (confirmedBy)')
 			const value = (v as Record<string, unknown>)[key]
-			if (value !== 'model' && value !== 'record')
-				return invalidConfigValue(context, [key], 'must be model or record')
+			switch (key) {
+				case 'confirmedBy':
+					if (value !== 'model' && value !== 'record')
+						return invalidConfigValue(context, [key], 'must be model or record')
+					break
+				case 'maxRounds':
+				case 'tokenBudget':
+				case 'stallRounds':
+				case 'checkInEvery': {
+					const minimum = key === 'checkInEvery' ? 0 : 1
+					if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < minimum)
+						return invalidConfigValue(
+							context,
+							[key],
+							`must be a safe whole number at least ${minimum}`,
+						)
+					break
+				}
+				case 'judgeModel':
+					if (typeof value !== 'string' || value.trim() === '')
+						return invalidConfigValue(context, [key], 'must be a model name, as provider/model')
+					break
+				default:
+					return invalidConfigValue(
+						context,
+						[key],
+						'is not a goal setting (confirmedBy, maxRounds, checkInEvery, tokenBudget, stallRounds, judgeModel)',
+					)
+			}
 		}
 		return v as GoalCliConfig
 	},
@@ -1926,6 +2031,18 @@ const CONFIG_READERS: ConfigReaders = {
 	archiveInactive: (v, context) => {
 		if (v === 'never' || v === '1d' || v === '7d' || v === '30d') return v
 		return invalidConfigValue(context, [], 'must be never, 1d, 7d or 30d')
+	},
+	cleanupPeriodDays: (v, context) => {
+		if (typeof v === 'number' && Number.isSafeInteger(v) && v >= 1) return v
+		return invalidConfigValue(
+			context,
+			[],
+			'must be a whole number of days, at least 1; to keep everything, set a large number such as 3650',
+		)
+	},
+	promptHistory: (v, context) => {
+		if (typeof v === 'boolean') return v
+		return invalidConfigValue(context, [], 'must be true or false')
 	},
 	workflow: (v, context) => {
 		if (!isConfigMapping(v)) return invalidConfigValue(context, [], 'must be a mapping')
@@ -2667,6 +2784,10 @@ export const ENV_VARIABLE_NAMES: EnvVariableNames = {
 	worktrees: undefined,
 	// Archiving is a standing decision about the person's history, never a variable's.
 	archiveInactive: undefined,
+	// What is removed from the person's computer, and when, is a file decision, never a shell's.
+	cleanupPeriodDays: undefined,
+	// Whether sent prompts are kept is the person's file decision.
+	promptHistory: undefined,
 	// A display choice for the desktop app's sidebar, made in its settings.
 	statusMarks: undefined,
 	// The effort has its own variable (NAMZU_EFFORT_LEVEL), read where a launch is made and
@@ -2746,6 +2867,9 @@ export const ENV_VARIABLE_NAMES: EnvVariableNames = {
 	// Installs software on this machine; read from `NAMZU_AUTO_UPDATE` and
 	// `NAMZU_UPDATE_CHANNEL` by the updater itself, not carried as a config field.
 	updates: undefined,
+	// Opens a listener on this machine and tells the network it is there: a file decision. The hard stop
+	// `NAMZU_NETWORK=off` is read by the network policy itself, not carried as a config field.
+	network: undefined,
 	// Decides which model receives a conversation's content; a file decision, never a variable a shell profile could carry invisibly.
 	refusalFallback: undefined,
 	// Only records locally and can only be a file decision, but keeps the rule that no variable carries it.
@@ -2755,6 +2879,8 @@ export const ENV_VARIABLE_NAMES: EnvVariableNames = {
 	// A scalar switch, and the one a CI job or a test harness needs to keep a
 	// launch off the network without writing a config file.
 	modelCatalogueRefresh: 'NAMZU_MODEL_CATALOGUE_REFRESH',
+	// A scalar switch a shell or a CI job can set without a file.
+	shareDesktopSignIn: 'NAMZU_SHARE_DESKTOP_SIGNIN',
 }
 
 const configWarnings = new Set<string>()
@@ -2944,6 +3070,22 @@ function readEnv(env: NodeJS.ProcessEnv): {
 		}
 	}
 
+	const shareVar = ENV_VARIABLE_NAMES.shareDesktopSignIn
+	if (shareVar) {
+		const share = env[shareVar]
+		if (share !== undefined) {
+			if (share !== '1' && share !== 'true' && share !== '0' && share !== 'false') {
+				throw new ConfigValueError(
+					{ kind: 'environment', variable: shareVar },
+					'shareDesktopSignIn',
+					'must be one of "1", "true", "0", or "false"',
+				)
+			}
+			config.shareDesktopSignIn = share === '1' || share === 'true'
+			variables.shareDesktopSignIn = shareVar
+		}
+	}
+
 	const refreshVar = ENV_VARIABLE_NAMES.modelCatalogueRefresh
 	if (refreshVar) {
 		const refresh = env[refreshVar]
@@ -3066,7 +3208,7 @@ function settingsAuthorityOf(source: ConfigSource): SettingsAuthority {
 		case 'local-file':
 			return 'workspace'
 		case 'profile':
-			return /(?:^|[\\/])namzu\.config(?:\.local)?\.json$/.test(source.path)
+			return source.repository === true || isFolderConfigPath(source.path)
 				? 'workspace'
 				: 'operator'
 		default:
@@ -3215,11 +3357,33 @@ function mergeConfigs(...layers: readonly ConfigLayer[]): {
 				// Once on, no later layer turns it off.
 				continue
 			}
+			if (
+				(key === 'cleanupPeriodDays' || key === 'promptHistory') &&
+				isProjectSource(layer.sourceFor(key))
+			) {
+				// A repository cannot decide what is kept on, or removed from, the person's computer.
+				configWarnings.add(
+					`${key} in ${describeSource(layer.sourceFor(key))} is ignored: only your own config file or the managed file can set it.`,
+				)
+				continue
+			}
 			if (key === 'agentSettings' && isProjectSource(layer.sourceFor(key))) {
 				// A repository cannot decide whether the model may change the person's settings.
 				configWarnings.add(
 					`agentSettings in ${describeSource(layer.sourceFor(key))} is ignored: only your own config file or the managed file can set it.`,
 				)
+				continue
+			}
+			if (key === 'network' && isProjectSource(layer.sourceFor(key))) {
+				// A repository cannot open a listener on a person's machine or choose what it is called.
+				configWarnings.add(
+					`network in ${describeSource(layer.sourceFor(key))} is ignored: only your own config file or the managed file can set it.`,
+				)
+				continue
+			}
+			if (key === 'network' && layer.config.network !== undefined) {
+				out.network = { ...out.network, ...layer.config.network }
+				provenance[key] = layer.sourceFor(key)
 				continue
 			}
 			if (key === 'worktrees' && layer.config.worktrees !== undefined) {
@@ -3246,7 +3410,14 @@ function mergeConfigs(...layers: readonly ConfigLayer[]): {
 				)
 				permissionTables.push(
 					'path' in source
-						? bindPermissionTableToSource(split.rules, source.path, source.kind === 'local-file')
+						? bindPermissionTableToSource(
+								split.rules,
+								source.path,
+								source.kind === 'local-file',
+								source.kind === 'project-file' || source.kind === 'local-file'
+									? folderFileRoot(source.path)
+									: undefined,
+							)
 						: split.rules,
 				)
 				out.permissions = mergePermissionTables(permissionTables)
@@ -3618,6 +3789,10 @@ export function projectLayerHolds(path: string, value: unknown): boolean {
 		case 'disableHooks':
 			return value === false
 		case 'worktrees':
+		case 'cleanupPeriodDays':
+		case 'promptHistory':
+			return false
+		case 'network':
 			return false
 		case 'codeAnalysis':
 			return tail === 'enabled' ? value === false : true

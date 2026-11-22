@@ -215,7 +215,8 @@ export class DiskSessionLeaseStore implements SessionLeaseStore {
 	/** Write `body` and make it visible at `fence`, whole or not at all. Throws `EEXIST` on a lost race. */
 	async #publish(fence: number, body: LeaseBody): Promise<void> {
 		const temporary = join(this.sessionDir, tempName(fence))
-		await writeFile(temporary, JSON.stringify(body), { flag: 'wx' })
+		// Owner-only, like the log it guards.
+		await writeFile(temporary, JSON.stringify(body), { flag: 'wx', mode: 0o600 })
 		try {
 			await link(temporary, join(this.sessionDir, `lease.${fence}.json`))
 		} finally {
@@ -239,7 +240,7 @@ export class DiskSessionLeaseStore implements SessionLeaseStore {
 		context: LeaseClaimContext = {},
 	): Promise<SessionLease | null> {
 		const now = options.now ?? Date.now()
-		await mkdir(this.sessionDir, { recursive: true })
+		await mkdir(this.sessionDir, { recursive: true, mode: 0o700 })
 		for (let attempt = 0; attempt < 8; attempt++) {
 			const held = await this.current()
 			const decision = decideClaim(held, options, context, now)

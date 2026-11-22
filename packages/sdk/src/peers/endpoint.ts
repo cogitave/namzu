@@ -456,6 +456,12 @@ export async function createPeerEndpoint(
 						respond({ status: 'refused', reason: 'sender identity could not be verified' })
 						return
 					}
+					// `remote` names the machine a message crossed from, and `net` is the only sender that may say so:
+					// the bridge was verified against this machine's own registry, the claim is not otherwise checkable.
+					if ((request.remote !== undefined) !== (verifiedFrom.kind === 'net')) {
+						respond({ status: 'refused', reason: 'sender identity could not be verified' })
+						return
+					}
 					respond(await options.onDeliver({ ...request, from: verifiedFrom }))
 					return
 				}

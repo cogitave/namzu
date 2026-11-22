@@ -50,11 +50,22 @@ the environment, names it `saved API key · this device`, and every Namzu surfac
 Removing the last key deletes the file. The terminal picker writes the same file, so a key
 entered in one surface is found by the others.
 
-A key added with `/auth` lives in `accounts.json` with its label. When the provider has no saved key
-yet and the account has no custom endpoint, the key is also saved as the provider's startup key.
-Keys that an earlier build left only in `accounts.json` are copied once, at the first start of a
-build with this behaviour, with a one-line notice and no prompt; the accounts themselves are not
-changed, and a marker (`.api-keys-migrated`) keeps a key you later remove from coming back.
+A key added with `/auth` lives in `accounts.json` with its label, and only there: startup reads it
+from the account when `api-keys.json` (Google: `gemini-api-key.json`) names no key for the provider, so
+the key is stored once. An account aimed at a custom endpoint is not used for startup. Removing an
+account removes its key with it, including a key you typed in the picker that is identical to it, since
+that copy is retired. `/logout <provider>` removes the saved key and only the plain `/auth` accounts
+that hold that same key; accounts with other keys stay (the oldest then becomes the startup key). Their
+last-use records go with them. If an account cannot be removed, the saved key is kept and the error is
+shown. A key file in `accounts.json` that others can read or write is not trusted for startup. An earlier build also copied an account's key into
+`api-keys.json`; at the first start of a build with this behaviour a copy that is byte for byte the
+account's key is removed, after the account file is read and the removal re-checks the value under the
+store lock, with a one-line notice. If the account is removed by another process
+meanwhile, the copy is written back. This runs at the start of the terminal app; Desktop and the
+non-interactive commands already read the account, so the retired copy only disappears at the next
+terminal start. A key that differs from the account's, or any file that cannot be read, is left alone.
+An older build started afterwards does not find a retired key in `api-keys.json` and shows the provider
+as not detected; the key is still in the account.
 
 **The choice follows the ways, not the ids.** What makes a row worth asking
 about is that it has more than one way in — a machine that found a session *and*
@@ -167,7 +178,7 @@ Installing or signing in to Claude Desktop does not guarantee a Claude Code
 CLI session for Namzu to reuse. The Desktop app includes a Code tab, and
 [Anthropic documents the terminal CLI as a separate installation](https://code.claude.com/docs/en/desktop-quickstart).
 If `namzu doctor --category providers` reports no Claude Code session, sign in
-from Namzu with `namzu login claude`, or install the standalone `claude` CLI
+from Namzu with `namzu login claude` (see [Signing in from a shell that cannot paste](#signing-in-from-a-shell-that-cannot-paste)), or install the standalone `claude` CLI
 and use its `/login` command. A detected Codex session says nothing about
 Claude Code's separate credential file. Namzu does not inspect the Desktop
 app's own OAuth storage.
@@ -190,6 +201,51 @@ again at the next discovery, so a long-lived engine recovers. Discovery records
 the exact file it selected. Subsequent reads and a rotating Claude refresh use
 that same file, preserving its other fields.
 Namzu does not copy borrowed sessions into its own credential store.
+
+## A sign-in made in Namzu Desktop on Windows
+
+Namzu Desktop on Windows and a terminal inside WSL are two Namzu homes on one
+machine: `%USERPROFILE%\.namzu` and `/home/<you>/.namzu`. A Claude or Codex
+sign-in Namzu itself made (`credentials.json`) used to stay in the home where it
+was made, so the other side did not see it.
+
+Inside WSL, the terminal now reads Desktop's `credentials.json` in place through
+the mounted drive when its own home has no sign-in for that provider. Nothing is
+copied. A subscription's refresh token rotates, so a copy would die the first
+time either side refreshed; instead there is one record, and a refresh the
+terminal makes is written back to that file under the same lock the Windows side
+uses (`credentials.json.lock`, then an atomic rename). A rotation Desktop made
+meanwhile is taken as it stands and never overwritten.
+
+- **Own first.** A sign-in in the terminal's own home always wins, per provider.
+  Two different accounts on the two sides are never mixed: the terminal uses its
+  own and the sources line names it.
+- **Where it comes from.** The provider list and `/model` say "Signed in with
+  Namzu Desktop on Windows" for a shared sign-in. The Windows home is found the
+  documented way (`cmd.exe /c echo %USERPROFILE%` under the drive mount root),
+  never guessed from a user name. A failed lookup is retried after a minute and
+  means no shared sign-in.
+- **Only the default home.** `NAMZU_HOME`, an explicit home, or a Windows
+  `credentials.json` that is a link or not a regular file, or a `.namzu` folder that
+  is a link or junction (or resolves outside the Windows home), turns it off for
+  that lookup.
+- **Permissions.** The mounted drive reports every file as mode 0777, so the
+  owner-only proof used for the terminal's own file cannot be made there; the
+  file is protected by the Windows profile's access list, which Desktop set.
+- **Locked or unreadable.** An unreadable or corrupt file reads as no sign-in.
+  A lock the Windows side holds refuses the refresh with a sentence naming
+  Desktop; the current access token keeps working until it expires.
+- **Signing out.** `namzu logout` in the terminal never removes Desktop's
+  sign-in (that would sign Desktop out); it says so, including when the terminal's
+  own sign-in was hiding Desktop's and Desktop's is now the one in use. Signing out in Desktop
+  removes the file, and the terminal then sees none. Signing in on the terminal
+  makes a separate sign-in of its own that is used from then on.
+- **Turn it off.** `shareDesktopSignIn: false` in your own config file, or
+  `NAMZU_SHARE_DESKTOP_SIGNIN=0` (the variable wins), keeps the terminal to its
+  own sign-ins. Project files cannot set it.
+
+Not covered: the reverse direction (Desktop reading the WSL home) and a Windows
+`NAMZU_HOME` that differs from `%USERPROFILE%\.namzu`.
 
 ## Private local storage
 
@@ -272,3 +328,13 @@ or Git Bash with `npm.cmd install --global @namzu/cli@latest`, using the same
 Node installation and adding `--prefix "<existing-prefix>"` for a custom
 global installation. Restart Namzu after installation; another provider login
 is not needed to fix this updater failure.
+
+## Signing in from a shell that cannot paste
+
+`namzu login claude` in a terminal prints the address and waits for you to paste the code the browser shows. A shell whose standard input closes at once (a chat tool's shell prefix, a script) cannot take that paste, and the one-time verifier would die with the process. Namzu therefore keeps the waiting sign-in (verifier, state, redirect address, start time) in `login-pending/anthropic.json` under the Namzu home, a file readable only by your account in an owner-only folder. It is never printed or logged. The command prints the address and one line, and exits 0 meaning "waiting for the code":
+
+```text
+Finish with `namzu login claude --code <code>` within 10 minutes.
+```
+
+Open the address, sign in, then run `namzu login claude --code <value>`, where the value is the bare code, `code#state`, or the finished address. Namzu refuses a sign-in that is missing, older than 10 minutes, or whose state does not match, says so in a sentence, and stores nothing. After the exchange has been tried, whether it worked or not, the waiting file is deleted, so a second `--code` says no sign-in is waiting. Exit codes: 0 signed in or waiting, 1 the sign-in failed, 2 the command was used wrongly. A terminal that can paste keeps the interactive flow, and the Codex sign-in is unchanged.

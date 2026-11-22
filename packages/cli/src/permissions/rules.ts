@@ -68,9 +68,11 @@ export function bindPermissionTableToSource(
 	table: PermissionsConfig,
 	settingsPath: string,
 	editableLocal = false,
+	/** The folder relative patterns are read against; the file's own folder when absent. */
+	root: string = dirname(resolve(settingsPath)),
 ): PermissionsConfig {
 	const bound = { ...table }
-	permissionRuleRoots.set(bound, dirname(resolve(settingsPath)))
+	permissionRuleRoots.set(bound, resolve(root))
 	if (editableLocal) permissionRuleSources.set(bound, resolve(settingsPath))
 	return bound
 }
@@ -170,7 +172,10 @@ export function patternToRegExpSource(pattern: string): string {
  *
  * A `deny` keeps the loose form deliberately. A deny that stops matching fails
  * OPEN, and narrowing `rm -rf*` so it no longer sees `sudo rm -rf /` would be
- * a silent hole; a deny that matches too much only costs a prompt.
+ * a silent hole; a deny that matches too much only costs a prompt. (For a tool
+ * with a command argument the deny is loose about position only, and still
+ * starts and ends at a word; see `denySource`. Here there is no command line to
+ * find word edges in, so the serialised input is matched as written.)
  *
  * The operator keeps control of the looseness for `allow` too, without new
  * syntax: a pattern that starts with `*` still matches mid-value, because its
@@ -218,21 +223,61 @@ export function toolScopedPattern(
 }
 
 /**
+ * What may sit directly before a command for a deny to see it: the start of the
+ * line, whitespace, a separator or opener (`; & | ( ) ` { }`), a quote, a
+ * redirect or assignment (`< > =`), a path slash (`/usr/bin/rm`), a backslash
+ * (`\rm`) or a bang. Anything else means the letters are inside another word.
+ */
+const COMMAND_START = '(?:^|[\\s;&|()`\'"<>=/\\\\{}!])'
+
+/**
+ * What may sit directly after a command that has no trailing wildcard: the end
+ * of the line, whitespace, a separator or closer, a quote, a redirect, a path
+ * slash, a comma or a colon, a dot (`rm.exe`), and the characters a shell reads as
+ * ending a word (`$` `#` `=` `{` `}` `~`, as in `rm${IFS}-rf` or `rm{,}`). A hyphen,
+ * a letter, a digit or an underscore continues the word.
+ */
+const COMMAND_END = '(?=$|[\\s;&|)`\'"<>/,:.$#={}~])'
+
+/**
+ * Where a `deny` for a command may match.
+ *
+ * The match stays position-free: it can start anywhere in a command, so
+ * `rm -rf*` still sees `sudo rm -rf /`, `/usr/bin/rm -rf x`, `x; rm -rf y`,
+ * `$(rm -rf y)` and `echo hi && rm -rf ~`. It must, however, start at a command
+ * word and, unless the pattern ends in a wildcard, end at a word. Without that,
+ * `gh *` compiled to `gh( .*)?` and matched the letters "gh" inside "through",
+ * which made a deny list unusable.
+ *
+ * A pattern that starts with `*` is the operator asking for a match mid-value,
+ * so its left side is left open (its own `.*` provides it). A pattern that ends
+ * in a wildcard is open on the right for the same reason. The optional ` *` tail
+ * of `gh *` is not a wildcard in that sense: it is the bare command or the
+ * command followed by a space, so it takes the right-hand boundary.
+ */
+function denySource(anchored: string): string {
+	const inner = anchored.slice(1, -1)
+	const openLeft = inner.startsWith('.*')
+	const openRight = !inner.endsWith('( .*)?') && inner.endsWith('.*')
+	return `${openLeft ? '' : COMMAND_START}${inner}${openRight ? '' : COMMAND_END}`
+}
+
+/**
  * Compile one pattern for a tool that declares a command argument.
  *
  * This carries the asymmetry `toolScopedPattern` established, because the
  * reasons for it did not change when the subject did. An `allow` anchors: it is
  * a claim about a command, and a claim that matches a prefix is a claim about
- * something else. A `deny` stays loose: an operator who denied `rm -rf*` means
- * it wherever it appears, and `sudo rm -rf /` is the case that proves it —
- * anchoring the deny would stop it matching, and a deny that stops matching
- * fails open.
+ * something else. A `deny` stays loose about POSITION: an operator who denied
+ * `rm -rf*` means it wherever a command appears, and `sudo rm -rf /` is the
+ * case that proves it. Anchoring the deny would stop it matching, and a deny
+ * that stops matching fails open. It is not loose about WORDS: see `denySource`.
  *
  * What the subject gained is the part that could not be done before. The gate
  * reads this argument as the COMMANDS the line runs, so the anchored `allow`
  * is anchored per command: `git status*` no longer approves
- * `git status && rm -rf ~`, and the loose `deny` now also sees a command that
- * rides behind a separator.
+ * `git status && rm -rf ~`, and the `deny` also sees a command that rides
+ * behind a separator.
  */
 function commandRule(
 	tool: string,
@@ -253,7 +298,7 @@ function commandRule(
 		type: 'argument_pattern',
 		toolNames: [tool],
 		argument,
-		pattern: decision === 'allow' ? anchored : anchored.slice(1, -1),
+		pattern: decision === 'allow' ? anchored : denySource(anchored),
 		decision,
 	}
 }

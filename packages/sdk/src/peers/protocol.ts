@@ -39,6 +39,8 @@ export const MAX_PEER_CONNECTIONS = 16
 // 'resident' is no longer announced; it stays so an older peer's record still parses.
 // 'cli' is a one-shot command-line sender (`namzu peers send`): it listens only long enough to be
 // verified, never accepts messages, and is not a terminal.
+// 'net' is the Namzu network's bridge on this machine: it carries a message from another machine, listens
+// only long enough to be verified, never accepts messages, and is not a terminal.
 // 'person' is `namzu send` or the watcher's message key: the operator's own words from another terminal. It
 // listens only long enough to be verified, never accepts messages, and is not a terminal either.
 export const PeerSessionKindSchema = z.enum([
@@ -48,6 +50,7 @@ export const PeerSessionKindSchema = z.enum([
 	'scheduled',
 	'cli',
 	'person',
+	'net',
 ])
 export type PeerSessionKind = z.infer<typeof PeerSessionKindSchema>
 
@@ -97,6 +100,21 @@ export const PingResponseSchema = z
 	.strict()
 export type PingResponse = z.infer<typeof PingResponseSchema>
 
+/** Where a message that crossed machines came from. Descriptive; it grants nothing. */
+export const RemoteOriginSchema = z
+	.object({
+		machineId: z.string().min(1).max(128),
+		machineName: z.string().min(1).max(80),
+		sessionName: z.string().min(1).max(80),
+		sessionRef: PeerRefSchema,
+		mode: z.string().min(1).max(40),
+		hops: z.number().int().min(0).max(100),
+		/** The person allowed this held message once. */
+		allowedOnce: z.boolean().optional(),
+	})
+	.strict()
+export type RemoteOrigin = z.infer<typeof RemoteOriginSchema>
+
 // ─── deliver ─────────────────────────────────────────────────────────────
 
 export const DeliverRequestSchema = z
@@ -117,6 +135,11 @@ export const DeliverRequestSchema = z
 		 */
 		conversation: z.string().min(1).optional(),
 		subscribeIdle: z.boolean().optional(),
+		/**
+		 * Set only by the Namzu network's bridge (`from.kind === 'net'`): the machine and session the
+		 * message really came from. An endpoint refuses it from any other sender.
+		 */
+		remote: RemoteOriginSchema.optional(),
 	})
 	.strict()
 export type DeliverRequest = z.infer<typeof DeliverRequestSchema>
@@ -129,7 +152,7 @@ export type DeliverStatus = z.infer<typeof DeliverStatusSchema>
  * the receiving process took the message into the turn it is running, to be recorded and sent with
  * the model's next request. `queued` is only an acceptance; `delivered` is the later fact.
  */
-export const NoticeOutcomeSchema = z.enum(['queued', 'held', 'refused', 'delivered'])
+export const NoticeOutcomeSchema = z.enum(['queued', 'held', 'refused', 'delivered', 'expired'])
 export type NoticeOutcome = z.infer<typeof NoticeOutcomeSchema>
 
 export const DeliverResponseSchema = z

@@ -1,7 +1,7 @@
 ---
 type: Guide
 title: Decision points
-description: "decision.points: the places the CLI can ask the decision model a question beside its own rule, the off, shadow and on modes, the points (notify, memory, skill, pick), what is sent and what the decision log holds."
+description: "decision.points: the places the CLI can ask the decision model a question beside its own rule, the off, shadow and on modes, the points (notify, memory, skill, pick, goal), what is sent and what the decision log holds."
 resource: packages/cli/src/integrations/decision/points.ts
 tags: [cli, config, decision]
 ---
@@ -88,12 +88,12 @@ running session for the points at once; the `decide` tool joins the next convers
 
 Each point has a one-word name: `notify` (is a finished reply worth a chime), `memory` (is what a turn learned worth
 remembering), `skill` (is a turn worth proposing as a skill) and `pick` (which control on the screen does an action
-name; a choice among controls, not a yes/no). The names they were released under
+name; a choice among controls, not a yes/no) and `goal` (is a goal really met when the model says so). `goal` is the switch for the check described in [Goals](goals.md#how-completion-is-checked): it is `on` once a decision model is connected, and nothing is sent to the decision service for it; a small model on your own provider reads the model's evidence and the last answer, and `goal: off` turns that check off (a one-time self-audit takes its place). The names they were released under
 (`notify-worthy`, `memory-admit`, `skill-worthy`) are still read and mean the same points; use the one-word
 names, and a point named both ways is refused.
 
 Everything here is a choice you make. With no `decision` block there is no model and
-nothing is asked; with one, a point you do not name is `off`, except `pick`, which is `on` (name `pick: off` to turn it off); and `NAMZU_NO_DECISION=1`
+nothing is asked; with one, a point you do not name is `off`, except `pick` and `goal`, which are `on` (name `pick: off` or `goal: off` to turn them off); and `NAMZU_NO_DECISION=1`
 in the environment turns every use of the decision model off at once (these points, `model:
 auto` routing and the `decide` tool), whatever the config says.
 
@@ -101,7 +101,7 @@ auto` routing and the `decide` tool), whatever the config says.
 
 | Mode | What happens |
 |---|---|
-| `off` | Nothing is asked. This is the mode of every point but `pick` until you name it, because a question carries text of the conversation to the decision service. |
+| `off` | Nothing is asked. This is the mode of every point but `pick` and `goal` until you name it, because a question carries text of the conversation to the decision service. |
 | `shadow` | The model is asked and its answer is written to the log beside what the rule decided. Nothing else changes. This is how a point earns trust. |
 | `on` | A confident answer (`P(true)` of 0.7 or more, or 0.3 or less) decides; anything else is the rule. |
 

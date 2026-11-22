@@ -579,3 +579,109 @@ describe('what a denial actually says to the model', () => {
 		expect(reason).toBe('No matching rule found')
 	})
 })
+
+describe('a command deny starts and ends at a word', () => {
+	function denies(pattern: string, command: string): boolean {
+		const { rules } = compilePermissions({ bash: { [pattern]: 'deny' } })
+		const gate = new AuthorizationGate(
+			{
+				enabled: true,
+				rules: [...rules],
+				allowReadOnlyTools: false,
+				denyDangerousPatterns: false,
+				logDecisions: false,
+			},
+			NOOP_LOGGER,
+		)
+		return (
+			gate.evaluate({ toolName: 'bash', toolInput: { command }, toolDef: undefined }).decision ===
+			'deny'
+		)
+	}
+
+	const cases: ReadonlyArray<readonly [string, readonly string[], readonly string[]]> = [
+		[
+			'gh *',
+			[
+				'gh',
+				'gh pr list',
+				'x && gh api',
+				'x; gh pr view',
+				'echo hi | gh',
+				'$(gh api x)',
+				'`gh x`',
+				'/usr/bin/gh pr',
+				'echo "gh x"',
+			],
+			[
+				'echo through the door',
+				'ghost',
+				'gh-pages deploy',
+				'writes through writePrivateUserConfig now',
+			],
+		],
+		[
+			'rm *',
+			['rm x', 'rm', 'sudo rm -rf /', 'a && rm x', '/bin/rm x', '"rm x"'],
+			['git format-patch', 'echo permissions normal', 'rmdir x', 'arm x'],
+		],
+		[
+			'rm -rf*',
+			[
+				'sudo rm -rf /',
+				'/usr/bin/rm -rf x',
+				'x; rm -rf y',
+				'$(rm -rf y)',
+				'echo hi && rm -rf ~',
+				'rm -rf',
+				'rm -rfv x',
+			],
+			['perform -rf x', 'karm -rf x'],
+		],
+		[
+			'tsx *',
+			['tsx a.ts', 'npx tsx a.ts', 'x && tsx'],
+			['bash q.sh add test.tsx, which', 'cockpit.test.tsx'],
+		],
+		['node *', ['node a.js', 'sudo node x', 'a | node'], ['ls node_modules', 'nodemon x']],
+		['env *', ['env A=1 x', 'env', 'x; env'], ['echo environment', 'printenv']],
+		['cp *', ['cp a b', 'x && cp a b'], ['show cpu info', 'cpio x']],
+		['python*', ['python x.py', 'python3 x.py', 'a; python'], ['cpython x', 'echo cpython']],
+		['git *', ['git status', 'x && git push'], ['digit x', 'legit']],
+		['*--force*', ['git push --force', 'x --force-with-lease'], ['git push']],
+		[
+			'*/cogitave/namzu',
+			['cd /x/cogitave/namzu', 'ls /x/cogitave/namzu/pkg', 'cd /x/cogitave/namzu;ls'],
+			['cd /x/cogitave/namzu-autodev/a'],
+		],
+	]
+
+	for (const [pattern, deny, keep] of cases) {
+		it(`deny ${pattern}`, () => {
+			for (const command of deny) expect(denies(pattern, command), `deny: ${command}`).toBe(true)
+			for (const command of keep) expect(denies(pattern, command), `keep: ${command}`).toBe(false)
+		})
+	}
+
+	it('still denies a command followed by an extension or a shell expansion', () => {
+		for (const command of [
+			'rm.exe x',
+			'rm${IFS}-rf x',
+			'rm$IFS-rf x',
+			'rm{,} x',
+			'rm#x',
+			'rm=x',
+			'rm~',
+		])
+			expect(denies('rm *', command), command).toBe(true)
+		expect(denies('gh *', 'gh.exe pr')).toBe(true)
+		expect(denies('git push *', 'git push{,}')).toBe(true)
+		expect(denies('gh *', 'ghost')).toBe(false)
+		expect(denies('gh *', 'gh-pages')).toBe(false)
+	})
+
+	it('names the pattern in the refusal', () => {
+		const { rules } = compilePermissions({ bash: { 'gh *': 'deny' } })
+		expect(JSON.stringify(rules)).toContain('gh( .*)?')
+	})
+})

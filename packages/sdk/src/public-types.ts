@@ -180,6 +180,12 @@ export type {
 	ShellCompressOptions,
 	ShellCompressResult,
 } from './utils/shell-compress.js'
+export type { FileLockOptions, FileLockState, FileLockSyncOptions } from './utils/file-lock.js'
+export type {
+	StateBackupFileOptions,
+	StateBackupOptions,
+	StateFileCopy,
+} from './utils/state-backup.js'
 
 export type { QueryParams } from './runtime/query/index.js'
 export type {
@@ -399,6 +405,7 @@ export type * from './types/guardrail/index.js'
 export type {
 	HostCommandContext,
 	HostCommandDescriptor,
+	HostCommandModelRun,
 	HostCommandOutcome,
 	HostCommandRow,
 	SerializableHostCommand,
@@ -429,6 +436,7 @@ export type {
 	DiskSessionGoalStoreConfig,
 	EditSessionGoalParams,
 	InMemorySessionGoalStoreConfig,
+	ResumeSessionGoalOptions,
 	SessionGoalStore,
 } from './store/goal/index.js'
 export type { ResolveGoalRoundAuthority } from './tools/goal/index.js'
@@ -438,7 +446,12 @@ export type {
 	GoalDecisionInput,
 	GoalEnding,
 	GoalEndingReport,
+	GoalEvidence,
+	GoalJudge,
+	GoalJudgeInput,
+	GoalJudgement,
 	GoalStatement,
+	SelfAuditDecision,
 } from './tools/goal/confirmation.js'
 export type { ActiveSessionGoal } from './manager/goal/activation.js'
 export type { HandBack, HandBackKind } from './types/session/hand-back.js'
@@ -744,6 +757,62 @@ export type {
 	ResolvePeerRuntimeDirOptions,
 } from './peers/dir.js'
 export type { PeerExchange, PeerRecord } from './peers/record.js'
+export type { RemoteOrigin } from './peers/protocol.js'
+export type { RoleContextInput } from './peers/envelope.js'
+export type {
+	Admission,
+	Advertisement,
+	AuditEntry,
+	AuditEventName,
+	AuditSink,
+	AutoAdmitSetting,
+	DgramLike,
+	DgramSocketLike,
+	DiscoveredEndpoint,
+	DiscoveryHub,
+	FakeDiscovery,
+	FileAuditSinkOptions,
+	CommandRunner,
+	Gateway,
+	GatewayReader,
+	NetworkIdentityOptions,
+	SystemGatewayOptions,
+	HeldMail,
+	HostPort,
+	ListenAddress,
+	LocalSession,
+	MailDecision,
+	MailDecisionInput,
+	MailSetting,
+	ManualClock,
+	HeldEntry,
+	HoldQueueOptions,
+	MachineKey,
+	MdnsOptions,
+	MembershipState,
+	MembershipView,
+	NetworkClock,
+	NetworkDiscovery,
+	NetworkErrorCode,
+	NetworkEvent,
+	NetworkHost,
+	NetworkRef,
+	NetworkService,
+	NetworkServiceOptions,
+	NetworkState,
+	NetworkStatus,
+	NetworkStore,
+	NetworkStoreOptions,
+	PendingJoin,
+	PrivateInterfaceOptions,
+	RemoteMail,
+	Revocation,
+	RosterMachineView,
+	RosterSession,
+	RosterView,
+	TargetResolution,
+	TrustedNetwork,
+} from './network/index.js'
 export type { AccountBoundRecord } from './types/session/records.js'
 export type {
 	Account,

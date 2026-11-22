@@ -37,6 +37,9 @@ export {
 	apiKeysPath,
 	clearAllStoredApiKeys,
 	clearStoredApiKey,
+	clearStoredApiKeyIf,
+	clearStoredGeminiApiKeyIf,
+	readOwnStoredApiKey,
 	listStoredApiKeyProviders,
 	readStoredApiKey,
 	writeStoredApiKey,
@@ -48,6 +51,9 @@ export {
 	CredentialStoreError,
 	credentialsPath,
 	googleApiKeyPath,
+	locateStoredCodexCredential,
+	locateStoredSubscriptionCredential,
+	type StoredCredentialLocation,
 	readStoredSubscriptionCredential,
 	readStoredCodexCredential,
 	readStoredGeminiApiKey,
@@ -57,6 +63,11 @@ export {
 	writeStoredCodexCredential,
 	writeStoredGeminiApiKey,
 } from './credential-store.js'
+export {
+	configureDesktopSignInSharing,
+	DESKTOP_SIGN_IN_ENV,
+	desktopSignInSharingEnabled,
+} from './desktop-sign-in.js'
 export {
 	ensureFreshStoredCodexCredential,
 	type StoredCodexRefreshOptions,
@@ -73,8 +84,10 @@ export {
 	refreshAgentOAuthToken,
 	sameOAuthCredential,
 } from './oauth.js'
+export { pendingLoginPath, PENDING_LOGIN_TTL_MS } from './pending-login.js'
 export {
 	beginSubscriptionLogin,
+	completePendingSubscriptionLogin,
 	type LoginOutcome,
 	parsePastedInput,
 	type SubscriptionLogin,
@@ -119,7 +132,7 @@ export {
 	isRegistered,
 	resolveChainCapabilities,
 } from './register.js'
-export { migrateAccountKeys } from './key-migration.js'
+export { retireDuplicateStartupKeys, retirementNotice } from './key-migration.js'
 export {
 	type ApiKeyLogoutTarget,
 	apiKeyLogoutTarget,

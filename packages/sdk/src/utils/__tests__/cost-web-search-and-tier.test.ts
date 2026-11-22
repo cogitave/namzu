@@ -68,11 +68,14 @@ describe('service tiers', () => {
 		expect(calculateCost({ ...base, serviceTier: tier }, pricing).totalCost).toBe(2)
 	})
 
-	it.each(['priority', 'batch'])('report %s tokens as unpriced, not as standard', (tier) => {
-		const cost = calculateCost({ ...base, serviceTier: tier }, pricing)
-		expect(cost.totalCost).toBe(0)
-		expect(cost.unpricedTokens).toBe(1_000_000)
-	})
+	it.each(['priority', 'batch', 'flex', 'scale'])(
+		'report %s tokens as unpriced, not as standard',
+		(tier) => {
+			const cost = calculateCost({ ...base, serviceTier: tier }, pricing)
+			expect(cost.totalCost).toBe(0)
+			expect(cost.unpricedTokens).toBe(1_000_000)
+		},
+	)
 
 	it('are a per-call fact and are not summed', () => {
 		const sum = accumulateTokenUsage(
@@ -81,5 +84,29 @@ describe('service tiers', () => {
 		)
 		expect(sum.serviceTier).toBeUndefined()
 		expect(sum.inferenceGeo).toBeUndefined()
+	})
+})
+
+describe('speed tiers above standard', () => {
+	const fastPricing = { ...pricing, fastMultiplier: 2.5 }
+
+	it('prices fast at the model multiple on every part of the usage', () => {
+		const usage: TokenUsage = {
+			promptTokens: 1_000_000,
+			completionTokens: 1_000_000,
+			totalTokens: 2_000_000,
+			cachedTokens: 0,
+			cacheWriteTokens: 0,
+			speed: 'fast',
+		}
+		const cost = calculateCost(usage, fastPricing)
+		expect(cost.totalCost).toBeCloseTo((2 + 10) * 2.5, 10)
+		expect(cost.unpricedTokens).toBe(0)
+	})
+
+	it('reports ultrafast as unpriced even when a fast multiple exists, never at the standard rate', () => {
+		const cost = calculateCost({ ...base, speed: 'ultrafast' }, fastPricing)
+		expect(cost.totalCost).toBe(0)
+		expect(cost.unpricedTokens).toBe(1_000_000)
 	})
 })

@@ -3,6 +3,7 @@ import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node
 import { dirname, join } from 'node:path'
 
 import { namzuHomePath } from '../integrations/state/home.js'
+import { withStateFileLock } from '../integrations/state/state-file.js'
 
 /**
  * What the spinner tips need to remember between launches, kept in
@@ -18,6 +19,7 @@ import { namzuHomePath } from '../integrations/state/home.js'
 
 const FILE_MODE = 0o600
 const DIR_MODE = 0o700
+const COUNTER_LOCK_ATTEMPTS = 10
 
 export interface TipShown {
 	readonly lastLaunch: number
@@ -93,8 +95,17 @@ function writeTipHistory(path: string, history: TipHistory): void {
 
 export function fileTipHistory(home?: string): TipHistoryStore {
 	const path = tipHistoryPath(home)
-	const update = (change: (history: TipHistory) => TipHistory): void =>
-		writeTipHistory(path, change(readTipHistory(path)))
+	// Under the file's lock, read again inside it, so two windows starting together both count.
+	// A lock still held after a short wait drops this one count rather than holding up the screen.
+	const update = (change: (history: TipHistory) => TipHistory): void => {
+		try {
+			withStateFileLock(path, () => writeTipHistory(path, change(readTipHistory(path))), {
+				attempts: COUNTER_LOCK_ATTEMPTS,
+			})
+		} catch {
+			// A tip is not worth an error; the count is one short.
+		}
+	}
 	return {
 		read: () => readTipHistory(path),
 		recordLaunch: () => update((h) => ({ ...h, launches: h.launches + 1 })),

@@ -5,7 +5,12 @@ import type { GoalRoundAuthority, SessionGoal } from '../../types/goal/index.js'
 import type { TurnId } from '../../types/ids/index.js'
 import type { ToolDefinition } from '../../types/tool/index.js'
 import { defineTool } from '../defineTool.js'
-import { type GoalConfirmation, NO_CHECK_REASON_CODE } from './confirmation.js'
+import {
+	GOAL_AUDIT_RUBRIC,
+	type GoalConfirmation,
+	NO_CHECK_REASON_CODE,
+	parseGoalEvidence,
+} from './confirmation.js'
 
 export const SESSION_GOAL_TOOL_NAMES = ['get_goal', 'update_goal'] as const
 export const MIN_GOAL_BLOCK_ROUND = 3
@@ -83,6 +88,12 @@ export function buildSessionGoalTools(
 					round: authority.round,
 					maxGoalRounds: goal.maxGoalRounds,
 					roundsAdmitted: goal.roundsAdmitted,
+					tokensUsed: goal.tokensUsed ?? 0,
+					costUsd: goal.costUsd ?? 0,
+					...(goal.guards?.tokenBudget !== undefined
+						? { tokenBudget: goal.guards.tokenBudget }
+						: {}),
+					...(authority.wrapUp ? { wrapUp: true } : {}),
 				}),
 				data: goal,
 			}
@@ -91,8 +102,7 @@ export function buildSessionGoalTools(
 
 	const updateGoal = defineTool({
 		name: 'update_goal',
-		description:
-			'Mark this admitted goal complete, or blocked after at least three admitted rounds. This does not end the turn; explain the final state to the operator afterward.',
+		description: `Mark this admitted goal complete, or blocked after at least three admitted rounds. Completion takes evidence: one entry per requirement of the objective, with what you checked and the result. ${GOAL_AUDIT_RUBRIC} This does not end the turn; explain the final state to the operator afterward.`,
 		inputSchema: z.object({
 			status: z.enum(['complete', 'blocked']),
 			reasonCode: z
@@ -100,13 +110,23 @@ export function buildSessionGoalTools(
 				.optional()
 				.describe('Lower-kebab-case reason code; required when status is blocked.'),
 			reason: z.string().optional().describe('Operator-readable reason; required when blocked.'),
+			evidence: z
+				.array(
+					z.object({
+						requirement: z.string().describe('One requirement of the objective, restated.'),
+						checked: z.string().describe('What you did to check it against the current state.'),
+						result: z.string().describe('What the check showed.'),
+					}),
+				)
+				.optional()
+				.describe('Required when status is complete: one entry per requirement.'),
 		}),
 		category: 'custom',
 		permissions: [],
 		readOnly: false,
 		destructive: false,
 		concurrencySafe: false,
-		async execute({ status, reasonCode, reason }, context) {
+		async execute({ status, reasonCode, reason, evidence }, context) {
 			const authority = authorityFor(resolveAuthority, context.turnId)
 			const current = await currentGoal(store, authority)
 			const ref = { id: authority.id, revision: authority.revision }
@@ -145,6 +165,22 @@ export function buildSessionGoalTools(
 				}
 			}
 			if (status === 'complete') {
+				if (confirmation?.requiresEvidence) {
+					const parsed = parseGoalEvidence(evidence)
+					if (!parsed.ok) throw new TypeError(`${parsed.problem} ${GOAL_AUDIT_RUBRIC}`)
+					if (confirmation.judging) {
+						// A judge reads the report together with the final answer, so the
+						// report is held until the model has given it.
+						confirmation.claimEvidence(authority.id, parsed.evidence, reason)
+						return {
+							success: true,
+							output:
+								'Completion reported. The evidence is checked when you finish your answer: give your final answer now, and if something is found missing you will be told what.',
+						}
+					}
+					const decision = confirmation.selfAudit(authority.id, parsed.evidence)
+					if (decision.kind === 'hold') throw new Error(decision.note)
+				}
 				const goal = await store.completeGoal(authority.sessionId, authority.tenantId, ref)
 				return { success: true, output: 'Goal marked complete.', data: goal }
 			}

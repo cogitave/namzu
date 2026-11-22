@@ -59,6 +59,7 @@ export type SettingGroup =
 	| 'terminal-mouse'
 	| 'terminal-notifications'
 	| 'terminal-message-box'
+	| 'terminal-network'
 	| 'saved-conversations'
 	| 'traces'
 	| 'command-line'
@@ -87,6 +88,7 @@ export const SETTING_GROUP_LABELS: Readonly<Record<SettingGroup, string>> = {
 	'terminal-mouse': 'Terminal app: mouse and scrolling',
 	'terminal-notifications': 'Terminal app: notifications',
 	'terminal-message-box': 'Terminal app: message box',
+	'terminal-network': 'Terminal app: your other machines',
 	'saved-conversations': 'Saved conversations',
 	traces: 'Traces',
 	'command-line': 'Command line',
@@ -115,6 +117,7 @@ export const SETTING_GROUP_ORDER: readonly SettingGroup[] = [
 	'terminal-mouse',
 	'terminal-notifications',
 	'terminal-message-box',
+	'terminal-network',
 	'saved-conversations',
 	'traces',
 	'command-line',
@@ -479,7 +482,7 @@ const fileOnly: SettingControl = { kind: 'file-only' }
 
 /**
  * When a key's saved value is read. Found from the code that reads it: the terminal app, the
- * schedule daemon, the update check, telemetry, the plugin loader, the model choice and the list of
+ * schedule service daemon, the update check, telemetry, the plugin loader, the model choice and the list of
  * permission modes a host offers read once at launch. The host re-reads the user and project files
  * whenever it starts a conversation (`ensureSession` in `commands/acp.ts`), and builds the session
  * options, the permission rules, the browser rules and the per-turn options from that fresh read,
@@ -658,13 +661,14 @@ const DECLARED: readonly SettingDescriptor[] = [
 		'fast',
 		'models',
 		'Fast mode',
-		'Start the terminal app with faster replies on models that offer it. Billed at twice the standard rate.',
+		'Start the terminal app with faster replies on models that offer it. Billed at a multiple of the standard rate.',
 		on,
 		{
 			group: 'choosing-models',
 			keywords: ['fast', 'speed', 'faster replies', 'priority'],
 			default: false,
-			confirm: 'Replies on models that offer fast mode will be billed at twice the standard rate.',
+			confirm:
+				'Replies on models that offer fast mode will cost more or use more of your plan allowance.',
 			confirmWhen: 'on',
 		},
 	),
@@ -677,6 +681,18 @@ const DECLARED: readonly SettingDescriptor[] = [
 		{
 			group: 'choosing-models',
 			keywords: ['Refresh the model list', 'catalogue', 'prices', 'model list'],
+			default: true,
+		},
+	),
+	d(
+		'shareDesktopSignIn',
+		'models',
+		'Use the Desktop sign-in',
+		'In WSL, use a Claude or Codex sign-in made in Namzu Desktop on Windows when this terminal has none of its own. Turn it off to keep the terminal to its own sign-ins.',
+		on,
+		{
+			group: 'choosing-models',
+			keywords: ['Windows', 'WSL', 'Desktop', 'subscription', 'sign in', 'share sign-in'],
 			default: true,
 		},
 	),
@@ -734,7 +750,7 @@ const DECLARED: readonly SettingDescriptor[] = [
 		'permissions.defaultMode',
 		'projects',
 		'Default permission mode',
-		'How Namzu asks before it acts, until you choose otherwise in a conversation.',
+		'How the terminal app asks before it acts, until you choose otherwise in a conversation. Left unset, it starts in auto mode when a model can check actions, and asks first when none can.',
 		pick(
 			[
 				'prompt',
@@ -752,7 +768,11 @@ const DECLARED: readonly SettingDescriptor[] = [
 				'Never ask',
 				'Every action runs without asking. Use it only where nothing can be harmed.',
 			],
-			['auto', 'A model decides', 'A reviewing model approves or refuses each action for you.'],
+			[
+				'auto',
+				'A model decides',
+				'A reviewing model approves or refuses each action that would otherwise ask you. The terminal’s default.',
+			],
 			[
 				'strict',
 				'Only what a rule allows',
@@ -770,7 +790,9 @@ const DECLARED: readonly SettingDescriptor[] = [
 				'auto',
 				'plan',
 			],
-			default: 'prompt',
+			default: 'auto',
+			defaultNote:
+				'In the terminal app, when a model can check actions; otherwise Ask before risky actions.',
 			confirm: 'Some modes let Namzu act without asking. Only choose one you are comfortable with.',
 			confirmValues: ['accept-edits', 'bypass', 'auto'],
 		},
@@ -903,6 +925,100 @@ const DECLARED: readonly SettingDescriptor[] = [
 		},
 	),
 	d(
+		'network.enabled',
+		'terminal',
+		'Your Namzu network',
+		'Find your other machines on the same network and message their sessions. Auto turns it on in the terminal on a private network and leaves it off elsewhere and for every unattended run.',
+		pick(
+			[
+				'auto',
+				'Automatic',
+				'On in the terminal on a private network; off on a network Namzu cannot tell is private.',
+			],
+			['true', 'On', 'On in the terminal on any network.'],
+			[
+				'false',
+				'Off',
+				'No advertisement and no listener: nothing on this machine reaches the network.',
+			],
+		),
+		{
+			group: 'terminal-network',
+			keywords: ['peers', 'other machines', 'pairing', 'devices', 'lan', 'network'],
+			default: 'auto',
+			confirm:
+				'This machine will tell its network that Namzu is here, and accept requests from your machines.',
+			confirmValues: ['true'],
+		},
+	),
+	d(
+		'network.acceptMail',
+		'terminal',
+		'Messages from your other machines',
+		'What to do with a message another of your machines sends to a session here: deliver it, always ask you first, or refuse it.',
+		pick(
+			[
+				'members',
+				'Deliver',
+				'Delivered unless its permission mode differs or this session is in bypass; those wait for you.',
+			],
+			['hold', 'Ask me first', 'Every message waits for you to allow or deny it once.'],
+			[
+				'off',
+				'Refuse',
+				'Messages from other machines are refused. The list of machines still works.',
+			],
+		),
+		{
+			group: 'terminal-network',
+			keywords: ['peers', 'other machines', 'messages', 'inbox'],
+			default: 'members',
+		},
+	),
+	d(
+		'network.autoAdmit',
+		'terminal',
+		'New machines on your network',
+		'Whether a new machine of yours joins your Namzu network without asking you first. By default it does so on a network you marked as trusted; anywhere else you are asked once.',
+		pick(
+			[
+				'trusted-networks',
+				'On trusted networks',
+				'A new machine on a network you trusted joins without asking. Elsewhere you allow it once.',
+			],
+			[
+				'never',
+				'Always ask me',
+				'Every new machine waits for your Allow, even on a trusted network.',
+			],
+			[
+				'always',
+				'On any private network',
+				'Any machine on the same private network can join without asking.',
+			],
+		),
+		{
+			group: 'terminal-network',
+			keywords: ['peers', 'other machines', 'join', 'trust', 'trusted network', 'allow', 'pairing'],
+			default: 'trusted-networks',
+			confirm:
+				'Anyone on the same network as this machine can then join your Namzu network, see your sessions and message them, without asking you.',
+			confirmValues: ['always'],
+		},
+	),
+	d(
+		'network.machineName',
+		'terminal',
+		'This machine’s name',
+		'What your other machines call this one in the list of sessions. Leave it empty to use the computer’s host name.',
+		{ kind: 'text', placeholder: 'Host name' },
+		{
+			group: 'terminal-network',
+			keywords: ['peers', 'host name', 'other machines', 'rename'],
+			defaultText: 'the computer’s host name',
+		},
+	),
+	d(
 		'attribution',
 		'projects',
 		'Commit and pull request text',
@@ -937,11 +1053,16 @@ const DECLARED: readonly SettingDescriptor[] = [
 		'projects',
 		'Worktree location',
 		'Where Namzu stores Git worktrees for isolated coding conversations on this computer.',
-		{ kind: 'text', placeholder: 'Inside the project', picker: 'folder' },
+		{ kind: 'text', placeholder: 'In the Namzu home', picker: 'folder' },
 		{
 			group: 'worktrees',
-			keywords: ['worktrees folder', 'where worktrees go', 'worktree directory'],
-			defaultText: "inside the project's Namzu folder",
+			keywords: [
+				'worktrees folder',
+				'where worktrees go',
+				'worktree directory',
+				'inside the project',
+			],
+			defaultText: "in the Namzu home, in this project's worktrees folder",
 		},
 	),
 	d(
@@ -985,6 +1106,41 @@ const DECLARED: readonly SettingDescriptor[] = [
 			group: 'conversations',
 			keywords: ['archive inactive sessions', 'archive', 'idle', 'auto archive'],
 			default: 'never',
+		},
+	),
+	d(
+		'cleanupPeriodDays',
+		'projects',
+		'Keep conversations for',
+		'Conversations that have not changed for this many days are removed from this computer when the terminal app starts. To keep everything, set a large number such as 3650.',
+		num(1, undefined, 'days'),
+		{
+			appliesWhen: 'next-start',
+			group: 'conversations',
+			keywords: [
+				'cleanup period',
+				'retention',
+				'delete old conversations',
+				'remove old sessions',
+				'transcripts',
+				'history',
+			],
+			default: 30,
+			confirm:
+				'Conversations older than this are removed from this computer and cannot be restored.',
+		},
+	),
+	d(
+		'promptHistory',
+		'projects',
+		'Remember sent prompts',
+		'In the terminal app, Up and Ctrl+R in a new conversation bring back the prompts you sent earlier in the same project. Pasted text is not copied.',
+		on,
+		{
+			appliesWhen: 'next-start',
+			group: 'conversations',
+			keywords: ['prompt history', 'input history', 'up arrow', 'recall', 'history.jsonl'],
+			default: true,
 		},
 	),
 	d(
@@ -1355,6 +1511,67 @@ const DECLARED: readonly SettingDescriptor[] = [
 			keywords: ['What ends a goal', 'goal confirmed by', 'confirmedBy'],
 			default: 'model',
 			defaultNote: 'Intended to become record in a later major release.',
+		},
+	),
+	d(
+		'goal.maxRounds',
+		'agent',
+		'Most automatic turns per goal',
+		'The most automatic turns one goal may take before it stops. This is a safety limit: a goal normally ends when it is done, gets stuck, or reaches a check-in if you turned them on. A stopped goal goes on with /goal resume.',
+		num(1, undefined, 'turns'),
+		{
+			group: 'helpers-workflows',
+			keywords: ['goal rounds', 'goal limit', 'round limit', 'maxRounds', 'automatic replies'],
+			default: 1000,
+		},
+	),
+	d(
+		'goal.checkInEvery',
+		'agent',
+		'Check in during a goal every',
+		'A goal pauses after this many automatic turns and tells you what it has used so far. /goal resume carries on without starting the count again. 0, the default, turns check-ins off.',
+		num(0, undefined, 'turns'),
+		{
+			group: 'helpers-workflows',
+			keywords: ['goal check-in', 'pause goal', 'checkInEvery'],
+			default: 0,
+		},
+	),
+	d(
+		'goal.tokenBudget',
+		'agent',
+		'Most tokens per goal',
+		'The most tokens a goal may use. At the limit the goal gets one last turn to wrap up, then stops. Not set means no limit.',
+		num(1, undefined, 'tokens'),
+		{
+			group: 'helpers-workflows',
+			keywords: ['goal budget', 'goal tokens', 'tokenBudget'],
+			defaultText: 'no limit',
+		},
+	),
+	d(
+		'goal.stallRounds',
+		'agent',
+		'Stop a goal that is stuck after',
+		'A goal stops when this many automatic turns in a row change nothing and check nothing, or end on the same failure.',
+		num(1, undefined, 'turns'),
+		{
+			group: 'helpers-workflows',
+			keywords: ['goal stuck', 'no progress', 'repeated failure', 'stallRounds'],
+			default: 3,
+		},
+	),
+	d(
+		'goal.judgeModel',
+		'agent',
+		'Model that checks a finished goal',
+		"When the decision model is on, this model reads a goal's completion report and says whether the goal is really met. Use provider/model, or just the model. Not set: the model for quick tasks.",
+		{ kind: 'model', placeholder: 'provider/model' },
+		{
+			group: 'helpers-workflows',
+			keywords: ['goal judge', 'judgeModel', 'completion check'],
+			defaultText: 'the model for quick tasks',
+			confirm: 'The goal, its evidence and the last answer are sent to this model to check them.',
 		},
 	),
 	d(

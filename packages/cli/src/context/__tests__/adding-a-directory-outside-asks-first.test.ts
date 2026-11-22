@@ -1,5 +1,5 @@
 /**
- * `/add-dir` of a directory outside the working directory asks first.
+ * `/add dir` of a directory outside the working directory asks first.
  *
  * Adding one lets every file tool reach it with no further question — the
  * question a path there otherwise gets — so it is asked once, here. The

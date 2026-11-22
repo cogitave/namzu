@@ -8,7 +8,8 @@ import { openSessions, resolveConversation } from '../../integrations/sessions/s
 import { fakeAgentSession } from '../../tui/__fixtures__/agent-session.js'
 import { createAgentSession } from '../../tui/agent.js'
 import { parseExecFlags } from '../exec-flags.js'
-import { historyCommand, skillsJSONCommand } from '../host-queries.js'
+import { historyCommand } from '../host-queries.js'
+import { skillsCommand } from '../skills.js'
 import type { CommandContext } from '../types.js'
 import { execJsonCommand } from './exec-json-command.js'
 
@@ -227,7 +228,7 @@ describe('the flag parser itself', () => {
 	})
 })
 
-describe('skills-json lists the directory it was pointed at', () => {
+describe('skills list --json lists the directory it was pointed at', () => {
 	// A host that lists skills for one checkout and then runs a turn in that
 	// same checkout has to be told about the same skills both times. It was
 	// not: this command read the process directory whatever `--cwd` said, so
@@ -246,7 +247,7 @@ describe('skills-json lists the directory it was pointed at', () => {
 		skillIn(elsewhere, 'only-over-there')
 		const { lines, restore } = capture()
 		try {
-			await skillsJSONCommand.handler({ rawArgs: ['--cwd', elsewhere], ctx } as never)
+			await skillsCommand.handler({ rawArgs: ['list', '--json', '--cwd', elsewhere], ctx } as never)
 		} finally {
 			restore()
 			removeTempDir(elsewhere)

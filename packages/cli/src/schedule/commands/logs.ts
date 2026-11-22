@@ -1,5 +1,5 @@
 /**
- * `schedule logs [--follow] [--job <name>] [--since 1h]`: the daemon's log,
+ * `schedule service logs [--follow] [--job <name>] [--since 1h]`: the daemon's log,
  * and `--run <run-id>` for one run's own output.
  */
 
@@ -64,6 +64,12 @@ export async function logsCommand(ctx: CommandContext, argv: readonly string[]):
 	const args = parseArgs(argv, ['home', 'job', 'since', 'run', 'follow!'])
 	if (args.unknown.length > 0) {
 		ctx.formatter.error({ message: `unknown option: ${args.unknown.join(', ')}` })
+		return EXIT_USAGE
+	}
+	if (args.positionals.length > 0) {
+		ctx.formatter.error({
+			message: `unexpected argument: ${args.positionals.join(' ')}; the service name goes right after the verb: namzu schedule service logs [<name>] [options]`,
+		})
 		return EXIT_USAGE
 	}
 	const paths = pathsFor(args)

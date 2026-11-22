@@ -177,7 +177,7 @@ const STRICTER: readonly PermissionMode[] = ['plan', 'strict']
 /** What the TUI session a scheduled turn would resume in actually runs with. */
 export interface ResumeEnvironment {
 	readonly cwd: string
-	/** The session's extra roots (`--add-dir`, `/add-dir`). */
+	/** The session's extra roots (`--add-dir`, `/add dir`). */
 	readonly roots: readonly string[]
 	/** Whether the session's commands run in a sandbox. */
 	readonly sandboxed: boolean

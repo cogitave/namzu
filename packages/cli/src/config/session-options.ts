@@ -92,6 +92,9 @@ export const SESSION_KEY_MAP: Readonly<Record<keyof NamzuCliConfig, string>> = {
 		'excluded: read by the terminal app after a reply, not by the session; no other host draws a suggestion',
 	archiveInactive:
 		'excluded: read by the desktop host when it lists conversations, not by the session',
+	cleanupPeriodDays:
+		'excluded: read by the terminal app when it starts, to remove old conversations, not by the session',
+	promptHistory: 'excluded: read by the terminal app for its prompt box, not by the session',
 	sandbox: 'sandbox',
 	web: 'web',
 	// Whether the tools are offered is each host's own decision, read with `computerUseEnabled`.
@@ -112,7 +115,9 @@ export const SESSION_KEY_MAP: Readonly<Record<keyof NamzuCliConfig, string>> = {
 	telemetry: 'excluded: set up once by the process, not per session',
 	tui: 'excluded: terminal display settings',
 	updates: 'excluded: the self-updater, not a session',
+	network: 'excluded: read by the terminal app that runs the Namzu network, not by a session',
 	modelCatalogueRefresh: 'excluded: read by the catalogue refresher at start, not by a session',
+	shareDesktopSignIn: 'excluded: read where a stored sign-in is looked up, not by a session',
 	hypermode: 'excluded: a per-turn send option, see `turnOptionsFromConfig`',
 	refusalFallback: 'excluded: a per-turn send option, see `turnOptionsFromConfig`',
 	progressNudge:

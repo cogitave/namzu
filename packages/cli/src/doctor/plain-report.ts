@@ -98,7 +98,7 @@ const REASONS: Readonly<Record<string, PlainReason>> = {
 	'scheduler.service': {
 		fail: 'scheduled tasks cannot run right now',
 		warn: 'scheduled tasks will not run until the scheduler is set up',
-		advice: 'Run "namzu schedule install".',
+		advice: 'Run "namzu schedule service install".',
 	},
 	'logging.pipeline': {
 		fail: 'some activity was not recorded',

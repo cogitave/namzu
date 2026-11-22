@@ -25,7 +25,15 @@ export function launchdPlistPath(label: string, home = homedir()): string {
 }
 
 export function launchdPlist(label: string, program: ServiceProgram): string {
-	const args = [program.node, program.bin, 'schedule', 'daemon', '--home', program.namzuHome]
+	const args = [
+		program.node,
+		program.bin,
+		'schedule',
+		'service',
+		'daemon',
+		'--home',
+		program.namzuHome,
+	]
 	const log = join(program.namzuHome, 'schedule', 'daemon')
 	return [
 		'<?xml version="1.0" encoding="UTF-8"?>',

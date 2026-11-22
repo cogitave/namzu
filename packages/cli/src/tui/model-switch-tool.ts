@@ -14,7 +14,7 @@ export function buildSwitchModelTool(requestSwitch: RequestModelSwitch): ToolDef
 	return defineTool({
 		name: 'switch_model',
 		description:
-			'Change the current conversation model when the user requests it. Call this tool directly and alone, after any other work is finished; no tool search is needed. Supply the full model ID including its variant suffix, not just the base name, and optionally a provider ID. This tool checks available model catalogues and returns relevant choices on failure. Acceptance ends the turn automatically; the host applies the session-only change and confirms it. Do not repeat an accepted request or use this tool to change a delegated agent.',
+			'Change the current conversation model when the user requests it; the person is asked to approve the change before it is queued. Call this tool directly and alone, after any other work is finished; no tool search is needed. Supply the full model ID including its variant suffix, not just the base name, and optionally a provider ID. This tool checks available model catalogues and returns relevant choices on failure. Acceptance ends the turn automatically; the host applies the session-only change and confirms it. Do not repeat an accepted request or use this tool to change a delegated agent.',
 		inputSchema: mcpJsonSchemaToZod({
 			type: 'object',
 			properties: {
@@ -37,9 +37,10 @@ export function buildSwitchModelTool(requestSwitch: RequestModelSwitch): ToolDef
 		}),
 		category: 'custom',
 		permissions: [],
-		// This only requests a host-controlled session setting change after an
-		// explicit user request. It performs no workspace or external write.
+		// It performs no workspace or external write, but it changes which model
+		// answers and at what price, so the person says yes to each request.
 		readOnly: true,
+		requiresApproval: true,
 		destructive: false,
 		concurrencySafe: false,
 		terminal: true,

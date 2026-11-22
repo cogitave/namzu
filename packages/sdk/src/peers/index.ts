@@ -12,6 +12,7 @@
  * @experimental
  */
 
+export { permissionModeWord } from './mode-word.js'
 export { parsePeerAddress, pipePeerAddress, PeerAddressError, udsPeerAddress } from './address.js'
 export type { PeerAddress } from './address.js'
 
@@ -59,6 +60,7 @@ export {
 	PeerSessionStateSchema,
 	PingRequestSchema,
 	PingResponseSchema,
+	RemoteOriginSchema,
 	SubscribeIdleRequestSchema,
 	SubscribeIdleResponseSchema,
 } from './protocol.js'
@@ -78,6 +80,7 @@ export type {
 	PeerSessionState,
 	PingRequest,
 	PingResponse,
+	RemoteOrigin,
 	SubscribeIdleRequest,
 	SubscribeIdleResponse,
 } from './protocol.js'
@@ -94,5 +97,10 @@ export type { CreatePeerEndpointOptions, PeerEndpoint } from './endpoint.js'
 export { PeerClient, PeerClientError, pingPeer } from './client.js'
 export type { PeerClientOptions, PeerClientResult } from './client.js'
 
-export { formatPeerMessage, formatPeerNotice, formatPersonMessage } from './envelope.js'
-export type { PeerMessageEnvelopeInput } from './envelope.js'
+export {
+	formatPeerMessage,
+	formatPeerNotice,
+	formatPersonMessage,
+	formatRoleContext,
+} from './envelope.js'
+export type { PeerMessageEnvelopeInput, RoleContextInput } from './envelope.js'

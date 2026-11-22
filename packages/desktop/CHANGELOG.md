@@ -1,5 +1,14 @@
 # @namzu/desktop
 
+## 0.8.8
+
+### Patch Changes
+
+- ce8b85d: The "Trust this folder?" dialog now reads every Namzu settings file in the folder, `.namzu/settings.json`, `.namzu/settings.local.json` and the earlier `namzu.config.local.json` as well as `namzu.config.json`, and names the file each finding comes from; when `.namzu/settings.local.json` and `namzu.config.local.json` hold the same settings, they are listed once. The trust-again check covers `.namzu/settings.json` too; a folder without that file keeps the fingerprint it had, and a remembered answer saved to the local file never makes Desktop ask about the folder again. Commit changes leaves Namzu's settings for this computer out and says so.
+- 1e2106a: The `/release-notes` command in the message box is now `/release notes`; typing
+  the old spelling shows one line naming the new one.
+- ce8b85d: Removing a folder from Trusted folders now waits for the engine when it is saving the same list, and reads the list again first, so a folder the terminal trusted a moment earlier is no longer dropped. The list as it was is kept in `backups/trust.json.backup.<time>` in the Namzu home first, entries Desktop does not show are kept, and a list written by a newer version is shown as unreadable and left alone. When the list cannot be read, Trusted folders now offers **Start a new list**: it keeps the old file in `backups/trust.json.corrupted.<time>` first and says where, and trusting a folder in the meantime says to use it. A lock left by a process that has exited, or an empty one, no longer blocks the list. Nothing to change on your side.
+
 ## 0.8.7
 
 ### Patch Changes

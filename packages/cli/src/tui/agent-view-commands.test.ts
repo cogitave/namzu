@@ -12,6 +12,10 @@ describe('agentViewCommandClass', () => {
 			kind: 'block',
 			notice: "/fast changes the main conversation's fast mode, not this agent's",
 		})
+		expect(agentViewCommandClass('ultrafast')).toEqual({
+			kind: 'block',
+			notice: "/ultrafast changes the main conversation's ultrafast, not this agent's",
+		})
 	})
 
 	it('asks before the commands that act on the conversation’s history', () => {

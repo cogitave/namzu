@@ -1,5 +1,6 @@
 import { dirname } from 'node:path'
 import { type HookConfigProblem, hookConfigProblems, readPermissionLayers } from '../config/load.js'
+import { bothFilesNotes, presentFolderFiles } from '../config/project-files.js'
 import { findSetting, unknownSettingMessage } from '../config/setting-cli.js'
 import { installationRows } from '../installation.js'
 import type { PluginHookProblem } from '../integrations/plugins/hook-entries.js'
@@ -10,7 +11,8 @@ import {
 } from '../integrations/providers/connections.js'
 import { DEFAULT_SPEND_DAYS, MAX_SPEND_DAYS } from '../integrations/spend/day.js'
 import type { AttachedAgentHook } from '../integrations/subagents/agent-hooks.js'
-import { LOCAL_CONFIG_FILE } from '../permissions/local-settings.js'
+import { isTrusted } from '../integrations/trust/store.js'
+import { LOCAL_SETTINGS_FILE } from '../permissions/local-settings.js'
 import {
 	type DenialRow,
 	addLocalRule,
@@ -89,7 +91,9 @@ import { timeLeft } from './background-view.js'
 import { VIM_USAGE, parseVimArgument } from './editor-mode.js'
 import { keysHelpText } from './keymap.js'
 import { isCompletionArgument } from './login-prompt.js'
+import { type ModelRunDeclaration, byForm, declarationOf } from './model-run.js'
 import { terminalSetupText, tuiCommandText } from './screen-command.js'
+import { KEYWORD_COMMANDS, type ParsedSlash, parseSlash } from './slash-parse.js'
 import { THEME_USAGE, parseThemeArgument } from './theme-command.js'
 import type { ThemeSetting } from './theme-palettes.js'
 
@@ -165,8 +169,11 @@ export type SlashAction =
 	 * deprecation line before doing exactly what `/hypermode` does.
 	 */
 	| { kind: 'hypermode'; enabled: boolean | 'toggle'; via?: 'orchestrate' }
-	/** Turn fast inference on or off (or flip it) for this conversation. */
-	| { kind: 'fast-mode'; enabled: boolean | 'toggle' }
+	/**
+	 * Turn fast inference on or off (or flip it) for this conversation, or ask for
+	 * the tier above it. `toggle` turns it on when it is off and off otherwise.
+	 */
+	| { kind: 'fast-mode'; tier: 'fast' | 'ultrafast' }
 	/** `/config triggers on|off|list`: the composer triggers' one switch, written to the user config. */
 	| { kind: 'composer-triggers'; setting: 'on' | 'off' | 'list' }
 	/** Open the theme chooser. */
@@ -354,6 +361,13 @@ export interface CompactionSummary {
 
 export interface SlashContext {
 	readonly columns?: number
+	/**
+	 * The speed tiers the current provider and model offer, read when the menu
+	 * is built or a command runs. Absent reads as none.
+	 */
+	readonly speedTiers?: () => readonly ('fast' | 'ultrafast')[]
+	/** Why the current model does not offer the tier; `undefined` when it does or the answer is not known yet. */
+	readonly speedTierRefusal?: (tier: 'fast' | 'ultrafast') => string | undefined
 	readonly webSearchSummary?: string
 	/** The decision model's one-line state, when the terminal offers one. */
 	readonly decisionSummary?: string
@@ -373,6 +387,8 @@ export interface SlashContext {
 	readonly recentDenials?: () => readonly DenialRow[]
 	/** The allows given at a prompt and held in memory for this conversation. */
 	readonly rememberedAllows?: () => readonly SessionAllow[]
+	/** Withdraw the held answers that `rule` names; whether any went. */
+	readonly forgetRememberedAllow?: (rule: string) => boolean
 	/** Refresh subsequent authorization decisions after a saved local rule edit. */
 	readonly reloadPermissionRules?: () => void
 	/** The timers the model set that are still pending in this conversation. */
@@ -484,7 +500,13 @@ export interface SlashContext {
 		/** Live mode and why it currently has that value, read at render time. */
 		readonly currentMode: () => {
 			readonly mode: PermissionMode
-			readonly source: 'default' | 'launch-bypass' | 'launch-flag' | 'config-default' | 'session'
+			readonly source:
+				| 'default'
+				| 'auto-default'
+				| 'launch-bypass'
+				| 'launch-flag'
+				| 'config-default'
+				| 'session'
 		}
 		readonly rules: readonly AuthorizationRule[]
 		/**
@@ -539,6 +561,8 @@ export interface SlashContext {
 	readonly lastAssistantMessageId: () => string | null
 }
 
+export { parseSlash, type ParsedSlash }
+
 export interface SlashCommand {
 	readonly name: string
 	readonly description: string
@@ -549,6 +573,13 @@ export interface SlashCommand {
 	}
 	/** Compatibility-only commands remain executable but stay out of discovery UI. */
 	readonly discoverable?: false
+	/**
+	 * Whether the dropdown lists the command right now, read from the session's
+	 * state each time the menu is built. When it answers false the command is
+	 * left out of the menu only: typing it still runs it, and `/help` still
+	 * lists it. A command without this field is always listed.
+	 */
+	readonly listedWhen?: (ctx: SlashContext) => boolean
 	/**
 	 * Whether the command runs the moment it is submitted while a reply is
 	 * being written, rather than waiting for the reply to end.
@@ -561,20 +592,33 @@ export interface SlashCommand {
 	 * command waits: it is queued as typed and runs, in order, after the reply.
 	 */
 	readonly immediate?: boolean | ((args: readonly string[]) => boolean)
+	/**
+	 * What the model may do with this command when the person asks for it in
+	 * chat: `run` at once, `confirm` after the person approves the exact line,
+	 * `never` (the person types it). A function of the argument words, built
+	 * with `byForm`, lets a command read freely and ask before it changes
+	 * anything. Absent means `never`, so a new command is not model-runnable
+	 * until someone decides it is.
+	 */
+	readonly modelRun?: ModelRunDeclaration
 	/** A live precondition shared by discovery and execution. */
 	readonly unavailable?: (ctx: SlashContext) => string | undefined
 	readonly action: (ctx: SlashContext, args: readonly string[]) => SlashAction
-}
-
-export interface ParsedSlash {
-	readonly name: string
-	readonly args: readonly string[]
 }
 
 function renameConversationAction(_ctx: SlashContext, args: readonly string[]): SlashAction {
 	const text = args.join(' ').trim()
 	if (text.toLowerCase() === 'clear') return { kind: 'title', title: '', clear: true }
 	return { kind: 'title', title: text, clear: false }
+}
+
+/** The commands whose `listedWhen` allows them in the menu now; all of them when there is no context to ask. */
+export function listedCommands(
+	commands: readonly SlashCommand[],
+	listing: SlashContext | undefined,
+): readonly SlashCommand[] {
+	if (!listing) return commands
+	return commands.filter((command) => command.listedWhen?.(listing) !== false)
 }
 
 /**
@@ -595,8 +639,10 @@ export function matchSlashCommands(
 	 * point. Defaults to the CLI's own for callers with no registry.
 	 */
 	builtins: readonly SlashCommand[] = CLI_LOCAL_COMMANDS,
+	/** The session state `listedWhen` reads; without it every command is listed. */
+	listing?: SlashContext,
 ): SlashCommand[] {
-	const m = /^\/([\w-]*)$/.exec(value)
+	const m = /^\/([\w-]*(?: [\w-]*)?)$/.exec(value)
 	if (!m) return []
 	const prefix = (m[1] ?? '').toLowerCase()
 
@@ -613,9 +659,10 @@ export function matchSlashCommands(
 		action: () => ({ kind: 'none' }) as const,
 	}))
 
-	const matches = [...builtins.filter((command) => command.discoverable !== false), ...own].filter(
-		(command) => command.name.startsWith(prefix),
-	)
+	const matches = [
+		...listedCommands(builtins, listing).filter((command) => command.discoverable !== false),
+		...own,
+	].filter((command) => command.name.startsWith(prefix))
 	if (prefix.length === 0) return matches
 	const exact = matches.findIndex((command) => command.name === prefix)
 	if (exact <= 0) return matches
@@ -688,6 +735,7 @@ export function mergeHostCommands(
 					usage: [`/${descriptor.name}${descriptor.args ? ' [arguments]' : ''}`],
 					...(descriptor.hint ? { details: [descriptor.hint] } : {}),
 				},
+				...(descriptor.modelRun ? { modelRun: declarationOf(descriptor) } : {}),
 				action: (_ctx, args) => ({
 					kind: 'host-command',
 					name: descriptor.name,
@@ -779,18 +827,25 @@ export function slashTiming(
 	return userCommands.some((c) => c.name === parsed.name) ? 'queue' : 'now'
 }
 
-/** Returns null when the line is not a slash command. */
-export function parseSlash(line: string): ParsedSlash | null {
-	const trimmed = line.trim()
-	if (!trimmed.startsWith('/')) return null
-	const [name, ...args] = trimmed.slice(1).split(/\s+/)
-	if (!name) return null
-	return { name, args }
+/** Old hyphenated spellings. They run nothing; each names the one new spelling. */
+const RENAMED_SLASH: Readonly<Record<string, string>> = {
+	'add-dir': '/add dir',
+	'release-notes': '/release notes',
+	'terminal-setup': '/terminal setup',
+}
+
+/** What a first keyword answers when typed alone: the usage of its sub-keyword. */
+function keywordUsage(first: string): string | undefined {
+	const entry = KEYWORD_COMMANDS.find((candidate) => candidate.first === first)
+	if (!entry) return undefined
+	const command = CLI_LOCAL_COMMANDS.find((c) => c.name === `${entry.first} ${entry.second}`)
+	return command ? `Usage: ${command.help?.usage[0] ?? `/${command.name}`}` : undefined
 }
 
 /** Help reads metadata only: even a mutating or unavailable command is safe to inspect. */
 function commandHelp(ctx: SlashContext, args: readonly string[]): SlashAction {
-	const name = args[0]?.replace(/^\//, '')
+	const asked = parseSlash(`/${args.join(' ').replace(/^\//, '')}`)
+	const name = asked && asked.args.length === 0 ? asked.name : undefined
 	if (
 		args.length === 1 &&
 		name === 'keys' &&
@@ -798,7 +853,7 @@ function commandHelp(ctx: SlashContext, args: readonly string[]): SlashAction {
 	) {
 		return { kind: 'message', role: 'system', content: keysHelpText() }
 	}
-	if (args.length !== 1 || !name) {
+	if (!name) {
 		return {
 			kind: 'message',
 			role: 'system',
@@ -866,11 +921,13 @@ const CONFIG_USAGE =
 export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	{
 		name: 'setup',
+		modelRun: 'never',
 		description: 'Check provider installation and access; install optional CLIs or connect.',
 		action: () => ({ kind: 'provider-setup' }),
 	},
 	{
 		name: 'config',
+		modelRun: 'never',
 		immediate: (args) => args.length > 0,
 		description: 'View or change model, reasoning, permissions and limits.',
 		help: {
@@ -956,11 +1013,13 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'recap',
+		modelRun: 'confirm',
 		description: 'Write a short recap of this conversation now.',
 		action: () => ({ kind: 'recap-now' }),
 	},
 	{
 		name: 'btw',
+		modelRun: 'confirm',
 		immediate: true,
 		help: {
 			usage: ['/btw <question>'],
@@ -976,6 +1035,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'plan',
+		modelRun: 'confirm',
 		help: {
 			usage: ['/plan', '/plan <description>'],
 			details: [
@@ -999,19 +1059,32 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'settings',
+		modelRun: 'never',
 		immediate: (args) => args.length > 0,
 		description: 'View or change model, reasoning and permissions.',
 		action: () => ({ kind: 'settings-picker' }),
 	},
 	{
 		name: 'peers',
+		modelRun: 'never',
 		immediate: true,
-		description: 'Find and message other live terminals in this project.',
-		help: { usage: ['/peers [list|on|off]', '/peers send <ref> <message>'] },
+		description: 'Your sessions and your other machines: list, message, set roles, allow or deny.',
+		help: {
+			usage: [
+				'/peers [list|on|off]',
+				'/peers send <name> <message>',
+				'/peers role <name> <text>',
+				'/peers role clear <name>',
+				'/peers allow <code> | /peers deny <code>',
+				'/peers remove <machine> | /peers rename <name> | /peers add <host[:port]>',
+				'/peers cancel (withdraw the request this machine is waiting on)',
+			],
+		},
 		action: (_ctx, args) => ({ kind: 'peers', args }),
 	},
 	{
 		name: 'workflows',
+		modelRun: 'run',
 		immediate: true,
 		description: 'List this conversation’s workflows and open one.',
 		help: { usage: ['/workflows'] },
@@ -1019,6 +1092,13 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'goal',
+		modelRun: byForm('confirm', (args) =>
+			args.length === 0 || (args.length === 1 && (args[0] === 'set' || args[0] === 'edit'))
+				? 'never'
+				: args.length === 1 && args[0] === 'status'
+					? 'run'
+					: 'confirm',
+		),
 		immediate: true,
 		description: 'Manage this conversation’s goal and automatic continuation.',
 		help: {
@@ -1047,6 +1127,9 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'schedule',
+		modelRun: byForm('confirm', (args) =>
+			args.length === 0 || args[0] === 'list' ? 'run' : 'confirm',
+		),
 		immediate: true,
 		description: 'Scheduled jobs that run while namzu is closed: list, confirm, pause, run, add.',
 		help: {
@@ -1057,13 +1140,14 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 			],
 			details: [
 				'A run waiting for your approval is answered with /resume of its conversation in its folder.',
-				'The scheduler itself is installed with `namzu schedule install`.',
+				'The scheduler itself is installed with `namzu schedule service install`.',
 			],
 		},
 		action: (_ctx, args) => ({ kind: 'host-command', name: 'schedule', args }),
 	},
 	{
 		name: 'browser',
+		modelRun: 'never',
 		immediate: (args) => args.length === 0,
 		description:
 			'The browser this conversation drives: engine, profile, site rules; switch profile.',
@@ -1078,6 +1162,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'loop',
+		modelRun: byForm('confirm', (args) => (args[0] === 'list' ? 'run' : 'confirm')),
 		immediate: true,
 		description: 'Re-send a prompt on an interval, between replies.',
 		help: {
@@ -1090,6 +1175,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'help',
+		modelRun: 'run',
 		immediate: true,
 		description: 'Browse commands, or show usage with /help <command>.',
 		help: {
@@ -1125,6 +1211,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'feedback',
+		modelRun: 'never',
 		immediate: true,
 		help: { usage: ['/feedback', '/feedback good|bad [note]'] },
 		unavailable: (ctx) =>
@@ -1171,6 +1258,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'clear',
+		modelRun: 'confirm',
 		// Changes which conversation is open, so it never runs over a reply: it is
 		// kept as typed and runs, with its guards met, when the reply has ended.
 		description: 'Clear the terminal and start a fresh conversation.',
@@ -1178,6 +1266,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'new',
+		modelRun: 'confirm',
 		// Changes which conversation is open, so it never runs over a reply: it is
 		// kept as typed and runs, with its guards met, when the reply has ended.
 		description: 'Start a fresh conversation without clearing the terminal.',
@@ -1185,22 +1274,26 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'archive',
+		modelRun: 'never',
 		description: 'Archive this conversation and exit after confirmation.',
 		action: () => ({ kind: 'archive-picker' }),
 	},
 	{
 		name: 'unarchive',
+		modelRun: 'never',
 		description: 'Restore an archived conversation in this project.',
 		action: () => ({ kind: 'unarchive' }),
 	},
 	{
 		name: 'exit',
+		modelRun: 'never',
 		immediate: true,
 		description: 'Exit namzu.',
 		action: () => ({ kind: 'exit' }),
 	},
 	{
 		name: 'rename',
+		modelRun: byForm('confirm', (args) => (args.length === 0 ? 'never' : 'confirm')),
 		immediate: true,
 		help: { usage: ['/rename [name]', '/rename clear'] },
 		description:
@@ -1209,6 +1302,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'branch',
+		modelRun: 'confirm',
 		description: 'Create a branch of the current conversation at this point',
 		help: {
 			usage: ['/branch [name]'],
@@ -1225,6 +1319,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 		// Today the same copy as /branch. The name is kept for copying the
 		// conversation into a new background session, which will replace this.
 		name: 'fork',
+		modelRun: 'confirm',
 		// Changes which conversation is open, so it never runs over a reply: it is
 		// kept as typed and runs, with its guards met, when the reply has ended.
 		description: 'Continue in a copy, leaving the original unchanged.',
@@ -1232,6 +1327,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'worktree',
+		modelRun: 'confirm',
 		help: {
 			usage: ['/worktree [list|create [name]|fork [name]|resume <name>]'],
 		},
@@ -1239,14 +1335,15 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 		action: (_ctx, args) => ({ kind: 'worktree', args }),
 	},
 	{
-		name: 'add-dir',
+		name: 'add dir',
+		modelRun: 'never',
 		immediate: (args) => args.length > 0,
 		help: {
-			usage: ['/add-dir [path]'],
+			usage: ['/add dir [path]'],
 			details: ['Without a path, lists added directories. Paths may contain spaces.'],
 		},
 		description:
-			'Let the file tools reach another directory in this conversation: /add-dir <path>. Alone, list them.',
+			'Let the file tools reach another directory in this conversation: /add dir <path>. Alone, list them.',
 		action: (ctx, args) => {
 			const path = args.join(' ').trim()
 			if (path.length === 0) {
@@ -1256,7 +1353,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 					role: 'system',
 					content:
 						dirs.length === 0
-							? 'No added directories. The file tools reach the working directory without asking; a path elsewhere is asked about call by call (refused inside the sandbox). /add-dir <path> adds one for this conversation, after asking when it is outside the working directory; `additionalDirectories` in the config file adds one for every session.'
+							? 'No added directories. The file tools reach the working directory without asking; a path elsewhere is asked about call by call (refused inside the sandbox). /add dir <path> adds one for this conversation, after asking when it is outside the working directory; `additionalDirectories` in the config file adds one for every session.'
 							: `Added directories (reachable by absolute path, bound into the sandbox):\n${dirs.map((d) => `  ${d}`).join('\n')}`,
 				}
 			}
@@ -1265,6 +1362,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'rewind',
+		modelRun: 'confirm',
 		help: {
 			usage: ['/rewind'],
 			details: [
@@ -1276,18 +1374,21 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'undo',
+		modelRun: 'confirm',
 		help: { usage: ['/undo'], details: ['Same as /rewind.'] },
 		description: 'Same as /rewind.',
 		action: () => ({ kind: 'rewind' }),
 	},
 	{
 		name: 'checkpoint',
+		modelRun: 'confirm',
 		help: { usage: ['/checkpoint'], details: ['Same as /rewind.'] },
 		description: 'Same as /rewind.',
 		action: () => ({ kind: 'rewind' }),
 	},
 	{
 		name: 'restore',
+		modelRun: 'confirm',
 		help: {
 			usage: ['/restore [number]'],
 			details: ['Run /restore to list restore points before choosing one.'],
@@ -1310,6 +1411,13 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'memory',
+		modelRun: byForm('confirm', (args) =>
+			args.length === 0
+				? 'never'
+				: args.length === 1 && (args[0] === 'show' || args[0] === 'list')
+					? 'run'
+					: 'confirm',
+		),
 		help: {
 			usage: [
 				'/memory',
@@ -1404,6 +1512,9 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'skills',
+		modelRun: byForm('confirm', (args) =>
+			args.length === 0 ? 'never' : args.length === 1 && args[0] === 'list' ? 'run' : 'confirm',
+		),
 		// The list, the picker, and the two commands that compose a turn of their own and
 		// queue themselves behind the running reply; only naming a skill to activate
 		// changes what the conversation is told, so only that waits.
@@ -1450,6 +1561,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'plugins',
+		modelRun: 'never',
 		immediate: true,
 		description: 'See plugins and turn them on or off.',
 		help: {
@@ -1473,6 +1585,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'resume',
+		modelRun: 'confirm',
 		// Changes which conversation is open, so it never runs over a reply: it is
 		// kept as typed and runs, with its guards met, when the reply has ended.
 		description: 'Continue a paused reply, or resume a past conversation.',
@@ -1480,6 +1593,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'abandon',
+		modelRun: 'confirm',
 		immediate: true,
 		description: 'Close a paused or stopped reply without resuming it.',
 		help: { usage: ['/abandon [reason]'] },
@@ -1490,6 +1604,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'model',
+		modelRun: byForm('confirm', (args) => (args.length === 0 ? 'never' : 'confirm')),
 		immediate: true,
 		description: 'Choose a model, or change providers.',
 		help: {
@@ -1503,6 +1618,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'login',
+		modelRun: 'never',
 		description: 'Sign in with a Claude or Codex subscription.',
 		help: {
 			usage: ['/login', '/login <callback-address-or-code>'],
@@ -1517,6 +1633,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'auth',
+		modelRun: 'never',
 		description: 'Choose the account this conversation uses, or add one.',
 		help: {
 			usage: ['/auth', '/auth add', '/auth <account>'],
@@ -1534,6 +1651,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'logout',
+		modelRun: 'never',
 		help: { usage: ['/logout [claude|codex|gemini|all]'] },
 		description: 'Remove a Namzu-owned credential: /logout [claude|codex|gemini|<provider>|all].',
 		action: (_ctx, args) => {
@@ -1556,6 +1674,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'cost',
+		modelRun: 'run',
 		immediate: true,
 		help: { usage: ['/cost [details]', '/cost days [n]'] },
 		description: 'Show usage and cost for the current or latest reply.',
@@ -1577,6 +1696,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'vim',
+		modelRun: 'confirm',
 		immediate: true,
 		help: {
 			usage: ['/vim [on|off]'],
@@ -1594,6 +1714,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'tui',
+		modelRun: byForm('confirm', (args) => (args.length === 0 ? 'run' : 'confirm')),
 		immediate: true,
 		help: {
 			usage: ['/tui [default|fullscreen]'],
@@ -1605,10 +1726,11 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 		action: (_ctx, args) => ({ kind: 'message', role: 'system', content: tuiCommandText(args) }),
 	},
 	{
-		name: 'terminal-setup',
+		name: 'terminal setup',
+		modelRun: 'never',
 		immediate: true,
 		help: {
-			usage: ['/terminal-setup'],
+			usage: ['/terminal setup'],
 			details: [
 				'Sets up Shift+Enter for a new line in the terminal Namzu runs in: VS Code, Cursor, Windsurf, Zed and Alacritty get a key binding (Terminal.app gets Option+Enter), and any file it changes is copied to a .bak file first. Other terminals are told what to do. It runs only when you type it.',
 			],
@@ -1617,10 +1739,11 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 		action: (_ctx, args) =>
 			args.length === 0
 				? { kind: 'message', role: 'system', content: terminalSetupText() }
-				: { kind: 'message', role: 'system', content: 'Usage: /terminal-setup' },
+				: { kind: 'message', role: 'system', content: 'Usage: /terminal setup' },
 	},
 	{
 		name: 'doctor',
+		modelRun: 'run',
 		immediate: true,
 		help: { usage: ['/doctor'] },
 		description: 'Check that Namzu, its providers and the sandbox are working.',
@@ -1631,6 +1754,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'tasks',
+		modelRun: byForm('run', (args) => (args.length === 1 && args[0] === 'list' ? 'run' : 'never')),
 		immediate: true,
 		description: 'View and manage everything running in the background',
 		help: { usage: ['/tasks', '/tasks list'] },
@@ -1648,6 +1772,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	{
 		// The same dialog under its second name; only /tasks is listed.
 		name: 'bashes',
+		modelRun: 'run',
 		immediate: true,
 		description: 'View and manage everything running in the background',
 		discoverable: false,
@@ -1664,10 +1789,11 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 					: { kind: 'message', role: 'system', content: 'Usage: /bashes [list]' },
 	},
 	{
-		name: 'release-notes',
+		name: 'release notes',
+		modelRun: 'run',
 		immediate: true,
-		help: { usage: ['/release-notes [version]'] },
-		description: 'Show what changed in the version that is running: /release-notes [version].',
+		help: { usage: ['/release notes [version]'] },
+		description: 'Show what changed in the version that is running: /release notes [version].',
 		action: (_ctx, args) => ({
 			kind: 'message',
 			role: 'system',
@@ -1676,6 +1802,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'hooks',
+		modelRun: 'run',
 		immediate: true,
 		description: 'List every hook this conversation runs, and where it came from.',
 		action: (ctx) => ({
@@ -1686,6 +1813,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'context',
+		modelRun: 'run',
 		help: { usage: ['/context [details]'] },
 		description: 'Show where the context goes, as a grid.',
 		action: (ctx, args) => {
@@ -1698,6 +1826,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'review',
+		modelRun: 'confirm',
 		help: {
 			usage: ['/review [instructions]'],
 			details: [
@@ -1712,6 +1841,9 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'mcp',
+		modelRun: byForm('run', (args) =>
+			['prompts', 'prompt', 'resources', 'resource'].includes(args[0] ?? '') ? 'confirm' : 'run',
+		),
 		immediate: (args) => !['prompts', 'prompt', 'resources', 'resource'].includes(args[0] ?? ''),
 		help: {
 			usage: [
@@ -1730,12 +1862,14 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'diff',
+		modelRun: 'run',
 		immediate: true,
 		description: 'Show what is uncommitted in this working tree.',
 		action: () => ({ kind: 'diff' }),
 	},
 	{
 		name: 'compact',
+		modelRun: 'confirm',
 		description: 'Summarise older messages to free up context.',
 		help: {
 			usage: ['/compact [what to keep]'],
@@ -1751,6 +1885,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'copy',
+		modelRun: 'run',
 		// Opens a picker over the latest finished answer; kept as typed and run when
 		// the reply has ended, like the commands that change the conversation.
 		description: 'Copy the latest answer, a code block or a quote.',
@@ -1758,6 +1893,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'run',
+		modelRun: 'confirm',
 		// Finds the shell commands in the latest finished answer and puts the one you
 		// choose in the prompt after `!`: nothing runs until you press Enter.
 		description: 'Put a command from the latest answer in the prompt, to run it.',
@@ -1765,6 +1901,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'raw',
+		modelRun: 'confirm',
 		immediate: true,
 		help: { usage: ['/raw [on|off]'] },
 		description: 'Toggle copy-friendly plain transcript rendering: /raw [on|off].',
@@ -1782,6 +1919,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'export',
+		modelRun: 'confirm',
 		help: {
 			usage: ['/export [path]'],
 			details: [
@@ -1796,6 +1934,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'status',
+		modelRun: 'run',
 		immediate: true,
 		help: { usage: ['/status [details|config|tools]'] },
 		description: 'Show the model, permissions, files and latest cost.',
@@ -1836,6 +1975,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'permissions',
+		modelRun: 'never',
 		immediate: true,
 		description: 'Choose which actions need your approval.',
 		help: {
@@ -1887,6 +2027,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'theme',
+		modelRun: byForm('confirm', (args) => (args.length === 0 ? 'run' : 'confirm')),
 		immediate: true,
 		help: {
 			usage: ['/theme [auto|dark|light|dark-daltonized|light-daltonized|dark-ansi|light-ansi]'],
@@ -1904,6 +2045,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'effort',
+		modelRun: byForm('confirm', (args) => (args.length === 0 ? 'run' : 'confirm')),
 		immediate: true,
 		help: {
 			usage: ['/effort [level|default] [hypermode on|off]'],
@@ -1981,6 +2123,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'hypermode',
+		modelRun: 'confirm',
 		immediate: true,
 		help: {
 			usage: ['/hypermode [on|off]'],
@@ -1994,18 +2137,37 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'fast',
+		modelRun: 'confirm',
 		immediate: true,
 		help: {
-			usage: ['/fast [on|off]'],
+			usage: ['/fast'],
 			details: [
-				'Fast mode asks the model for faster replies at twice the standard rate. It exists on a few Anthropic models; on any other it is refused with the reason. Off by default, never saved, and it never changes reasoning effort. With no argument, toggles the current state. `namzu --fast` starts a conversation with it on.',
+				'Fast mode asks the model for faster replies at a higher price: a multiple of the standard rate on an API key, or more of your plan allowance on a Codex subscription. It exists on a few Anthropic and OpenAI models, and the command is listed in the menu only on a model that offers it; typed on any other it is refused with the reason. Off by default, never saved by this command, and it never changes reasoning effort. It toggles: off turns fast on, fast turns it off, and ultrafast switches to fast. `namzu --fast` starts a conversation with fast mode on.',
 			],
 		},
-		description: 'Toggle fast inference for this conversation: /fast [on|off].',
-		action: (_ctx, args) => fastAction(args),
+		description: 'Toggle fast inference for this conversation.',
+		listedWhen: (ctx) => ctx.speedTiers?.().includes('fast') ?? false,
+		unavailable: (ctx) => ctx.speedTierRefusal?.('fast'),
+		action: (_ctx, args) => speedAction('fast', args),
+	},
+	{
+		name: 'ultrafast',
+		modelRun: 'confirm',
+		immediate: true,
+		help: {
+			usage: ['/ultrafast'],
+			details: [
+				'Ultrafast is the tier above fast mode, offered on the Codex subscription models whose account lists it. It uses much more of your plan allowance, applies to this conversation only, is never saved, and never changes reasoning effort. The command is listed in the menu only on a model that offers it; typed on any other it is refused with the reason. It toggles: off turns ultrafast on, ultrafast turns it off, and fast switches to ultrafast.',
+			],
+		},
+		description: 'Toggle the fastest inference tier for this conversation.',
+		listedWhen: (ctx) => ctx.speedTiers?.().includes('ultrafast') ?? false,
+		unavailable: (ctx) => ctx.speedTierRefusal?.('ultrafast'),
+		action: (_ctx, args) => speedAction('ultrafast', args),
 	},
 	{
 		name: 'orchestrate',
+		modelRun: 'confirm',
 		immediate: true,
 		help: {
 			usage: ['/orchestrate [on|off]'],
@@ -2018,6 +2180,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'init',
+		modelRun: 'confirm',
 		description: 'Write an AGENTS.md describing this project to future agents.',
 		help: {
 			usage: ['/init'],
@@ -2090,13 +2253,11 @@ export function initPrompt(instructionFiles: readonly string[]): string {
 }
 
 /** The session's shell hooks, by event, in the order the config file gave them. */
-/** `/fast [on|off]`. */
-function fastAction(args: readonly string[]): SlashAction {
-	const choice = args.join(' ').trim().toLowerCase()
-	if (choice.length === 0) return { kind: 'fast-mode', enabled: 'toggle' }
-	if (choice === 'on') return { kind: 'fast-mode', enabled: true }
-	if (choice === 'off') return { kind: 'fast-mode', enabled: false }
-	return { kind: 'message', role: 'system', content: 'Usage: /fast [on|off]' }
+/** `/fast` and `/ultrafast` toggle and take no argument. */
+function speedAction(tier: 'fast' | 'ultrafast', args: readonly string[]): SlashAction {
+	if (args.join(' ').trim().length > 0)
+		return { kind: 'message', role: 'system', content: `Usage: /${tier}` }
+	return { kind: 'fast-mode', tier }
 }
 
 /** `/hypermode [on|off]`, and its deprecated `/orchestrate` alias. */
@@ -2782,6 +2943,15 @@ export function statusRows(ctx: SlashContext): [string, string][] {
 			: []),
 		['Instructions', ctx.instructionFiles.map((file) => homePath(file)).join(', ') || 'None'],
 	]
+	const folderFiles = [
+		...presentFolderFiles(ctx.cwd, 'project'),
+		...presentFolderFiles(ctx.cwd, 'local'),
+	]
+	if (folderFiles.length > 0)
+		rows.push([
+			'Settings files',
+			`${folderFiles.map((file) => file.name).join(', ')}${bothFilesNotes(ctx.cwd).length > 0 ? ' · two of one kind are read; keep one (/status details)' : ''}`,
+		])
 	if (ctx.sandbox?.workspace)
 		rows.push([
 			'Files',
@@ -2844,6 +3014,7 @@ export function renderStatus(ctx: SlashContext, details = false): string {
 	}
 	if (details) {
 		for (const dir of ctx.directories?.() ?? []) lines.push(`Additional directory: ${dir}`)
+		for (const note of bothFilesNotes(ctx.cwd)) lines.push(`Settings files: ${note}`)
 		if (sandbox) {
 			lines.push(
 				`Required isolation: ${sandbox.required.length > 0 ? sandbox.required.join(', ') : 'none'}.`,
@@ -2881,7 +3052,13 @@ function permissionRulesReply(ctx: SlashContext, args: readonly string[]): strin
 			return 'Usage: /permissions rules [allow|ask|deny]'
 		}
 		try {
-			const entries = ruleEntries(readPermissionLayers({ cwd: ctx.cwd }))
+			// A folder that is not trusted has its own files left unread, so their rules decide nothing.
+			const entries = ruleEntries(
+				readPermissionLayers({
+					cwd: ctx.cwd,
+					...(isTrusted(ctx.cwd) ? {} : { includeProject: false }),
+				}),
+			)
 			// An answer given at a prompt is held in memory for this conversation
 			// and saved to the project's local file. One the file does not carry
 			// (it could not be written, or was edited out since) is listed too, so
@@ -2889,7 +3066,7 @@ function permissionRulesReply(ctx: SlashContext, args: readonly string[]): strin
 			const held = ruleEntries([
 				{
 					source: 'local-file',
-					path: LOCAL_CONFIG_FILE,
+					path: LOCAL_SETTINGS_FILE,
 					permissions: permissionsForAllows(ctx.rememberedAllows?.() ?? []),
 				},
 			])
@@ -2911,7 +3088,14 @@ function permissionRulesReply(ctx: SlashContext, args: readonly string[]): strin
 	if (word === 'remove') {
 		const rule = args.slice(1).join(' ').trim()
 		if (rule === '') return 'Usage: /permissions remove <rule>'
-		return applyRuleEdit(ctx, removeLocalRule(ctx.cwd, rule))
+		const edit = removeLocalRule(ctx.cwd, rule)
+		// An answer held for this conversation only is in no file; it goes here.
+		const forgot = ctx.forgetRememberedAllow?.(rule) === true
+		if (!forgot) return applyRuleEdit(ctx, edit)
+		const held = 'It is no longer held for this conversation either.'
+		if (edit.ok) return applyRuleEdit(ctx, { ok: true, message: `${edit.message} ${held}` })
+		const gone = `Removed ${rule} from the answers held for this conversation; that applies to later calls.`
+		return edit.missing === true ? gone : `${edit.message} ${gone}`
 	}
 	if (word === 'denied') return renderRecentDenials(ctx.recentDenials?.())
 	if (word === 'dirs') {
@@ -2941,6 +3125,10 @@ export function renderPermissions(
 	if (current.source === 'launch-flag') lines.push('Selected at launch with --permission-mode.')
 	if (current.source === 'config-default')
 		lines.push('Selected by permissions.defaultMode in your configuration.')
+	if (current.source === 'auto-default' && current.mode === 'classify')
+		lines.push(
+			'Namzu’s default for the terminal. To start by asking instead, set permissions.defaultMode: prompt in ~/.namzu/config.yaml.',
+		)
 	lines.push('Explicit deny rules and the built-in safety gate apply in every mode.')
 	if (current.mode === 'plan')
 		lines.push('Plan mode also blocks writes that an allow rule would otherwise permit.')
@@ -3094,6 +3282,14 @@ export function runSlash(
 	}
 
 	const user = ctx.userCommands.find((c) => c.name === parsed.name)
+	if (!user) {
+		const renamed = RENAMED_SLASH[parsed.name]
+		if (renamed) {
+			return { kind: 'message', role: 'system', content: `This command is now \`${renamed}\`.` }
+		}
+		const usage = keywordUsage(parsed.name)
+		if (usage) return { kind: 'message', role: 'system', content: usage }
+	}
 	if (user) {
 		const expanded = expandCommand(user, parsed.args.join(' '))
 		return expanded.ok

@@ -120,7 +120,10 @@ describe('agent settings', () => {
 				'Computer use on',
 				'Default model',
 			])
-			expect(report.facts[0]?.value).toBe('Ask before risky actions')
+			// The default holds in the terminal only, and the fact says so.
+			expect(report.facts[0]?.value).toBe(
+				'A model decides. In the terminal app, when a model can check actions; otherwise Ask before risky actions.',
+			)
 			expect(report.facts[3]?.value).toBe('off')
 		})
 

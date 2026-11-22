@@ -2,6 +2,7 @@ import {
 	installWasReplaced,
 	replacedInstallLine,
 } from '../integrations/auto-update/replaced-install.js'
+import { StateFileBusyError, StateFileUnreadableError } from '../integrations/state/state-file.js'
 import { homePath } from './person-terms.js'
 import { debugRequested } from './plain-interruption.js'
 
@@ -53,6 +54,9 @@ export function explainFailure(
 	}
 	if (cause) return `${couldNot} ${cause}`
 	if (err instanceof StartupRefusal) return `${couldNot} ${err.message}`
+	// A state file that was refused, not replaced: where its copies are is the whole point.
+	if (err instanceof StateFileUnreadableError || err instanceof StateFileBusyError)
+		return `${couldNot} ${err.sentence(homePath)}`
 	// A sentence Namzu itself wrote for a person ("Delegated agents are still
 	// active; ...") is shown as it is; anything that reads as machine output is not.
 	if (err instanceof Error && isAuthoredSentence(err)) return `${couldNot} ${err.message}`

@@ -209,6 +209,83 @@ export function describeGoalEnding(
 	}
 }
 
+/** One requirement of a goal and what was done to check it. */
+export interface GoalEvidence {
+	readonly requirement: string
+	readonly checked: string
+	readonly result: string
+}
+
+/** What a judge is shown when the model says a goal is complete. */
+export interface GoalJudgeInput {
+	/** The conversation and turn the report was made in, for a host that counts the judge's spend there. */
+	readonly sessionId: string
+	readonly turnId: string
+	readonly objective: string
+	readonly evidence: readonly GoalEvidence[]
+	/** The turn's record in plain words, as {@link recordSentence} writes it. */
+	readonly outcome: string
+	/** The model's last message of the turn. */
+	readonly finalMessage: string
+}
+
+/** What a judge found: whether the goal is met and, when it is not, what is missing. */
+export interface GoalJudgement {
+	readonly met: boolean
+	readonly missing: readonly string[]
+}
+
+/**
+ * Judges one completion report. Resolves `undefined` when it could not judge
+ * (no model, an error, a timeout, a reply that was not an answer); the goal
+ * then takes the path it takes without a judge, and is never blocked by it.
+ */
+export type GoalJudge = (input: GoalJudgeInput) => Promise<GoalJudgement | undefined>
+
+/** Every field a completion report's evidence entries must carry, in the words the model reads. */
+export const GOAL_AUDIT_RUBRIC = [
+	'Before reporting a goal complete: restate each requirement in the objective, check each one against the current state (open the file, run the check, read the output), and list them as evidence with what you checked and what you saw.',
+	'Intent, earlier work or a plausible-looking answer is not proof. If any evidence is weak or missing, keep working instead of reporting.',
+].join(' ')
+
+/** Turns the model's `evidence` input into entries, or says what is wrong with it. */
+export function parseGoalEvidence(
+	value: unknown,
+):
+	| { readonly ok: true; readonly evidence: readonly GoalEvidence[] }
+	| { readonly ok: false; readonly problem: string } {
+	if (!Array.isArray(value) || value.length === 0) {
+		return {
+			ok: false,
+			problem: 'Reporting a goal complete needs evidence: a list with one entry per requirement.',
+		}
+	}
+	const evidence: GoalEvidence[] = []
+	for (const entry of value) {
+		const item = entry as Partial<Record<keyof GoalEvidence, unknown>> | null
+		const text = (field: keyof GoalEvidence): string =>
+			typeof item?.[field] === 'string' ? (item[field] as string).trim() : ''
+		const requirement = text('requirement')
+		const checked = text('checked')
+		const result = text('result')
+		if (requirement === '' || checked === '' || result === '') {
+			return {
+				ok: false,
+				problem: 'Every evidence entry needs a requirement, what was checked, and the result.',
+			}
+		}
+		evidence.push({ requirement, checked, result })
+	}
+	return { ok: true, evidence }
+}
+
+function sameRequirement(a: string, b: string): boolean {
+	const fold = (text: string): string => text.toLowerCase().replace(/\s+/gu, ' ').trim()
+	const x = fold(a)
+	const y = fold(b)
+	return x === y || x.includes(y) || y.includes(x)
+}
+
 export interface GoalConfirmationOptions {
 	readonly store: SessionGoalStore
 	/** The same resolver the goal tools use: the authority of the turn, or none. */
@@ -217,12 +294,29 @@ export interface GoalConfirmationOptions {
 	readonly defaultConfirmedBy?: GoalConfirmedBy
 	/** Refusals a goal may be given. Default {@link DEFAULT_GOAL_REFUSALS}. */
 	readonly maxRefusals?: number
+	/**
+	 * Make `update_goal` with `complete` need evidence, and hold the first such
+	 * report of a goal once so the model audits itself. Default off: the report
+	 * ends the goal, as it always has.
+	 */
+	readonly requireEvidence?: boolean
+	/** Checks a completion report when {@link judgeActive} says so. */
+	readonly judge?: GoalJudge
+	/** Whether a judge is in use for the goal now. Default: a judge was given. */
+	readonly judgeActive?: () => boolean
 }
 
 interface Claim {
 	readonly statement: GoalStatement
 	readonly reason?: string
+	/** Present on a report of a goal the model confirms, with its evidence. */
+	readonly evidence?: readonly GoalEvidence[]
 }
+
+/** What to do with a completion report when no judge decides it. */
+export type SelfAuditDecision =
+	| { readonly kind: 'accept' }
+	| { readonly kind: 'hold'; readonly note: string }
 
 /**
  * Holds, for one session, what the model reported this turn, how many times a
@@ -235,8 +329,63 @@ export class GoalConfirmation {
 	private readonly refusals = new Map<string, number>()
 	private readonly changed = new Set<string>()
 	private readonly endings = new Map<string, GoalEndingReport>()
+	/** Requirements listed in the first completion report of a goal, which held it once. */
+	private readonly audited = new Map<string, readonly string[]>()
+	private readonly judged = new Map<string, number>()
 
 	constructor(private readonly options: GoalConfirmationOptions) {}
+
+	/** Whether `update_goal` with `complete` needs evidence. */
+	get requiresEvidence(): boolean {
+		return this.options.requireEvidence === true
+	}
+
+	/** Whether a judge checks the completion reports of a goal the model confirms. */
+	get judging(): boolean {
+		return (
+			this.options.judge !== undefined &&
+			(this.options.judgeActive === undefined || this.options.judgeActive())
+		)
+	}
+
+	/**
+	 * A completion report made while no judge decides it. The first report of a
+	 * goal is handed back once with the rubric; the next is accepted when its
+	 * evidence covers each requirement the first one listed. No model is asked.
+	 */
+	selfAudit(goalId: string, evidence: readonly GoalEvidence[]): SelfAuditDecision {
+		const listed = this.audited.get(goalId)
+		if (listed === undefined) {
+			this.audited.set(
+				goalId,
+				evidence.map((entry) => entry.requirement),
+			)
+			return {
+				kind: 'hold',
+				note: `Held once for an audit. ${GOAL_AUDIT_RUBRIC} Report complete again with the evidence once every requirement holds.`,
+			}
+		}
+		const uncovered = listed.filter(
+			(requirement) => !evidence.some((entry) => sameRequirement(entry.requirement, requirement)),
+		)
+		if (uncovered.length > 0) {
+			return {
+				kind: 'hold',
+				note: `The evidence does not cover: ${uncovered.join('; ')}. Report complete again with an entry for each requirement you listed before.`,
+			}
+		}
+		this.audited.delete(goalId)
+		return { kind: 'accept' }
+	}
+
+	/** Keeps a model-confirmed report until the model finishes its answer and a judge can read it. */
+	claimEvidence(goalId: string, evidence: readonly GoalEvidence[], reason?: string): void {
+		this.claims.set(goalId, {
+			statement: 'met',
+			evidence,
+			...(reason !== undefined ? { reason } : {}),
+		})
+	}
 
 	/** What decides this goal: its own choice, else the host's setting, else the model. */
 	confirmedByFor(goal: Pick<SessionGoal, 'confirmedBy'>): GoalConfirmedBy {
@@ -299,7 +448,77 @@ export class GoalConfirmation {
 		this.claims.delete(goal.id)
 		this.refusals.delete(goal.id)
 		this.changed.delete(goal.id)
+		this.audited.delete(goal.id)
+		this.judged.delete(goal.id)
 		return report
+	}
+
+	/**
+	 * A report of a goal the model confirms, read when the model finishes its
+	 * answer: the judge decides it. Met ends the goal. Not met keeps it active
+	 * and sends the missing list back while refusals remain; past the bound the
+	 * turn ends and the list leads the next round. A judge that cannot judge
+	 * leaves the decision to the self-audit.
+	 */
+	private async judgeClaim(
+		authority: GoalRoundAuthority,
+		goal: SessionGoal,
+		turnId: string,
+		read: () => Promise<TurnOutcome | undefined>,
+		finalMessage: string,
+	): Promise<string | undefined> {
+		const claim = this.claims.get(goal.id)
+		this.claims.delete(goal.id)
+		if (!claim?.evidence) return undefined
+		const { store } = this.options
+		const ref = { id: authority.id, revision: authority.revision }
+		const evidence = claim.evidence
+		let judgement: GoalJudgement | undefined
+		if (this.options.judge !== undefined) {
+			try {
+				judgement = await this.options.judge({
+					sessionId: String(authority.sessionId),
+					turnId,
+					objective: goal.objective,
+					evidence,
+					outcome: recordSentence(await read()),
+					finalMessage,
+				})
+			} catch {
+				judgement = undefined
+			}
+		}
+		const accept = async (): Promise<undefined> => {
+			// What an earlier check found missing is moot once the goal is met.
+			if ((this.judged.get(goal.id) ?? 0) > 0) {
+				await store.recordRound?.(authority.sessionId, authority.tenantId, authority.id, {
+					progress: 'unknown',
+					missing: [],
+				})
+			}
+			try {
+				await store.completeGoal(authority.sessionId, authority.tenantId, ref)
+			} catch (error) {
+				if (!(error instanceof StaleGoalError)) throw error
+			}
+			this.judged.delete(goal.id)
+			return undefined
+		}
+		if (judgement === undefined) {
+			const decision = this.selfAudit(goal.id, evidence)
+			return decision.kind === 'accept' ? await accept() : decision.note
+		}
+		if (judgement.met) return await accept()
+		const missing = judgement.missing.map((line) => line.trim()).filter((line) => line !== '')
+		const asked = this.judged.get(goal.id) ?? 0
+		this.judged.set(goal.id, asked + 1)
+		const list = missing.length > 0 ? missing : ['the evidence does not show the goal is met']
+		await store.recordRound?.(authority.sessionId, authority.tenantId, authority.id, {
+			progress: 'unknown',
+			missing: list,
+		})
+		if (asked >= this.maxRefusals) return undefined
+		return `The check of your completion report found the goal is not met yet. Missing: ${list.join('; ')}. Keep working on these, then report complete again with updated evidence.`
 	}
 
 	/** Drop a report that was never answered for, when its round ends without the turn finishing an answer. */
@@ -314,13 +533,18 @@ export class GoalConfirmation {
 	 */
 	beforeEnd(
 		turnId: string,
-	): (read: () => Promise<TurnOutcome | undefined>) => Promise<string | undefined> {
-		return async (read) => {
+	): (
+		read: () => Promise<TurnOutcome | undefined>,
+		context?: { readonly finalMessage?: string },
+	) => Promise<string | undefined> {
+		return async (read, context) => {
 			const authority = this.options.resolveAuthority(turnId)
 			if (!authority) return undefined
 			const goal = await this.options.store.getGoal(authority.sessionId, authority.tenantId)
 			if (!goal || goal.id !== authority.id || goal.phase !== 'active') return undefined
-			if (this.confirmedByFor(goal) !== 'record') return undefined
+			if (this.confirmedByFor(goal) !== 'record') {
+				return await this.judgeClaim(authority, goal, turnId, read, context?.finalMessage ?? '')
+			}
 
 			const record = await read()
 			const claim = this.claims.get(goal.id)

@@ -12,6 +12,7 @@ import { providersRegisteredCheck } from './providers.js'
 import { cwdWritableCheck, tmpdirWritableCheck } from './runtime.js'
 import { sandboxPlatformCheck } from './sandbox.js'
 import { schedulerCheck } from './scheduler.js'
+import { stateFilesCheck } from './state-files.js'
 import { describeInstalledPackage, telemetryInstalledCheck } from './telemetry.js'
 import { pseudoTerminalCheck } from './terminal.js'
 import { updatesCheck } from './updates.js'
@@ -68,6 +69,7 @@ export {
 	networkCheck,
 	sandboxPlatformCheck,
 	schedulerCheck,
+	stateFilesCheck,
 	telemetryInstalledCheck,
 	pseudoTerminalCheck,
 	updatesCheck,
@@ -78,6 +80,8 @@ export const builtInDoctorChecks: readonly DoctorCheck[] = [
 	sandboxPlatformCheck,
 	cwdWritableCheck,
 	tmpdirWritableCheck,
+	// The trusted folders list and approvals, and where the recovery copies of the state files are.
+	stateFilesCheck,
 	// Before the providers: it is the first thing that explains one that cannot be reached.
 	networkCheck,
 	providersRegisteredCheck,

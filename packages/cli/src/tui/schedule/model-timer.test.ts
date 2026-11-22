@@ -430,6 +430,19 @@ describe('the integration', () => {
 		return { it, said, submitted }
 	}
 
+	it('hands back a promise for /schedule and /loop that settles after the command has spoken', async () => {
+		const { it, said } = integration(() => true)
+		const settled = it.handleSlash('schedule', ['list'])
+		expect(settled).not.toBe(false)
+		await settled
+		expect(said.length).toBeGreaterThan(0)
+		const loop = it.handleSlash('loop', ['list'])
+		expect(loop).not.toBe(false)
+		await loop
+		expect(it.handleSlash('goal', [])).toBe(false)
+		it.dispose()
+	})
+
 	it('offers the timer tools and the wake-up tool next to the reviewed ones', () => {
 		const { it } = integration(() => true)
 		const names = it.tools().map((t) => t.name)

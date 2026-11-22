@@ -1,7 +1,7 @@
 ---
 type: Reference
 title: The scheduler service
-description: How `namzu schedule install` runs the scheduler under systemd, launchd, Windows Task Scheduler and WSL — the files it writes, the single owner and its standby, upgrades, status and exit codes, notifications, uninstalling, and manual checks per platform.
+description: How `namzu schedule service install` runs the scheduler under systemd, launchd, Windows Task Scheduler and WSL — the files it writes, the single owner and its standby, upgrades, status and exit codes, notifications, uninstalling, and manual checks per platform.
 resource: packages/cli/src/schedule/service/
 tags: [cli, schedule, service, systemd, launchd, windows, wsl]
 status: stable
@@ -11,27 +11,43 @@ generated: { by: process:claude-code, at: 2026-09-23T00:00:00Z }
 # The scheduler service
 
 [Scheduled tasks](scheduled-tasks.md) are run by one scheduler process per
-`NAMZU_HOME`: `namzu schedule daemon`. `namzu schedule install` has your
+`NAMZU_HOME`: `namzu schedule service daemon`. `namzu schedule service install` has your
 platform's service manager keep it running. The service always starts
 
 ```text
-"<absolute node>" "<absolute namzu CLI>" schedule daemon --home "<NAMZU_HOME>"
+"<absolute node>" "<absolute namzu CLI>" schedule service daemon --home "<NAMZU_HOME>"
 ```
 
 with both paths resolved at install: no shell, no PATH lookup, no profile.
 `install` is safe to run again (after moving node, or to repair it).
 
+The service commands live under `schedule service`; the job commands
+(`add`, `list`, `run`, `pause` and the rest) stay directly under `schedule`.
+The old top-level spellings (`schedule install`, `status`, `start`, `stop`,
+`logs`, `uninstall`) no longer run: typed, each prints one line naming the new
+spelling and exits 64. One old spelling is kept silently: a service installed
+before this change starts `schedule daemon`, and that form still runs the
+scheduler, so an installed service does not break. Reinstalling
+(`namzu schedule service install`) rewrites the unit, task or property list to
+`schedule service daemon`.
+
 ```sh
-namzu schedule install [--platform auto|systemd-user|launchd|windows-task|wsl-windows-task] \
+namzu schedule service install [--platform auto|systemd-user|launchd|windows-task|wsl-windows-task] \
                        [--name <service>] [--at-boot] [--dry-run]
-namzu schedule status [--json]
-namzu schedule stop | start
-namzu schedule uninstall [--keep-data | --purge-data] [--wait 10m | --interrupt-runs]
+namzu schedule service status [<name>] [--json]
+namzu schedule service stop [<name>] | start [<name>]
+namzu schedule service logs [<name>] [--follow] [--job <name>] [--since 1h]
+namzu schedule service uninstall [<name>] [--keep-data | --purge-data] [--wait 10m | --interrupt-runs]
+namzu schedule service list [--json]
 ```
 
 `--dry-run` prints the unit, property list or task XML it would write. The
 service is named `namzu-scheduler` for `~/.namzu`, else
 `namzu-scheduler-<8 hex of the home's hash>`; `--name` overrides it.
+
+When `--name` is omitted the service gets the name above, and that default is what the
+index below records. The name you give is the name you type: `service list`, `status`,
+`start`, `stop`, `logs` and `uninstall` all use it on every platform, WSL included.
 
 `install` refuses a CLI running from the npx cache (it is not kept) and a node
 that is not an absolute path.
@@ -43,7 +59,7 @@ that is not an absolute path.
 | Linux with a systemd user manager | `~/.config/systemd/user/<name>.service` | at login; at boot with `--at-boot` (linger) | `Restart=always` |
 | macOS | `~/Library/LaunchAgents/com.namzu.scheduler[…].plist` | at login | `KeepAlive=true` |
 | Windows | Task Scheduler `\namzu\<name>` | at logon | a trigger repeating every 5 minutes |
-| WSL | Task Scheduler `\namzu\<name>-wsl-<distro>`, through `wsl.exe` | at Windows logon | a trigger repeating every 5 minutes |
+| WSL | Task Scheduler `\namzu\<name>-wsl-<distro>` (the task carries the distro so two distros never collide; the service is still `<name>`), through `wsl.exe` | at Windows logon | a trigger repeating every 5 minutes |
 
 ### `script`/`script+agent` jobs, per backend
 
@@ -134,7 +150,7 @@ Under **WSL** the daemon runs inside the distro:
 
 ```text
 C:\Windows\System32\conhost.exe --headless C:\Windows\System32\wsl.exe -d <distro> -u <user>
-  --cd / --exec /usr/bin/env NAMZU_HOME=<home> <node> <cli> schedule daemon --home <home>
+  --cd / --exec /usr/bin/env NAMZU_HOME=<home> <node> <cli> schedule service daemon --home <home>
 ```
 
 The `wsl.exe` process the task holds both starts the distro after a reboot and
@@ -171,25 +187,25 @@ which would start signed out.
 Ownership of a home is a fenced lease in `schedule/daemon/`: `lease.<fence>.json`
 files published with `link`, the highest fence owning, renewed every 30 seconds
 and expiring after 90. A second daemon — a supervisor starting one while
-another runs, or you running `namzu schedule daemon` by hand — **does not
+another runs, or you running `namzu schedule service daemon` by hand — **does not
 exit**: it logs `scheduler on standby` and takes over when the owner's lease
 expires. The owner checks its fence is still the highest before starting any
 run, and one that finds itself fenced out stops dispatching at once. Independently
 of the lease, every scheduled time is claimed with a file only one process can
-create, so a run never starts twice. `schedule daemon --once-or-exit` exits 75
+create, so a run never starts twice. `schedule service daemon --once-or-exit` exits 75
 instead of waiting.
 
-`namzu schedule stop` and `uninstall` also leave `schedule/daemon/stop.json`,
+`namzu schedule service stop` and `uninstall` also leave `schedule/daemon/stop.json`,
 which every daemon of the home checks at least every 30 seconds and exits on.
 It reaches what the service manager cannot: a daemon on standby (it has no
 endpoint), and, under WSL, a daemon whose Windows task was ended — ending
 `wsl.exe` does not end the Linux process. `start` and `install` remove it; a
-`schedule daemon` started by hand while it is there says so and exits.
+`schedule service daemon` started by hand while it is there says so and exits.
 
 A daemon that exits because of it exits **80**, which the systemd unit names in
 `RestartPreventExitStatus=`: a stopped scheduler started again (by hand, or by
 anything else) exits once instead of being restarted every ten seconds.
-`schedule stop` also keeps the service from starting at the next login: it
+`schedule service stop` also keeps the service from starting at the next login: it
 **disables** the systemd unit (`systemctl --user disable --now`), the launchd
 agent (`launchctl disable`, then `bootout`) and the Windows task, and `start`
 enables them again.
@@ -201,15 +217,55 @@ or `namzu upgrade` it stops starting runs, waits for the runs it started, and
 exits 0; the supervisor starts the new code. While it waits it does not evaluate
 schedules either, so an occurrence that comes due during the wait is left to the
 daemon that takes over: it runs late, or is recorded as missed under the job's
-catch-up policy, and a one-shot still runs. A `schedule run-now` during the
+catch-up policy, and a one-shot still runs. A `schedule run` during the
 wait, or one accepted earlier that was still waiting for a free slot or its
 folder when the wait began, is queued on disk and started by the daemon that
 takes over. The wait
 lasts as long as the longest run in progress.
 
+## Named services
+
+Every `schedule` command acts on the scheduler of the current `NAMZU_HOME`. To stop,
+start or inspect another one by name, without setting `NAMZU_HOME`, `install` records each
+service in a per-user index, `schedule/services.json` in the default Namzu home
+(`~/.namzu`, whatever `NAMZU_HOME` is), written atomically and stamped `v: 1`:
+
+```json
+{ "v": 1, "kind": "schedule-service-index",
+  "services": [{ "name": "autodev", "home": "/data/autodev", "platform": "systemd-user", "installedAt": "2026-11-22T10:00:00.000Z" }] }
+```
+
+- `install --name <n>` refuses a name the index maps to a different home (both homes are
+  named; uninstall the other one or pick another `--name`). Installing the same name for
+  the same home again updates the entry.
+  Installing a different name for a home that already has one replaces that home's entry:
+  one home has one service, so a name always resolves to the service that has it.
+- `uninstall` removes the entry, also when the supervisor's service was already gone.
+- `status`, `start`, `stop`, `logs` and `uninstall` take an optional service name
+  (`namzu schedule service stop autodev`). The command then acts exactly as if run with
+  `NAMZU_HOME` set to that service's home (same manifest, same supervisor calls, same
+  output) and says once which home it resolved to. A name given while `NAMZU_HOME` points
+  elsewhere wins, and one line says so. Without a name nothing changes. An unknown name
+  fails with the known names and the hint `namzu schedule service list`.
+  A WSL service installed by an older version was registered as `<name>-wsl-<distro>`;
+  `<name>` finds it too, `service list` shows it as `<name>`, and the next `install` for
+  that home rewrites the entry. Reading never rewrites the index.
+  The name goes right after the verb; a word left over anywhere else (`stop --json beta`,
+  `stop beta extra`) is refused with a usage error instead of being ignored.
+- A damaged index, or one written by a newer namzu, is never rewritten: `install` still
+  installs and says the service was not listed by name, `list` and a named command report
+  one line (`the service index <path> cannot be read: <reason>; fix or move it`), and
+  `uninstall` finishes the removal before it tries the index and then says it was not
+  updated. Entries that are not well formed (no name, home or platform) are skipped.
+- `list [--json]` shows every indexed service with its name, home, platform and state:
+  `running`, `not running`, `not installed`, or `missing` when its home folder is gone.
+- The job commands (`list`, `show`, `history`, `pause`, `resume`, `run`, `remove`, `edit`,
+  `confirm`, `prune`, `add`) take `--service <name>` the same way:
+  `namzu schedule pause nightly --service autodev`.
+
 ## Status
 
-`namzu schedule status` shows the service, what the supervisor says, whether the
+`namzu schedule service status` shows the service, what the supervisor says, whether the
 daemon answers (pid, version, standby, draining), the notification backend, the
 number of jobs and runs in progress, each run waiting for approval with the
 command that answers it (`awaitingApproval: [{ job, sessionId, resumeCommand,
@@ -230,7 +286,7 @@ every five minutes (-2147020576, 0x800710E0)` — not a failure. Also in words:
 (0x41303), `ended by a person or a stop` (0x41306), `the program was not
 found` (0x80070002), `ended when its console closed` (0xC000013A), and the
 scheduler's own exits, `another one owns this NAMZU_HOME` (75) and `namzu
-schedule stop asked it to` (80). Any other result is its number with the
+schedule service stop asked it to` (80). Any other result is its number with the
 hexadecimal beside it. It used to print the bare decimal (`last result
 267009`), which says nothing.
 
@@ -242,7 +298,7 @@ hexadecimal beside it. It used to print the bare decimal (`last result
 
 The daemon's log is `schedule/daemon/log/daemon-YYYY-MM-DD.jsonl`, fourteen days
 kept, with job names and ids only — never a prompt or a model's words. `namzu
-schedule logs [--follow] [--job <name>]` reads it; `--run <id> --job <name>`
+schedule service logs [--follow] [--job <name>]` reads it; `--run <id> --job <name>`
 prints one run's own output.
 
 The daemon answers `status`, `reload`, `run-now`, `stop` and
@@ -290,7 +346,7 @@ remove. Jobs and history are kept unless `--purge-data`.
 Tested here on WSL2 (Arch Linux, systemd PID 1): both the Task Scheduler and the
 systemd paths. On a Mac and on native Windows, run these once:
 
-1. `namzu schedule install`, then `namzu schedule status` exits 0 within 30
+1. `namzu schedule service install`, then `namzu schedule service status` exits 0 within 30
    seconds.
 2. `namzu schedule add probe --prompt "Say hello." --when "in 2m" --permissions
    read-only`, confirm, wait: `namzu schedule history probe` shows `completed`,
@@ -300,5 +356,5 @@ systemd paths. On a Mac and on native Windows, run these once:
    without anything typed.
 4. macOS: a job whose folder is under `~/Documents` either runs or stops with a
    `blocked-config` naming privacy protection — never silently empty.
-5. `namzu schedule uninstall --purge-data`: `launchctl print gui/$(id -u)/com.namzu.scheduler`
+5. `namzu schedule service uninstall --purge-data`: `launchctl print gui/$(id -u)/com.namzu.scheduler`
    or `schtasks /Query /TN \namzu\namzu-scheduler` finds nothing.

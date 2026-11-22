@@ -101,6 +101,40 @@ API-key Chat Completions transport accepts user images and documents but its
 tool-result wire remains text-only; the SDK capability warning makes that
 degradation visible before the affected request.
 
+## Fast mode
+
+`speed: 'fast'` on `ChatCompletionParams` (or `turnConfig.speed`) asks for the
+vendor's faster tier at a higher price; `'standard'` and an absent value send
+nothing. The API-key driver sends `service_tier: "priority"` to the models in
+`OPENAI_FAST_TABLE` (at 2 times the standard rate, 2.5 on `gpt-5.5`). The
+subscription driver sends the same value, plus a routing header, only to models
+whose account listing offers a fast tier (`ModelInfo.speedTiers`,
+`speedTiersFor(model)`), and `speed: 'ultrafast'` the same way where the listing
+offers it. Ultrafast is refused on an API key.
+
+Anything else is refused before a request with a `bad_request`
+`ProviderRequestError` whose `providerCode` is `fast_mode_unsupported`: an
+unlisted model, a base URL that is not `api.openai.com`, a tier the account does
+not list, or a listing that has not loaded yet. The tier that served each call is
+read back into `TokenUsage.speed` (`priority` and `fast` are `'fast'`; `default`
+and `auto` are standard; a missing echo is the tier asked for), and the SDK
+prices a fast call at the catalogue's `fastMultiplier`; ultrafast has no
+per-token price and counts as unpriced.
+
+```ts
+import { resolveFastModeVerdict } from '@namzu/openai'
+
+const verdict = resolveFastModeVerdict({
+  route: 'api',
+  model: 'gpt-5.5',
+  tier: 'fast',
+  firstPartyEndpoint: true,
+})
+const speed = verdict.ok ? 'fast' : undefined
+```
+
+See [Fast mode on OpenAI models](https://github.com/cogitave/namzu/blob/main/docs/sdk/fast-mode.md).
+
 ## Documentation
 
 - [Namzu docs](https://github.com/cogitave/namzu/tree/main/docs)

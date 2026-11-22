@@ -174,7 +174,7 @@ export async function openManagedWorktrees(
 		const problem = worktreeLocationProblem(settings.location)
 		if (problem) {
 			throw new Error(
-				`The worktree location setting points at ${settings.location}. ${problem} Change it in Settings, or clear it to keep worktrees inside the project.`,
+				`The worktree location setting points at ${settings.location}. ${problem} Change it in Settings, or clear it to keep worktrees in the Namzu home (${standardDir}).`,
 			)
 		}
 		worktreesDir = join(await realpath(settings.location), slug)

@@ -1,6 +1,6 @@
 /**
  * Which terminal this is, from what it puts in the environment. Only what
- * `/terminal-setup` and its hint need: the terminals Namzu can set up, the ones
+ * `/terminal setup` and its hint need: the terminals Namzu can set up, the ones
  * that need nothing, and the rest.
  */
 
@@ -76,7 +76,7 @@ export function identifyTerminal(env: Env): TerminalId {
 	return 'other'
 }
 
-/** Terminals `/terminal-setup` can write a setting for. */
+/** Terminals `/terminal setup` can write a setting for. */
 export function canSetUp(id: TerminalId, platform: string): boolean {
 	if (id === 'apple') return platform === 'darwin'
 	return (

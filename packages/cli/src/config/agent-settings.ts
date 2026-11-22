@@ -328,12 +328,12 @@ function fact(
 ): { name: string; value: string } {
 	try {
 		const row = readSettingRow(path, ctx)
-		const value =
-			row.layer && row.layer !== 'user' && row.effective !== undefined
-				? row.effective
-				: row.set
-					? row.value
-					: row.default
+		const fromLayer = Boolean(row.layer && row.layer !== 'user' && row.effective !== undefined)
+		// Nothing saved: the default in the words Settings uses, its note included,
+		// so a default that holds only in some places is not reported as holding
+		// everywhere (the terminal starts in auto; a Desktop conversation does not).
+		if (!fromLayer && !row.set) return { name, value: row.defaultText }
+		const value = fromLayer ? row.effective : row.value
 		return {
 			name,
 			value: value === undefined ? 'not set' : valueWords(descriptorOf(path), value),

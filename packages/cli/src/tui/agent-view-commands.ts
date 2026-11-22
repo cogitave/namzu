@@ -37,9 +37,10 @@ export function agentViewCommandClass(name: string): AgentViewCommandClass | und
 	switch (name) {
 		case 'model':
 		case 'fast':
+		case 'ultrafast':
 			return {
 				kind: 'block',
-				notice: `/${name} changes the main conversation's ${name === 'model' ? 'model' : 'fast mode'}, not this agent's`,
+				notice: `/${name} changes the main conversation's ${name === 'model' ? 'model' : name === 'fast' ? 'fast mode' : 'ultrafast'}, not this agent's`,
 			}
 		case 'compact':
 		case 'clear':

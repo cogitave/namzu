@@ -81,7 +81,8 @@ it('settles an accepted switch without another inference and preserves its recei
 		kind: 'pending',
 		selection: { id: 'codex', model: 'gpt-5.6-luna' },
 	}))
-	const onPermission = vi.fn(async () => ({ kind: 'reject' as const }))
+	// The person approves each switch request.
+	const onPermission = vi.fn(async () => ({ kind: 'approve' as const }))
 	const first: AgentEvent[] = []
 	const second: AgentEvent[] = []
 	let conversation: readonly Message[] | undefined
@@ -139,7 +140,7 @@ it('settles an accepted switch without another inference and preserves its recei
 		)
 		expect(switchModel).toHaveBeenCalledTimes(1)
 		expect(switchModel.mock.calls[0]?.[0]).toEqual({ model: 'gpt-5.6-luna' })
-		expect(onPermission).not.toHaveBeenCalled()
+		expect(onPermission).toHaveBeenCalledTimes(1)
 		expect(first).toContainEqual(
 			expect.objectContaining({
 				kind: 'tool-end',
@@ -208,6 +209,8 @@ it('returns a rejected selection to the model so a corrected request can settle 
 	try {
 		for await (const event of session.send([createUserMessage('Switch to gpt-5.6-luna')], {
 			onModelSwitch: switchModel,
+			permissionMode: 'prompt',
+			onPermission: async () => ({ kind: 'approve' }),
 			onConversationMessages: (messages) => {
 				conversation = messages
 			},

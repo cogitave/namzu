@@ -230,8 +230,12 @@ export { StaleObjectiveError } from './types/topic/objective.js'
 // consumes this store; automatic continuation is a separate driver rather
 // than a side effect hidden inside persistence.
 export {
+	DEFAULT_GOAL_CHECK_IN_ROUNDS,
+	DEFAULT_GOAL_STALL_ROUNDS,
 	DEFAULT_MAX_GOAL_ROUNDS,
 	DiskSessionGoalStore,
+	GoalBudgetLimitError,
+	GoalCheckInError,
 	GoalExistsError,
 	GoalNotFoundError,
 	GoalRoundLimitError,
@@ -240,6 +244,9 @@ export {
 	InMemorySessionGoalStore,
 	MAX_GOAL_OBJECTIVE_CHARS,
 	StaleGoalError,
+	goalCostText,
+	goalTokensText,
+	goalUsageSentence,
 } from './store/goal/index.js'
 
 export {
@@ -286,10 +293,12 @@ export {
 } from './tools/goal/index.js'
 export {
 	DEFAULT_GOAL_REFUSALS,
+	GOAL_AUDIT_RUBRIC,
 	GoalConfirmation,
 	NO_CHECK_REASON_CODE,
 	decideGoalConfirmation,
 	describeGoalEnding,
+	parseGoalEvidence,
 	recordSentence,
 } from './tools/goal/confirmation.js'
 export { SessionGoalActivation } from './manager/goal/activation.js'
@@ -313,7 +322,35 @@ export {
 	resolveTempBase,
 	tempFilePath,
 } from './utils/temp.js'
+export {
+	HOOK_ENV_OWNER_FILE,
+	TEMP_SWEEP_EVERY_MS,
+	TEMP_SWEEP_MAX_AGE_MS,
+	TEMP_SWEEP_STAMP,
+	type TempSweepOptions,
+	type TempSweepReport,
+	sweepPrivateTempRoot,
+} from './utils/temp-sweep.js'
 export { extractFinalResponse } from './utils/conversation.js'
+export {
+	EMPTY_LOCK_GRACE_MS,
+	FileLockError,
+	inspectFileLock,
+	lockPathFor,
+	withFileLock,
+	withFileLockSync,
+} from './utils/file-lock.js'
+export {
+	STATE_BACKUPS_DIR,
+	STATE_BACKUP_KEEP,
+	STATE_BACKUP_MIN_INTERVAL_MS,
+	backupStateFile,
+	listStateFileCopies,
+	preserveUnreadableStateFile,
+	rewriteStateFileBackups,
+	stateBackupsDir,
+	writeFileAtomicSync,
+} from './utils/state-backup.js'
 
 // ─── router, runtime, turn ───────────────────────────────────────────────
 
@@ -1679,12 +1716,17 @@ export {
 // The model that decides, in the `classify` review mode, what a person would
 // otherwise be asked. See `runtime/query/auto-review/`.
 export {
+	AUTO_REVIEW_BLOCKED_PREFIX,
 	AUTO_REVIEW_DEFAULTS_MARKER,
+	AUTO_REVIEW_UNAVAILABLE_PREFIX,
 	DEFAULT_ALLOW as DEFAULT_AUTO_REVIEW_ALLOW,
 	DEFAULT_AUTO_REVIEW_LIMITS,
 	DEFAULT_HARD_DENY as DEFAULT_AUTO_REVIEW_HARD_DENY,
 	DEFAULT_SOFT_DENY as DEFAULT_AUTO_REVIEW_SOFT_DENY,
 	autoReviewBlockedFeedback,
+	autoReviewOversizedFeedback,
+	autoReviewStoppedFeedback,
+	autoReviewUnavailableFeedback,
 	createAutoReviewClassifier,
 	resolveAutoReviewRules,
 } from './runtime/query/auto-review/index.js'
@@ -2048,13 +2090,16 @@ export {
 	PeerSessionStateSchema,
 	PingRequestSchema,
 	PingResponseSchema,
+	RemoteOriginSchema,
 	SubscribeIdleRequestSchema,
 	SubscribeIdleResponseSchema,
 	createPeerEndpoint,
 	derivePeerRef,
 	formatPeerMessage,
 	formatPersonMessage,
+	permissionModeWord,
 	formatPeerNotice,
+	formatRoleContext,
 	hardenPeerRuntimeDir,
 	isPeerRecordLive,
 	listLivePeers,
@@ -2069,6 +2114,58 @@ export {
 	udsPeerAddress,
 	writePeerRecord,
 } from './peers/index.js'
+// ─── your Namzu network (@experimental) ───────────────────────────────────
+//
+// Machines of one person find each other, share a roster of sessions and
+// roles, and message each other under the same safety rules as local peers.
+// See `network/index.ts`.
+
+export {
+	AUDIT_EVENTS,
+	BROWSE_WINDOW_MS,
+	DEFAULT_LISTEN_PORT,
+	HOLD_EXPIRY_MS,
+	HoldQueue,
+	MAX_HELD_PER_TERMINAL,
+	MAX_NET_LINE_BYTES,
+	MAX_PREAUTH_LINE_BYTES,
+	MAX_ROLE_BYTES,
+	MDNS_GROUP,
+	MDNS_PORT,
+	NET_PROTOCOL,
+	NetworkError,
+	createDiscoveryHub,
+	createFakeDiscovery,
+	createFileAuditSink,
+	createFounding,
+	createManualClock,
+	createMdnsDiscovery,
+	createMemoryAuditSink,
+	createNamzuNetwork,
+	createNetworkIdentity,
+	createNetworkStore,
+	createSystemGatewayReader,
+	decideMail,
+	evaluateMembership,
+	formatJoinCode,
+	generateMachineKey,
+	generateSessionName,
+	isPrivateNetworkAddress,
+	joinCode,
+	machineLabel,
+	mergeMembership,
+	networkFingerprint,
+	parseHostPort,
+	privateInterfaces,
+	resolveSessionTarget,
+	sanitizeName,
+	sanitizeRole,
+	sessionDisplayName,
+	sessionLabel,
+	SlidingCounter,
+	systemClock,
+	textHash,
+} from './network/index.js'
 export {
 	SESSION_CHILD_ENV,
 	startedBySession,

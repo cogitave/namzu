@@ -1,7 +1,8 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
+
+import { makeTempDir } from '../__fixtures__/temp-dir.js'
 
 import { ConfigLoadError, ConfigValueError, loadConfigWithProvenance } from './load.js'
 
@@ -27,7 +28,7 @@ interface Layout {
 }
 
 function layout(files: { user?: unknown; project?: unknown; managed?: unknown }): Layout {
-	const root = mkdtempSync(join(tmpdir(), 'namzu-profiles-'))
+	const root = makeTempDir('namzu-profiles-')
 	const home = join(root, 'home')
 	const cwd = join(root, 'work')
 	const managedDir = join(root, 'managed')

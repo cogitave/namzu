@@ -63,11 +63,15 @@ export interface TrustedFoldersControls {
 	error?: string
 	busy: boolean
 	remove: (path: string) => Promise<void>
+	/** Only while the list cannot be read: an empty list in its place, the old one kept. */
+	startNew: () => Promise<void>
 }
 
 /** The folders the engine trusts, read when `active` turns on. */
 export function useTrustedFolders(
-	api: Pick<DesktopApi, 'trustedFolders' | 'removeTrustedFolder'> | undefined,
+	api:
+		| Pick<DesktopApi, 'trustedFolders' | 'removeTrustedFolder' | 'startNewTrustedFolders'>
+		| undefined,
 	active: boolean,
 ): TrustedFoldersControls {
 	const [view, setView] = useState<TrustedFoldersView>()
@@ -102,5 +106,18 @@ export function useTrustedFolders(
 		},
 		[api],
 	)
-	return { view, error, busy, remove }
+	const startNew = useCallback(async () => {
+		if (!api?.startNewTrustedFolders) return
+		setBusy(true)
+		setError(undefined)
+		try {
+			setView(await api.startNewTrustedFolders())
+		} catch (failure) {
+			setError(plain(failure, 'A new list could not be started. Nothing was changed.'))
+			void api.trustedFolders?.().then(setView, () => undefined)
+		} finally {
+			setBusy(false)
+		}
+	}, [api])
+	return { view, error, busy, remove, startNew }
 }

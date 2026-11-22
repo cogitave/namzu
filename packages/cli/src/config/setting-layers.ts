@@ -1,8 +1,10 @@
 /**
  * Which layer decides a setting's value when it is not the user's own file.
  *
- * The loader merges, weakest to strongest: defaults, the user file, the project file, the project's
- * local file, a profile, the environment, the managed (administrator) file. Desktop shows the user
+ * The loader merges, weakest to strongest: defaults, the user file, the project files
+ * (`namzu.config.json`, then `.namzu/settings.json`), the project's local files (the earlier
+ * `namzu.config.local.json`, then `.namzu/settings.local.json`), a profile, the environment, the
+ * managed (administrator) file. Desktop shows the user
  * file, so a row must say when a stronger layer is what the engine actually uses. This reads the
  * same files and variables the loader reads, per key, and never throws: a file that does not parse
  * is the loader's to refuse at start-up, and here it is simply not a layer.
@@ -12,13 +14,13 @@
  */
 
 import { existsSync, readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
 import { resolveAutoCompactWindowSetting } from '@namzu/sdk'
 
 import { readSwitch } from '../integrations/auto-update/policy.js'
 import { fullscreenFromEnv } from '../tui/fullscreen/mode.js'
-import { LOCAL_CONFIG_FILE, MANAGED_CONFIG_PATH, projectLayerHolds } from './load.js'
+import { MANAGED_CONFIG_PATH, projectLayerHolds } from './load.js'
 import { positiveTokenCount } from './model-environment.js'
+import { localConfigFiles, projectConfigFiles } from './project-files.js'
 
 export type EffectiveLayer = 'project' | 'local' | 'managed' | 'env'
 
@@ -76,6 +78,10 @@ export const ENVIRONMENT_BINDINGS: Readonly<Record<string, EnvBinding>> = {
 	disableHooks: { variable: 'NAMZU_DISABLE_HOOKS', read: loaderSwitch },
 	modelCatalogueRefresh: {
 		variable: 'NAMZU_MODEL_CATALOGUE_REFRESH',
+		read: loaderSwitch,
+	},
+	shareDesktopSignIn: {
+		variable: 'NAMZU_SHARE_DESKTOP_SIGNIN',
 		read: loaderSwitch,
 	},
 	'updates.auto': {
@@ -150,8 +156,14 @@ function lookup(doc: unknown, path: readonly string[]): unknown {
 
 /** Reads the project, local and managed files once, for every row. */
 export function layerReader(opts: LayerOptions): (path: string) => LayerAnswer | undefined {
-	const project = readJson(resolve(opts.cwd, 'namzu.config.json'))
-	const local = readJson(resolve(opts.cwd, LOCAL_CONFIG_FILE))
+	// Each layer's files strongest first: `.namzu/settings.json` over `namzu.config.json`, the
+	// local file over its earlier name.
+	const project = projectConfigFiles(opts.cwd)
+		.map((file) => readJson(file.path))
+		.reverse()
+	const local = localConfigFiles(opts.cwd)
+		.map((file) => readJson(file.path))
+		.reverse()
 	const managed = readJson(opts.managedPath ?? MANAGED_CONFIG_PATH)
 	return (path) => {
 		const segments = path.split('.')
@@ -179,10 +191,13 @@ export function layerReader(opts: LayerOptions): (path: string) => LayerAnswer |
 				env: { variable: binding.variable, value: raw.trim() },
 			}
 		}
-		const held = (doc: Record<string, unknown>, dropped: readonly string[]) => {
+		const held = (docs: readonly Record<string, unknown>[], dropped: readonly string[]) => {
 			if (dropped.some((key) => path === key || path.startsWith(`${key}.`))) return undefined
-			const value = lookup(doc, segments)
-			return value !== undefined && projectLayerHolds(path, value) ? value : undefined
+			for (const doc of docs) {
+				const value = lookup(doc, segments)
+				if (value !== undefined && projectLayerHolds(path, value)) return value
+			}
+			return undefined
 		}
 		const fromLocal = held(local, LOCAL_DROPPED)
 		if (fromLocal !== undefined) return { layer: 'local', effective: fromLocal }

@@ -1,5 +1,78 @@
 # Changelog
 
+## 68.0.0
+
+### Major Changes
+
+- 109d0fc: `InferenceSpeed` and `TokenUsage.speed` gain the value `'ultrafast'`, so a `switch` over either that must be exhaustive stops compiling until it has an `'ultrafast'` case; add one (a driver that has no such tier refuses it, so most callers can treat it like `'fast'` for display and refuse it for pricing). Cost reading changed too: a call served at `'ultrafast'`, and tokens served on the `flex` or `scale` service tier, are now counted as unpriced (like `priority` and `batch`) instead of being charged at the standard rate, so `costLimitUsd` refuses rather than under-counts them. New and optional: `ModelInfo.speedTiers` and `LLMProvider.speedTiersFor(model)` name the speed tiers a listing established for a model (`undefined` unknown, `[]` none), and the retry, idle-timeout, fallback and window-suffix wrappers pass the method through. The model price catalogue gains `fastMultiplier` on six OpenAI rows (`gpt-5.5` is 2.5, `gpt-5.4`, `gpt-5.4-mini` and the three `gpt-5.6` models are 2); the `gpt-6` models have no row, so their fast usage reports unknown.
+
+### Minor Changes
+
+- 431e297: Session goals can be stopped by what they do instead of by a count of rounds, and a completion report can carry evidence. Nothing changes for a host that passes none of the new fields: `DEFAULT_MAX_GOAL_ROUNDS` is still 256 and no stop rule is applied.
+
+  New and optional: `CreateSessionGoalParams.guards` (`stallRounds`, `checkInEvery`, `tokenBudget`); `SessionGoalStore.recordRound` (counts a finished round's tokens, cost, progress and failure, and blocks the goal as `no-progress` or `repeated-failure`); `admitRound` pausing a goal for a check-in (`GoalCheckInError`), giving one last round at the token budget and then blocking it (`GoalBudgetLimitError`); `resumeGoal` taking raised limits and replacing the stored stop rules with the ones it is given, without resetting the round count; `GoalConfirmationOptions.requireEvidence`, `judge` and `judgeActive` with `GoalEvidence`, `GoalJudge` and `parseGoalEvidence`; `update_goal` accepting an `evidence` list; `TurnConfig.outcome.beforeEnd` receiving `{ finalMessage }` as a second argument; and the `/goal set` options `--token-budget` and `--max-rounds` with `GoalCommandScope.defaults`. `/goal status` now prints `Automatic turns: N, up to M` with `Tokens` and `Cost` lines instead of `N / M`.
+
+- 266aa39: `HostCommandDescriptor` gains two optional fields, `modelRun` (`'run' | 'confirm' | 'never'`) and `modelRunReads`, and the type `HostCommandModelRun` is exported. A host that lets the model run commands for the person reads them: `run` goes ahead, `confirm` asks the person first, `never` is refused. A command that declares nothing is `never`, so nothing changes for existing commands. The kernel's `goal` command is `confirm` with `/goal` and `/goal status` as read forms; `skills` and `agents` are `run`.
+
+## 67.0.0
+
+### Major Changes
+
+- c1989fd: The auto-review classifier now sees how each earlier call ended, and the working tree before a git command that can destroy local work. For a host that uses the `classify` review mode, these change with no option set:
+
+  - Before a shell call that runs a destructive git command (a hard reset, a forced clean, a checkout or restore over changes, a forced push, a forced branch deletion, a dropped or cleared stash, a rebase that starts, skips or abandons one), the kernel runs `git status --porcelain --branch` as a subprocess in the folder the command runs in, with a 2 second deadline, no optional locks, the file system monitor off and no lazy fetch, and shows the classifier its answer. It is skipped for a sandboxed shell, and whenever the line does not name the folder for certain (a `cd` joined to the command by anything but `&&`, a closed subshell, `popd`, `eval`, `GIT_DIR` and the like). `ResumeContext.gitStatus(line, dialect)` and `AutoReviewRequest.gitStatus` carry it; a failure attaches nothing.
+  - The classifier's prompt has new rules, so some verdicts change: a call that was rejected by the person, blocked by permissions or blocked by auto mode and comes back is judged as a second try at it; a refusal by plan mode or `strict`, an unanswered question and an answer with no verdict are not; a git command that would discard the listed files is blocked unless the person asked for that loss, and a list with no files is weak evidence only.
+  - `ToolMessage` has an optional `outcome` (`ToolResultOutcome`: `interrupted`, `rejected`, `refused_by_mode`, `blocked_by_permissions`, `blocked_by_auto_mode`, `auto_mode_unavailable`), written by the executor on the result of a call that did not simply run. `createToolMessage` takes it as a fifth, optional argument. The classifier reads it, never the result's text.
+  - A call the classifier gave no verdict on is told `autoReviewUnavailableFeedback(reason)` ("Auto mode could not check this action: ... it may be tried again") instead of the block text. An action too long for the check to read now has its own `cause: 'oversized'` (it was `unreadable`), is told `autoReviewOversizedFeedback(reason)` to split it up, and is not counted as an answer with no verdict.
+  - `AutoReviewLimits.noVerdict` (off unless set) counts answers in a row that were no verdict. The block that completes the run carries `noVerdictLimitReached`, and the review policy then refuses the batch with `autoReviewStoppedFeedback(reason)`, calls the new `ReviewPolicyOptions.onClassifierUnavailable`, and ends the turn.
+
+  What to check before upgrading: a host that finds auto mode refusals by matching the text "Blocked by auto mode:" should also match `AUTO_REVIEW_UNAVAILABLE_PREFIX`, or read `ToolMessage.outcome`. A host that handles every value of `AutoReviewDecision['cause']` gains `oversized`, and one that treated `unreadable` as "too long" should read `oversized` instead. A host whose process may not start `git` loses nothing but the status.
+
+  This is a major release. Nothing is removed or renamed, but two things a host may rely on change: an over-long action now returns `cause: 'oversized'` instead of `unreadable` (the `AutoReviewDecision['cause']` union is wider, so an exhaustive switch over it needs the new case), and a destructive git command now starts a `git status` subprocess by default. To keep the old reading of an over-long action, treat `oversized` as you treated `unreadable`; a host whose process must not start `git` should run the classifier with a sandboxed shell, where the status is skipped.
+
+### Minor Changes
+
+- 735ab77: Adds your Namzu network: the pieces a host needs for machines of one person to find each other on a private network, join with one Allow, show one roster of sessions, pass roles, and exchange messages under the local safety rules. It is new, `@experimental` and used only if you call it: `createNamzuNetwork`, `createMdnsDiscovery`, `decideMail`, `evaluateMembership`, the roster helpers and `formatRoleContext`. Nothing in an existing host changes until it adopts it.
+
+  Additive changes to what already existed, which an exhaustive `switch` over these unions will notice: `PeerSessionKind` has `'net'`, `NoticeOutcome` has `'expired'`, `DeliverRequest` has an optional `remote`, `PeerRecord` has optional `role`, `roleBy` and `roleAt`, `formatPeerMessage` takes an optional `machine`, and `SystemEventKind` / `SystemEventStatus` have `'role-notice'` and `'expired'`. An endpoint accepts `remote` only from a verified `net` sender and refuses a `net` sender that omits it; no existing sender is affected. The network listens only on private addresses, never for an unattended host, and writes nothing under `~/.namzu/network` until a host starts it.
+
+  Also exported for a host that holds its own mail the way the network does: `HoldQueue` and `SlidingCounter` (with the `HeldEntry` and `HoldQueueOptions` types). A member that let a joiner in now shows it by the name the joiner gave in its request, before the joiner's own greeting arrives; it showed the machine id until then.
+
+  Also new: `NetworkService.cancelJoin()` and `nearbyNetworks()`, `FRESH_NETWORK_MS`, the `'cancelled'` result of `join-ended` and `join()`, and `permissionModeWord` (the screen's name for a mode: `classify` is `auto`, `auto` is `unattended`), now used in the hold reasons of `decideMail` and in the `formatPeerMessage` wrapper, which used to print the kernel names. A machine that is alone in a network founded less than a minute ago and hears another such network asks the younger to join the older (`ping_net` of such a network adds `ageMs`). `AuditEntry` has an optional `direction` (`in` or `out`); the service now writes role changes with a hash and size of the text and every mail decision on the sending side too.
+
+  Membership no longer orders statements by the times a signer wrote in them: a revocation always removes what its target admitted, a machine cannot revoke one above it in its own admission chain, so a stolen machine cannot back-date its way back in (`Revocation.cascade` stays in the wire shape and no longer changes the outcome). `createMdnsDiscovery().start()` can be called again to begin or change an advertisement (it was ignored after the first call), drops packets from public sources and addresses outside the sender's subnet, and `start(undefined)` withdraws one. The certificate name is random on each start. The `role-notice` text says the role was written elsewhere and not reviewed; a role from another machine is refused for a bypass session. Text from another machine (roster names, folders, modes, roles, reasons) has control characters stripped. `JoinTable.find` by name matches only a unique name.
+
+  Trusted networks: `createNamzuNetwork` takes `autoAdmit` (`'trusted-networks'` by default, `'always'`, `'never'`) and `networkIdentity`; a member admits a join request without an Allow when it comes from a network in the machine's `trusted-networks.json` (or any private network with `always`), emitting a `join-auto` event and writing `join_allowed` with an "automatically" decision. New on `NetworkService`: `networkOf(address)`, `allow(query, { trust })`, `trustedNetworks()`, `trustNetwork()`, `renameNetwork()`, `untrustNetwork()`; new audit events `network_trusted` and `network_untrusted`; new exports `createNetworkIdentity`, `createSystemGatewayReader`, `networkFingerprint` and the types `AutoAdmitSetting`, `NetworkRef`, `TrustedNetwork`, `Gateway`, `GatewayReader`. A network whose default gateway's hardware address cannot be read is unknown and never trusted.
+
+- ce8b85d: A turn's session log no longer writes the system prompt twice. A `request_envelope` record whose system text is the turn's own prompt carries `systemPromptFrom: 'turn_started'` and no `systemPrompt`; read the text from the turn's `turn_started`. A request whose prompt a step rewrote keeps its `systemPrompt`, and logs written before this read unchanged. The live `request_envelope` event still carries the text. If you read `systemPrompt` from `request_envelope` records, fall back to the turn's `turn_started` record when it is missing.
+- ce8b85d: New exports for small files that more than one process changes: `withFileLock`, `withFileLockSync`, `lockPathFor`, `FileLockError`, `inspectFileLock` (with the `FileLockState` type) and `EMPTY_LOCK_GRACE_MS` (the lock-file protocol the account locks already used, now under a general name), and `backupStateFile`, `preserveUnreadableStateFile`, `listStateFileCopies`, `rewriteStateFileBackups`, `stateBackupsDir`, `writeFileAtomicSync` with `STATE_BACKUPS_DIR`, `STATE_BACKUP_KEEP` (5) and `STATE_BACKUP_MIN_INTERVAL_MS` (60 s). `AccountLockError` is now a subclass of `FileLockError`; its `name` is still the literal `'AccountLockError'`, and `AccountLockOptions` / `AccountLockSyncOptions` are the same shapes as before.
+
+  The account locks, and every lock on this protocol, now also take over a lock that was left without its owner written into it (a full disk, or a process killed right after creating it) once it is ten seconds old, and a lock that carries this process's own pid but is not held by it (left by an earlier process with the same pid, as after a container restart). Before, either one refused every later change until the file was removed by hand. A process whose lock body cannot be written now removes the lock before it reports the error.
+
+  The account registry now copies `accounts.json` to `<home>/backups/accounts.json.backup.<epoch ms>` (mode 0600, at most one a minute, five kept) before each change, and removing an API-key account takes that key out of every copy before the store is written. A store that cannot be read is still refused, and the refusal now names the newest copy and when it was taken. A file the CLI cannot read is kept as `<home>/backups/<file>.corrupted.<epoch ms>`. Nothing to change on your side; delete `<home>/backups/` if you do not want the copies.
+
+- ce8b85d: Adds `sweepPrivateTempRoot` (with `TEMP_SWEEP_MAX_AGE_MS`, `TEMP_SWEEP_EVERY_MS`, `TEMP_SWEEP_STAMP`, `HOOK_ENV_OWNER_FILE`) to clear old session scratch folders, dead `hook-env*` folders and dangling `s-*` names from Namzu's private temp folder. A hook-env folder now records an `owner.json` with its process id; nothing to do for existing callers.
+
+  A hook folder whose owning process reads as gone is now also kept until nothing in it changed for ten minutes, so a process in another pid namespace sharing the temp folder keeps its folder.
+
+### Patch Changes
+
+- ce8b85d: A write into a project's `.namzu/worktrees/` is now asked about like any other
+  write under `.namzu`. The exemption dates from when delegated work kept its
+  worktrees there; they live in the Namzu home now
+  (`projects/<slug>/worktrees/`), and a write inside one is still judged against
+  that worktree's own root, so delegated work asks no more often than before.
+  Only a write you make into an old `.namzu/worktrees/` folder now asks first.
+- ce8b85d: No change in behaviour. The protected-path list's notes now say that `.namzu/settings.json` and `.namzu/settings.local.json` are covered through the `.namzu` folder, and that `namzu.config.local.json` stays protected as the local file's earlier name.
+- ce8b85d: The session index (`index.sqlite`) is now readable by its owner only. It holds
+  the opening of every prompt and the full text of tool results and replies, and
+  it used to take the umask's mode (0644 on most systems), so other users of the
+  machine could read it while the session logs themselves were 0600. A new index
+  is created 0600 in a folder created 0700; opening an existing index narrows it,
+  and any journal file beside it, to 0600 when you own it. Session folders and
+  `lease.<fence>.json` files are created owner-only too. Nothing to do: the next
+  open fixes an existing index, and no data changes.
+
 ## 66.0.0
 
 ### Major Changes

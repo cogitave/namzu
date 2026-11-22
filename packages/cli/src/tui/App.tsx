@@ -23,7 +23,6 @@ import {
 	type BackgroundJobOutput,
 	CompactionRefusedError,
 	type CostInfo,
-	DEFAULT_MAX_GOAL_ROUNDS,
 	DiskMessageFeedbackStore,
 	HostCommandRegistry,
 	MONITOR_TOOL_NAME,
@@ -41,6 +40,7 @@ import {
 	type SessionTimer,
 	TurnCancelled,
 	type TurnId,
+	type TurnOutcome,
 	type WakeBudget,
 	asSessionId,
 	createAssistantMessage,
@@ -77,6 +77,14 @@ import {
 	useState,
 	useSyncExternalStore,
 } from 'react'
+import {
+	type PeersAction,
+	describeAction,
+	peersActions,
+	renderPeersScreen,
+} from '../integrations/network/format.js'
+import { networkSettings } from '../integrations/network/policy.js'
+import { type NetworkRuntime, createNetworkRuntime } from '../integrations/network/runtime.js'
 import {
 	type LivePeers,
 	buildPeerTools,
@@ -282,7 +290,12 @@ import {
 } from '../integrations/subagents/activity.js'
 import { NARRATION_TOOL_NAME } from '../integrations/subagents/runtime.js'
 import { readFolderGrants } from '../integrations/trust/folder-grants.js'
-import { isTrusted, trustDir } from '../integrations/trust/store.js'
+import {
+	isTrusted,
+	startNewTrustList,
+	trustDir,
+	trustListProblem,
+} from '../integrations/trust/store.js'
 import { completionNotice } from '../integrations/workflows/notice.js'
 import { resumeCallText } from '../integrations/workflows/resume.js'
 import { DEFAULT_WORKFLOW_SIZE_GUIDELINE, largeRunNotice } from '../integrations/workflows/size.js'
@@ -315,17 +328,23 @@ import {
 import {
 	renderMemoryReport,
 	renderMemorySaveResult,
+	renderNoteNotSaved,
 	renderStoredMemorySection,
 	renderTypedNoteResult,
 } from '../memory/presentation.js'
 import { appendMemoryWithStatus, readMemory } from '../memory/store.js'
 import {
+	AUTO_MODE_DEFAULT_NOTICE_BODY,
+	AUTO_MODE_DEFAULT_NOTICE_TITLE,
 	BYPASS_CONSENT_BODY,
 	BYPASS_CONSENT_TITLE,
 	acknowledgeBypass,
 	hasAcknowledgedBypass,
+	hasSeenAutoModeDefaultNotice,
+	markAutoModeDefaultNoticeSeen,
 } from '../permissions/consent.js'
 import { createImageReadPolicy } from '../permissions/image-read.js'
+import { defaultStartMode } from '../permissions/launch.js'
 import {
 	type ModeAvailability,
 	type PermissionMode,
@@ -339,6 +358,7 @@ import { type SessionAllow, allowsFor, sameAllow } from '../permissions/session-
 import { resolveProgressNudge } from '../reminders/progress-nudge.js'
 import { type RoundGateFacts, admissionBlocked } from '../rounds/gates.js'
 import { admitGoalRound } from '../rounds/goal-admission.js'
+import { goalDefaults, goalSpentSentence, recordGoalRound } from '../rounds/goal-guards.js'
 import { RoundQueue } from '../rounds/queue.js'
 import {
 	type QueuePause,
@@ -451,7 +471,7 @@ import { TextPrompt } from './TextPrompt.js'
 import { ThemeSample } from './ThemeSample.js'
 import { Transcript, messageCollapses } from './Transcript.js'
 import { TranscriptScrollView } from './TranscriptScrollView.js'
-import { TrustPrompt, shownToolServers } from './TrustPrompt.js'
+import { TrustPrompt, shownToolServers, unreadableTrustListNotice } from './TrustPrompt.js'
 import { ViewportBound } from './ViewportBound.js'
 import {
 	ACCOUNT_PICKER_HINTS,
@@ -513,6 +533,8 @@ import {
 	filterChoiceOptions,
 	moveChoiceSelection,
 } from './choice-selection.js'
+import { builtinCommandCatalogue } from './command-catalogue.js'
+import type { CommandToolHost } from './command-tool.js'
 import { keepRecentRows } from './compact-transcript.js'
 import {
 	COMPACTED_HINT,
@@ -535,6 +557,12 @@ import {
 	runnableCommands,
 } from './copy-targets.js'
 import {
+	cleanupOnStart,
+	loadEarlierPrompts,
+	recordSentPrompt,
+	touchOpenedConversation,
+} from './cross-session-history.js'
+import {
 	DECISION_KIND_OPTIONS,
 	DECISION_KIND_VALUES,
 	DECISION_OFFER_OPTIONS,
@@ -552,11 +580,14 @@ import { type EditorMode, describeEditorMode, saveEditorMode } from './editor-mo
 import type { TuiExitSummary } from './exit-summary.js'
 import { ExternalEditorError, editDraftInExternalEditor } from './external-editor.js'
 import {
-	fastDroppedMessage,
-	fastLaunchRefusal,
-	fastModeBlocker,
+	type FastTier,
+	fastAfterModelChange,
+	fastModeOptionsFor,
+	fastModeVerdict,
 	fastOffMessage,
 	fastOnMessage,
+	launchFastOutcome,
+	requestedFastTier,
 } from './fast-mode.js'
 import { FullscreenTranscript } from './fullscreen/FullscreenTranscript.js'
 import type { FullscreenControl } from './fullscreen/FullscreenTranscript.js'
@@ -737,12 +768,7 @@ import {
 } from './triggers/registry.js'
 import { describeComposerTriggers, setComposerTriggers } from './triggers/setting.js'
 import { typedInputOf } from './typed-input.js'
-import {
-	type TypedKeySave,
-	keepAccountKeyForStartup,
-	logoutWordFor,
-	saveTypedKey,
-} from './typed-key-save.js'
+import { type TypedKeySave, logoutWordFor, saveTypedKey } from './typed-key-save.js'
 import { formatCompactCount } from './units.js'
 import { useSpinnerTip } from './use-spinner-tip.js'
 import { type WebActivity, webCallTitle, webLiveStatus } from './web-activity.js'
@@ -838,6 +864,7 @@ import {
 	commitReviewPrompt,
 	hostCommandNames,
 	kernelCommandDescriptors,
+	listedCommands,
 	mergeHostCommands,
 	parseSlash,
 	renderOutcome,
@@ -1142,6 +1169,15 @@ type ChoicePickerState = {
 			readonly options: readonly ChoicePickerOption[]
 	  }
 	| {
+			/** `/peers`: what waits for the person (join requests, held messages); `values` index `actions`. */
+			readonly kind: 'peers-network'
+			readonly title: string
+			readonly notice?: string
+			readonly actions: readonly PeersAction[]
+			readonly values: readonly string[]
+			readonly options: readonly ChoicePickerOption[]
+	  }
+	| {
 			readonly kind: 'resume-goal'
 			readonly title: string
 			readonly notice: string
@@ -1373,6 +1409,8 @@ type StreamState = {
 	messageTextStart?: number
 	/** Exact provider-visible conversation state returned by the settled kernel run. */
 	conversationMessages?: readonly Message[]
+	/** The kernel's record of what the turn changed and checked, for a goal round's bookkeeping. */
+	turnRecord?: TurnOutcome
 	pending?: string
 	/**
 	 * When arrived text was last put on the screen, and the one timer that puts
@@ -1448,7 +1486,10 @@ function modelSwitchLabel(provider: string | undefined, model: string | null | u
 }
 
 /** A model as the person reads it in a line of words. */
-function modelSwitchWords(to: { readonly id: string; readonly model: string }): string {
+function modelSwitchWords(to: {
+	readonly id: string
+	readonly model: string
+}): string {
 	return to.id === to.model ? to.model : `${to.id} · ${to.model}`
 }
 
@@ -1551,7 +1592,7 @@ export function projectConversation(
 					{
 						id: nextId(),
 						role: 'system',
-						content: goalRoundHeadline(message.source.round, message.source.maxGoalRounds),
+						content: goalRoundHeadline(message.source.round),
 						glyph: SYSTEM_ROW_GLYPH,
 						glyphColor: systemRowStyle('notice').color,
 					},
@@ -1849,6 +1890,19 @@ function AppBody({
 	const palRouteSessionRef = useRef<string | null>(null)
 	const palDefaultPreferencesRef = useRef<Preferences | null>(null)
 	const [history, setHistory] = useState<readonly string[]>([])
+	/**
+	 * The project's prompts from earlier conversations (`history.jsonl`), oldest first. Up and
+	 * Ctrl+R reach them after this conversation's own prompts.
+	 */
+	const [earlierPrompts, setEarlierPrompts] = useState<readonly string[]>([])
+	const composerHistory = useMemo(() => {
+		if (earlierPrompts.length === 0) return history
+		// The newest earlier prompt and the first of this conversation are one entry when they match.
+		const joined = earlierPrompts.at(-1) === history[0] ? history.slice(1) : history
+		return [...earlierPrompts, ...joined]
+	}, [earlierPrompts, history])
+	const appStartedAtRef = useRef(Date.now())
+	const crossSessionStartedRef = useRef(false)
 	const [state, setState] = useState<'idle' | 'thinking' | 'tool' | 'awaiting-permission'>('idle')
 	// The painter is told when a turn ends, before the frame that drops the working line is drawn.
 	const workedRef = useRef(false)
@@ -1998,14 +2052,27 @@ function AppBody({
 	// (a flag that names it, or the operator's own default) and shut by
 	// `permissions.disableBypassMode`; nothing typed inside the session opens it.
 	const autoModeNoticeShownRef = useRef(false)
+	/**
+	 * Says once per person, in the transcript, that auto mode is the default:
+	 * the first time a session starts in it because nothing chose another mode.
+	 * The record is `~/.namzu/acknowledgements.json`; a home that cannot be
+	 * written shows it again next time rather than never.
+	 */
+	const autoDefaultNoticeShownRef = useRef(false)
+	/** Shows the notice if it is due; true when it was shown just now. */
+	const showAutoDefaultNoticeRef = useRef<() => boolean>(() => false)
 	const bypassAvailableRef = useRef(
 		ctx.bypassAvailable ??
 			(ctx.skipPermissions === true ||
 				ctx.allowDangerouslySkipPermissions === true ||
 				permissionMode === 'bypass'),
 	)
+	// `auto-default`: nothing chose a mode, so the session starts in auto once
+	// it is built and its classifier can reach a model (see `hydrateSession`).
+	// Until then the screen shows `prompt`, which is also where it stays when
+	// the classifier cannot.
 	const permissionModeSourceRef = useRef<
-		'default' | 'launch-bypass' | 'launch-flag' | 'config-default' | 'session'
+		'default' | 'auto-default' | 'launch-bypass' | 'launch-flag' | 'config-default' | 'session'
 	>(
 		ctx.permissionSource === 'config-default'
 			? 'config-default'
@@ -2013,7 +2080,9 @@ function AppBody({
 				? 'launch-flag'
 				: ctx.skipPermissions === true
 					? 'launch-bypass'
-					: 'default',
+					: ctx.permissionSource === 'auto-default' && !ctx.palId
+						? 'auto-default'
+						: 'default',
 	)
 	const [reasoningEffort, setReasoningEffortState] = useState<ReasoningEffort | undefined>()
 	const reasoningEffortRef = useRef<ReasoningEffort | undefined>(undefined)
@@ -2046,8 +2115,8 @@ function AppBody({
 	// Fast inference: a per-conversation switch like hypermode. Off unless
 	// `--fast` asked, never saved, and dropped (with a message) by a model change
 	// that cannot keep it.
-	const [fastMode, setFastModeState] = useState(false)
-	const fastModeRef = useRef(false)
+	const [fastMode, setFastModeState] = useState<FastTier | undefined>(undefined)
+	const fastModeRef = useRef<FastTier | undefined>(undefined)
 	// Where a pending fast start came from, so a refusal names the right thing.
 	const launchFastPendingRef = useRef<'flag' | 'saved' | undefined>(
 		initialCtx.launchSettings?.fast === true
@@ -2056,7 +2125,51 @@ function AppBody({
 				? 'saved'
 				: undefined,
 	)
-	const setFastMode = useCallback((next: boolean) => {
+	// What the current provider and model offer, kept in step with them for the
+	// command menu: the tiers on offer, and why a missing one is not.
+	const [speedView, setSpeedView] = useState<{
+		readonly tiers: readonly FastTier[]
+		readonly reasons: Partial<Record<FastTier, string>>
+	}>({ tiers: [], reasons: {} })
+	// Recomputed whenever the session (so the provider or model) changes, and
+	// again once the Codex model listing has arrived. While the listing is
+	// unknown the faster tier is left out; fast mode alone is judged without it.
+	useEffect(() => {
+		if (!session?.hasProvider) {
+			setSpeedView({ tiers: [], reasons: {} })
+			return
+		}
+		let current = true
+		const compute = async (): Promise<void> => {
+			const model = session.modelSummary
+			const advertised = model ? session.speedTiersFor?.(model) : undefined
+			const unknown = session.providerId === 'codex' && advertised === undefined
+			const tiers: FastTier[] = []
+			const reasons: Partial<Record<FastTier, string>> = {}
+			for (const tier of ['fast', 'ultrafast'] as const) {
+				if (tier === 'ultrafast' && unknown) {
+					reasons.ultrafast =
+						'Ultrafast needs the list of models your Codex subscription offers, which has not loaded yet. Try again in a moment.'
+					continue
+				}
+				const verdict = await fastModeVerdict(session.providerId, model, {
+					tier,
+					...(advertised !== undefined ? { advertised } : {}),
+				})
+				if (verdict.ok) tiers.push(tier)
+				else reasons[tier] = verdict.reason
+			}
+			if (current) setSpeedView({ tiers, reasons })
+		}
+		void compute()
+		if (session.providerId === 'codex' && session.reasoningSettled) {
+			void session.reasoningSettled.then(() => compute()).catch(() => undefined)
+		}
+		return () => {
+			current = false
+		}
+	}, [session])
+	const setFastMode = useCallback((next: FastTier | undefined) => {
 		fastModeRef.current = next
 		setFastModeState(next)
 	}, [])
@@ -2131,7 +2244,10 @@ function AppBody({
 	cannotTellReasonRef.current = session?.sandbox?.workspace === 'ephemeral' ? 'copy' : undefined
 	// What the outcome lines already said in the conversation on screen; keyed by
 	// the conversation so another one starts with nothing said.
-	const outcomeToldRef = useRef<{ id: string | undefined; telling: OutcomeTelling }>({
+	const outcomeToldRef = useRef<{
+		id: string | undefined
+		telling: OutcomeTelling
+	}>({
 		id: undefined,
 		telling: NOTHING_TOLD,
 	})
@@ -2862,6 +2978,27 @@ function AppBody({
 		idRef.current += 1
 		return `m${idRef.current}`
 	}, [])
+	showAutoDefaultNoticeRef.current = () => {
+		if (autoDefaultNoticeShownRef.current) return false
+		autoDefaultNoticeShownRef.current = true
+		if (hasSeenAutoModeDefaultNotice()) return false
+		try {
+			markAutoModeDefaultNoticeSeen()
+		} catch {
+			// An unwritable home costs a repeat of the notice next time.
+		}
+		const id = nextId()
+		setMessages((previous) => [
+			...previous,
+			{
+				id,
+				role: 'system',
+				content: `${AUTO_MODE_DEFAULT_NOTICE_TITLE}\n${AUTO_MODE_DEFAULT_NOTICE_BODY}`,
+				kind: 'announcement' as const,
+			},
+		])
+		return true
+	}
 	const takeThinking = useCallback(() => {
 		const text = thinkingForNextRowRef.current
 		if (text.trim() === '') return undefined
@@ -3080,6 +3217,29 @@ function AppBody({
 	const activeTurnTokenRef = useRef<object | null>(null)
 	/** A tool can reserve a switch; only the owning turn's finalizer may publish it. */
 	const pendingModelSwitchRef = useRef<PendingModelSwitch | null>(null)
+	/**
+	 * The `command` tool's way into this terminal. The session is built once and
+	 * the terminal's state moves, so the tool holds the bridge and the bridge
+	 * reads whatever the latest render put in the ref.
+	 */
+	const commandHostRef = useRef<Omit<CommandToolHost, 'catalogue'> | null>(null)
+	const commandHostBridge = useRef<CommandToolHost>({
+		catalogue: builtinCommandCatalogue(),
+		unavailable: (name, args) => commandHostRef.current?.unavailable?.(name, args),
+		run: (line, options) =>
+			commandHostRef.current
+				? commandHostRef.current.run(line, options)
+				: Promise.resolve({
+						kind: 'refused' as const,
+						reason: 'The terminal is not ready to run commands.',
+					}),
+	}).current
+	/** What a command run for the model printed, while one is running. */
+	const commandCaptureRef = useRef<string[] | null>(null)
+	/** Why a command run for the model was turned away before it reached its action. */
+	const commandRefusalRef = useRef<string | null>(null)
+	/** The host-command a submit just started, so the tool can wait for its answer. */
+	const hostCommandSettledRef = useRef<Promise<void> | null>(null)
 	const [modelSwitchVersion, setModelSwitchVersion] = useState(0)
 	const cancelPendingModelSwitch = useCallback((): boolean => {
 		const pending = pendingModelSwitchRef.current
@@ -3624,7 +3784,11 @@ function AppBody({
 	const closeAndExit = useCallback(() => {
 		cancelPendingModelSwitch()
 		peersRef.current?.setEnabled(false)
-		const closing = Promise.all([session?.close(), peersRef.current?.close()])
+		const closing = Promise.all([
+			session?.close(),
+			peersRef.current?.close(),
+			networkRef.current?.close(),
+		])
 		const bounded = Promise.race([
 			closing,
 			new Promise<void>((resolve) =>
@@ -3791,6 +3955,7 @@ function AppBody({
 	 */
 	const conversationGenRef = useRef<number>(0)
 	const peersRef = useRef<LivePeers | null>(null)
+	const networkRef = useRef<NetworkRuntime | null>(null)
 	const peersStartingRef = useRef(false)
 	const [peerVersion, wakePeers] = useState(0)
 	const peerTools = useMemo(() => buildPeerTools(() => peersRef.current), [])
@@ -4043,6 +4208,8 @@ function AppBody({
 			contentColor?: string,
 			attachments?: readonly AttachmentRow[],
 		) => {
+			// A command the model ran for the person tells the model what it printed.
+			if (role === 'system') commandCaptureRef.current?.push(content)
 			// A reply's text belongs after the receipt of the agents its turn
 			// launched, so a receipt still waiting out its settle window is
 			// written before the first word of a reply.
@@ -4161,6 +4328,9 @@ function AppBody({
 		},
 		[pushMessage],
 	)
+	/** The latest `pushSystem`, for work started once that reports later (the startup sweep). */
+	const pushSystemLatestRef = useRef(pushSystem)
+	pushSystemLatestRef.current = pushSystem
 	/** Write a row a shared builder produced, as `pushMessage` writes a live one. */
 	const pushRow = useCallback(
 		(row: ToolRow) =>
@@ -4998,9 +5168,26 @@ function AppBody({
 	 */
 	const handleAutoModeLimit = useCallback(
 		(event: {
-			readonly limit: 'consecutive' | 'total'
+			readonly limit: 'consecutive' | 'total' | 'unavailable'
 			readonly reason: string
 		}): void => {
+			if (event.limit === 'unavailable') {
+				// The kernel refused the batch and ended the turn. A person who chose
+				// auto keeps it. A terminal in auto only because nothing chose another
+				// mode goes back to asking, as it does at the block limit, so a model
+				// that cannot judge does not stop every turn for someone who never
+				// picked auto.
+				if (
+					permissionModeSourceRef.current === 'auto-default' &&
+					permissionModeRef.current === 'classify'
+				) {
+					commitPermissionMode('prompt', false)
+					pushMessage('system', AUTO_MODE_DEFAULT_STOPPED_NOTICE)
+					return
+				}
+				pushMessage('system', AUTO_MODE_STOPPED_NOTICE)
+				return
+			}
 			if (permissionModeRef.current !== 'classify') return
 			commitPermissionMode('prompt', false)
 			pushMessage(
@@ -5118,31 +5305,35 @@ function AppBody({
 	}, [initialCtx, pushMessage])
 
 	/**
-	 * Turn fast inference on or off for this conversation. Turning it on is
-	 * refused, with the reason, when the provider, endpoint or model cannot take
-	 * it; it is never saved.
+	 * `/fast` and `/ultrafast`: each toggles its own tier for this conversation,
+	 * so `/fast` on ultrafast switches to fast. Turning one on is refused, with
+	 * the reason, when the provider, endpoint or model cannot take it; it is
+	 * never saved.
 	 */
 	const applyFastMode = useCallback(
-		async (enabled: boolean): Promise<void> => {
+		async (tier: FastTier): Promise<void> => {
 			if (!session?.hasProvider) {
 				pushMessage('system', 'No model is connected yet — pick a provider with /model first.')
 				return
 			}
-			if (!enabled) {
-				if (!fastModeRef.current) pushMessage('system', 'Fast mode is off.')
-				else {
-					setFastMode(false)
-					pushMessage('system', fastOffMessage())
-				}
+			const was = fastModeRef.current
+			const wanted = requestedFastTier(was, tier)
+			if (wanted === undefined) {
+				setFastMode(undefined)
+				if (was !== undefined) pushMessage('system', fastOffMessage(was))
 				return
 			}
-			const blocker = await fastModeBlocker(session.providerId, session.modelSummary)
-			if (blocker !== undefined) {
-				pushMessage('system', blocker)
+			const verdict = await fastModeVerdict(
+				session.providerId,
+				session.modelSummary,
+				await fastModeOptionsFor(session, wanted),
+			)
+			if (!verdict.ok) {
+				pushMessage('system', verdict.reason)
 				return
 			}
-			setFastMode(true)
-			pushMessage('system', fastOnMessage())
+			setFastMode(verdict.tier)
+			pushMessage('system', fastOnMessage(verdict))
 		},
 		[pushMessage, session, setFastMode],
 	)
@@ -5958,6 +6149,91 @@ function AppBody({
 				if (child) setChoicePicker({ ...child, back: picker })
 				return
 			}
+			if (picker.kind === 'peers-network') {
+				const action = picker.actions[Number(value)]
+				const control = networkRef.current?.control
+				const peers = peersRef.current
+				const said = (text: string) => pushMessage('system', text)
+				const failed = (error: unknown) =>
+					pushSystem('error', explainFailure(error, 'That did not work.'))
+				if (!action) return
+				switch (action.kind) {
+					case 'cancel-join':
+						void control
+							?.cancelJoin()
+							.then((was) =>
+								said(was ? 'Withdrew the request to join.' : 'No request to join is waiting.'),
+							)
+							.catch(failed)
+						break
+					case 'join-nearby':
+						void control
+							?.add(`${action.network.host}:${action.network.port}`)
+							.then(() =>
+								said(
+									`Asked ${action.network.host} to let this machine join. Allow it on one of your other machines.`,
+								),
+							)
+							.catch(failed)
+						break
+					case 'allow-join':
+						void control
+							?.allow(action.request.requestId)
+							.then(() => said(`Allowed ${action.request.name} to join your Namzu network.`))
+							.catch(failed)
+						break
+					case 'allow-join-trust':
+						void control
+							?.allow(action.request.requestId, { trust: action.name })
+							.then(() =>
+								said(
+									`Allowed ${action.request.name} to join your Namzu network. This network is trusted as "${action.name}": new machines here join without asking. /peers lists it; "Stop trusting" removes it.`,
+								),
+							)
+							.catch(failed)
+						break
+					case 'untrust-network':
+						void control
+							?.untrust(action.network.name)
+							.then(() =>
+								said(
+									`Stopped trusting ${action.network.name}. New machines on it will ask for an Allow again.`,
+								),
+							)
+							.catch(failed)
+						break
+					case 'deny-join':
+						void control
+							?.deny(action.request.requestId)
+							.then(() => said(`Denied ${action.request.name}.`))
+							.catch(failed)
+						break
+					case 'allow-held-remote':
+						void control
+							?.allowHeld(action.mail.id)
+							.then(() => said('Allowed once: the message was delivered.'))
+							.catch(failed)
+						break
+					case 'deny-held-remote':
+						void control
+							?.denyHeld(action.mail.id)
+							.then(() => said('Denied: the sender was told.'))
+							.catch(failed)
+						break
+					case 'allow-held-local':
+						said(
+							peers?.allowHeld(action.mail.id)
+								? 'Allowed once: the message is in the inbox.'
+								: 'That message is no longer waiting.',
+						)
+						break
+					case 'deny-held-local':
+						peers?.denyHeld(action.mail.id)
+						said('Denied: the sender was told.')
+						break
+				}
+				return
+			}
 			if (picker.kind === 'workflow-runs') {
 				const run = workflowRunsRef.current.find((item) => item.runId === value)
 				if (run && !openWorkflowFromRail(run.groupId)) {
@@ -6436,6 +6712,27 @@ function AppBody({
 			tenantId: sessions.tenantId,
 		}
 		if (conversationMaterializedRef.current) sourceDeliveryPollRef.current()
+		if (!crossSessionStartedRef.current) {
+			crossSessionStartedRef.current = true
+			const start = {
+				sessions,
+				sessionId,
+				...(requestedConversationId ? { resumed: requestedConversationId } : {}),
+				startedAt: appStartedAtRef.current,
+			}
+			// Beside the start, never in front of it: the box works before these land.
+			void (async () => {
+				if (requestedConversationId) await touchOpenedConversation(sessions, sessionId)
+				const earlier = await loadEarlierPrompts(start).catch(() => [] as string[])
+				if (earlier.length > 0) setEarlierPrompts(earlier)
+				await cleanupOnStart(start, (notice) => {
+					const push = pushSystemLatestRef.current
+					if (!push) return false
+					push('notice', notice)
+					return true
+				}).catch(() => undefined)
+			})()
+		}
 		return scopeRef.current
 	}, [nextId])
 
@@ -6658,6 +6955,9 @@ function AppBody({
 										...(activeCtx.goal?.confirmedBy
 											? { goalConfirmedBy: activeCtx.goal.confirmedBy }
 											: {}),
+										...(activeCtx.goal?.judgeModel
+											? { goalJudgeModel: activeCtx.goal.judgeModel }
+											: {}),
 										conversationSessions: sessionsRef.current,
 									}
 								: {}),
@@ -6703,6 +7003,9 @@ function AppBody({
 							planApproval: true,
 							reminders: true,
 							allowModelSwitch: true,
+							// The person can ask for their own commands in words; a Pal has
+							// its own computer and none of them.
+							...(definition ? {} : { commandHost: commandHostBridge }),
 							// The user is at this desktop, so the model may open a page for them.
 							openUrl: true,
 						}),
@@ -6755,10 +7058,44 @@ function AppBody({
 			palRouteSessionRef.current = definition ? scope.sessionId : null
 			// The claimed Pal owns its guest. Only a default follows this route;
 			// an operator's /permissions or Shift+Tab choice remains authoritative.
-			if (permissionModeSourceRef.current === 'default') {
-				const mode = definition ? 'auto' : 'prompt'
+			// With nothing chosen, the terminal starts in auto when this session's
+			// classifier can reach a model, and in prompt, silently, when it cannot.
+			const startSource = permissionModeSourceRef.current
+			if (startSource === 'default' || startSource === 'auto-default') {
+				const autoDefault =
+					startSource === 'auto-default' && activeCtx.permissionSource === 'auto-default'
+				if (startSource === 'auto-default' && !autoDefault) {
+					// The project's own file, read once the folder was trusted, named a
+					// default or switched auto off.
+					permissionModeSourceRef.current = 'default'
+				}
+				const mode = defaultStartMode({
+					pal: Boolean(definition),
+					autoDefault,
+					settings: activeCtx.permissionSettings,
+					classifierUsable: s.hasProvider && s.autoMode?.available === true,
+				})
+				const before = permissionModeRef.current
 				permissionModeRef.current = mode
 				setPermissionModeState(mode)
+				const noticed =
+					mode === 'classify' && autoDefault ? showAutoDefaultNoticeRef.current() : false
+				// A later session (another model, another service) can move a terminal
+				// that is in its default between auto and asking. Nobody chose that, so
+				// it is said, once per change; a Pal's own mode is not the default's.
+				if (
+					autoDefault &&
+					previousSessionRef.current !== null &&
+					!definition &&
+					!previousPalDefinition &&
+					before !== mode &&
+					!noticed
+				) {
+					pushMessage(
+						'system',
+						mode === 'classify' ? AUTO_MODE_DEFAULT_RESUMED_NOTICE : AUTO_MODE_DEFAULT_LEFT_NOTICE,
+					)
+				}
 			}
 			// A picker-owned provider/model change is one state transition. Clear the
 			// old model's effort selection before publishing the replacement session
@@ -6779,15 +7116,18 @@ function AppBody({
 			if (launchFastPendingRef.current && s.hasProvider) {
 				const fastSource = launchFastPendingRef.current
 				launchFastPendingRef.current = undefined
-				void fastModeBlocker(s.providerId, s.modelSummary).then((blocker) => {
-					if (blocker === undefined) setFastMode(true)
-					else pushMessage('system', fastLaunchRefusal(blocker, fastSource))
+				// Said once, with what it costs: a saved opt-in must not start billing silently.
+				void launchFastOutcome(s, fastSource).then((outcome) => {
+					if (outcome.tier !== undefined) setFastMode(outcome.tier)
+					pushMessage('system', outcome.message)
 				})
 			} else if (fastModeRef.current) {
-				void fastModeBlocker(s.providerId, s.modelSummary).then((blocker) => {
-					if (blocker === undefined) return
-					setFastMode(false)
-					pushMessage('system', fastDroppedMessage(blocker))
+				// Re-checked under the new model with the tier now on: the mode is kept
+				// (and not announced again) only when the new model offers that tier.
+				void fastAfterModelChange(s, fastModeRef.current).then((outcome) => {
+					if (outcome === undefined) return
+					setFastMode(undefined)
+					pushMessage('system', outcome)
 				})
 			}
 			// What the effort menu decides once the levels are final: a launch
@@ -7384,6 +7724,9 @@ function AppBody({
 	// binding or forcing the two into a declaration order that reads backwards.
 	runProbeRef.current = runProbe
 
+	// Said inside the trust box when the trusted folders list exists but does not read.
+	const [trustListNotice, setTrustListNotice] = useState<string | undefined>(undefined)
+
 	// Trust gate runs first: don't touch the folder until the user trusts it.
 	useEffect(() => {
 		if (isTrusted(trustedCwdRef.current)) {
@@ -7406,6 +7749,10 @@ function AppBody({
 				pushMessage('system', projectSettingsFailure(err), false, STARTUP_STOP_GLYPH)
 			}
 		} else {
+			// A list that exists but does not read trusts nothing: the box says so, since it
+			// asks again about a folder the person may already have trusted.
+			const problem = trustListProblem()
+			setTrustListNotice(problem ? unreadableTrustListNotice(problem) : undefined)
 			setPhase('trust')
 		}
 	}, [activateTrustedProject, pushMessage, runProbe])
@@ -7416,33 +7763,47 @@ function AppBody({
 		trustShownAtRef.current = phase === 'trust' ? Date.now() : null
 	}, [phase])
 
-	const acceptTrust = useCallback(() => {
-		try {
-			trustDir(trustedCwdRef.current)
-		} catch {
-			// Non-fatal: proceed for this session even if persisting failed.
-		}
-		try {
-			// Accepting answers for the servers the gate showed in full; ones it
-			// only counted, and ones added later, stay pending.
-			approveShownMcpServers(
-				resolveNamzuHome(),
-				trustedCwdRef.current,
-				shownToolServers(trustGrants),
-			)
-		} catch {
-			// Not fatal: the servers stay pending and `namzu mcp approve` answers them.
-		}
-		setPhase('probing')
-		try {
-			activateTrustedProject()
-			void runProbe()
-		} catch (err) {
-			setPhase('unhealthy')
-			setStartupExplained(err instanceof ConfigLoadError && err.complete)
-			pushMessage('system', projectSettingsFailure(err), false, STARTUP_STOP_GLYPH)
-		}
-	}, [activateTrustedProject, pushMessage, runProbe, trustGrants])
+	const acceptTrust = useCallback(
+		(newList = false) => {
+			try {
+				if (newList) {
+					// Asked for by name in the box: the old list is kept, and read back, before it goes.
+					const { kept } = startNewTrustList(trustedCwdRef.current)
+					if (kept)
+						pushMessage(
+							'system',
+							`Started a new trusted folders list with this folder. The old list is kept in ${homePath(kept)}.`,
+						)
+				} else trustDir(trustedCwdRef.current)
+			} catch (err) {
+				// Not fatal: the folder is trusted for this session. The reason it was not
+				// remembered is said once, because the next start will ask again.
+				pushSystem('error', explainFailure(err, 'Trusted for this session only.'))
+			}
+			try {
+				// Accepting answers for the servers the gate showed in full; ones it
+				// only counted, and ones added later, stay pending.
+				approveShownMcpServers(
+					resolveNamzuHome(),
+					trustedCwdRef.current,
+					shownToolServers(trustGrants),
+				)
+			} catch (err) {
+				// Not fatal: the servers stay pending and `namzu mcp approve` answers them.
+				pushSystem('error', explainFailure(err, 'The tool server approvals were not saved.'))
+			}
+			setPhase('probing')
+			try {
+				activateTrustedProject()
+				void runProbe()
+			} catch (err) {
+				setPhase('unhealthy')
+				setStartupExplained(err instanceof ConfigLoadError && err.complete)
+				pushMessage('system', projectSettingsFailure(err), false, STARTUP_STOP_GLYPH)
+			}
+		},
+		[activateTrustedProject, pushMessage, pushSystem, runProbe, trustGrants],
+	)
 
 	messagesNowRef.current = messages
 	const finalized = messages.filter((m) => !m.pending)
@@ -7695,6 +8056,8 @@ function AppBody({
 
 	const slashCtx: SlashContext = {
 		cwd: ctx.cwd,
+		speedTiers: () => speedView.tiers,
+		speedTierRefusal: (tier) => (session?.hasProvider ? speedView.reasons[tier] : undefined),
 		jobs: () => session?.jobs?.() ?? [],
 		timers: () => scheduleRef.current?.timers.list() ?? [],
 		hooks: () => session?.hooks,
@@ -7725,6 +8088,9 @@ function AppBody({
 		directories: () => session?.directories?.list() ?? [],
 		recentDenials: () => session?.autoMode?.recentBlocks?.() ?? [],
 		...(session?.rememberedAllows ? { rememberedAllows: session.rememberedAllows } : {}),
+		...(session?.forgetRememberedAllow
+			? { forgetRememberedAllow: session.forgetRememberedAllow }
+			: {}),
 		...(session?.reloadPermissionRules
 			? { reloadPermissionRules: session.reloadPermissionRules }
 			: {}),
@@ -8617,6 +8983,7 @@ function AppBody({
 				await tuiPalDefinition(ctxRef.current.cwd, conv.id, ctxRef.current.palId)
 				await requireWritableConversation(sessions, conv.id, 'resume conversation')
 				msgs = await loadConversation(sessions, conv.id)
+				void touchOpenedConversation(sessions, conv.id)
 			} catch (err) {
 				resumeCommittedRef.current = false
 				setPhase('ready')
@@ -9384,7 +9751,14 @@ function AppBody({
 		}
 		if (!offerPick) return
 		const now = decisionSetup.now ?? Date.now
-		if (!shouldOfferDecisionSetup({ record: readOffer(opts), setting, env: opts.env, now: now() }))
+		if (
+			!shouldOfferDecisionSetup({
+				record: readOffer(opts),
+				setting,
+				env: opts.env,
+				now: now(),
+			})
+		)
 			return
 		setSelectedChoice(0)
 		setChoicePicker({
@@ -10291,7 +10665,7 @@ function AppBody({
 				onAutoModeLimit: handleAutoModeLimit,
 				limits: resolveTurnGuards(ctxRef.current.limits, turnLimitsOverrideRef.current),
 				...(reasoningEffortRef.current !== undefined ? { effort: reasoningEffortRef.current } : {}),
-				...(fastModeRef.current ? { speed: 'fast' as const } : {}),
+				...(fastModeRef.current ? { speed: fastModeRef.current } : {}),
 				...(hypermodeRef.current ? { hypermode: true } : {}),
 				...(ctxRef.current.refusalFallback
 					? { refusalFallback: ctxRef.current.refusalFallback }
@@ -11004,6 +11378,7 @@ function AppBody({
 					// Persistence and memory use the settled answer, not concatenated
 					// commentary deltas. The transcript keeps each visible part above.
 					if (event.text !== undefined) st.text = event.text
+					st.turnRecord = event.outcome
 					// `turn_completed` is not synonymous with success: budgets,
 					// cancellation and output guardrails arrive through this event too.
 					// Missing remains a normal end for older producers, matching the
@@ -11476,9 +11851,14 @@ function AppBody({
 				// The closing line for what ended is already in the conversation; the
 				// model's report is what follows it. Nothing is added here.
 			} else if (goalRound) {
-				pushSystem('notice', goalRoundHeadline(goalRound.round, goalRound.maxGoalRounds), {
-					continuation: goalRound.objective,
-				})
+				pushSystem(
+					'notice',
+					goalRoundHeadline(goalRound.round, {
+						...(goalRound.tokensUsed !== undefined ? { tokens: goalRound.tokensUsed } : {}),
+						...(goalRound.costUsd !== undefined ? { costUsd: goalRound.costUsd } : {}),
+					}),
+					{ continuation: goalRound.objective },
+				)
 			} else {
 				userEchoId = pushMessage(
 					'user',
@@ -11935,7 +12315,7 @@ function AppBody({
 								? { effort: pinnedEffort ?? turnReasoningEffort }
 								: {}),
 							...(turnHypermode ? { hypermode: true } : {}),
-							...(turnFast ? { speed: 'fast' as const } : {}),
+							...(turnFast ? { speed: turnFast } : {}),
 							// A model picked with /model while this turn runs: read before every
 							// request, so the next request of the loop uses it.
 							liveModel: () => {
@@ -11951,6 +12331,9 @@ function AppBody({
 							hostContext: () =>
 								[
 									...(st.contextTexts ?? []),
+									// The role another machine or the person set: request-only context on every request,
+									// so a resume or a compaction cannot lose it and the first request of a turn has it.
+									peersRef.current?.roleContext(),
 									wakeSnapshot.idleJobs.text,
 									monitorSnapshot.text,
 									describePendingWorkflowNotices(wakeSnapshot.workflows),
@@ -12167,6 +12550,19 @@ function AppBody({
 						? historyBeforeTurn
 						: (conversationMessages ?? [...historyBeforeTurn, ...fallbackTurn])
 				if (stillHere()) saveModeIfChanged()
+				if (goalRound) {
+					// What the turn spent and whether it moved the work, written before
+					// the driver looks at the goal again: the stop rules read these.
+					const stopped = await recordGoalRound({
+						goals: turnSessions?.goals,
+						tenantId: turnSessions?.tenantId,
+						round: goalRound,
+						record: st.turnRecord,
+						tokens: st.lastUsage?.totalTokens,
+						costUsd: st.lastUsage?.cost.totalCost,
+					})
+					if (stopped) pushSystem('warning', stopped)
+				}
 				if (goalRound && (ac.signal.aborted || st.outcome !== 'completed')) {
 					goalActivation.disarm(goalRound.sessionId, goalRound)
 					wakeGoalDriver()
@@ -12433,7 +12829,10 @@ function AppBody({
 	/** `post_model_switch`, run on the session that now serves the conversation. */
 	const announceModelSwitch = useCallback(
 		(
-			from: { readonly provider: string | undefined; readonly model: string | null | undefined },
+			from: {
+				readonly provider: string | undefined
+				readonly model: string | null | undefined
+			},
 			to: { readonly id: string; readonly model: string },
 			source: PluginModelSwitchInfo['source'],
 			requested: string | null,
@@ -12525,12 +12924,15 @@ function AppBody({
 					// refuses `speed` on a model without it. A pick that cannot keep it
 					// takes over when the reply finishes, where the session is rebuilt
 					// and fast mode is dropped with the reason.
-					const blocker = await fastModeBlocker(selection.id, selection.model)
-					if (blocker !== undefined) {
+					const verdict = await fastModeVerdict(selection.id, selection.model, {
+						tier: fastModeRef.current,
+						advertised: session.speedTiersFor?.(selection.model),
+					})
+					if (!verdict.ok) {
 						deferredModelRef.current = { query: target, quiet: false }
 						pushMessage(
 							'system',
-							`Switching to ${selection.id} · ${selection.model} when this reply finishes. Fast mode ends then: ${blocker}`,
+							`Switching to ${selection.id} · ${selection.model} when this reply finishes. Fast mode ends then: ${verdict.reason}`,
 						)
 						return
 					}
@@ -13160,7 +13562,6 @@ function AppBody({
 							...(step.defaultModel !== undefined ? { defaultModel: step.defaultModel } : {}),
 						})
 						pushMessage('system', `Added ${accountProductName(step.provider)} · ${step.label}.`)
-						keepAccountKeyForStartup(step.provider, step.key, step.baseUrl)
 					} catch (error) {
 						pushMessage('system', accountProblem(error, 'Could not add the account.'))
 					}
@@ -13242,10 +13643,7 @@ function AppBody({
 						const accounts = openAccounts()
 						accounts.registry.remove(picker.accountId)
 						accounts.activity.forget(picker.accountId)
-						pushMessage(
-							'system',
-							'Account removed. A key kept for startup stays until you run /logout <provider>.',
-						)
+						pushMessage('system', 'Account removed. Its saved key went with it.')
 					} catch (error) {
 						pushMessage('system', accountProblem(error, 'Could not remove the account.'))
 					}
@@ -13424,8 +13822,10 @@ function AppBody({
 	}
 
 	// `#note` and `/memory add`: a typed memory file in the session's stored
-	// memory, default type `project`. A session without a store — no provider
-	// yet — appends to the curated project file the way every note used to.
+	// memory under the Namzu home, default type `project`. A session refused
+	// for want of a provider still has that store. Where no store is open, the
+	// note is refused: a person's note never lands in the repository's
+	// `.namzu/MEMORY.md`, which is read into every prompt and committed.
 	const rememberProjectNote = useCallback(
 		async (note: string, type?: MemoryType): Promise<void> => {
 			try {
@@ -13433,16 +13833,12 @@ function AppBody({
 					pushMessage('system', renderTypedNoteResult(await session.rememberNote(note, type), note))
 					return
 				}
-				const saved = appendMemoryWithStatus(note, {
-					scope: 'project',
-					cwd: ctx.cwd,
-				})
-				pushMessage('system', renderMemorySaveResult(saved, note))
+				pushMessage('system', renderNoteNotSaved(session === null))
 			} catch (err) {
 				pushSystem('error', explainFailure(err, 'Could not save memory.'))
 			}
 		},
-		[ctx.cwd, pushMessage, session, pushSystem],
+		[pushMessage, session, pushSystem],
 	)
 
 	/**
@@ -13481,9 +13877,10 @@ function AppBody({
 	)
 
 	/** A typed command whose `user_prompt_expansion` hooks have answered, until its line is submitted again. */
-	const expansionAnsweredRef = useRef<{ readonly line: string; readonly context?: string } | null>(
-		null,
-	)
+	const expansionAnsweredRef = useRef<{
+		readonly line: string
+		readonly context?: string
+	} | null>(null)
 	const handleSubmitRef = useRef<
 		| ((
 				value: string,
@@ -13502,17 +13899,17 @@ function AppBody({
 			meta: SubmitMeta,
 		) => {
 			if (goalCommandInFlightRef.current) {
-				pushMessage(
-					'system',
-					'A goal command is still being saved. Wait for it to finish before sending another command or prompt.',
-				)
+				const text =
+					'A goal command is still being saved. Wait for it to finish before sending another command or prompt.'
+				if (commandCaptureRef.current) commandRefusalRef.current = text
+				pushMessage('system', text)
 				return
 			}
 			if (exportingRef.current) {
-				pushMessage(
-					'system',
-					'A verified conversation export is still being written. Wait for its result before sending another command or prompt.',
-				)
+				const text =
+					'A verified conversation export is still being written. Wait for its result before sending another command or prompt.'
+				if (commandCaptureRef.current) commandRefusalRef.current = text
+				pushMessage('system', text)
 				return
 			}
 			if (conversationMutationRef.current) {
@@ -13526,10 +13923,9 @@ function AppBody({
 								: conversationMutationRef.current === 'materialize'
 									? 'initialized'
 									: 'moved to a fresh conversation'
-				pushMessage(
-					'system',
-					`Conversation history is being ${operation}. Wait for it to finish before sending another command or prompt.`,
-				)
+				const text = `Conversation history is being ${operation}. Wait for it to finish before sending another command or prompt.`
+				if (commandCaptureRef.current) commandRefusalRef.current = text
+				pushMessage('system', text)
 				return
 			}
 			// An agent is on screen: what is typed goes to it, not to the conversation.
@@ -13614,8 +14010,12 @@ function AppBody({
 			// leaves no line for Up to bring back. What was typed beside it waits
 			// here until the chooser opens, and returns when it closes.
 			keybindingDraftRef.current = meta.source === 'keybinding' ? (meta.draft ?? null) : null
-			if (!fromLoop && meta.source !== 'keybinding' && meta.source !== 'queued-command')
+			if (!fromLoop && meta.source !== 'keybinding' && meta.source !== 'queued-command') {
 				setHistory((prev) => [...prev, value])
+				// Only what the person sent from the box is kept across conversations.
+				if (meta.source === 'composer')
+					recordSentPrompt(sessionsRef.current, scopeRef.current?.sessionId, value, meta.pasted)
+			}
 			// What the model wrote is never the operator acting. A loop the model
 			// made (`session_loop`) fires this path on a timer, for up to a week,
 			// after one review of its creation — so its text must not reach the
@@ -13717,7 +14117,7 @@ function AppBody({
 			const palHostCommand =
 				operatorText &&
 				palDefinitionRef.current &&
-				/^\/(?:schedule|loop|worktree|add-dir|browser|mcp|plugins|skills|save-skill|memory|init|review|goal|agents)(?:\s|$)/u.test(
+				/^\/(?:schedule|loop|worktree|add\s+dir|browser|mcp|plugins|skills|save-skill|memory|init|review|goal|agents)(?:\s|$)/u.test(
 					dispatch,
 				)
 			if (palHostCommand) {
@@ -13775,11 +14175,16 @@ function AppBody({
 			if (slash) {
 				switch (slash.kind) {
 					case 'message':
+						// A usage line is the command turned away, not a result.
+						if (commandCaptureRef.current && slash.content.startsWith('Usage:')) {
+							commandRefusalRef.current = slash.content
+						}
 						// The command as typed, then its answer hung under `⎿`, so a readout
 						// in the scrollback says which command it answers. A system row, not
 						// a user one: it is not a prompt and must not be offered for editing.
 						pushMessage('system', dispatch.trim(), false, '›', undefined, tokenColor('accent.user'))
 						if (slash.statusRows) {
+							commandCaptureRef.current?.push(slash.content)
 							setMessages((previous) => [
 								...previous,
 								{
@@ -13818,7 +14223,10 @@ function AppBody({
 							pushMessage('system', 'Peer messaging is not ready.')
 							return
 						}
+						const network = networkRef.current
 						const [verb, target, ...words] = slash.args
+						const fail = (error: unknown, what: string) =>
+							pushSystem('error', explainFailure(error, what))
 						if (verb === 'on' || verb === 'off') {
 							peers.setEnabled(verb === 'on')
 							pushMessage(
@@ -13834,22 +14242,164 @@ function AppBody({
 										`Peer message ${receipt.status}: ${receipt.reason ?? 'accepted in the receiving inbox'}`,
 									),
 								)
-								.catch((error) =>
-									pushSystem('error', explainFailure(error, 'Peer message failed.')),
+								.catch((error) => fail(error, 'Peer message failed.'))
+						} else if (verb === 'role' && target && (words.length > 0 || target === 'clear')) {
+							// `/peers role <target> <text...>`, or `/peers role clear <target>`.
+							const clearing = target === 'clear'
+							const where = clearing ? words.join(' ') : target
+							const text = clearing ? null : words.join(' ')
+							if (!where)
+								pushMessage(
+									'system',
+									'Usage: /peers role <session> <role...> | /peers role clear <session>',
 								)
+							else
+								void peers
+									.setRole(where, text)
+									.then((result) =>
+										pushMessage(
+											'system',
+											result.status === 'applied'
+												? text === null
+													? `Cleared the role of ${where}.`
+													: `Set the role of ${where}. It grants nothing; it only describes what the session is for.`
+												: `Role refused: ${result.reason ?? 'no reason given'}`,
+										),
+									)
+									.catch((error) => fail(error, 'Could not set the role.'))
+						} else if ((verb === 'allow' || verb === 'deny') && target) {
+							const query = [target, ...words].join(' ')
+							const control = network?.control
+							if (!control) pushMessage('system', 'Your Namzu network is not running.')
+							else
+								void (verb === 'allow' ? control.allow(query) : control.deny(query))
+									.then((request) =>
+										pushMessage(
+											'system',
+											`${verb === 'allow' ? 'Allowed' : 'Denied'} ${request.name}${verb === 'allow' ? ' to join your Namzu network' : ''}.`,
+										),
+									)
+									.catch((error) => fail(error, 'That request could not be decided.'))
+						} else if (verb === 'remove' && target) {
+							const cascade = words.includes('--and-its-admissions')
+							const control = network?.control
+							if (!control) pushMessage('system', 'Your Namzu network is not running.')
+							else
+								void control
+									.remove(target, { cascade })
+									.then((result) =>
+										pushMessage(
+											'system',
+											`Removed ${result.removed.join(', ') || target} from your Namzu network.`,
+										),
+									)
+									.catch((error) => fail(error, 'The machine could not be removed.'))
+						} else if (verb === 'rename' && target) {
+							const control = network?.control
+							if (!control) pushMessage('system', 'Your Namzu network is not running.')
+							else
+								void control
+									.rename([target, ...words].join(' '))
+									.then(() =>
+										pushMessage(
+											'system',
+											`This machine is now called ${[target, ...words].join(' ')}. \`namzu peers rename\` also keeps it for the next start.`,
+										),
+									)
+									.catch((error) => fail(error, 'The machine could not be renamed.'))
+						} else if (verb === 'cancel') {
+							const control = network?.control
+							if (!control) pushMessage('system', 'Your Namzu network is not running.')
+							else
+								void control
+									.cancelJoin()
+									.then((was) =>
+										pushMessage(
+											'system',
+											was ? 'Withdrew the request to join.' : 'No request to join is waiting.',
+										),
+									)
+									.catch((error) => fail(error, 'The request could not be withdrawn.'))
+						} else if (verb === 'add' && target) {
+							const control = network?.control
+							if (!control) pushMessage('system', 'Your Namzu network is not running.')
+							else
+								void control
+									.add(target)
+									.then((result) =>
+										pushMessage(
+											'system',
+											result === 'join-requested'
+												? `Asked ${target} to let this machine join. Allow it on one of your other machines.`
+												: `Added ${target}.`,
+										),
+									)
+									.catch((error) => fail(error, 'That address could not be added.'))
 						} else if (!verb || verb === 'list') {
-							void peers
-								.list()
-								.then((peersList) =>
+							void (async () => {
+								const localList = await peers.list()
+								let summary: Awaited<ReturnType<NetworkRuntime['control']['summary']>> | undefined
+								let roster: Awaited<ReturnType<NetworkRuntime['control']['roster']>> | undefined
+								if (network?.decision.run) {
+									try {
+										summary = await network.control.summary()
+										roster = await network.control.roster()
+									} catch {
+										summary = undefined
+									}
+								}
+								const heldLocal = peers.held()
+								if (!summary) {
+									const local = `Peer messaging ${peers.enabled ? 'on' : 'off'} · ${peers.pending} pending\n${localList.map((peer) => `${peer.self ? 'This terminal' : (peer.title as string)} [${peer.ref as string}] · ${peer.state as string} · ${peer.permission_mode as string}${peer.accepts_messages ? '' : ' · not accepting messages'}`).join('\n')}`
+									const off = network && !network.decision.run ? `\n${network.decision.text}` : ''
+									const held = heldLocal.length
+										? `\nHeld (${heldLocal.length}): ${heldLocal.map((item) => `${item.fromName} · ${item.reason}`).join('; ')}`
+										: ''
+									pushMessage('system', `${local}${off}${held}`)
+									if (heldLocal.length === 0) return
+								} else {
 									pushMessage(
 										'system',
-										`Peer messaging ${peers.enabled ? 'on' : 'off'} · ${peers.pending} pending\n${peersList.map((peer) => `${peer.self ? 'This terminal' : peer.title} [${peer.ref}] · ${peer.state} · ${peer.permission_mode}${peer.accepts_messages ? '' : ' · not accepting messages'}`).join('\n')}`,
-									),
+										renderPeersScreen({
+											summary,
+											roster,
+											selfRef: peers.ref,
+											heldLocal,
+											now: Date.now(),
+											// The row sits after the two-column mark, and the scroll view keeps a margin.
+											columns: (terminal.columns ?? 80) - 4,
+										}),
+									)
+								}
+								const actions = peersActions(
+									summary ?? {
+										state: 'off',
+										members: 0,
+										nearbyNetworks: 0,
+										nearby: [],
+										joinRequests: [],
+										held: [],
+										autoJoined: [],
+										trustedNetworks: [],
+										outcomes: [],
+									},
+									heldLocal,
 								)
-								.catch((error) =>
-									pushSystem('error', explainFailure(error, 'Peer discovery failed.')),
-								)
-						} else pushMessage('system', 'Usage: /peers [list|on|off|send <ref> <message>]')
+								if (actions.length === 0) return
+								setSelectedChoice(0)
+								setChoicePicker({
+									kind: 'peers-network',
+									title: 'Waiting for you',
+									actions,
+									values: actions.map((_, index) => String(index)),
+									options: actions.map((action) => describeAction(action)),
+								})
+							})().catch((error) => fail(error, 'Peer discovery failed.'))
+						} else
+							pushMessage(
+								'system',
+								'Usage: /peers [list|on|off|send <name> <message>|role <name> <text>|role clear <name>|allow <code>|deny <code>|remove <machine>|rename <name>|add <host[:port]>|cancel]',
+							)
 						return
 					}
 					case 'workflows': {
@@ -14083,7 +14633,7 @@ function AppBody({
 							token: textPromptTokenRef.current,
 							kind: slash.edit ? 'goal-edit' : 'goal-create',
 							title: slash.edit ? 'Edit goal' : 'Set a goal',
-							placeholder: `Up to ${goalStatus?.maxGoalRounds ?? DEFAULT_MAX_GOAL_ROUNDS} automatic replies; /goal pause stops continuation.`,
+							placeholder: 'Describe the result you want; /goal pause stops automatic work.',
 							emptyNotice: 'Describe the result you want, or press Esc to cancel.',
 							initialValue: slash.edit ? (goalStatus?.objective ?? '') : '',
 							sessionId: scope.sessionId,
@@ -14163,8 +14713,8 @@ function AppBody({
 									back: choicePickerRef.current?.back,
 									title: 'Goal',
 									notice: goal
-										? `${goal.phase} · ${goal.roundsAdmitted}/${goal.maxGoalRounds} automatic replies · ${goal.objective}`
-										: `No goal set for this conversation. Up to ${DEFAULT_MAX_GOAL_ROUNDS} automatic replies when started.`,
+										? `${goal.phase} · ${goalSpentSentence(goal)} · ${goal.objective}`
+										: 'No goal set for this conversation.',
 									values: commands,
 									options: commands.map((command) => ({
 										label: `/${command.name}`,
@@ -14711,7 +15261,10 @@ function AppBody({
 							try {
 								if (verb === 'create' || verb === 'fork') {
 									hookRuntime = session?.worktreeHooks
-										? { hooks: session.worktreeHooks, close: async () => undefined }
+										? {
+												hooks: session.worktreeHooks,
+												close: async () => undefined,
+											}
 										: await openWorktreeHookRuntime({ hooks: initialCtx.hooks }, ctx.cwd, notice)
 								}
 								const manager = await openManagedWorktrees(ctx.cwd, {
@@ -14773,7 +15326,7 @@ function AppBody({
 					case 'add-dir': {
 						const dirs = session?.directories
 						if (!dirs) {
-							pushMessage('system', 'No conversation yet; /add-dir works once one has started.')
+							pushMessage('system', 'No conversation yet; /add dir works once one has started.')
 							return
 						}
 						void dirs
@@ -14784,7 +15337,7 @@ function AppBody({
 									if (questionRef.current) {
 										pushMessage(
 											'system',
-											'Answer the open question first; /add-dir asks one of its own.',
+											'Answer the open question first; /add dir asks one of its own.',
 										)
 										return Promise.resolve(false)
 									}
@@ -14910,7 +15463,12 @@ function AppBody({
 					case 'none':
 						return
 					case 'host-command': {
-						if (scheduleRef.current?.handleSlash(slash.name, slash.args)) return
+						const scheduleSettled = scheduleRef.current?.handleSlash(slash.name, slash.args)
+						if (scheduleSettled) {
+							// The tool waits for the command to finish, as for the others.
+							hostCommandSettledRef.current = scheduleSettled
+							return
+						}
 						// Dispatched through the kernel's registry, built with what
 						// THIS session can answer from. The descriptors used for
 						// the merge above carry no store — they are names — so the
@@ -14918,7 +15476,7 @@ function AppBody({
 						const generation = conversationGenRef.current
 						const goalCommand = slash.name === 'goal'
 						if (goalCommand) goalCommandInFlightRef.current = true
-						void (async () => {
+						const hostCommandSettled = (async () => {
 							let goalCommandReleased = false
 							const releaseGoalCommand = () => {
 								if (!goalCommand || goalCommandReleased) return
@@ -14944,6 +15502,7 @@ function AppBody({
 														...(ctxRef.current.goal?.confirmedBy
 															? { defaultConfirmedBy: ctxRef.current.goal.confirmedBy }
 															: {}),
+														defaults: goalDefaults(ctxRef.current.goal),
 													},
 												}
 											: {}),
@@ -14975,6 +15534,7 @@ function AppBody({
 								releaseGoalCommand()
 							}
 						})()
+						hostCommandSettledRef.current = hostCommandSettled
 						return
 					}
 					case 'feedback-picker': {
@@ -15454,7 +16014,7 @@ function AppBody({
 						return
 					}
 					case 'fast-mode': {
-						void applyFastMode(slash.enabled === 'toggle' ? !fastModeRef.current : slash.enabled)
+						void applyFastMode(slash.tier)
 						return
 					}
 					case 'hypermode': {
@@ -15624,6 +16184,39 @@ function AppBody({
 		],
 	)
 	handleSubmitRef.current = handleSubmit
+	commandHostRef.current = {
+		unavailable: (name, args) => {
+			void args
+			return hostCommands.find((command) => command.name === name)?.unavailable?.(slashCtx)
+		},
+		run: async (line, options) => {
+			if (appLifetime.signal.aborted || options.signal?.aborted) {
+				return { kind: 'refused', reason: 'The conversation is closing.' }
+			}
+			// A command that ends or replaces the conversation, or that would start
+			// a turn of its own, waits for this one to finish, in order, as typed.
+			if (options.deferred || slashTiming(line, userCommands, hostCommands) === 'queue') {
+				enqueueQueued({ kind: 'human', text: line, command: true })
+				return { kind: 'queued' }
+			}
+			const captured: string[] = []
+			commandCaptureRef.current = captured
+			commandRefusalRef.current = null
+			hostCommandSettledRef.current = null
+			let refusal: string | null = null
+			try {
+				handleSubmitRef.current?.(line, undefined, 'submit', { source: 'queued-command' })
+				await hostCommandSettledRef.current
+				refusal = commandRefusalRef.current
+			} finally {
+				commandCaptureRef.current = null
+				commandRefusalRef.current = null
+				hostCommandSettledRef.current = null
+			}
+			if (refusal !== null) return { kind: 'refused', reason: refusal }
+			return { kind: 'ran', output: captured.join('\n') }
+		},
+	}
 	// The "waiting for your input" notice (`tui.notifications` with `idle-prompt`):
 	// a minute after a turn ends with nobody at the keyboard. The condition lives
 	// in `IdleNotifier`; this only tells it what the screen knows.
@@ -16369,16 +16962,35 @@ function AppBody({
 				now: Date.now(),
 			})
 		}
+		const peerHome = sessionsRef.current?.root ?? resolveNamzuHome()
+		// Your Namzu network runs only in a terminal with a person at it: a real terminal, never a test's
+		// stand-in screen, and never a Pal's. It stays off (and leaves nothing behind) on a network that is
+		// not known to be private, and entirely when `network.enabled` is false.
+		const network = createNetworkRuntime({
+			home: peerHome,
+			version: ctxRef.current.version,
+			settings: networkSettings(ctxRef.current.network),
+			interactive: ctxRef.current.runNetwork === true && stdout.isTTY === true,
+			notify: (text) => pushSystem('notice', text),
+			ownRef: () => peersRef.current?.ref,
+		})
+		networkRef.current = network
 		const onClose = () => {
 			disposed = true
 			if (peersRef.current === opened) peersRef.current = null
 			void opened?.close()
+			void network.close()
+			if (networkRef.current === network) networkRef.current = null
 		}
 		appLifetime.signal.addEventListener('abort', onClose, { once: true })
 		void openLivePeers({
-			home: sessionsRef.current?.root ?? resolveNamzuHome(),
+			home: peerHome,
 			cwd: sessionsRef.current?.projectRoot ?? ctxRef.current.cwd,
 			version: ctxRef.current.version,
+			roles: network.roles,
+			audit: (entry) => network.audit(entry),
+			network: () => (network.decision.run ? network.link : undefined),
+			bypass: () => permissionModeRef.current === 'bypass',
 			mode: () => permissionModeRef.current,
 			state: () =>
 				permissionResolveRef.current
@@ -16428,7 +17040,7 @@ function AppBody({
 				appLifetime.signal.removeEventListener('abort', onClose)
 				if (!disposed) pushSystem('error', explainFailure(error, 'Peer messaging unavailable.'))
 			})
-	}, [phase, appLifetime.signal, pushMessage, pushSystem])
+	}, [phase, appLifetime.signal, pushMessage, pushSystem, stdout.isTTY])
 
 	// A rename or a generated title reaches the session's record, so the sidebar and the
 	// other sessions call it by its new name.
@@ -16904,6 +17516,8 @@ function AppBody({
 				// whole tree rather than to one call.
 				if (!approvalIsDeliberate(trustShownAtRef.current, Date.now())) return
 				if (ch === 'y') acceptTrust()
+				// Offered only while the list cannot be read: a new list with this folder in it.
+				else if (ch === 's' && trustListNotice !== undefined) acceptTrust(true)
 				// The focus rests on the exit choice, so a deliberate Enter exits. It
 				// can only leave: the in-flight Enter above is still ignored, and
 				// nothing here grants trust.
@@ -18397,7 +19011,12 @@ function AppBody({
 							}}
 						/>
 					) : phase === 'trust' ? (
-						<TrustPrompt cwd={ctx.cwd} grants={trustGrants} />
+						<TrustPrompt
+							cwd={ctx.cwd}
+							grants={trustGrants}
+							notice={trustListNotice}
+							newList={trustListNotice !== undefined}
+						/>
 					) : phase === 'unhealthy' ? (
 						// The sentence above already says what to do when it is a complete
 						// one; saying "resolve the error above" under it is the same advice
@@ -18676,7 +19295,9 @@ function AppBody({
 										: {})}
 									{...(choicePicker.kind === 'account' ? { hints: ACCOUNT_PICKER_HINTS } : {})}
 									options={filterChoiceOptions(choicePicker.options, choiceQuery)}
-									describeSelected={choicePicker.kind === 'user-question'}
+									describeSelected={
+										choicePicker.kind === 'user-question' || choicePicker.kind === 'peers-network'
+									}
 									query={choicePickerSearchable(choicePicker) ? choiceQuery : undefined}
 									selected={selectedChoice}
 									windowSize={
@@ -18902,13 +19523,13 @@ function AppBody({
 										onStopAllAgents={requestStopAllAgents}
 										railFocused={railFocus !== null}
 										userCommands={userCommands}
-										builtins={hostCommands.map((command) => ({
+										builtins={listedCommands(hostCommands, slashCtx).map((command) => ({
 											...command,
 											description: command.unavailable?.(slashCtx) ?? command.description,
 										}))}
 										mentionCandidates={mentionCandidates}
 										mentionExtras={mentionSources.extras}
-										history={history}
+										history={composerHistory}
 										{...(composerTriggers ? { triggers: composerTriggers } : {})}
 										turnActive={!compacting && (state === 'thinking' || state === 'tool')}
 									/>
@@ -19536,6 +20157,18 @@ function pluginActionPicker(owner: AgentSession, name: string): ChoicePickerStat
 const BYPASS_UNAVAILABLE_NOTICE =
 	'Bypass mode is not available in this session. Start Namzu with --allow-dangerously-skip-permissions (or --yolo), or set permissions.allowBypassMode to true in your own config file, to use it, unless permissions.disableBypassMode is set.'
 const AUTO_UNAVAILABLE_NOTICE = 'Auto mode is not available in this session.'
+/** Said when the turn ended because auto mode kept getting no verdict. */
+export const AUTO_MODE_STOPPED_NOTICE =
+	'Auto mode could not get a safety decision, so nothing was run and Namzu stopped. Send a message to try again, or press Shift+Tab to change the mode.'
+/** The same, for a terminal that was in auto only by default: it goes back to asking. */
+export const AUTO_MODE_DEFAULT_STOPPED_NOTICE =
+	'Auto mode could not get a safety decision, so nothing was run and Namzu stopped. This terminal now asks before changes: send a message to carry on, or use /permissions auto to go back to auto mode.'
+/** Said when a later session takes a terminal that is in its default out of auto. */
+export const AUTO_MODE_DEFAULT_LEFT_NOTICE =
+	'Auto mode cannot check actions with this model, so this terminal now asks before changes.'
+/** Said when a later session puts a terminal that is in its default back in auto. */
+export const AUTO_MODE_DEFAULT_RESUMED_NOTICE =
+	'This model can check actions, so this terminal is in auto mode now.'
 
 export function permissionPicker(
 	mode: PermissionMode,

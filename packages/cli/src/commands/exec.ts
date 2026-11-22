@@ -754,6 +754,8 @@ async function execPrint(
 	let history: readonly Message[] | undefined
 	const watch = watchWorkflows(session.workflows)
 	const monitorWatch = watchMonitors(session.monitors)
+	/** Auto mode got no verdict three times in a row and the kernel ended the turn. */
+	let autoModeStopped = false
 	const turnOptions = {
 		signal: turnAbort.signal,
 		...(extraSystem ? { extraSystem } : {}),
@@ -766,6 +768,11 @@ async function execPrint(
 		...turnOptionsFromConfig(ctx.config),
 		onConversationMessages: (messages: readonly Message[]) => {
 			history = messages
+		},
+		// With nobody to ask, a run of blocks already ends the turn with its
+		// reason; a run of answers with no verdict is said here.
+		onAutoModeLimit: (event: { readonly limit: string }) => {
+			if (event.limit === 'unavailable') autoModeStopped = true
 		},
 	}
 	// Only the first turn carries words the person typed; the report turns after a
@@ -950,12 +957,18 @@ async function execPrint(
 					? `${describeSpendStop(spendLimitUsd)}${partial}`
 					: stopReason === 'refused'
 						? `${REFUSED_HEADLESS_NOTICE}${partial}`
-						: `turn did not finish normally: ${stopReason}${partial}`,
+						: autoModeStopped && stopReason === 'cancelled'
+							? `${AUTO_MODE_STOPPED_HEADLESS_NOTICE}${partial}`
+							: `turn did not finish normally: ${stopReason}${partial}`,
 		})
 		return 1
 	}
 	return 0
 }
+
+/** Said when auto mode could not get a verdict three times in a row and the turn stopped. */
+export const AUTO_MODE_STOPPED_HEADLESS_NOTICE =
+	'auto mode could not get a safety decision three times in a row, so nothing more was run and the turn stopped'
 
 export const execCommand: CommandDef = {
 	name: 'exec',

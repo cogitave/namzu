@@ -2,20 +2,29 @@ import { execFileSync } from 'node:child_process'
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+
+import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 import {
 	COMMIT_DIFF_CAP,
 	type CommitFile,
 	cleanCommitMessage,
 	createProjectCommit,
+	isLocalSettingsPath,
 	normalizeCommitPaths,
 	parseStatus,
 	plainCommitMessage,
 } from '../desktop-commit.js'
 
+const dirs: string[] = []
+afterEach(() => {
+	for (const dir of dirs.splice(0)) removeTempDir(dir)
+})
+
 /** A throwaway repository with its own identity: the person's own git settings are never read or written. */
 function repo(): string {
 	const dir = mkdtempSync(join(tmpdir(), 'namzu-commit-'))
+	dirs.push(dir)
 	const git = (...args: string[]) =>
 		execFileSync('git', args, {
 			cwd: dir,
@@ -148,6 +157,36 @@ describe('the preview', () => {
 		expect(suggest.mock.calls[0]?.[2]).toBe('s1')
 	})
 
+	it('leaves Namzu’s settings for this computer out of the list, the message request and the commit', async () => {
+		const dir = repo()
+		writeFileSync(join(dir, 'a.txt'), 'one\ntwo\n')
+		mkdirSync(join(dir, '.namzu'))
+		writeFileSync(join(dir, '.namzu', 'settings.local.json'), '{"permissions":{"bash":"allow"}}\n')
+		writeFileSync(join(dir, 'namzu.config.local.json'), '{"quiet":true}\n')
+		const suggest = vi.fn(async (_request: unknown) => 'Add a line')
+		const commit = createProjectCommit({ isTrusted: trusted, suggest })
+		const preview = await commit.preview(dir, [
+			'a.txt',
+			'.namzu/settings.local.json',
+			'namzu.config.local.json',
+		])
+		expect(preview.files.map((f) => f.path)).toEqual(['a.txt'])
+		expect(preview.skippedLocalSettings).toBe(2)
+		expect(preview.skippedSecrets).toBe(0)
+		expect(JSON.stringify(suggest.mock.calls[0]?.[0])).not.toContain('permissions')
+		await expect(
+			commit.commit(dir, {
+				paths: ['a.txt', '.namzu/settings.local.json'],
+				message: 'Add a line',
+				fingerprints: {},
+			}),
+		).rejects.toThrow(/never committed from here/)
+		expect(isLocalSettingsPath('sub/.namzu/settings.local.json.lock')).toBe(true)
+		expect(isLocalSettingsPath('namzu.config.local.json.1234.tmp')).toBe(true)
+		expect(isLocalSettingsPath('.namzu/settings.json')).toBe(false)
+		expect(isLocalSettingsPath('docs/namzu.config.local.json.md')).toBe(false)
+	})
+
 	it('caps what the model is shown', async () => {
 		const dir = repo()
 		writeFileSync(join(dir, 'a.txt'), `${'line\n'.repeat(5000)}`)
@@ -192,6 +231,7 @@ describe('the preview', () => {
 		expect(untrusted.blocker).toBe('Trust this folder to commit in it.')
 		expect(run).not.toHaveBeenCalled()
 		const plain = mkdtempSync(join(tmpdir(), 'namzu-nogit-'))
+		dirs.push(plain)
 		const none = await createProjectCommit({ isTrusted: trusted }).preview(plain, ['a'])
 		expect(none.blocker).toBe('Commit needs a Git repository.')
 	})

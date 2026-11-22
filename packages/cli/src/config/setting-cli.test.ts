@@ -179,7 +179,7 @@ describe('changing a setting', () => {
 		expect(existsSync(userConfigPath(opts()))).toBe(false)
 	})
 
-	it('asks first for a risky choice, not for a safe one, and not when clearing to a safe default', () => {
+	it('asks first for a risky choice, not for a safe one, and not when there is nothing to clear', () => {
 		const risky = planSettingChange('permissions.defaultMode', 'bypass', opts())
 		expect(risky.ok && risky.confirm).toMatch(/comfortable with/)
 		const safe = planSettingChange('permissions.defaultMode', 'plan', opts())
@@ -197,9 +197,11 @@ describe('changing a setting', () => {
 		first.apply()
 		const again = planSettingChange('permissions.defaultMode', 'bypass', opts())
 		expect(again.ok && again.confirm).toBeUndefined()
+		// Clearing goes back to the default, auto, which lets actions run without
+		// asking: that is asked about too.
 		const clear = planSettingChange('permissions.defaultMode', undefined, opts())
 		if (!clear.ok) throw new Error(clear.error)
-		expect(clear.confirm).toBeUndefined()
+		expect(clear.confirm).toMatch(/comfortable with/)
 		expect(clear.apply()).toContain('is back to its default')
 		expect(readFileSync(userConfigPath(opts()), 'utf8')).not.toContain('defaultMode')
 	})

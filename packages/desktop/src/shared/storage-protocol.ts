@@ -41,6 +41,8 @@ export interface TrustedFoldersView {
 	folders: string[]
 	/** The file exists but cannot be read, so the list shown may be incomplete. */
 	unreadable?: boolean
+	/** After a new list was started: where the old one is kept. */
+	kept?: string
 }
 
 const UNITS = ['B', 'KB', 'MB', 'GB', 'TB'] as const
