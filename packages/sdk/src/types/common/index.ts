@@ -76,7 +76,8 @@ export interface TokenUsage {
 
 	/**
 	 * The speed the provider says served this call, when it says. `'fast'` is a
-	 * premium-priced mode, so pricing reads it per call: a per-call fact like
+	 * premium-priced mode and `'ultrafast'` a tier above it that has no
+	 * published per-token price, so pricing reads it per call: a per-call fact like
 	 * {@link TokenUsage.cacheTtlMs}, never summed. Absent means standard or
 	 * unreported.
 	 */
@@ -92,7 +93,8 @@ export interface TokenUsage {
 	/**
 	 * The service tier the provider says served this call (`standard`,
 	 * `priority`, `batch`). A per-call fact, never summed. Absent means
-	 * unreported.
+	 * unreported. A driver that reports fast mode through {@link TokenUsage.speed}
+	 * leaves `priority` out of here.
 	 */
 	serviceTier?: string
 

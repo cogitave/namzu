@@ -444,6 +444,11 @@ export function withProviderRetry(
 					) => provider.acceptsForcedToolChoiceFor?.(model, thinking, effort) ?? false,
 				}
 			: {}),
+		...(provider.speedTiersFor
+			? {
+					speedTiersFor: (model: string) => provider.speedTiersFor?.(model),
+				}
+			: {}),
 		...(provider.reasoningEffortLevelsFor
 			? {
 					reasoningEffortLevelsFor: (

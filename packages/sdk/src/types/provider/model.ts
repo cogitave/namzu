@@ -19,6 +19,11 @@ export interface ModelInfo {
 	/** Published default, when established; must belong to reasoningEffortLevels when both are present. */
 	reasoningEffortDefault?: import('./chat.js').ReasoningEffort
 	/**
+	 * Speed tiers above standard that the listing established for this model
+	 * and route. Absent means the listing did not say; `[]` means none.
+	 */
+	speedTiers?: readonly ('fast' | 'ultrafast')[]
+	/**
 	 * Tokens the model's context holds, when the driver knows.
 	 *
 	 * OPTIONAL, and the optionality is the fix. Four drivers filled this

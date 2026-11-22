@@ -19,7 +19,7 @@ export interface TuiLaunchSettings {
 	readonly account?: string
 	readonly model?: string
 	readonly effort?: ReasoningEffort
-	/** `--fast`: start with fast inference on, if the model takes it. */
+	/** `--fast`: start with fast inference on (the fast tier), if the model takes it. */
 	readonly fast?: boolean
 	/** The saved `fast` setting: the same start as `--fast`, worded as a saved choice when refused. */
 	readonly savedFast?: boolean

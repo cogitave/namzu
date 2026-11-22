@@ -57,11 +57,17 @@ therefore distinct from unknown".
 A call served in fast mode costs a published multiple of every rate on its
 card. `ModelPricing.fastMultiplier` carries it (`fastMultiplier` in
 `rates.source.json`; 2 on `claude-opus-5-5`, `claude-fable-5-2`,
-`claude-mythos-5-2`, `claude-opus-5` and `claude-opus-4-8`) and applies to input,
-output and cache tokens alike. A driver reports the speed that served the call as
-`TokenUsage.speed`. A fast call on a card with no multiplier is counted as
-unpriced, never charged at the standard rate, so `costLimitUsd` refuses rather
-than under-counts.
+`claude-mythos-5-2`, `claude-opus-5` and `claude-opus-4-8`; on the OpenAI side 2
+on `gpt-5.4`, `gpt-5.4-mini`, `gpt-5.6-sol`, `gpt-5.6-terra` and `gpt-5.6-luna`,
+and 2.5 on `gpt-5.5`, which lists fast at $12.50 in and $75 out and standard at
+$5 in and $30 out) and applies to input, output and cache tokens alike. A driver reports the
+speed that served the call as `TokenUsage.speed`; OpenAI reports its fast tier
+there and never as `serviceTier: 'priority'`. A fast call on a card with no
+multiplier is counted as unpriced, never charged at the standard rate, so
+`costLimitUsd` refuses rather than under-counts. The `gpt-6` models have no row,
+so their fast usage reports unknown. `'ultrafast'` has no published per-token
+price and is always unpriced, and the multiplier does not apply to it. See
+[Fast mode on OpenAI models](fast-mode.md).
 
 ## Hosted web searches and service tiers
 
@@ -74,8 +80,9 @@ as before.
 
 A driver also reports `TokenUsage.serviceTier` and `TokenUsage.inferenceGeo` when the
 provider says them. Only the `standard` tier (or none reported) is priced from the
-card: the vendor publishes no per-token price for `priority` or `batch`, so tokens
-served on either are counted as unpriced instead of at the standard rate.
+card: the vendor publishes no per-token price for `priority`, `batch`, `flex` or
+`scale`, so tokens served on any of them are counted as unpriced instead of at the
+standard rate.
 
 ## How a reader should render it
 

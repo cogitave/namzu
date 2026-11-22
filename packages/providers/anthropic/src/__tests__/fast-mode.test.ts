@@ -112,6 +112,15 @@ describe('fast mode on the wire', () => {
 		expect(calls[2]!.body.speed).toBe('fast')
 	})
 
+	it('refuses ultrafast before any request, since it is not an Anthropic mode', async () => {
+		const { provider, calls } = harness()
+		await expect(send(provider, { speed: 'ultrafast' })).rejects.toMatchObject({
+			kind: 'bad_request',
+			providerCode: 'fast_mode_unsupported',
+		})
+		expect(calls).toHaveLength(0)
+	})
+
 	it('sends no beta header on Opus 5.5 and Fable 5.2', async () => {
 		const { provider, calls } = harness()
 		await send(provider, { speed: 'fast' })

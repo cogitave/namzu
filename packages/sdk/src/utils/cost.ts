@@ -43,7 +43,7 @@ export interface ModelPricing {
 	cache?: CacheRates
 	/**
 	 * The vendor's published multiple of every rate on this card for a request
-	 * served in fast mode (`TokenUsage.speed === 'fast'`). Absent means there is
+	 * served in fast mode (`TokenUsage.speed === 'fast'`; it does not apply to `'ultrafast'`). Absent means there is
 	 * no published fast price: fast usage is then counted as unpriced, never
 	 * charged at the standard rate, which would under-report it.
 	 */
@@ -71,20 +71,29 @@ function priceUsage(usage: TokenUsage, pricing: ModelPricing): Priced {
 	const searches = usage.webSearchRequests ?? 0
 	if (searches === 0 || pricing.webSearchCostPer1000 === undefined) return tokens
 	// Per request, so no speed or tier multiple applies to it.
-	return { ...tokens, cost: tokens.cost + (searches / 1000) * pricing.webSearchCostPer1000 }
+	return {
+		...tokens,
+		cost: tokens.cost + (searches / 1000) * pricing.webSearchCostPer1000,
+	}
 }
 
 /**
- * Tiers with a published per-token price (anything but `priority` and `batch`; a compatible endpoint may report `default` or `auto`). The vendor lists none for `priority`
- * (a capacity commitment) or `batch` (a different endpoint), so tokens served
- * on one are unpriced rather than charged at the standard rate.
+ * Tiers with a published per-token price (anything but `priority`, `batch`,
+ * `flex` and `scale`; a compatible endpoint may report `default` or `auto`).
+ * The vendor lists none for `priority` (a capacity commitment), `batch` (a
+ * different endpoint), `flex` or `scale`, so tokens served on one are
+ * unpriced rather than charged at the standard rate.
  */
 function isStandardTier(tier: string | undefined): boolean {
-	return tier !== 'priority' && tier !== 'batch'
+	return tier !== 'priority' && tier !== 'batch' && tier !== 'flex' && tier !== 'scale'
 }
 
 function priceTokens(usage: TokenUsage, pricing: ModelPricing): Priced {
 	if (!isStandardTier(usage.serviceTier)) {
+		return { cost: 0, cacheDiscount: 0, unpriced: usage.totalTokens }
+	}
+	if (usage.speed === 'ultrafast') {
+		// No published per-token price: counted as unpriced, never at the standard rate.
 		return { cost: 0, cacheDiscount: 0, unpriced: usage.totalTokens }
 	}
 	if (usage.speed === 'fast') {
