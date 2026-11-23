@@ -221,7 +221,7 @@ describe('what the person is shown of a call', () => {
 		expect(seen[0]?.point).toBeUndefined()
 	})
 
-	it('costs the host no call of its own to name the application of a call it runs', async () => {
+	it('costs the host one window read to place a display call, none to name its application', async () => {
 		const host = makeHost()
 		let lists = 0
 		const listed = host.listWindows as NonNullable<ComputerUseHost['listWindows']>
@@ -232,10 +232,11 @@ describe('what the person is shown of a call', () => {
 		const tool = createComputerUseTool(host, { settleMs: 0 })
 		await run(tool, { type: 'screenshot' })
 		await run(tool, { type: 'mouse_click', at: { x: 100, y: 100 } })
-		expect(lists).toBe(0)
+		// One read places the call for the app-kind check; naming the app adds none.
+		expect(lists).toBe(1)
 		// A review screen asking for it before the call does read the windows.
 		await tool.appOf({ type: 'mouse_click', at: { x: 100, y: 100 } })
-		expect(lists).toBe(1)
+		expect(lists).toBe(2)
 	})
 
 	it('never changes the call when the host observer throws', async () => {

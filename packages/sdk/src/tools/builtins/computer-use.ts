@@ -530,6 +530,50 @@ const SCREEN_OBSERVATIONS = new Set<string>([
 const TERMINAL_APPS =
 	/^(WindowsTerminal|OpenConsole|conhost|cmd|powershell|pwsh|wsl|mintty|wezterm(-gui)?|alacritty|Hyper|Tabby|kitty|ConEmu(64)?|putty|Terminal|iTerm2?|gnome-terminal(-server)?|konsole|xterm|xfce4-terminal|tilix|terminator|foot|ghostty|Warp)$/i
 
+/**
+ * Browser windows, by the process name a host reports in `WindowInfo.app` (on
+ * Windows without `.exe`). The tool only looks at these: a page is worked
+ * through the browser tool.
+ */
+const BROWSER_APPS =
+	/^(chrome|google-chrome(-stable|-beta|-unstable)?|chromium(-browser)?|msedge|microsoft-edge(-stable|-beta|-dev)?|firefox(-esr|-bin)?|brave(-browser)?|opera|vivaldi(-stable)?|arc-browser|safari|librewolf|waterfox|zen-browser|navigator|tor browser|iexplore|duckduckgo|yandex-?browser|thorium)$/i
+
+/**
+ * Editors and development environments, by process name. Like a terminal,
+ * the tool may click in these but does not type or press keys in them: the
+ * shell and the edit tools do that work without a screen.
+ */
+const IDE_APPS =
+	/^(code(-insiders|-oss)?|cursor|windsurf|zed|devenv|idea(64)?|pycharm(64)?|webstorm(64)?|goland(64)?|clion(64)?|rider(64)?|phpstorm(64)?|rubymine(64)?|datagrip(64)?|studio64|android-studio|jetbrains-[a-z-]+|sublime_text|subl|atom-editor|eclipse|netbeans(64)?|xcode|nova-editor|vscodium|codium|kate|gedit|vim|gvim|nvim-qt|emacs|lapce|jetbrains-fleet)$/i
+
+/** How far the tool works in an application: only looks, looks and clicks, or everything. */
+export type AppTier = 'view' | 'click' | 'full'
+
+/** The tier of an application by the name a host reports for its window. */
+export function appTier(app: string): AppTier {
+	const name = app
+		.trim()
+		.replace(/\.exe$/i, '')
+		.replace(/^.*[\\/]/, '')
+	if (BROWSER_APPS.test(name)) return 'view'
+	if (TERMINAL_APPS.test(name) || IDE_APPS.test(name)) return 'click'
+	return 'full'
+}
+
+/** Keys that only move a page: allowed in a view-only application. */
+const SCROLL_KEYS = /^(page_?up|page_?down|home|end|arrow_?(up|down|left|right)|up|down|space)$/i
+
+function onlyScrollKeys(keys: unknown): boolean {
+	if (typeof keys !== 'string') return false
+	const parts = keys.split(/[\s+]+/).filter(Boolean)
+	return parts.length > 0 && parts.every((part) => SCROLL_KEYS.test(part))
+}
+
+/** Actions that type: refused in a click-only application. */
+const TYPING_ACTIONS = new Set<string>(['type_text', 'key'])
+/** Actions that press or drive a control: refused in a view-only application too. */
+const POINTING_ACTIONS = new Set<string>(['mouse_click', 'mouse_drag', 'ui_act', 'ui_do'])
+
 /** Actions a batch cannot carry: the ones that return an image or a tree, and batch itself. */
 const OUTSIDE_BATCH = new Set<string>(['screenshot', 'zoom', 'ui_snapshot', 'wait_for', 'batch'])
 
@@ -724,6 +768,7 @@ function buildDescription(
 	lines.push(
 		'Coordinates: every x/y you send is a pixel of the most recent screenshot this tool returned — origin at its top-left, x to the right, y down — never a screen pixel. Each screenshot states its id and size (for example "s3: 1456x819"); stay inside it. Display screenshots map onto the display. To aim at an earlier display screenshot, pass its id as screenshot_id.',
 		'Take a screenshot before your first click on pixels.',
+		"Look at the screen before you say what state an application is in. Never click links with computer use: a page is the browser tool's. Prefer a connected tool or a command line to the screen when one does the job.",
 	)
 	if (settings.screenshotAfterActions)
 		lines.push(
@@ -755,7 +800,7 @@ function buildDescription(
 		)
 	if (windowCaptureAvailable(host, caps))
 		lines.push(
-			`When the user names an application or window, ${available.includes('list_windows') ? 'use list_windows then screenshot {window_id}' : 'use screenshot {window_id} with a host-provided window id'} to capture pixels for that window. Its x/y are pixels of that window image; clicks, drags, typing and keys target that window. Window pointer input is sent in the background first. If a click or drag is refused, inspect a fresh image before any other action; where the host can use the screen it may repeat a refused click once on the screen, and the result says so. ${caps.windowScroll === false ? `Window pixel scrolling is unavailable on this host; for a browser page use key PAGE_DOWN or ARROW_DOWN with delivery_mode:"foreground"${hostActionAvailable(caps, 'screenshot') ? ', or deliberately take a display screenshot for display scrolling' : ''}. ` : ''}To type into a browser field, first mouse_click its point in the window image, then type_text with delivery_mode:"foreground" if background text is unavailable. This may briefly bring the verified window to the front: the host waits until the user has been still for a moment, puts their window back afterwards, and reports it as not delivered (safe to try again later) when the screen stays busy. ${host.beginTurn ? 'A result that says the user pressed Escape means stop: end your turn and say what is left undone. ' : ''}For browser shortcuts such as CTRL+L, use key with delivery_mode:"foreground". A stale or moved window is refused; take a fresh window screenshot. ${hostActionAvailable(caps, 'screenshot') ? 'Plain screenshot still shows the display. ' : 'screenshot requires window_id on this host. '}Browser permission bubbles outside the window may be absent. If the window image is blank or shows another window, do not click it; focus the target and capture it again.`,
+			`When the user names an application or window, ${available.includes('list_windows') ? 'use list_windows then screenshot {window_id}' : 'use screenshot {window_id} with a host-provided window id'} to capture pixels for that window. Its x/y are pixels of that window image; clicks, drags, typing and keys target that window. Window pointer input is sent in the background first. If a click or drag is refused, inspect a fresh image before any other action; where the host can use the screen it may repeat a refused click once on the screen, and the result says so. ${caps.windowScroll === false ? `Window pixel scrolling is unavailable on this host; ${hostActionAvailable(caps, 'screenshot') ? 'deliberately take a display screenshot for display scrolling' : 'scroll by another means'}. ` : ''}Foreground text may briefly bring the verified window to the front: the host waits until the user has been still for a moment, puts their window back afterwards, and reports it as not delivered (safe to try again later) when the screen stays busy. ${host.beginTurn ? 'A result that says the user pressed Escape means stop: end your turn and say what is left undone. ' : ''}A browser window is only looked at: act on a page with the browser tool. A stale or moved window is refused; take a fresh window screenshot. ${hostActionAvailable(caps, 'screenshot') ? 'Plain screenshot still shows the display. ' : 'screenshot requires window_id on this host. '}Browser permission bubbles outside the window may be absent. If the window image is blank or shows another window, do not click it; focus the target and capture it again.`,
 		)
 	if (available.includes('ui_snapshot'))
 		lines.push(
@@ -1858,7 +1903,7 @@ export function createComputerUseTool(
 					)
 				if (frame.window && caps.windowScroll === false)
 					throw new StepFailure(
-						'window pixel scrolling is unavailable on this host; use foreground PAGE_DOWN or ARROW_DOWN in this window, or take a deliberate display screenshot before display scrolling',
+						'window pixel scrolling is unavailable on this host; take a deliberate display screenshot before display scrolling, or use the browser tool for a page',
 					)
 				const at = mapPoint(frame, item.at, 'at')
 				return step(() =>
@@ -1883,7 +1928,9 @@ export function createComputerUseTool(
 				if (item.delivery_mode && !frame.window)
 					throw new StepFailure('type_text delivery_mode requires a window screenshot')
 				if (frame.window && TERMINAL_APPS.test(frame.window.window.app))
-					throw new StepFailure('computer_use never types into a terminal window')
+					throw new StepFailure(
+						'computer_use never types into a terminal window; use the shell tool for a command',
+					)
 				return step(() =>
 					runHost(
 						{
@@ -1907,7 +1954,9 @@ export function createComputerUseTool(
 						'key delivery_mode requires a window screenshot; take one with screenshot {window_id}',
 					)
 				if (frame.window && TERMINAL_APPS.test(frame.window.window.app))
-					throw new StepFailure('computer_use never sends keys to a terminal window')
+					throw new StepFailure(
+						'computer_use never sends keys to a terminal window; use the shell tool for a command',
+					)
 				return step(() =>
 					runHost(
 						{
@@ -2390,6 +2439,14 @@ export function createComputerUseTool(
 			)
 		}
 		const front = windows.find((window) => window.focused)
+		if (front && appTier(front.app) === 'view')
+			throw new StepFailure(
+				`a browser is in front (${front.app}, window ${front.id}), so nothing was typed: computer_use only looks at a browser. Use the browser tool to act on a page, or bring the window you mean to the front (focus_window, or click it) and try again`,
+			)
+		if (front && IDE_APPS.test(front.app.trim().replace(/\.exe$/i, '')))
+			throw new StepFailure(
+				`an editor is in front (${front.app}, window ${front.id}), so nothing was typed: computer_use clicks in an editor but does not type there. Use the edit tools for a file and the shell tool for a command, or bring the window you mean to the front (focus_window, or click it) and try again`,
+			)
 		if (front && TERMINAL_APPS.test(front.app))
 			throw new StepFailure(
 				`a terminal is in front (${front.app}, window ${front.id}), so nothing was typed: computer_use never sends keys or text to a terminal. Bring the window you mean to the front (focus_window, or click it) and try again; for a command, use a shell tool instead`,
@@ -3106,6 +3163,66 @@ export function createComputerUseTool(
 		return `computer_use does not act in ${applicationName(app)}: the person put it off limits. Nothing was done. Use another application, or tell the person you need it and let them change the list.`
 	}
 
+	/**
+	 * Why this call may not run because of the kind of application it would act in, or undefined:
+	 * a browser window is only looked at, a terminal or an editor is clicked but not typed into.
+	 * It places the call from what the tool already knows (a window screenshot, the last window list)
+	 * and never reads the host for it: acting must not cost a call it would not make. A call it
+	 * cannot place is left to the checks that follow, and a terminal's typing is refused by them.
+	 * The person's denied list is checked first and stands on top of this.
+	 */
+	const appTierRefusal = async (
+		input: ActionInput,
+		context: ToolContext,
+	): Promise<string | undefined> => {
+		if (isReadOnlyInput(input)) return undefined
+		// A call with no window of its own is placed by the focused window or by bounds: read a fresh list.
+		const loose0: unknown = input
+		const shot0 =
+			isRecord(loose0) && typeof loose0.screenshot_id === 'string'
+				? loose0.screenshot_id
+				: undefined
+		const unbound = (batchActions(input) ?? [input]).some((item) => {
+			if (!isRecord(item) || boundWindowId(item) !== undefined) return false
+			if (!TYPING_ACTIONS.has(String(item.type)) && !POINTING_ACTIONS.has(String(item.type)))
+				return false
+			const id = typeof item.screenshot_id === 'string' ? item.screenshot_id : shot0
+			const frame = id ? frames.get(id) : frames.latest()
+			return !frame?.window
+		})
+		if (unbound && typeof host.listWindows === 'function') {
+			try {
+				rememberWindows(await host.listWindows(context.abortSignal))
+			} catch {
+				// The checks that follow read the front window before typing.
+			}
+		}
+		const loose: unknown = input
+		const shotId =
+			isRecord(loose) && typeof loose.screenshot_id === 'string' ? loose.screenshot_id : undefined
+		const withShot = (item: Record<string, unknown>): Record<string, unknown> =>
+			shotId && item.screenshot_id === undefined ? { ...item, screenshot_id: shotId } : item
+		for (const item of batchActions(input) ?? [input]) {
+			if (!isRecord(item)) continue
+			const type = String(item.type)
+			const setsValue =
+				(type === 'ui_act' || type === 'ui_do') &&
+				(item.action === 'set_value' || typeof item.value === 'string')
+			if (!TYPING_ACTIONS.has(type) && !POINTING_ACTIONS.has(type)) continue
+			const placed = appsKnown(withShot(item))
+			for (const app of placed) {
+				const tier = appTier(app)
+				const name = applicationName(app)
+				if (tier === 'view' && type === 'key' && onlyScrollKeys(item.keys)) continue
+				if (tier === 'view')
+					return `computer_use only looks at ${name}, a browser: it does not click, type or press keys there. Use the browser tool to act on a page; take a screenshot to see what the window shows. Nothing was done.`
+				if (tier === 'click' && !TERMINAL_APPS.test(app) && (TYPING_ACTIONS.has(type) || setsValue))
+					return `computer_use clicks in ${name} but does not type or press keys there. Use the shell tool for a command and the edit tools for a file. Nothing was done.`
+			}
+		}
+		return undefined
+	}
+
 	const runAction = async (input: ActionInput, context: ToolContext): Promise<ToolResult> => {
 		const denied = refusal(input.type)
 		if (denied) return { success: false, output: '', error: denied }
@@ -3190,6 +3307,8 @@ export function createComputerUseTool(
 		async execute(input, context): Promise<ToolResult> {
 			const keptOut = await deniedAppRefusal(input, context)
 			if (keptOut) return { success: false, output: '', error: keptOut }
+			const tiered = await appTierRefusal(input, context)
+			if (tiered) return { success: false, output: '', error: tiered }
 			const shotId = 'screenshot_id' in input ? input.screenshot_id : undefined
 			const before = shotId ? frames.get(shotId) : frames.latest()
 			// Only what is already known: acting must not cost the host a call it would not make.
