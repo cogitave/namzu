@@ -68,6 +68,18 @@ interface Tab {
 	/** Clears `working` a moment after the last call ended. */
 	workingTimer?: ReturnType<typeof setTimeout>
 }
+/** Whether `next` is no looser than `current`: every deny kept, and an allow list only narrower. */
+export function siteRulesTighten(current: SiteRules, next: SiteRules): boolean {
+	const denied = new Set(next.deny ?? [])
+	if (!(current.deny ?? []).every((entry) => denied.has(entry))) return false
+	const was = current.allow ?? []
+	if (was.length === 0) return true
+	const now = next.allow ?? []
+	if (now.length === 0) return false
+	const allowed = new Set(was)
+	return now.every((entry) => allowed.has(entry))
+}
+
 interface Browser {
 	tabs: Tab[]
 	/** The sites the agent's tabs here may reach, as passed when the agent opened its first tab. */
@@ -572,8 +584,14 @@ export class BrowserPaneHost {
 	): { ok: true; tab: AgentTabHandle; reused: boolean } | { ok: false; reason: AgentTabRefusal } {
 		if (this.disposed) return { ok: false, reason: 'tab-cap' }
 		const browser = this.browser(sessionId)
-		// Rules not given keep the ones the conversation has; given rules replace them.
-		if (sites !== undefined) browser.agentSites = sites
+		// Rules bind from the first open that gives them. While the same engine holds the tabs a
+		// later open may only tighten them: rules that would reach a site the first set shut are
+		// ignored. They start again when the engine lets go, goes away, or the conversation ends.
+		if (
+			sites !== undefined &&
+			(browser.agentSites === undefined || siteRulesTighten(browser.agentSites, sites))
+		)
+			browser.agentSites = sites
 		const have = this.agentTabs(sessionId)
 		const first = have[0]
 		if (first) return { ok: true, tab: first, reused: true }
@@ -593,6 +611,12 @@ export class BrowserPaneHost {
 
 	closeAgentTab(sessionId: string, tabId: string): void {
 		if (this.agentTab(sessionId, tabId)) this.closeTab(sessionId, tabId)
+	}
+
+	/** The engine let go, or the conversation ended, or a setting that changes the agent's tabs did: its site rules start again. */
+	forgetAgentSites(sessionId: string): void {
+		const browser = this.browsers.get(sessionId)
+		if (browser) browser.agentSites = undefined
 	}
 
 	closeAgentTabs(sessionId: string): void {

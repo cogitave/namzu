@@ -234,6 +234,7 @@ import {
 	type PaneKind,
 	type Layout as PaneLayout,
 	closePane,
+	columnCapacity,
 	hasPane,
 	placePane,
 	setMaximised,
@@ -1335,6 +1336,10 @@ export function App({
 		if (fresh.length === 0) return
 		if (agentTabsRevealed.current.has(sessionId)) return
 		agentTabsRevealed.current.add(sessionId)
+		// Where the pane would cover the conversation (a narrow window) it stays shut: the card that
+		// asks for a sign-in is in the conversation, and its Show the tab opens the page on purpose.
+		const room = paneRoot.current?.clientWidth ?? window.innerWidth
+		if (columnCapacity(room) === 0) return
 		openPaneRef.current('browser')
 	}, [browserState, sessionId])
 	// Shows the tab Namzu is using, for a card that asks the person to do something in it.

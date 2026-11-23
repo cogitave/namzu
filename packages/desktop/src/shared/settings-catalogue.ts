@@ -862,12 +862,12 @@ export const SETTINGS_CATALOGUE: readonly CatalogueEntry[] = [
 				{
 					value: 'quit',
 					label: 'Until you quit',
-					help: 'Every conversation shares one set of sign-ins, forgotten when Namzu closes.',
+					help: 'Every conversation shares one set of sign-ins, forgotten when Namzu closes. A page Namzu opens for a task can use a sign-in made in another conversation.',
 				},
 				{
 					value: 'restarts',
 					label: 'Across restarts',
-					help: 'Sign-ins are kept on this computer and shared by every conversation.',
+					help: 'Sign-ins are kept on this computer and shared by every conversation. A page Namzu opens for a task can use a sign-in made in another conversation.',
 				},
 				{
 					value: 'conversation',

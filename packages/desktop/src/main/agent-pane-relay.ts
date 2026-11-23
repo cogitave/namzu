@@ -125,6 +125,10 @@ interface Driven {
 	children: Set<string>
 	attached: boolean
 	inFlight: number
+	/** Rejects each call now waiting on the page, so a take-over can end them. */
+	pending: Set<(error: RelayError) => void>
+	/** Scripts the agent set to run in every new document, so a take-over can remove them. */
+	scripts: Set<string>
 	onMessage: (...args: unknown[]) => void
 	onDetach: (...args: unknown[]) => void
 }
@@ -370,10 +374,20 @@ function scrubHeaders(params: unknown): unknown {
 		if (part && part.headers !== undefined)
 			copy[key] = { ...part, headers: withoutCookies(part.headers) }
 	}
+	// What a form sent (a password among it) is the person's, never the agent's: the request says
+	// that it had a body and nothing of what was in it.
+	const request = asObject(copy.request)
+	if (request && (request.postData !== undefined || request.postDataEntries !== undefined)) {
+		const { postData: _body, postDataEntries: _entries, ...rest } = request
+		copy.request = { ...rest, hasPostData: true }
+	}
 	if (copy.responseHeaders !== undefined)
 		copy.responseHeaders = withoutCookies(copy.responseHeaders)
 	return copy
 }
+
+/** The few events still passed on while the person holds the tab: where the page is, nothing it holds. */
+const PERSON_EVENTS = new Set(['Page.frameNavigated', 'Page.loadEventFired'])
 
 /** Whether an event from the page is passed on. */
 export function eventAllowed(method: string): boolean {
@@ -534,6 +548,8 @@ export class AgentPaneRelay {
 			children: new Set(),
 			attached: true,
 			inFlight: 0,
+			pending: new Set(),
+			scripts: new Set(),
 			onMessage: (...args) => this.message(record, args),
 			onDetach: (...args) => {
 				const reason = typeof args[1] === 'string' ? args[1] : 'detached'
@@ -638,6 +654,10 @@ export class AgentPaneRelay {
 				? (this.deps.screenshotMs ?? SCREENSHOT_MS)
 				: (this.deps.callMs ?? CALL_MS)
 		const result = await this.send(record, method, screened.params, sessionId, timeout)
+		if (method === 'Page.addScriptToEvaluateOnNewDocument') {
+			const identifier = asObject(result)?.identifier
+			if (typeof identifier === 'string') record.scripts.add(identifier)
+		}
 		return this.fit(method, screened.params, result)
 	}
 
@@ -657,9 +677,12 @@ export class AgentPaneRelay {
 		record.inFlight++
 		record.host.setWorking(record.conversationId, record.tab.id, true)
 		let timer: ReturnType<typeof setTimeout> | undefined
+		let cancel: ((error: RelayError) => void) | undefined
 		try {
 			const call = record.dbg.sendCommand(method, params ?? {}, sessionId)
 			const limit = new Promise<never>((_resolve, reject) => {
+				cancel = reject
+				record.pending.add(reject)
 				timer = setTimeout(
 					() => reject(new RelayError('timeout', 'The page did not answer in time.')),
 					timeoutMs,
@@ -672,6 +695,7 @@ export class AgentPaneRelay {
 			throw new RelayError('cdp-error', error instanceof Error ? error.message : 'The call failed.')
 		} finally {
 			if (timer) clearTimeout(timer)
+			if (cancel) record.pending.delete(cancel)
 			record.inFlight--
 			if (record.inFlight === 0) record.host.setWorking(record.conversationId, record.tab.id, false)
 		}
@@ -714,6 +738,14 @@ export class AgentPaneRelay {
 			if (typeof id === 'string') record.children.delete(id)
 		}
 		if (!eventAllowed(method)) return
+		// While the person holds the tab (a sign-in, say) the agent hears where the page is and
+		// nothing else: not a keystroke's echo, not a form's body, not a frame of the screen.
+		if (
+			!method.startsWith('Target.') &&
+			!PERSON_EVENTS.has(method) &&
+			record.host.control(record.conversationId, record.tab.id) === 'person'
+		)
+			return
 		if (sizeOf(params) > MAX_RESULT_BYTES) {
 			this.deps.note?.('event-dropped', { method })
 			return
@@ -748,6 +780,10 @@ export class AgentPaneRelay {
 				return
 			}
 			case 'control':
+				if (event.control === 'person') {
+					const record = this.find(event.sessionId, event.tabId)
+					if (record) this.interrupt(record)
+				}
 				this.emit({
 					kind: 'state',
 					conversationId: event.sessionId,
@@ -780,6 +816,33 @@ export class AgentPaneRelay {
 
 	// ---- Take-over -------------------------------------------------------------------------------
 
+	/**
+	 * Ends what the agent has running on a tab the person has just taken: calls waiting on the page
+	 * fail with `human-in-control`, a script still executing is stopped, and the scripts the agent set
+	 * for every new document are removed. A timer a page script set for itself is the page's own and
+	 * is not reached; the person is looking at the page and the agent's calls are refused.
+	 */
+	private interrupt(record: Driven): void {
+		const refusal = new RelayError(
+			'human-in-control',
+			'The person has taken over this tab. Wait for them to hand it back.',
+		)
+		for (const reject of [...record.pending]) reject(refusal)
+		record.pending.clear()
+		if (!record.attached) return
+		const quietly = (method: string, params?: object): void => {
+			try {
+				void Promise.resolve(record.dbg.sendCommand(method, params ?? {})).catch(() => undefined)
+			} catch {
+				// The page is already gone.
+			}
+		}
+		if (record.inFlight > 0) quietly('Runtime.terminateExecution')
+		for (const identifier of record.scripts)
+			quietly('Page.removeScriptToEvaluateOnNewDocument', { identifier })
+		record.scripts.clear()
+	}
+
 	/** The person takes the tab: the agent's calls are refused until `handBack`. */
 	takeOver(conversationId: string, tabId: string): boolean {
 		return (
@@ -809,7 +872,10 @@ export class AgentPaneRelay {
 	conversationEnded(conversationId: string): void {
 		for (const record of [...(this.driven.get(conversationId)?.values() ?? [])])
 			this.drop(record, 'conversation-ended', true, conversationId, false)
-		for (const host of this.hosts.keys()) host.closeAgentTabs(conversationId)
+		for (const host of this.hosts.keys()) {
+			host.closeAgentTabs(conversationId)
+			host.forgetAgentSites(conversationId)
+		}
 	}
 
 	/**
@@ -821,7 +887,10 @@ export class AgentPaneRelay {
 			for (const record of [...tabs.values()]) this.drop(record, reason, closeTabs, conversationId)
 		if (closeTabs)
 			for (const host of this.hosts.keys())
-				for (const conversationId of conversationsOf(host)) host.closeAgentTabs(conversationId)
+				for (const conversationId of conversationsOf(host)) {
+					host.closeAgentTabs(conversationId)
+					host.forgetAgentSites(conversationId)
+				}
 	}
 
 	/**
@@ -832,6 +901,8 @@ export class AgentPaneRelay {
 	releaseConversation(conversationId: string, reason: string, closeTabs: boolean): void {
 		for (const record of [...(this.driven.get(conversationId)?.values() ?? [])])
 			this.drop(record, reason, closeTabs, conversationId, false)
+		// An engine that lets go (or went away) may bring other rules with the next one it starts.
+		for (const host of this.hosts.keys()) host.forgetAgentSites(conversationId)
 	}
 
 	dispose(): void {

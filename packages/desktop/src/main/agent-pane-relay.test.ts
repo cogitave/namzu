@@ -366,8 +366,45 @@ describe('agent tabs in the pane', () => {
 		pane.host.openAgentTab('a', { deny: ['*'] })
 		pane.host.openAgentTab('a')
 		expect(pane.host.agentSites('a')).toEqual({ deny: ['*'] })
-		pane.host.openAgentTab('a', { allow: ['x.test'] })
-		expect(pane.host.agentSites('a')).toEqual({ allow: ['x.test'] })
+		pane.host.openAgentTab('a', { deny: ['*', 'x.test'] })
+		expect(pane.host.agentSites('a')).toEqual({ deny: ['*', 'x.test'] })
+	})
+
+	it('never loosens the rules a conversation has while the same engine holds them', async () => {
+		const pane = setup()
+		await pane.relay.open({
+			conversationId: 'a',
+			rules: { deny: ['localhost'] },
+		})
+		await pane.relay.open({ conversationId: 'a', rules: {} })
+		expect(pane.host.agentSites('a')).toEqual({ deny: ['localhost'] })
+		await pane.relay.open({
+			conversationId: 'a',
+			rules: { deny: ['other.test'] },
+		})
+		expect(pane.host.agentSites('a')).toEqual({ deny: ['localhost'] })
+		await pane.relay.open({
+			conversationId: 'a',
+			rules: { allow: ['x.test'], deny: ['localhost'] },
+		})
+		expect(pane.host.agentSites('a')).toEqual({
+			allow: ['x.test'],
+			deny: ['localhost'],
+		})
+		await pane.relay.open({
+			conversationId: 'a',
+			rules: { allow: ['y.test'], deny: ['localhost'] },
+		})
+		expect(pane.host.agentSites('a')).toEqual({
+			allow: ['x.test'],
+			deny: ['localhost'],
+		})
+		// The engine lets go, and the next one brings its own.
+		pane.relay.releaseConversation('a', 'released-by-engine', false)
+		await pane.relay.open({ conversationId: 'a', rules: {} })
+		expect(pane.host.agentSites('a')).toEqual({})
+		pane.relay.conversationEnded('a')
+		expect(pane.host.agentSites('a')).toBeUndefined()
 	})
 
 	it('fails an open whose rules are malformed and leaves the tab and its rules alone', async () => {
@@ -729,6 +766,92 @@ describe('the relay', () => {
 		})
 		expect(JSON.stringify(network)).not.toMatch(/set-cookie/i)
 		expect(pane.events[2]).toMatchObject({ sessionId: 'CHILD' })
+	})
+
+	it('tells the engine nothing but where the page is while the person holds the tab, and never what a form sent', async () => {
+		const pane = setup()
+		const { tabId } = await pane.relay.open({ conversationId: 'a' })
+		const dbg = (pane.pages[0] as FakePage).dbg
+		const form = {
+			request: {
+				url: 'http://x/post',
+				method: 'POST',
+				postData: 'pw=hunter2PASS',
+				headers: {},
+			},
+		}
+		// Before the take-over a body still never leaves the app.
+		dbg.message('Network.requestWillBeSent', form)
+		dbg.message('Fetch.requestPaused', {
+			request: {
+				url: 'http://x/post',
+				postDataEntries: [{ bytes: 'aHVudGVyMg==' }],
+			},
+		})
+		expect(JSON.stringify(pane.events)).not.toMatch(/hunter2|aHVudGVyMg|postData"/)
+		expect(pane.events[0]).toMatchObject({
+			params: { request: { url: 'http://x/post', hasPostData: true } },
+		})
+		pane.events.length = 0
+		pane.relay.takeOver('a', tabId)
+		pane.events.length = 0
+		dbg.message('Network.requestWillBeSent', form)
+		dbg.message('Runtime.consoleAPICalled', {
+			type: 'log',
+			args: [{ value: 'hunter2PASS' }],
+		})
+		dbg.message('Input.dragIntercepted', {})
+		dbg.message('Page.screencastFrame', { data: 'FRAME', sessionId: 1 })
+		dbg.message('Page.frameNavigated', { frame: { id: 'F' } })
+		dbg.message('Page.loadEventFired', { timestamp: 1 })
+		dbg.message('Target.attachedToTarget', {
+			sessionId: 'S',
+			targetInfo: {},
+			waitingForDebugger: false,
+		})
+		expect(pane.events.map((event) => (event.kind === 'cdp' ? event.method : event.kind))).toEqual([
+			'Page.frameNavigated',
+			'Page.loadEventFired',
+			'Target.attachedToTarget',
+		])
+		expect(JSON.stringify(pane.events)).not.toMatch(/hunter2|FRAME/)
+		pane.relay.handBack('a', tabId)
+		pane.events.length = 0
+		dbg.message('Runtime.consoleAPICalled', { type: 'log' })
+		expect(pane.events).toHaveLength(1)
+	})
+
+	it('ends a call in flight, a running script and the agent’s own page scripts when the person takes over', async () => {
+		const pane = setup()
+		const { tabId } = await pane.relay.open({ conversationId: 'a' })
+		const dbg = (pane.pages[0] as FakePage).dbg
+		dbg.answers.set('Page.addScriptToEvaluateOnNewDocument', () => ({
+			identifier: 'S1',
+		}))
+		await pane.relay.cdp({
+			conversationId: 'a',
+			tabId,
+			method: 'Page.addScriptToEvaluateOnNewDocument',
+			params: { source: 'setInterval(()=>0,10)' },
+		})
+		dbg.answers.set('Runtime.evaluate', () => new Promise(() => undefined))
+		const waiting = pane.relay
+			.cdp({
+				conversationId: 'a',
+				tabId,
+				method: 'Runtime.evaluate',
+				params: { expression: '1' },
+			})
+			.catch((error: unknown) => error)
+		await Promise.resolve()
+		pane.relay.takeOver('a', tabId)
+		expect(await waiting).toMatchObject({ code: 'human-in-control' })
+		const sent = dbg.calls.map((call) => call.method)
+		expect(sent).toContain('Runtime.terminateExecution')
+		expect(dbg.calls).toContainEqual({
+			method: 'Page.removeScriptToEvaluateOnNewDocument',
+			params: { identifier: 'S1' },
+		})
 	})
 
 	it('refuses an oversize request, shrinks an oversize screenshot and refuses any other oversize answer', async () => {
