@@ -86,3 +86,50 @@
 .browser-empty p {
 	margin: 0;
 }
+
+/* The mark of a tab Namzu opened: a small dot; it breathes while a call is on the page. */
+.agent-mark {
+	flex: none;
+	width: 8px;
+	height: 8px;
+	border-radius: 50%;
+	background: var(--primary, currentColor);
+}
+.agent-mark[data-working] {
+	animation: agent-mark-pulse 1.1s ease-in-out infinite;
+}
+@keyframes agent-mark-pulse {
+	50% {
+		opacity: 0.35;
+	}
+}
+@media (prefers-reduced-motion: reduce) {
+	:root:not([data-motion="full"]) .agent-mark[data-working] {
+		animation: none;
+	}
+}
+/* The strip under the address bar on a tab Namzu opened: who has it, and the button that changes it. */
+.browser-agent-bar {
+	display: flex;
+	flex: none;
+	align-items: center;
+	gap: 8px;
+	min-width: 0;
+	padding: 4px 8px;
+	border-bottom: 1px solid var(--border);
+	color: var(--muted-foreground);
+	font-size: var(--text-small);
+}
+.browser-agent-words {
+	flex: 1;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.browser-agent-bar > button {
+	flex: none;
+}
+.browser-agent-bar[data-control="person"] .agent-mark {
+	background: var(--muted-foreground);
+}

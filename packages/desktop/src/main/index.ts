@@ -283,6 +283,10 @@ export const agentPaneRelay = new AgentPaneRelay({
 		return undefined
 	},
 })
+// An end-to-end run (never a packaged app) may drive the agent's tabs through the relay directly, as the
+// engine's connection does, so a flow can show the pane without a model that opens a browser.
+if (!app.isPackaged && process.env.NAMZU_E2E_AGENT_PANE === '1')
+	(globalThis as unknown as Record<string, unknown>).__namzuAgentPane = agentPaneRelay
 /**
  * "Keep computer awake" for one conversation: a power-save blocker held while it is on. It is
  * released when the person turns it off, when the window that asked closes, and when the
@@ -2035,7 +2039,11 @@ function register(): void {
 	handleWindow('browserPane', ({ id }, sessionId: string, request: BrowserPaneRequest) => {
 		const host = browserPanes.get(id)
 		if (!host) throw new Error('The browser is not available here.')
-		return host.handle(sessionId, readBrowserRequest(request))
+		const read = readBrowserRequest(request)
+		// The person's take-over and hand-back go through the relay, which tells the engine.
+		if (read.kind === 'takeover') agentPaneRelay.takeOver(sessionId, read.tabId)
+		else if (read.kind === 'handback') agentPaneRelay.handBack(sessionId, read.tabId)
+		return host.handle(sessionId, read)
 	})
 	handleWindow('keepAwake', ({ id }, sessionId: string, on?: boolean) => {
 		if (typeof sessionId !== 'string' || !sessionId || sessionId.length > 400)

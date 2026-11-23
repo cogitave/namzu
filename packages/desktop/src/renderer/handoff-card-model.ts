@@ -42,6 +42,10 @@ export function describeHandoff(handoff: DesktopTurnHandoff): HandoffCard {
 		return { title, body: `${reason}. When that is done, choose Continue.` }
 	}
 	const task = `${verb} ${site}`
+	if (handoff.window === 'pane') {
+		// The page is a tab of the Browser pane: nothing to open, and never a terminal command.
+		return { title, body: `${task} in the Browser pane, then choose Continue.` }
+	}
 	const command = handoff.loginCommand
 	if (handoff.window === 'none') {
 		return {

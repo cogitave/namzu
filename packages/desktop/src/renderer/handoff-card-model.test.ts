@@ -66,3 +66,13 @@ it('reads a site without its scheme or path', () => {
 	expect(siteName(undefined)).toBeUndefined()
 	expect(siteName('')).toBeUndefined()
 })
+
+it('sends a sign-in to the Browser pane when the page is a tab there, with no command in sight', () => {
+	const card = describeHandoff({
+		...base,
+		window: 'pane',
+		loginCommand: 'namzu browser login default https://github.com',
+	})
+	expect(card.body).toBe('Sign in to github.com in the Browser pane, then choose Continue.')
+	expect(card.fallback).toBeUndefined()
+})

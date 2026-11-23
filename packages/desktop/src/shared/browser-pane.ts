@@ -25,6 +25,8 @@ export interface BrowserTabView {
 	owner: BrowserTabOwner
 	/** Only on an agent's tab: `person` while the person has taken it over, and the agent is paused. */
 	control?: BrowserTabControl
+	/** Only on an agent's tab: true while the agent has a call on the page, so the strip can say so. */
+	working?: boolean
 }
 
 export interface BrowserPaneState {
@@ -54,6 +56,9 @@ export type BrowserPaneRequest =
 	/** An address typed into the bar. */
 	| { kind: 'go'; address: string }
 	| { kind: 'select'; tabId: string }
+	/** The person takes an agent's tab (the agent is paused) or hands it back. */
+	| { kind: 'takeover'; tabId: string }
+	| { kind: 'handback'; tabId: string }
 	| { kind: 'close'; tabId: string }
 	| { kind: 'back' }
 	| { kind: 'forward' }
@@ -83,6 +88,8 @@ export function readBrowserRequest(value: unknown): BrowserPaneRequest {
 		case 'go':
 			return { kind: 'go', address: text(request.address, 4096) }
 		case 'select':
+		case 'takeover':
+		case 'handback':
 		case 'close':
 			return { kind: request.kind, tabId: text(request.tabId, 100) }
 		case 'back':

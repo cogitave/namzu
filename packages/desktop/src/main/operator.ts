@@ -494,7 +494,10 @@ function validHandoff(value: unknown): value is DesktopTurnHandoff {
 				item[key] === undefined ||
 				(typeof item[key] === 'string' && (item[key] as string).length <= 600),
 		) &&
-		(item.window === undefined || item.window === 'visible' || item.window === 'none')
+		(item.window === undefined ||
+			item.window === 'visible' ||
+			item.window === 'none' ||
+			item.window === 'pane')
 	)
 }
 

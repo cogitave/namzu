@@ -47,6 +47,8 @@ import {
 
 const MAX_TABS = MAX_BROWSER_TABS
 /** The size an agent's tab has while it is not on screen, so its page still lays out like a window. */
+/** How long an agent's tab still reads as working after its last call, so a run of calls shows as one. */
+export const WORKING_LINGER_MS = 600
 const HIDDEN_SIZE = { x: 0, y: 0, width: 1280, height: 800 }
 
 type View = WebContentsView
@@ -61,6 +63,10 @@ interface Tab {
 	opener?: string
 	/** Settles when a page is in the view that a debugger can talk to. */
 	ready?: Promise<void>
+	/** An agent's tab: true while a call is on the page, and for a moment after so the mark does not flicker. */
+	working?: boolean
+	/** Clears `working` a moment after the last call ended. */
+	workingTimer?: ReturnType<typeof setTimeout>
 }
 interface Browser {
 	tabs: Tab[]
@@ -247,7 +253,9 @@ export class BrowserPaneHost {
 					canGoBack: contents.navigationHistory.canGoBack(),
 					canGoForward: contents.navigationHistory.canGoForward(),
 					owner: tab.owner,
-					...(tab.owner === 'agent' ? { control: tab.control } : {}),
+					...(tab.owner === 'agent'
+						? { control: tab.control, ...(tab.working ? { working: true } : {}) }
+						: {}),
 				}
 			}),
 			...(browser.active ? { active: browser.active } : {}),
@@ -496,6 +504,7 @@ export class BrowserPaneHost {
 		const at = browser.tabs.findIndex((tab) => tab.id === tabId)
 		const tab = browser.tabs[at]
 		if (!tab) return
+		if (tab.workingTimer) clearTimeout(tab.workingTimer)
 		if (this.attached?.tab === tab) this.detach()
 		browser.tabs.splice(at, 1)
 		if (browser.active === tabId) browser.active = (browser.tabs[at] ?? browser.tabs[at - 1])?.id
@@ -611,6 +620,31 @@ export class BrowserPaneHost {
 		return true
 	}
 
+	/**
+	 * The agent has a call on the tab (`true`) or its last call ended (`false`; the mark stays a moment
+	 * longer). The renderer shows it beside the agent's marker. Nothing about the call is kept.
+	 */
+	setWorking(sessionId: string, tabId: string, working: boolean): void {
+		if (this.disposed) return
+		const tab = this.browsers.get(sessionId)?.tabs.find((candidate) => candidate.id === tabId)
+		if (!tab || tab.owner !== 'agent') return
+		if (tab.workingTimer) clearTimeout(tab.workingTimer)
+		tab.workingTimer = undefined
+		if (working) {
+			if (!tab.working) {
+				tab.working = true
+				this.emit(sessionId)
+			}
+			return
+		}
+		if (!tab.working) return
+		tab.workingTimer = setTimeout(() => {
+			tab.workingTimer = undefined
+			tab.working = false
+			this.emit(sessionId)
+		}, WORKING_LINGER_MS)
+	}
+
 	handle(sessionId: string, request: BrowserPaneRequest): BrowserPaneState {
 		if (this.disposed) return { sessionId, tabs: [] }
 		const browser = this.browser(sessionId)
@@ -661,6 +695,11 @@ export class BrowserPaneHost {
 			case 'select':
 				if (browser.tabs.some((tab) => tab.id === request.tabId)) browser.active = request.tabId
 				break
+			case 'takeover':
+			case 'handback':
+				// The same call the relay's own take-over makes; asking twice changes nothing.
+				this.setControl(sessionId, request.tabId, request.kind === 'takeover' ? 'person' : 'agent')
+				break
 			case 'close':
 				this.closeTab(sessionId, request.tabId)
 				break
@@ -702,6 +741,7 @@ export class BrowserPaneHost {
 		for (const peers of hostsOfSessions()) peers.delete(this)
 		for (const [sessionId, browser] of this.browsers)
 			for (const tab of browser.tabs) {
+				if (tab.workingTimer) clearTimeout(tab.workingTimer)
 				if (tab.owner === 'agent') void this.tell({ kind: 'closed', sessionId, tabId: tab.id })
 				try {
 					tab.view.webContents.close()

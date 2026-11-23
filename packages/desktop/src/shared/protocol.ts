@@ -684,7 +684,8 @@ export interface DesktopTurnHandoff {
 	profile?: string
 	/** What opens a window to do it when the browser has none. */
 	loginCommand?: string
-	window?: 'visible' | 'none'
+	/** `pane`: the page is a tab in the Browser pane, so there is no separate window or login command. */
+	window?: 'visible' | 'none' | 'pane'
 }
 export interface DesktopRetryStatus {
 	retry?: DesktopTurnRetry
