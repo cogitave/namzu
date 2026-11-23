@@ -319,6 +319,31 @@ export class ACPServer {
 		)
 	}
 
+	/**
+	 * Whether the client named `capability` when it initialized. False before `initialize`. A host
+	 * that offers something only to a client that asked for it (an extension request it sends the
+	 * client) reads this before relying on it.
+	 */
+	clientOffers(capability: string): boolean {
+		return this.initialized && this.clientCapabilities.includes(capability)
+	}
+
+	/**
+	 * Ask the client something over the connection and wait for its answer. For a host extension that
+	 * needs the client to do work (a request under `namzu/`), after `clientOffers` said it may.
+	 * Rejects with the client's error message, and when the connection closes before it answers.
+	 */
+	askClient<T = unknown>(
+		method: string,
+		params: Record<string, unknown>,
+		signal?: AbortSignal,
+	): Promise<T> {
+		if (this.stopped) return Promise.reject(new Error('The ACP server is stopped.'))
+		if (!/^namzu\/[a-z][a-z0-9_/-]*$/.test(method))
+			return Promise.reject(new Error(`Invalid ACP client request name: ${method}`))
+		return this.request<T>(method, params, signal)
+	}
+
 	async start(): Promise<void> {
 		if (this.stopped) throw new Error('An ACP server cannot be restarted after it has stopped.')
 		this.options.transport.onMessage((message) => {
