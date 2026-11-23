@@ -79,4 +79,11 @@ describe('a skill is put back without its worked examples', () => {
 		expect(rendered.text).not.toContain('A long sample.')
 		expect(rendered.text).toContain('Example sections left out')
 	})
+
+	it('does not read a comment line inside a code fence as a heading', () => {
+		const body = '# A\n\n## Steps\n\n```sh\n# Example usage\nrun it\n```\n\nThen finish.'
+		const { text, dropped } = withoutExampleSections(body)
+		expect(dropped).toBe(false)
+		expect(text).toContain('Then finish.')
+	})
 })

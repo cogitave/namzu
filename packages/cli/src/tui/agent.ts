@@ -2571,6 +2571,19 @@ export const DELEGATION_TOOLS_WHEN_BUSY = [
 	'cancel_agent',
 ] as const
 
+/**
+ * The eager names for a session that can launch an agent or a workflow: the
+ * task tools join them at boot, so a turn that launches its first agent
+ * mid-turn can wait for it without a search, and the list never changes
+ * between turns (a change would break the cached prefix).
+ */
+export function eagerToolsWithDelegation(
+	eager: readonly string[],
+	delegationOffered: boolean,
+): readonly string[] {
+	return delegationOffered ? [...new Set([...eager, ...DELEGATION_TOOLS_WHEN_BUSY])] : eager
+}
+
 /** True when this turn is, or is about to be, working with delegated work. */
 export function delegationIsBusy(state: {
 	readonly hypermode: boolean
@@ -5669,7 +5682,12 @@ export async function createAgentSession(
 					: ts
 			return toolLoadingDeferred ? deferExceptToolset(wrapped, eager) : [wrapped]
 		})
-	const sessionToolsets: readonly Toolset[] = sessionToolsetsWith(eagerToolNames)
+	const delegationOffered =
+		(workflowHost !== undefined && options.workflow?.enabled !== false) ||
+		toolsets.some((ts) => ts.tools().some((tool) => tool.name === 'agent'))
+	const sessionToolsets: readonly Toolset[] = sessionToolsetsWith(
+		eagerToolsWithDelegation(eagerToolNames, delegationOffered),
+	)
 	// The same toolsets with the agent and workflow tools loaded, for a turn that
 	// is running or about to run delegated work. Built only when first needed.
 	let busySessionToolsets: readonly Toolset[] | undefined
@@ -7409,10 +7427,9 @@ export async function createAgentSession(
 							.filter((run) => run.status === 'running').length,
 					})
 					if (delegationBusy && toolLoadingDeferred) {
-						busySessionToolsets ??= sessionToolsetsWith([
-							...eagerToolNames,
-							...DELEGATION_TOOLS_WHEN_BUSY,
-						])
+						busySessionToolsets ??= sessionToolsetsWith(
+							eagerToolsWithDelegation(eagerToolNames, true),
+						)
 						runToolsets = busySessionToolsets
 						runManager = new ToolManager({
 							toolsets: runToolsets,

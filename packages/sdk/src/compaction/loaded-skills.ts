@@ -206,8 +206,16 @@ export function withoutExampleSections(body: string): { text: string; dropped: b
 	const kept: string[] = []
 	let skipping: number | undefined
 	let dropped = false
+	// A `# comment` inside a code fence is not a heading.
+	let fence: string | undefined
 	for (const line of lines) {
-		const heading = /^(#{1,6})\s+(.*)$/.exec(line)
+		const fenceMark = /^\s*(`{3,}|~{3,})/.exec(line)
+		if (fenceMark) {
+			const mark = (fenceMark[1] as string)[0] as string
+			if (fence === undefined) fence = mark
+			else if (fence === mark) fence = undefined
+		}
+		const heading = fence === undefined && !fenceMark ? /^(#{1,6})\s+(.*)$/.exec(line) : null
 		if (heading) {
 			const level = (heading[1] as string).length
 			if (skipping !== undefined && level <= skipping) skipping = undefined

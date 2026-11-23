@@ -8,6 +8,7 @@ import {
 	deferExceptToolset,
 	delegationIsBusy,
 	eagerToolsFor,
+	eagerToolsWithDelegation,
 } from './agent.js'
 
 describe('the tools a deferring session sends with every request', () => {
@@ -65,5 +66,28 @@ describe('the tool list a deferring session builds', () => {
 		expect(m.availability('wait_for_task')).toBe('active')
 		expect(m.availability('agent_task_list')).toBe('active')
 		expect(m.availability('obscure_tool')).toBe('deferred')
+	})
+})
+
+describe('a session that can launch an agent or a workflow', () => {
+	it('holds the task tools loaded from boot, so a mid-turn launch needs no search', () => {
+		const base = toolset(
+			'test',
+			[
+				'web_fetch',
+				'agent',
+				'wait_for_task',
+				'agent_task_list',
+				'send_message',
+				'cancel_agent',
+			].map(fakeTool),
+		)
+		const eager = eagerToolsWithDelegation(eagerToolsFor({}), true)
+		const m = new ToolManager({ toolsets: deferExceptToolset(base, eager), messages: () => [] })
+		for (const name of DELEGATION_TOOLS_WHEN_BUSY) expect(m.availability(name)).toBe('active')
+		expect(m.availability('agent')).toBe('deferred')
+	})
+	it('leaves the list alone when nothing can be launched', () => {
+		expect(eagerToolsWithDelegation(eagerToolsFor({}), false)).toEqual(eagerToolsFor({}))
 	})
 })
