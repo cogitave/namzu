@@ -32,6 +32,12 @@ describe('the coding-agent doctrine', () => {
 		expect(named.has('Agent')).toBe(false)
 	})
 
+	it('tells the model that background work it started is its to end, naming the tool only where offered', () => {
+		expect(CODING_AGENT_DELEGATION_DOCTRINE).toContain(
+			'- Background work you started is yours to end: stop it (with `stop_task`, where offered) when the person changed course, a result in hand already answers the question, or an earlier stage failed; never because it is only slow. Say in one sentence what you stopped and why.',
+		)
+	})
+
 	it('speaks of the task list without naming a tool, and never asks to remove a file', () => {
 		// The list is optional and its tools are described where they are offered;
 		// naming them here sent a model that had none to call a tool it lacked.

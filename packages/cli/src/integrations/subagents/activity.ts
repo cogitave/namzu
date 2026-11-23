@@ -148,7 +148,7 @@ export interface SubagentActivity {
 	readonly released?: boolean
 	/**
 	 * Who stopped it, when it ended as `cancelled`: the operator (rail, Esc,
-	 * Ctrl+C), or the conversation's own agent (`cancel_agent`). Absent when
+	 * Ctrl+C), or the conversation's own agent (`stop_task`). Absent when
 	 * nobody recorded it.
 	 */
 	readonly stoppedBy?: 'user' | 'parent'

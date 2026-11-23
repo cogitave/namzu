@@ -225,11 +225,25 @@ export class WorkflowRunRegistry {
 		})
 	}
 
-	/** Stop a run: queued agents never start, running ones are aborted. False when it is not running. */
-	stop(runId: string): boolean {
+	/**
+	 * Stop a run: queued agents never start, running ones are aborted. False when
+	 * it is not running. `by` names who asked: the person (default) or the
+	 * conversation's agent, which may say why.
+	 */
+	stop(
+		runId: string,
+		who: { readonly by?: 'user' | 'parent'; readonly reason?: string } = {},
+	): boolean {
 		const run = this.runs.get(runId)
 		if (!run || run.view.status !== 'running') return false
-		run.abort.abort(new Error('The operator stopped this workflow.'))
+		const why = who.reason?.trim()
+		run.abort.abort(
+			new Error(
+				who.by === 'parent'
+					? `The conversation's agent stopped this workflow${why ? `: ${why}` : '.'}`
+					: 'The operator stopped this workflow.',
+			),
+		)
 		return true
 	}
 

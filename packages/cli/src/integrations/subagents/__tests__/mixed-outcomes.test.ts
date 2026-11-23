@@ -111,8 +111,8 @@ it.each(['tool', 'provider'])(
 			const ids = launches.map((result) => (result.data as { task_id: string }).task_id)
 			const cancelled = ids[0]!
 			await vi.waitFor(() => expect(holding).toBe(true))
-			const foreignCancel = await runtime.cancelAgentTool.execute(
-				{ task_id: cancelled },
+			const foreignCancel = await runtime.stopTaskTool.execute(
+				{ id: cancelled },
 				{ ...context, turnId: foreign },
 			)
 			expect(foreignCancel.success).toBe(false)
@@ -122,8 +122,8 @@ it.each(['tool', 'provider'])(
 				context,
 			)
 			expect(correction.success).toBe(true)
-			const cancel = await runtime.cancelAgentTool.execute({ task_id: cancelled }, context)
-			expect(cancel.output).toContain('Cancellation requested')
+			const cancel = await runtime.stopTaskTool.execute({ id: cancelled }, context)
+			expect(cancel.output).toContain('Stop requested')
 			// Cancellation targets the child tool wait after its provider receipt settled.
 			expect(requests[1]?.[0]?.signal?.aborted).toBe(false)
 			expect(requests[2]?.[0]?.signal?.aborted).toBe(false)
@@ -144,7 +144,7 @@ it.each(['tool', 'provider'])(
 			const inbox = await runtime.completionInboxForTurn(parent.scope.turnId)
 			expect(inbox.drain()).toHaveLength(3)
 			expect(inbox.drain()).toHaveLength(0)
-			const repeated = await runtime.cancelAgentTool.execute({ task_id: cancelled }, context)
+			const repeated = await runtime.stopTaskTool.execute({ id: cancelled }, context)
 			expect(repeated.output).toContain('already ended')
 			expect(created).toBe(3)
 			expect(

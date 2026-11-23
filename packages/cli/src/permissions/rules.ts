@@ -77,6 +77,17 @@ export function bindPermissionTableToSource(
 	return bound
 }
 
+/**
+ * Tools that were renamed or merged: the old name a rule or allow-list may
+ * still carry, and the tool that answers to it now.
+ */
+const FORMER_TOOL_NAMES: Readonly<Record<string, string>> = { cancel_agent: 'stop_task' }
+
+/** The name a permission rule is matched under: the current one for a former name. */
+export function currentToolName(name: string): string {
+	return Object.hasOwn(FORMER_TOOL_NAMES, name) ? (FORMER_TOOL_NAMES[name] as string) : name
+}
+
 /** Exact tool rules written for the CLI's former MCP naming scheme. */
 export function legacyMcpPermissionNames(config: PermissionsConfig | undefined): readonly string[] {
 	return Object.keys(config ?? {}).filter((name) => /^mcp_(?!_)[^_]+_.+/.test(name))
@@ -368,9 +379,11 @@ export function compilePermissions(
 	const ruleRoot = permissionRuleRoots.get(config)
 	const pathContext = ruleRoot === undefined ? context : { ...context, ruleRoot }
 
-	for (const [tool, permission] of Object.entries(config)) {
+	for (const [written, permission] of Object.entries(config)) {
 		// Mode settings share the table with the rules; they are not tools.
-		if (isPermissionSettingKey(tool)) continue
+		if (isPermissionSettingKey(written)) continue
+		// A rule written under a name the tool no longer has applies to its successor.
+		const tool = currentToolName(written)
 		if (tool === 'sources') {
 			if (typeof permission !== 'object' || permission === null || Array.isArray(permission)) {
 				diagnostics.push({ tool, message: 'expected a table of source id globs and effects' })

@@ -73,14 +73,9 @@ describe('a session that can launch an agent or a workflow', () => {
 	it('holds the task tools loaded from boot, so a mid-turn launch needs no search', () => {
 		const base = toolset(
 			'test',
-			[
-				'web_fetch',
-				'agent',
-				'wait_for_task',
-				'agent_task_list',
-				'send_message',
-				'cancel_agent',
-			].map(fakeTool),
+			['web_fetch', 'agent', 'wait_for_task', 'agent_task_list', 'send_message', 'stop_task'].map(
+				fakeTool,
+			),
 		)
 		const eager = eagerToolsWithDelegation(eagerToolsFor({}), true)
 		const m = new ToolManager({ toolsets: deferExceptToolset(base, eager), messages: () => [] })

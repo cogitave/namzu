@@ -212,14 +212,9 @@ describe('an agent is reachable from every later turn of its conversation', () =
 			)
 			expect(world.requests).toHaveLength(1)
 
-			const cancelled = await world.runtime.cancelAgentTool.execute(
-				{ task_id: taskId },
-				world.context2,
-			)
+			const cancelled = await world.runtime.stopTaskTool.execute({ id: taskId }, world.context2)
 			expect(cancelled.success).toBe(true)
-			expect(cancelled.output).toBe(
-				`Task ${taskId} already ended: completed. No cancellation sent.`,
-			)
+			expect(cancelled.output).toBe(`Task ${taskId} already ended: completed. Nothing was stopped.`)
 
 			const listed = await world.runtime.agentTaskListTool.execute({}, world.context2)
 			expect(JSON.parse(listed.output).tasks).toEqual([
@@ -322,12 +317,9 @@ describe('an agent is reachable from every later turn of its conversation', () =
 			await world.started.promise
 			await world.endTurn(world.turn1)
 
-			const cancelled = await world.runtime.cancelAgentTool.execute(
-				{ task_id: taskId },
-				world.context2,
-			)
+			const cancelled = await world.runtime.stopTaskTool.execute({ id: taskId }, world.context2)
 			expect(cancelled.success).toBe(true)
-			expect(cancelled.data).toMatchObject({ status: 'cancellation_requested' })
+			expect(cancelled.data).toMatchObject({ status: 'stop_requested' })
 			world.hold.resolve()
 			const ended = await world.runtime.waitForTaskTool.execute({ task_id: taskId }, world.context2)
 			expect(ended.success).toBe(false)
@@ -453,13 +445,13 @@ describe('an agent is reachable from every later turn of its conversation', () =
 			)
 			await entered.promise
 			const waiting = world.runtime.waitForTaskTool.execute({ task_id: taskId }, world.context2)
-			const cancelling = world.runtime.cancelAgentTool.execute({ task_id: taskId }, world.context2)
+			const cancelling = world.runtime.stopTaskTool.execute({ id: taskId }, world.context2)
 			admit.resolve()
 
 			expect((await sending).data).toMatchObject({ status: 'resumed' })
 			const cancelled = await cancelling
 			expect(cancelled.output).not.toContain('already ended')
-			expect(cancelled.data).toMatchObject({ status: 'cancellation_requested' })
+			expect(cancelled.data).toMatchObject({ status: 'stop_requested' })
 			world.hold.resolve()
 			const ended = await waiting
 			expect(ended.output).toContain('status: canceled')
@@ -478,10 +470,7 @@ describe('an agent is reachable from every later turn of its conversation', () =
 			await world.endTurn(world.turn1)
 			vi.spyOn(retired, 'getTask').mockReturnValue(undefined)
 
-			const cancelled = await world.runtime.cancelAgentTool.execute(
-				{ task_id: taskId },
-				world.context2,
-			)
+			const cancelled = await world.runtime.stopTaskTool.execute({ id: taskId }, world.context2)
 			expect(cancelled.success).toBe(true)
 			expect(cancelled.output).toBe(
 				`Task ${taskId} is already stopping. No further cancellation sent.`,
@@ -532,22 +521,31 @@ describe('an agent is reachable from every later turn of its conversation', () =
 
 			for (const tool of [
 				world.runtime.waitForTaskTool,
-				world.runtime.cancelAgentTool,
+				world.runtime.stopTaskTool,
 				world.runtime.sendMessageTool,
 			]) {
-				const foreign = await tool.execute({ task_id: taskId, message: 'FOREIGN' }, strangerContext)
+				const foreign = await tool.execute(
+					{ task_id: taskId, id: taskId, message: 'FOREIGN' },
+					strangerContext,
+				)
 				expect(foreign.success).toBe(false)
 				expect(foreign.error).toContain(`No task with ID ${taskId} in this conversation.`)
 				expect(foreign.error).not.toContain('does not belong')
 
-				const madeUp = await tool.execute({ task_id: MADE_UP, message: 'MADE_UP' }, world.context2)
+				const madeUp = await tool.execute(
+					{ task_id: MADE_UP, id: MADE_UP, message: 'MADE_UP' },
+					world.context2,
+				)
 				expect(madeUp.success).toBe(false)
 				expect(madeUp.error).toContain(`No task with ID ${MADE_UP} in this conversation.`)
 				expect(madeUp.error).toContain(`Running agents: ${taskId}.`)
 				// Nothing saved is called by that id, so no history hint is made.
 				expect(madeUp.error).not.toContain('history')
 
-				const garbled = await tool.execute({ task_id: 'task 1', message: 'X' }, world.context2)
+				const garbled = await tool.execute(
+					{ task_id: 'task 1', id: 'task 1', message: 'X' },
+					world.context2,
+				)
 				expect(garbled.success).toBe(false)
 				expect(garbled.error).toContain('No task with ID task 1 in this conversation.')
 				expect(garbled.error).toContain(`Running agents: ${taskId}.`)
@@ -572,10 +570,13 @@ describe('an agent is reachable from every later turn of its conversation', () =
 
 			for (const tool of [
 				world.runtime.waitForTaskTool,
-				world.runtime.cancelAgentTool,
+				world.runtime.stopTaskTool,
 				world.runtime.sendMessageTool,
 			]) {
-				const foreign = await tool.execute({ task_id: taskId, message: 'FOREIGN' }, strangerContext)
+				const foreign = await tool.execute(
+					{ task_id: taskId, id: taskId, message: 'FOREIGN' },
+					strangerContext,
+				)
 				expect(foreign.success).toBe(false)
 				expect(foreign.error).toContain(`No task with ID ${taskId} in this conversation.`)
 				expect(foreign.error).not.toContain(`Running agents: ${taskId}`)
@@ -606,16 +607,10 @@ describe('an agent is reachable from every later turn of its conversation', () =
 			}),
 		})
 		try {
-			const saved = await world.runtime.cancelAgentTool.execute(
-				{ task_id: savedId },
-				world.context2,
-			)
+			const saved = await world.runtime.stopTaskTool.execute({ id: savedId }, world.context2)
 			expect(saved.error).toContain('agent_task_list')
 			expect(saved.error).toContain('history: true')
-			const other = await world.runtime.cancelAgentTool.execute(
-				{ task_id: MADE_UP },
-				world.context2,
-			)
+			const other = await world.runtime.stopTaskTool.execute({ id: MADE_UP }, world.context2)
 			expect(other.error).toBe(`No task with ID ${MADE_UP} in this conversation.`)
 		} finally {
 			await world.runtime.close()
@@ -632,7 +627,7 @@ describe('an agent is reachable from every later turn of its conversation', () =
 		expect(world.requests).toHaveLength(1)
 		for (const tool of [
 			world.runtime.waitForTaskTool,
-			world.runtime.cancelAgentTool,
+			world.runtime.stopTaskTool,
 			world.runtime.sendMessageTool,
 		]) {
 			const after = await tool.execute({ task_id: taskId, message: 'AFTER_CLOSE' }, world.context2)

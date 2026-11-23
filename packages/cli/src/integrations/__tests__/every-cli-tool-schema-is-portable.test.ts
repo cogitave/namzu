@@ -50,7 +50,7 @@ async function subagentTools(): Promise<ToolDefinition[]> {
 			runtime.waitForTaskTool,
 			runtime.agentTaskListTool,
 			runtime.sendMessageTool,
-			runtime.cancelAgentTool,
+			runtime.stopTaskTool,
 			runtime.narrationTool,
 			...(runtime.modelCatalogueTool ? [runtime.modelCatalogueTool] : []),
 		]

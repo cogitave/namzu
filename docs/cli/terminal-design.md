@@ -631,7 +631,7 @@ live state belongs to the rail.
   obeyed), `failed: <reason>` (the glyph is red and the sentence is plain text, with no
   duration; the sentence is the error's own text on one line, and
   `Unknown error` stands when nothing says why) or `was stopped by user · 1s`, `was stopped by Namzu ·
-  1s` (the conversation's own agent stopped it with `cancel_agent`), or plain
+  1s` (the conversation's own agent stopped it with `stop_task`), or plain
   `was stopped · 1s` when nobody recorded who (warning). Ctrl+O opens the detailed
   transcript, where the answer is shown whole. The result is not repeated in
   the line and it carries no token count; an agent resumed by a later message
