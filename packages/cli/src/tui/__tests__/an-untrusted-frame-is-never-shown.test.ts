@@ -36,16 +36,19 @@ function shownOf(toolName: string, result: string): string {
 describe('a framed result in a row', () => {
 	it('is read past for a tool that is not a connector, text around the frame included', () => {
 		const result = `task_id: t1\nstatus: completed\n\nAgent result:\n${frame('first line\n\nsecond line')}\n\nRecord of this run: ok`
-		const shown = shownOf('wait_for_task', result)
+		const shown = shownOf('some_other_tool', result)
 		expect(shown).not.toContain('namzu-untrusted')
 		expect(shown).toContain('first line')
 		expect(shown).toContain('second line')
+		// A work-status tool says how it came out in one line, with no frame in it.
+		expect(shownOf('wait_for_task', result)).toBe('Finished')
 	})
 
 	it('is read past inside a JSON string, and for several frames', () => {
 		const json = JSON.stringify({ agents: [{ output: frame('one') }, { output: frame('two') }] })
-		const shown = shownOf('agent_task_list', json)
+		const shown = shownOf('some_other_tool', json)
 		expect(shown).not.toContain('namzu-untrusted')
+		expect(shownOf('agent_task_list', json)).toBe('2 saved agents')
 		expect(shown).toContain('one')
 		expect(shown).toContain('two')
 		const text = withoutUntrustedFrames(`${frame('a')}\nmiddle\n${frame('b')}`)

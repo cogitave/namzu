@@ -600,7 +600,7 @@ import { projectTurnConversation } from './conversation-history.js'
 import { type ModelSwitchOutcome, buildSwitchModelTool } from './model-switch-tool.js'
 import { type ModelSwitchRequest, resolveModelSwitch } from './model-switch.js'
 import { type FoldOp, classifyCall } from './read-search-group.js'
-import { admitToolView, createCliToolPresenter } from './tool-presentation.js'
+import { admitToolView, createCliToolPresenter, hasOwnedView } from './tool-presentation.js'
 
 /**
  * The kernel's own tools (the task tools, the hand-back tool, the tool search)
@@ -10040,8 +10040,22 @@ export function toAgentEvent(
 				view.kind === 'terminal' && view.output.trim().length > 0
 					? resultToLines(view.output)[0]
 					: undefined
+			// A tool the application owns says how it came out in one line of its own;
+			// the model's body (JSON, a list of descriptions) is not drawn under it.
+			const ownedLine =
+				!event.isError &&
+				hasOwnedView(event.toolName) &&
+				view.kind === 'generic' &&
+				!view.visibility
+					? view.label
+					: ''
 			const summary =
-				unknownTool ?? (first !== undefined ? resultSummaryLine(first) : firstLine(shown))
+				unknownTool ??
+				(ownedLine.length > 0
+					? ownedLine
+					: first !== undefined
+						? resultSummaryLine(first)
+						: firstLine(shown))
 			// A plain failure line replaces the summary row, so the first output
 			// line is no longer said above and stays in the body.
 			const short =
@@ -10058,12 +10072,14 @@ export function toAgentEvent(
 			// the receipt's own first line.
 			const headline = event.isError ? undefined : factsHeadline(event.facts)
 			const withoutRepeatedSummary =
-				plainFailure === undefined &&
-				first !== undefined &&
-				detail?.[0] === first &&
-				summarySaysAll(first, summary)
-					? detail.slice(1)
-					: detail
+				ownedLine.length > 0
+					? undefined
+					: plainFailure === undefined &&
+							first !== undefined &&
+							detail?.[0] === first &&
+							summarySaysAll(first, summary)
+						? detail.slice(1)
+						: detail
 			return {
 				kind: 'tool-end',
 				output: withoutJobFooter(event.toolName, event.result),

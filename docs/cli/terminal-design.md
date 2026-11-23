@@ -833,7 +833,12 @@ its arguments or its body:
 or that the id was a workflow run; while a delegated agent matched by task id
 is on screen, the live row reads `Waiting · <agent>` and the agent's own rows
 carry its answer. `search_tools` names the tools it loaded, never their
-descriptions. A tool with no row of its own and no readable argument (an id or
+descriptions. One function per tool draws these lines, so the live transcript and a resumed
+one read the same, including the `skill` row (`Read skill <name>`). A notice the
+runtime injected for the model reads as one line when a conversation is
+reopened: `Workflow <name> finished · 1m 1s · 2 agents · 127.5k tokens`, or
+`Background command "<command>" finished (exit code 0)`; the frame, the
+standing preamble, the usage block and the result frame are never shown. A tool with no row of its own and no readable argument (an id or
 a flag is not one) shows its name alone, never its arguments as JSON.
 
 Text that reached the model inside a frame marking where it came from, such as
