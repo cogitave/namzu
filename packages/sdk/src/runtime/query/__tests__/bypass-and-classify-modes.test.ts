@@ -616,12 +616,11 @@ describe('a classifier that gives no verdict', () => {
 			...extra,
 		})
 
-	it('holds a call back with words that say no check was made', async () => {
+	it('holds a call back with words that say no check was made, when nobody can be asked', async () => {
 		const { classifier } = scripted(() => noVerdict())
 		const decision = await createReviewHandler({
 			mode: 'classify',
 			classifier,
-			prompt: approve(),
 			registry,
 		})(review(bash('npm run build')))
 		expect(decision).toEqual({
@@ -631,13 +630,9 @@ describe('a classifier that gives no verdict', () => {
 		})
 	})
 
-	it.each([
-		['with a person to ask', true],
-		['with nobody to ask', false],
-	])('ends the turn %s when the run of no verdicts is complete', async (_what, attended) => {
+	it('asks the person instead when the check cannot be completed, and says why', async () => {
+		const onClassifierFellBack = vi.fn()
 		const onClassifierUnavailable = vi.fn()
-		const onClassifierLimit = vi.fn()
-		// The same block can also complete a run of blocks; ending the turn wins.
 		const { classifier } = scripted(() =>
 			noVerdict({ noVerdictLimitReached: true, limitReached: 'consecutive' }),
 		)
@@ -645,7 +640,60 @@ describe('a classifier that gives no verdict', () => {
 		const decision = await createReviewHandler({
 			mode: 'classify',
 			classifier,
-			...(attended ? { prompt } : {}),
+			prompt,
+			registry,
+			onClassifierFellBack,
+			onClassifierUnavailable,
+		})(review(bash('npm run build')))
+		// The person was asked and said yes: not a refusal, and the turn goes on.
+		expect(decision).toEqual({ action: 'approve_tools' })
+		expect(prompt).toHaveBeenCalledTimes(1)
+		expect(onClassifierFellBack).toHaveBeenCalledWith({
+			reason: 'the safety check could not be completed, so the action was not run',
+		})
+		expect(onClassifierUnavailable).not.toHaveBeenCalled()
+	})
+
+	it('puts every call of the batch to the person when the check could not be completed for one of them', async () => {
+		let n = 0
+		const { classifier } = scripted(() => (n++ === 0 ? allow : noVerdict()))
+		const prompt = approve()
+		const decision = await createReviewHandler({
+			mode: 'classify',
+			classifier,
+			prompt,
+			registry,
+		})(review(bash('npm run build'), bash('npm test')))
+		expect(decision).toMatchObject({ action: 'approve_tools' })
+		expect(prompt).toHaveBeenCalledTimes(1)
+		const asked = (prompt as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as {
+			toolCalls: readonly unknown[]
+		}
+		expect(asked.toolCalls).toHaveLength(2)
+	})
+
+	it('a person who says no to the fallback question refuses the call as any no does', async () => {
+		const { classifier } = scripted(() => noVerdict())
+		const decision = await createReviewHandler({
+			mode: 'classify',
+			classifier,
+			prompt: decline(),
+			registry,
+		})(review(bash('npm run build')))
+		expect(decision).toMatchObject({ action: 'reject_tools' })
+		expect(decision).not.toHaveProperty('endTurn', true)
+	})
+
+	it('ends the turn with nobody to ask when the run of no verdicts is complete', async () => {
+		const onClassifierUnavailable = vi.fn()
+		const onClassifierLimit = vi.fn()
+		// The same block can also complete a run of blocks; ending the turn wins.
+		const { classifier } = scripted(() =>
+			noVerdict({ noVerdictLimitReached: true, limitReached: 'consecutive' }),
+		)
+		const decision = await createReviewHandler({
+			mode: 'classify',
+			classifier,
 			registry,
 			onClassifierUnavailable,
 			onClassifierLimit,
@@ -664,7 +712,6 @@ describe('a classifier that gives no verdict', () => {
 			reason: 'the safety check could not be completed, so the action was not run',
 		})
 		expect(onClassifierLimit).not.toHaveBeenCalled()
-		expect(prompt).not.toHaveBeenCalled()
 	})
 
 	it('tells an action too long to read to be split up, not tried again as it is', async () => {

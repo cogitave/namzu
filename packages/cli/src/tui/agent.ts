@@ -1256,7 +1256,7 @@ export interface SendOptions {
 	 * leaves the mode as it is.
 	 */
 	readonly onAutoModeLimit?: (event: {
-		readonly limit: 'consecutive' | 'total' | 'unavailable'
+		readonly limit: 'consecutive' | 'total' | 'unavailable' | 'asked'
 		readonly reason: string
 	}) => void
 	/**
@@ -9534,7 +9534,7 @@ export interface ReviewExtras {
 	 * on it, or (`unavailable`) gave no verdict often enough that the turn ended.
 	 */
 	readonly onClassifierLimit?: (event: {
-		readonly limit: 'consecutive' | 'total' | 'unavailable'
+		readonly limit: 'consecutive' | 'total' | 'unavailable' | 'asked'
 		readonly reason: string
 	}) => void
 	/** The conversation was too long for the classifier to read. */
@@ -9569,6 +9569,8 @@ function reviewOptionsOf(mode: PermissionMode, extras: ReviewExtras) {
 								onClassifierLimit: extras.onClassifierLimit,
 								onClassifierUnavailable: ({ reason }: { readonly reason: string }) =>
 									extras.onClassifierLimit?.({ limit: 'unavailable', reason }),
+								onClassifierFellBack: ({ reason }: { readonly reason: string }) =>
+									extras.onClassifierLimit?.({ limit: 'asked', reason }),
 							}
 						: {}),
 					...(extras.onClassifierTranscriptTooLong

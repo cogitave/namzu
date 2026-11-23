@@ -105,7 +105,9 @@ it('says what the answer claimed and what the record holds, under the outcome li
 		claimMismatch: mismatch,
 	})
 	const lines = shown.split('\n')
-	const outcomeAt = lines.findIndex((l) => l.includes('Changed 1 file · pnpm test failed'))
+	const outcomeAt = lines.findIndex((l) =>
+		l.includes('Changed 1 file this turn · pnpm test failed'),
+	)
 	const claimAt = lines.findIndex((l) =>
 		l.includes('The answer says the tests pass. The record: pnpm test failed.'),
 	)
@@ -115,6 +117,6 @@ it('says what the answer claimed and what the record holds, under the outcome li
 
 it('says nothing more when the answer contradicts nothing', async () => {
 	const shown = await turnShows({ kind: 'done', stopReason: 'end_turn', outcome: failing })
-	expect(shown).toContain('Changed 1 file · pnpm test failed')
+	expect(shown).toContain('Changed 1 file this turn · pnpm test failed')
 	expect(shown).not.toContain('The answer says')
 })

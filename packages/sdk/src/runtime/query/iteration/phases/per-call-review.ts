@@ -81,6 +81,8 @@ interface Interpreted {
 	readonly verdicts: Map<string, Verdict>
 	/** The calls were refused and the refusal ends the turn. */
 	readonly endsTurn: boolean
+	/** The refusal was a person's own No, not the safety check's. */
+	readonly byPerson?: boolean
 	/** The decision was the host stopping the turn outright. */
 	readonly cancelled: boolean
 	/** The decision was a request to wait: the park it recorded must not stay open. */
@@ -135,8 +137,12 @@ export interface PerCallReviewDeps {
  * - An answer that grants something (a remembered approval, a changed rule or
  *   mode on the host's side) re-checks the questions still open, and any call
  *   the new state covers is let through unasked. A re-check never refuses.
- * - A plain refusal ends the turn: the questions still open close, calls not
- *   yet started are refused without being asked, calls in flight are cancelled.
+ * - A refusal that ends the turn closes the questions still open and refuses,
+ *   without asking, the calls that would have needed one. When the safety
+ *   check refused, calls that need no review (a read, a search, a call a rule
+ *   already allowed) still run and calls already running finish: the refusal
+ *   is about the call it answered. A person's own No, and the host stopping
+ *   the turn (`cancelled`), cancel what is running and start nothing more.
  * - Every refusal and every call that could not be matched to a reviewed
  *   summary is a refusal. Nothing is approved by the absence of an answer.
  */
@@ -266,6 +272,10 @@ export class PerCallReview implements ReviewedExecution {
 			})
 			return { run: true }
 		}
+		// A refusal ended the turn while this call waited its turn: nobody is asked
+		// about it any more. It is refused here; a call that needed no question was
+		// let through above.
+		if (this.#endsTurn) return { run: false, reason: REFUSED_WITH_THE_TURN }
 		const interpreted = await this.#ask([summary], leave)
 		this.#noteEnd(interpreted)
 		const verdict = interpreted.verdicts.get(summary.id) ?? {
@@ -361,10 +371,10 @@ export class PerCallReview implements ReviewedExecution {
 
 	#noteEnd(interpreted: Interpreted): void {
 		if (!interpreted.endsTurn && !interpreted.cancelled) return
-		this.#end(interpreted.cancelled)
+		this.#end(interpreted.cancelled, interpreted.byPerson === true)
 	}
 
-	#end(cancelled: boolean): void {
+	#end(cancelled: boolean, byPerson = false): void {
 		if (this.#endsTurn) return
 		this.#endsTurn = true
 		this.#cancelled = cancelled
@@ -372,7 +382,10 @@ export class PerCallReview implements ReviewedExecution {
 			ask.closedBy ??= 'ended'
 			ask.controller.abort()
 		}
-		this.#endController.abort(new Error('the user stopped the turn'))
+		// A person's No, and the host stopping the turn, cancel what is running
+		// and start nothing more. A refusal by the safety check is about the call
+		// it answered: what is running and what needs no review carries on.
+		if (cancelled || byPerson) this.#endController.abort(new Error('the user stopped the turn'))
 	}
 
 	/** One request to the handler about `calls`, and what its answer means for each. */
@@ -481,6 +494,7 @@ export class PerCallReview implements ReviewedExecution {
 			interpreted.endsTurn,
 			interpreted.cancelled,
 			interpreted.paused,
+			interpreted.byPerson === true,
 		)
 	}
 
@@ -492,6 +506,7 @@ export class PerCallReview implements ReviewedExecution {
 		endsTurn: boolean,
 		cancelled: boolean,
 		paused: boolean,
+		byPerson = false,
 	): Promise<Interpreted> {
 		const { ctx } = this.#deps
 		const denials = new Map<string, string>()
@@ -534,7 +549,7 @@ export class PerCallReview implements ReviewedExecution {
 				})
 			}
 		}
-		return { verdicts: result, endsTurn, cancelled, paused }
+		return { verdicts: result, endsTurn, byPerson, cancelled, paused }
 	}
 
 	#interpret(decision: HITLResumeDecision, calls: readonly ToolCallSummary[]): Interpreted {
@@ -545,6 +560,7 @@ export class PerCallReview implements ReviewedExecution {
 		let endsTurn = false
 		let cancelled = false
 		let paused = false
+		let byPerson = false
 		switch (decision.action) {
 			case 'approve_tools':
 			case 'continue':
@@ -562,6 +578,7 @@ export class PerCallReview implements ReviewedExecution {
 					...(decision.declined ? { declined: note ? { note } : {} } : {}),
 				})
 				endsTurn = decision.endTurn === true
+				byPerson = decision.declined !== undefined
 				break
 			}
 			case 'modify_tools': {
@@ -600,7 +617,7 @@ export class PerCallReview implements ReviewedExecution {
 				})
 				refuseAll({ run: false, reason: NOT_THIS_QUESTION })
 		}
-		return { verdicts, endsTurn, cancelled, paused }
+		return { verdicts, endsTurn, byPerson, cancelled, paused }
 	}
 }
 

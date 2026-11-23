@@ -879,6 +879,7 @@ import {
 } from './slashCommands.js'
 import { StatusLineRows } from './status-line/StatusLineRows.js'
 import { useStatusLine } from './status-line/useStatusLine.js'
+import { isCallNotRun, stoppedTurnLine } from './stopped-turn-line.js'
 import {
 	DROPPED_REPLY_NOTICE,
 	type FlowContext,
@@ -3465,6 +3466,10 @@ function AppBody({
 	const stoppedAtPromptRef = useRef(new Set<string>())
 	/** A plain No ended the running turn: its interruption row is still owed. */
 	const refusalEndedTurnRef = useRef(false)
+	/** The auto mode's check gave no verdict and the turn was stopped; its closing line is still owed. */
+	const checkStoppedTurnRef = useRef(false)
+	/** Calls of the running turn the review did not let run. */
+	const callsNotRunRef = useRef(0)
 	/** Open while any question waits on the person; the background learning cycle reads it. */
 	const learningQuestionsRef = useRef<QuestionGate | null>(null)
 	if (learningQuestionsRef.current === null) learningQuestionsRef.current = createQuestionGate()
@@ -5219,10 +5224,20 @@ function AppBody({
 	 */
 	const handleAutoModeLimit = useCallback(
 		(event: {
-			readonly limit: 'consecutive' | 'total' | 'unavailable'
+			readonly limit: 'consecutive' | 'total' | 'unavailable' | 'asked'
 			readonly reason: string
 		}): void => {
+			if (event.limit === 'asked') {
+				// The check could not be completed; the person is asked about this
+				// call instead. Nothing changes about the mode.
+				pushMessage(
+					'system',
+					`Auto mode asks you instead: ${event.reason.replace(/, so the action was not run$/, '')}.`,
+				)
+				return
+			}
 			if (event.limit === 'unavailable') {
+				checkStoppedTurnRef.current = true
 				// The kernel refused the batch and ended the turn. A person who chose
 				// auto keeps it. A terminal in auto only because nothing chose another
 				// mode goes back to asking, as it does at the block limit, so a model
@@ -5233,10 +5248,10 @@ function AppBody({
 					permissionModeRef.current === 'classify'
 				) {
 					commitPermissionMode('prompt', false)
-					pushMessage('system', AUTO_MODE_DEFAULT_STOPPED_NOTICE)
+					pushMessage('system', `${AUTO_MODE_DEFAULT_STOPPED_NOTICE} ${event.reason}`)
 					return
 				}
-				pushMessage('system', AUTO_MODE_STOPPED_NOTICE)
+				pushMessage('system', `${AUTO_MODE_STOPPED_NOTICE} ${event.reason}`)
 				return
 			}
 			if (permissionModeRef.current !== 'classify') return
@@ -11155,6 +11170,7 @@ function AppBody({
 					break
 				}
 				case 'tool-end': {
+					if (isCallNotRun(event.output)) callsNotRunRef.current += 1
 					// A background bash call or a monitor creates its job before this
 					// event. A job action may also stop one. Re-read the owning session
 					// here so the footer and rail update while the model continues.
@@ -11567,12 +11583,22 @@ function AppBody({
 						}
 					}
 					// A plain No stopped this turn: say so once, under the calls it left.
+					const stoppedByReview = refusalEndedTurnRef.current || checkStoppedTurnRef.current
 					if (refusalEndedTurnRef.current) {
 						refusalEndedTurnRef.current = false
 						if (event.stopReason === 'cancelled') {
 							const row = interruptionRow({ callRunning: false })
 							pushMessage('system', row.content, false, row.glyph, undefined, row.color)
 						}
+					}
+					checkStoppedTurnRef.current = false
+					// A turn stopped by a refusal or a missing verdict has no closing text
+					// from the model: say what was done and what is left.
+					if (stoppedByReview && event.stopReason === 'cancelled') {
+						pushSystem(
+							'notice',
+							stoppedTurnLine({ outcome: event.outcome, notRun: callsNotRunRef.current }),
+						)
 					}
 					// A refusal row already said it, with the model and the provider's
 					// own words; saying it again as a stop line would double it.
@@ -12125,6 +12151,8 @@ function AppBody({
 			abortRef.current = ac
 			replyCutOffRef.current = false
 			refusalEndedTurnRef.current = false
+			checkStoppedTurnRef.current = false
+			callsNotRunRef.current = 0
 			activeTurnTokenRef.current = turnToken
 			takeBackRef.current =
 				userEchoId !== undefined && prompt.kind === 'human' && isRecallableHumanPrompt(prompt)

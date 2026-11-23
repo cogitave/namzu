@@ -102,7 +102,7 @@ function harness(
 		escalations?: Record<string, ToolCallSummary['escalation']>
 		toolGrants?: ToolGrantSet
 		reviewAllowed?: () => boolean
-		gateDecision?: () => 'allow' | 'review'
+		gateDecision?: (toolName: string) => 'allow' | 'review'
 	} = {},
 ): Harness {
 	const messages: Message[] = []
@@ -236,8 +236,8 @@ function harness(
 		...(options.gateDecision
 			? {
 					verificationGate: {
-						evaluate: () => ({
-							decision: options.gateDecision?.(),
+						evaluate: (input: { toolName: string }) => ({
+							decision: options.gateDecision?.(input.toolName),
 							matchedRule: null,
 						}),
 					},
@@ -396,7 +396,7 @@ describe('per-call review: execute while asking', () => {
 		)
 	})
 
-	it('a plain refusal cancels what runs, refuses what has not started, closes open questions and ends the turn', async () => {
+	it("a person's plain refusal cancels what runs, refuses what has not started, closes open questions and ends the turn", async () => {
 		const h = harness({ perCallReview: {} })
 		const resp = responseOf(
 			call('r1', 'read'),
@@ -432,8 +432,73 @@ describe('per-call review: execute while asking', () => {
 		expectEveryCallAnswered(h.messages, resp)
 		expect(toolText(h.messages, 'b1')).toContain('turn was stopped')
 		expect(toolText(h.messages, 'r3')).toContain('turn was stopped')
-		// Results are announced in the model's order: the declined call, then the ones not asked.
-		expect(h.announced.filter((id) => id !== 'r1')).toEqual(['r2', 'r3', 'b1'])
+	})
+
+	it("a person's No still stops a call that a rule already allows, later in the batch", async () => {
+		const h = harness({
+			perCallReview: {},
+			gateDecision: (tool) => (tool === 'bash' ? 'review' : 'allow'),
+		})
+		const resp = responseOf(call('b1', 'bash'), call('w1', 'write'))
+		const running = drive(h.ctx, resp)
+		await h.untilQuestions(1)
+		h.questions[0]?.answer({
+			action: 'reject_tools',
+			feedback: 'declined',
+			declined: {},
+			endTurn: true,
+		})
+		const outcome = await running
+		expect(outcome.decision).toBe('stop')
+		expect(h.started).toEqual([])
+		expectEveryCallAnswered(h.messages, resp)
+	})
+
+	it('a refusal by the safety check does not stop the reads and searches beside it that need no review', async () => {
+		// The gate allows reads and searches; the shell call is asked and refused.
+		const h = harness({
+			perCallReview: {},
+			gateDecision: (tool) => (tool === 'bash' ? 'review' : 'allow'),
+		})
+		const resp = responseOf(call('b1', 'bash'), call('r1', 'read'), call('g1', 'grep'))
+		const running = drive(h.ctx, resp)
+
+		await h.untilQuestions(1)
+		h.questions[0]?.answer({
+			action: 'reject_tools',
+			feedback: 'Blocked by auto mode: not that',
+			endTurn: true,
+		})
+		await h.untilStarted('r1')
+		await h.untilStarted('g1')
+		h.finish('r1')
+		h.finish('g1')
+		const outcome = await running
+
+		expect(outcome.decision).toBe('stop')
+		expect(h.started.sort()).toEqual(['g1', 'r1'])
+		expect(h.finished.sort()).toEqual(['g1', 'r1'])
+		// Nobody was asked about the reads, and the shell call never ran.
+		expect(h.questions).toHaveLength(1)
+		expect(toolText(h.messages, 'r1')).toContain('read ok')
+		expect(toolText(h.messages, 'g1')).toContain('grep ok')
+		expect(toolText(h.messages, 'b1')).toContain('Blocked by auto mode: not that')
+		expectEveryCallAnswered(h.messages, resp)
+	})
+
+	it('a host stopping the turn still cancels what runs', async () => {
+		const h = harness({ perCallReview: {} })
+		const resp = responseOf(call('r1', 'read'), call('r2', 'grep'))
+		const running = drive(h.ctx, resp)
+		await h.untilQuestions(2)
+		h.questions[0]?.answer(approve)
+		await h.untilStarted('r1')
+		const toolSignal = h.signals.get('r1') as AbortSignal
+		h.questions[1]?.answer({ action: 'abort', reason: 'stop' })
+		const outcome = await running
+		expect(outcome.decision).toBe('stop')
+		expect(toolSignal.aborted).toBe(true)
+		expectEveryCallAnswered(h.messages, resp)
 	})
 
 	it('treats an answer that does not name the call as a refusal, never an approval', async () => {

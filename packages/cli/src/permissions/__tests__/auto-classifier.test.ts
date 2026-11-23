@@ -1,8 +1,10 @@
 import {
 	type LLMProvider,
+	type Logger,
 	MockLLMProvider,
 	type SessionId,
 	type TurnId,
+	createReviewHandler,
 	createUserMessage,
 } from '@namzu/sdk'
 import { describe, expect, it, vi } from 'vitest'
@@ -331,5 +333,106 @@ describe('a run of answers with no verdict', () => {
 		expect(await inTurn(() => classifier.review(request))).not.toHaveProperty(
 			'noVerdictLimitReached',
 		)
+	})
+})
+
+describe('saying why the check could not be completed', () => {
+	const warned: { message: string; data?: Record<string, unknown> }[] = []
+	const log: Logger = {
+		debug: () => {},
+		info: () => {},
+		warn: (message, data) => warned.push({ message, data }),
+		error: () => {},
+		child: () => log,
+	}
+
+	it.each([
+		[
+			'a missing credential',
+			new Error('No API key for provider codex'),
+			'no credential for the check model',
+		],
+		[
+			'a provider that answered 400',
+			Object.assign(new Error('bad request body'), { status: 400 }),
+			'provider returned 400',
+		],
+	])('names the class for %s and keeps the cause in the log', async (_what, error, why) => {
+		warned.length = 0
+		const { classifier } = build({
+			log,
+			providerFor: async () => {
+				throw error
+			},
+		})
+
+		const decision = await inTurn(() => classifier.review(request))
+
+		expect(decision).toMatchObject({ verdict: 'block', cause: 'unavailable' })
+		expect((decision as { reason: string }).reason).toContain(why)
+		expect(JSON.stringify(warned)).toContain(String(error.message))
+	})
+
+	/** A scripted session: a classifier that throws, a bash call to review, a person or nobody. */
+	const bash = {
+		id: 'call_bash',
+		name: 'bash',
+		input: { command: 'pnpm test' },
+	}
+	const asked = (classifier: ReturnType<typeof build>['classifier']) => (prompt?: never) =>
+		createReviewHandler({
+			mode: 'classify',
+			classifier,
+			...(prompt ? { prompt } : {}),
+		})
+
+	it('with a person to ask, the person is asked instead of the call being refused', async () => {
+		const { classifier } = build({
+			providerFor: async () => {
+				throw new Error('socket hang up')
+			},
+		})
+		const prompt = vi.fn(async () => ({ kind: 'approve' as const }))
+		const fellBack = vi.fn()
+		const handler = createReviewHandler({
+			mode: 'classify',
+			classifier,
+			prompt,
+			onClassifierFellBack: fellBack,
+		})
+		const decision = await inTurn(() =>
+			handler({
+				type: 'tool_review',
+				sessionId: SESSION,
+				turnId: TURN,
+				toolCalls: [bash],
+			} as never),
+		)
+		expect(prompt).toHaveBeenCalledTimes(1)
+		expect(decision).toMatchObject({ action: 'approve_tools' })
+		expect(fellBack).toHaveBeenCalledWith({
+			reason: expect.stringContaining('the safety check could not be completed ('),
+		})
+	})
+
+	it('with nobody to ask, the call is refused with the cause in the words the model reads', async () => {
+		const { classifier } = build({
+			providerFor: async () => {
+				throw new Error('No API key for provider codex')
+			},
+		})
+		const handler = asked(classifier)()
+		const decision = await inTurn(() =>
+			handler({
+				type: 'tool_review',
+				sessionId: SESSION,
+				turnId: TURN,
+				toolCalls: [bash],
+			} as never),
+		)
+		expect(decision).toMatchObject({
+			action: 'reject_tools',
+			feedback: expect.stringContaining('no credential for the check model'),
+		})
 	})
 })
