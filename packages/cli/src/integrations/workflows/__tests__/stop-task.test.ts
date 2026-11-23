@@ -44,12 +44,20 @@ describe('stop_task on a workflow run', () => {
 		// "one" finished and was journaled; "two" now holds the only slot, "three" is queued.
 		await h.until(() => h.prompts.includes('one') && h.gate.waiting() === 1)
 
-		const stopped = await h.runtime.stopTaskTool.execute({ id: runId }, h.context)
+		const stopped = await h.runtime.stopTaskTool.execute(
+			{ id: runId, reason: 'answer already in hand' },
+			h.context,
+		)
 		expect(stopped.success).toBe(true)
+		expect(stopped.output).toContain('Reason noted: answer already in hand')
 		expect(stopped.output).toContain(`Stop requested for workflow run ${runId}`)
 		expect(stopped.output).toContain('Acceptance is not proof')
 		expect(stopped.output).toContain('resumeFromRunId')
-		expect(stopped.data).toMatchObject({ run_id: runId, status: 'stop_requested' })
+		expect(stopped.data).toMatchObject({
+			run_id: runId,
+			status: 'stop_requested',
+			reason: 'answer already in hand',
+		})
 
 		await h.untilEnded()
 		expect(h.ended[0]?.view.status).toBe('stopped')
@@ -97,7 +105,11 @@ return await parallel([1, 2].map((n) => () => agent('p' + n, { label: 'g' + n, p
 		const id = list.tasks[0].task_id
 		const stopped = await h.runtime.stopTaskTool.execute({ id, reason: 'not needed' }, h.context)
 		expect(stopped.success).toBe(true)
-		expect(stopped.data).toMatchObject({ task_id: id, status: 'stop_requested' })
+		expect(stopped.data).toMatchObject({
+			task_id: id,
+			status: 'stop_requested',
+			reason: 'not needed',
+		})
 		await h.until(() => h.gate.waiting() === 1)
 		const again = await h.runtime.stopTaskTool.execute({ id }, h.context)
 		expect(again.success).toBe(true)

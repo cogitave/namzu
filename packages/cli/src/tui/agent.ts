@@ -4748,12 +4748,12 @@ export async function createAgentSession(
 			...(options.ephemeral ? {} : { paths }),
 			workStatus: (sessionId, runId) =>
 				readWorkStatus(outstandingFacts(sessionId), Date.now(), runId),
-			stopWorkflowRun: (sessionId, runId) => {
+			stopWorkflowRun: (sessionId, runId, reason) => {
 				const run = workflowOwners
 					.ownedBy(sessionId, workflowHost?.registry.list() ?? [])
 					.find((view) => view.runId === runId)
 				if (!run || !workflowHost) return 'unknown'
-				return workflowHost.registry.stop(runId) ? 'stopped' : 'ended'
+				return workflowHost.registry.stop(runId, { by: 'parent', reason }) ? 'stopped' : 'ended'
 			},
 			...(conversationIndex
 				? {

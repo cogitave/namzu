@@ -96,3 +96,36 @@ describe('refused tool input stays presentable', () => {
 		expect(presenter.presentResult('write', {}, { success: true, output: 'done' })).toBe(view)
 	})
 })
+
+describe('stop_task rows', () => {
+	it('draws one plain line live and restored, without the session registry', () => {
+		const presenter = createCliToolPresenter(testToolManager(ReadFileTool))
+		expect(presenter.presentCall('stop_task', { id: 'w1234abcd', reason: 'x' })).toEqual({
+			kind: 'generic',
+			label: 'Stopping w1234abcd',
+			presentation: 'activity',
+		})
+		expect(presenter.presentCall('stop_task', null)).toMatchObject({
+			label: 'Stopping background work',
+		})
+		const stopped = presenter.presentResult(
+			'stop_task',
+			{ id: 'w1234abcd' },
+			{
+				success: true,
+				output: 'Stop requested for workflow run w1234abcd: its running agents are being aborted.',
+			},
+		)
+		expect(stopped).toEqual({ kind: 'generic', label: 'Stopped w1234abcd' })
+		expect(
+			presenter.presentResult(
+				'stop_task',
+				{ id: 'w1234abcd' },
+				{
+					success: true,
+					output: 'Workflow run w1234abcd already ended. Nothing was stopped.',
+				},
+			),
+		).toEqual({ kind: 'generic', label: 'Already ended' })
+	})
+})

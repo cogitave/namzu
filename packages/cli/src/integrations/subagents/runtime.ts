@@ -363,6 +363,7 @@ export interface SubagentRuntimeOptions {
 	readonly stopWorkflowRun?: (
 		sessionId: SessionId,
 		runId: string,
+		reason?: string,
 	) => 'stopped' | 'ended' | 'unknown'
 	readonly model: string
 	/** Operator's default for ordinary children; explicit choices and pinned agent files win. */
@@ -2811,6 +2812,7 @@ export async function createSubagentRuntime(
 		async execute(input, context) {
 			context.abortSignal.throwIfAborted()
 			const asked = String((input as { id: string }).id ?? '').trim()
+			const why = String((input as { reason?: string }).reason ?? '').trim() || undefined
 			if (WORKFLOW_RUN_ID.test(asked)) {
 				if (!opts.stopWorkflowRun)
 					return {
@@ -2819,7 +2821,7 @@ export async function createSubagentRuntime(
 						error: 'This session cannot stop workflow runs from here.',
 					}
 				const owner = await resolveParent(context.turnId)
-				const outcome = opts.stopWorkflowRun(owner.sessionId, asked)
+				const outcome = opts.stopWorkflowRun(owner.sessionId, asked, why)
 				if (outcome === 'unknown')
 					return {
 						success: false,
@@ -2834,8 +2836,8 @@ export async function createSubagentRuntime(
 					}
 				return {
 					success: true,
-					output: `Stop requested for workflow run ${asked}: its running agents are being aborted and its queued agents will not start. Agents that already finished keep their saved results, so the run can be continued later with resumeFromRunId. Acceptance is not proof it has ended; check agent_task_list (run_id ${asked}) for the outcome.`,
-					data: { run_id: asked, status: 'stop_requested' },
+					output: `Stop requested for workflow run ${asked}: its running agents are being aborted and its queued agents will not start. Agents that already finished keep their saved results, so the run can be continued later with resumeFromRunId. Acceptance is not proof it has ended; check agent_task_list (run_id ${asked}) for the outcome.${why ? ` Reason noted: ${why}` : ''}`,
+					data: { run_id: asked, status: 'stop_requested', ...(why ? { reason: why } : {}) },
 				}
 			}
 			const taskId = await parseTaskId(asked, context.turnId)
@@ -2869,8 +2871,8 @@ export async function createSubagentRuntime(
 			gateway.cancelTask(task.taskId, 'user')
 			return {
 				success: true,
-				output: `Stop requested for task ${taskId}. Other tasks continue. Acceptance is not proof it has ended; use agent_task_list or wait_for_task to confirm its terminal outcome.`,
-				data: { task_id: taskId, status: 'stop_requested' },
+				output: `Stop requested for task ${taskId}. Other tasks continue. Acceptance is not proof it has ended; use agent_task_list or wait_for_task to confirm its terminal outcome.${why ? ` Reason noted: ${why}` : ''}`,
+				data: { task_id: taskId, status: 'stop_requested', ...(why ? { reason: why } : {}) },
 			}
 		},
 	})
