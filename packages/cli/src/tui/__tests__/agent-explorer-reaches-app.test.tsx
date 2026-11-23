@@ -1097,6 +1097,55 @@ describe('the agents cockpit', () => {
 		}
 	})
 
+	it.each([
+		['a single choice', false],
+		['a multi-select card', true],
+	])(
+		'gives the screen to %s from the model while the workflow detail is open',
+		async (_name, multiSelect) => {
+			activity.set([
+				agent({ viewId: 'agent-alpha', description: 'Alpha audit' }),
+				agent({ viewId: 'agent-beta', description: 'Beta build' }),
+			])
+			let release!: () => void
+			const gate = new Promise<void>((resolve) => {
+				release = resolve
+			})
+			sendOverride.current = async function* (_messages, opts) {
+				await gate
+				await opts?.onQuestion?.({
+					questionId: 'q1',
+					question: 'Which audience is this for?',
+					header: 'Audience',
+					options: [
+						{ id: 'opt_1', label: 'Board', description: 'High level' },
+						{ id: 'opt_2', label: 'Engineers', description: 'Details' },
+					],
+					multiSelect,
+					allowFreeText: false,
+				})
+				yield { kind: 'done', stopReason: 'end_turn' }
+			}
+			try {
+				const screen = await renderToScreen(<App ctx={ctx} />, { cols: 110, rows: 28 })
+				mounted = screen
+				await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
+				await submit(screen, 'go')
+				await openCockpit(screen)
+				release()
+				await waitUntil(
+					screen,
+					() => screen.viewport().join('\n').includes('Which audience is this for?'),
+					'the question was hidden behind the detail',
+				)
+				expect(screen.viewport().join('\n')).not.toContain('Agents · 2 agents')
+			} finally {
+				release()
+				delete sendOverride.current
+			}
+		},
+	)
+
 	it('shows active children automatically and preserves a draft through inspect and completion', async () => {
 		const alpha = agent({
 			viewId: 'agent-alpha',

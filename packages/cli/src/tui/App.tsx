@@ -10681,6 +10681,9 @@ function AppBody({
 				signal?.addEventListener('abort', onAbort, { once: true })
 				setSelectedChoice(0)
 				setJobSurface(null)
+				// The chooser is drawn only when no child surface is open, so a cockpit left open
+				// would leave the question on no screen at all.
+				if (agentSurfaceRef.current?.kind === 'cockpit') setAgentSurface(null)
 				setChoicePicker(picker)
 				announceApproval()
 			}),
@@ -10691,6 +10694,7 @@ function AppBody({
 			setQuestionDialog,
 			setSelectedChoice,
 			setJobSurface,
+			setAgentSurface,
 			resolveQuestion,
 		],
 	)
@@ -19115,6 +19119,12 @@ function AppBody({
 		showComposerSurface &&
 		permission === null &&
 		scheduleReviewPrompt === null &&
+		questionDialog === null &&
+		planPrompt === null &&
+		saveSkillPrompt === null &&
+		textPrompt === null &&
+		choicePicker === null &&
+		copyPicker === null &&
 		agentSurface?.kind === 'cockpit' &&
 		!transcriptScreen &&
 		jobSurface === null
