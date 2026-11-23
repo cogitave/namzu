@@ -106,7 +106,9 @@ describe('state command real CLI front door', () => {
 
 		expect(result.status).toBe(64)
 		expect(result.stdout).toBe('')
-		expect(result.stderr).toContain('Usage: namzu state [report | move legacy [--dry-run]]')
+		expect(result.stderr).toContain(
+			'Usage: namzu state [report | move legacy [--dry-run] | purge [path] [--dry-run] [--yes] [--all]]',
+		)
 		expect(result.stderr).not.toContain('config.yaml')
 		expect(treeSnapshot(f.root)).toEqual(before)
 	})

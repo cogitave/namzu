@@ -15,7 +15,7 @@ const NOW = 1_800_000_000_000
 function detected(): DetectedProvider[] {
 	return [
 		{
-			entry: PROVIDER_REGISTRY.anthropic,
+			entry: PROVIDER_REGISTRY['anthropic'],
 			source: { kind: 'stored', path: '/home/u/.namzu/credentials.json' },
 			apiKey: SECRET_ACCESS,
 			oauth: { refreshToken: SECRET_REFRESH, expiresAt: NOW - 1000, origin: 'stored' },
@@ -29,7 +29,7 @@ function detected(): DetectedProvider[] {
 			alternatives: [],
 		},
 		{
-			entry: PROVIDER_REGISTRY.openai,
+			entry: PROVIDER_REGISTRY['openai'],
 			source: { kind: 'env', envName: 'OPENAI_API_KEY' },
 			apiKey: SECRET_KEY,
 			alternatives: [],
