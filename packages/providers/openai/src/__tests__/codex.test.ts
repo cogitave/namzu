@@ -865,7 +865,10 @@ describe('webSearchDetail', () => {
 		expect(webSearchDetail({ action: { type: 'search', query: '  ' } })).toEqual({})
 		expect(
 			webSearchDetail({ action: { type: 'search', query: '', queries: ['first', 'second'] } }),
-		).toEqual({ query: 'first' })
+		).toEqual({ query: 'first', searches: 2 })
+		expect(webSearchDetail({ action: { type: 'search', queries: ['only'] } })).toEqual({
+			query: 'only',
+		})
 		expect(
 			webSearchDetail({
 				action: { type: 'search', query: 'OpenClaw runtime', sources: [{ type: 'url', url: 'a' }] },

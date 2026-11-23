@@ -33,7 +33,9 @@ function truncate(value: string, max = MAX_LABEL): string {
  * is LAST so it only speaks for a tool none of the others describe — those
  * tools were falling through to a truncated `JSON.stringify`, which is how
  * a delegation tool came to show a blob of its own arguments while
- * requiring the model to write a label nothing then read.
+ * requiring the model to write a label nothing then read. `url`, `name`,
+ * `title` and `select` come after it: they only speak for a tool that has
+ * no other readable field.
  */
 export function genericPrimary(input: unknown): string | undefined {
 	if (input && typeof input === 'object') {
@@ -46,16 +48,24 @@ export function genericPrimary(input: unknown): string | undefined {
 			pick('file_path') ??
 			pick('pattern') ??
 			pick('query') ??
-			pick('description')
+			pick('description') ??
+			pick('url') ??
+			pick('name') ??
+			pick('title') ??
+			pick('select')
 		)
 	}
 	return typeof input === 'string' ? input : undefined
 }
 
+/**
+ * The label is empty, never a dump of the arguments, when no field reads as
+ * a name: a host headlines the row with the tool's own name and has nothing
+ * to add after it. An id or a flag is not something a person reads.
+ */
 export function genericLabel(input: unknown): string {
 	const primary = genericPrimary(input)
-	if (primary) return truncate(primary)
-	return truncate(JSON.stringify(input ?? {}))
+	return primary ? truncate(primary) : ''
 }
 
 /**

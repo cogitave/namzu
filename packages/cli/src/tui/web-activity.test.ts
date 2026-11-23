@@ -16,7 +16,7 @@ describe('web activity rows', () => {
 		)
 		expect(webCallTitle({ kind: 'search' })).toBe('Web search')
 		expect(webCallTitle({ kind: 'fetch', target: 'https://docs.openclaw.ai/a' })).toBe(
-			'Web fetch(https://docs.openclaw.ai/a)',
+			'Fetch(https://docs.openclaw.ai/a)',
 		)
 		// A query is one line on the row, however the model wrote it.
 		expect(webCallTitle({ kind: 'search', target: 'a\n  b' })).toBe('Web search("a b")')
@@ -33,6 +33,9 @@ describe('web activity rows', () => {
 
 	it('settle to a count and a time', () => {
 		expect(webSettledLine({ kind: 'search' }, { durationMs: 9_000 })).toBe('Did 1 search in 9s')
+		expect(webSettledLine({ kind: 'search', searches: 4 }, { durationMs: 9_000 })).toBe(
+			'Did 4 searches in 9s',
+		)
 		expect(webSettledLine({ kind: 'search', results: 5 }, { durationMs: 12_400 })).toBe(
 			'Found 5 results in 12s',
 		)

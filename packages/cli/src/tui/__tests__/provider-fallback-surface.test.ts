@@ -198,7 +198,7 @@ it('names a hosted search by its query, and a page action by its address', () =>
 			presenter,
 		),
 	).toMatchObject({
-		summary: 'Web fetch(https://docs.dev/a)',
+		summary: 'Fetch(https://docs.dev/a)',
 		web: { kind: 'fetch', target: 'https://docs.dev/a' },
 	})
 })

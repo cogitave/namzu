@@ -897,7 +897,7 @@ export class CodexProvider implements LLMProvider {
  */
 export function webSearchDetail(item: {
 	readonly action?: unknown
-}): { query?: string; url?: string; results?: number } {
+}): { query?: string; url?: string; results?: number; searches?: number } {
 	const action = item.action as
 		| {
 				readonly type?: unknown
@@ -921,5 +921,7 @@ export function webSearchDetail(item: {
 		...(query ? { query } : {}),
 		...(url && !query ? { url } : {}),
 		...(Array.isArray(action.sources) ? { results: action.sources.length } : {}),
+		// One hosted item may run several queries; the count says so, the label names the first.
+		...(queries.length > 1 ? { searches: queries.length } : {}),
 	}
 }
