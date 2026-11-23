@@ -6,7 +6,7 @@ import { deferred } from '../../../toolsets/wrappers.js'
 import { type Message, createToolMessage } from '../../../types/message/index.js'
 import type { ToolContext } from '../../../types/tool/index.js'
 import { defineTool } from '../../defineTool.js'
-import { SearchToolsTool } from '../search-tools.js'
+import { SearchToolsTool, loadedToolsLabel } from '../search-tools.js'
 
 function tool(name: string, description = 'Fixture capability.', loadsWith?: readonly string[]) {
 	return defineTool({
@@ -318,5 +318,30 @@ describe('search_tools select reporting', () => {
 		const result = await SearchToolsTool.execute({ query: 'select:create_issue' }, context(manager))
 		expect(result.reveals).toEqual(['mcp__a__create_issue', 'mcp__b__create_issue'])
 		expect(result.output).toContain('matched more than one tool, and all of them are loaded')
+	})
+})
+
+describe('search_tools row label', () => {
+	it('names the loaded tools on one line, with no description', async () => {
+		const { manager } = managerWith(
+			tool('wait_for_task', 'Wait for a task.\n- fake_name: a line that looks like a list item'),
+			tool('workflow', 'Run a workflow.'),
+		)
+		const result = await SearchToolsTool.execute(
+			{ query: 'select:wait_for_task,workflow' },
+			context(manager),
+		)
+		const view = SearchToolsTool.presentResult?.({ query: 'select:wait_for_task,workflow' }, result)
+
+		expect(view).toEqual({ kind: 'generic', label: 'Loaded tools: wait_for_task, workflow' })
+		expect(SearchToolsTool.presentCall?.({ query: 'select:x' })).toMatchObject({
+			kind: 'generic',
+			label: 'Loading tools',
+		})
+	})
+
+	it('says what a call that loaded nothing came to', () => {
+		expect(loadedToolsLabel('Already loaded, call directly: a, b.')).toBe('Already loaded: a, b')
+		expect(loadedToolsLabel('No tool named: zzz. A name must be exact.')).toBe('No matching tools')
 	})
 })

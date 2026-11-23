@@ -26,6 +26,8 @@ export interface StreamChunk {
 			url?: string
 			/** How many sources the provider reported for this call. Absent means unknown, not zero. */
 			results?: number
+			/** How many queries one hosted call ran, when it ran several. Absent means one or unknown. */
+			searches?: number
 		}
 
 		content?: string

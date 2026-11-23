@@ -951,12 +951,12 @@ export function createCliAcpRuntime(
 		presentCall: (toolName, input) =>
 			activeRecord?.session.presenter.presentCall(toolName, input) ?? {
 				kind: 'generic',
-				label: genericLabel(input),
+				label: genericLabel(input) || toolName,
 			},
 		presentResult: (toolName, input, result) =>
 			activeRecord?.session.presenter.presentResult(toolName, input, result) ?? {
 				kind: 'generic',
-				label: genericLabel(input),
+				label: genericLabel(input) || toolName,
 			},
 	}
 

@@ -53,6 +53,14 @@ export const SearchToolsTool = defineTool({
 	destructive: false,
 	concurrencySafe: true,
 
+	// One plain line for a person: the names that were loaded, never the
+	// descriptions the model reads. A call that loaded nothing says so.
+	presentCall: () => ({ kind: 'generic', label: 'Loading tools', presentation: 'activity' }),
+	presentResult: (_input, result) => ({
+		kind: 'generic',
+		label: loadedToolsLabel(result.output ?? ''),
+	}),
+
 	async execute(input, context) {
 		if (!context.toolRegistry) {
 			return {
@@ -221,6 +229,31 @@ export const SearchToolsTool = defineTool({
 	},
 })
 
+/**
+ * The one line a person reads for a finished `search_tools` call, read from
+ * the text the model got (a host holds only that text): `Loaded tools: a, b`.
+ * A call that loaded nothing says that instead.
+ *
+ * `describeLoaded` indents every continuation line of a description, so a
+ * name starts a line at column zero only where this call really loaded it,
+ * and only as many names as the header counts are taken.
+ */
+export function loadedToolsLabel(output: string): string {
+	const head = /^Activated (\d+) tool\(s\):$/m.exec(output)
+	if (head?.[1] !== undefined) {
+		const count = Number(head[1])
+		const rest = output.slice(head.index + head[0].length)
+		const names = [...rest.matchAll(/^- ([A-Za-z0-9_.-]+)(?: \(loaded with [^)]+\))?: /gm)]
+			.slice(0, count)
+			.map((match) => match[1])
+		if (names.length > 0) return `Loaded tools: ${names.join(', ')}`
+	}
+	const already = /^Already loaded, call directly: (.+?)\.?$/m.exec(output)
+	if (already?.[1]) return `Already loaded: ${already[1]}`
+	const none = /^(?:No tool named|No deferred tools matching)/m.test(output)
+	return none ? 'No matching tools' : 'Loaded tools'
+}
+
 function describeLoaded(
 	loaded: readonly ToolDefinition[],
 	companionOf: ReadonlyMap<string, string>,
@@ -230,7 +263,8 @@ function describeLoaded(
 		.map((t) => {
 			const owner = companionOf.get(t.name)
 			const note = companions.includes(t) && owner ? ` (loaded with ${owner})` : ''
-			return `- ${t.name}${note}: ${t.description}`
+			// Continuation lines are indented so none can pass for another entry.
+			return `- ${t.name}${note}: ${t.description.replace(/\r?\n/g, '\n  ')}`
 		})
 		.join('\n')
 	return `Activated ${loaded.length} tool(s):\n${lines}`

@@ -11060,11 +11060,7 @@ function AppBody({
 					setState('tool')
 					const waitingAgent =
 						event.toolName === 'wait_for_task' && event.taskId
-							? subagentsRef.current.find(
-									(agent) =>
-										agent.taskId === event.taskId &&
-										(event.turnId === undefined || agent.workflowId === event.turnId),
-								)
+							? subagentsRef.current.find((agent) => agent.taskId === event.taskId)
 							: undefined
 					const tool: RunningTool = {
 						...(waitingAgent
@@ -11181,7 +11177,6 @@ function AppBody({
 						subagentsRef.current.some(
 							(agent) =>
 								agent.taskId === done.taskId &&
-								(event.turnId === undefined || agent.workflowId === event.turnId) &&
 								agent.transcript.some(
 									(row) => row.kind === 'assistant' && row.text.trim().length > 0,
 								),

@@ -41,6 +41,7 @@ import {
 	unknownToolNotice,
 } from './tidy-tool-output.js'
 import { clipText } from './truncation.js'
+import { withoutUntrustedFrames } from './untrusted-display.js'
 import {
 	type WebActivity,
 	countListedResults,
@@ -9756,6 +9757,7 @@ export function toAgentEvent(
 							hosted: true,
 							...(event.tool.query ? { target: event.tool.query } : {}),
 							...(event.tool.results !== undefined ? { results: event.tool.results } : {}),
+							...(event.tool.searches !== undefined ? { searches: event.tool.searches } : {}),
 						}
 			return event.tool.status === 'running'
 				? {
@@ -9921,9 +9923,11 @@ export function toAgentEvent(
 		case 'tool_completed': {
 			// A connector's answer reaches the model inside a frame that marks where it
 			// came from; the person reads what the server said, without the frame.
-			const shown = event.toolName.startsWith('mcp__')
-				? (untrustedEnvelopeBody(event.result) ?? event.result)
-				: withoutJobFooter(event.toolName, event.result)
+			const shown = withoutUntrustedFrames(
+				event.toolName.startsWith('mcp__')
+					? (untrustedEnvelopeBody(event.result) ?? event.result)
+					: withoutJobFooter(event.toolName, event.result),
+			)
 			const presented =
 				admitToolView(event.presentation) ??
 				presenter.presentResult(
