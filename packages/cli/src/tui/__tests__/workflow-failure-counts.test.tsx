@@ -114,7 +114,7 @@ describe.each([100, 60])('the detail of a run with a failed agent at %i columns'
 	it('names the failures after the phase agent count, in the error colour', async () => {
 		const screen = await detail(cols, 'agents')
 		const rows = screen.viewport()
-		const at = rows.findIndex((row) => row.includes('Scan · 3 agents · 2 done · 1 failed'))
+		const at = rows.findIndex((row) => row.includes('Scan · 3 agents · 1 failed'))
 		expect(at).toBeGreaterThanOrEqual(0)
 		const row = rows[at] as string
 		const col = row.indexOf('1 failed')

@@ -772,8 +772,9 @@ describe('/workflows', () => {
 		screen.press('\r')
 		await waitUntil(screen, () => text(screen).includes('nightly'))
 		await waitUntil(screen, () => text(screen).includes('Phases'))
-		// The detail sits above the message box and the status line, which stays on screen.
-		expect(screen.viewport().some((row) => /^\s*model\s*$/.test(row))).toBe(true)
+		// The detail takes the place of the message box and the status line: neither is drawn.
+		expect(screen.viewport().some((row) => /^\s*model\s*$/.test(row))).toBe(false)
+		expect(text(screen)).not.toContain('Type a message')
 		expect(text(screen)).toContain('1/1 agent')
 		expect(text(screen)).toContain('· finished')
 		expect(text(screen)).not.toContain('x stop')

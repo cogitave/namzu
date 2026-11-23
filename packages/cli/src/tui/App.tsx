@@ -414,7 +414,6 @@ import {
 	agentViewPageRows,
 	agentWorkflowPageSize,
 	agentWorkflows,
-	cockpitDetailHeight,
 	cockpitEntryFocus,
 	maxAgentTranscriptTailOffset,
 	maxAgentViewTailOffset,
@@ -19064,7 +19063,9 @@ function AppBody({
 		(!compacting &&
 			(state === 'thinking' || state === 'tool' || pendingModelSwitchRef.current !== null)) ||
 		(handoffPark !== null && state === 'idle')
-	// The workflow detail is drawn above the message box, which stays on screen (waiting) under it.
+	// The workflow detail takes the place of the message box and the status line: while it is open
+	// neither is drawn (the box stays mounted, so its draft and cursor are still there when it
+	// closes), and the keys are the detail's.
 	const workflowDetailOpen =
 		showComposerSurface &&
 		permission === null &&
@@ -19072,26 +19073,8 @@ function AppBody({
 		agentSurface?.kind === 'cockpit' &&
 		!transcriptScreen &&
 		jobSurface === null
-	// Under the detail: the box as measured, the status line, the extension row and rows of the
-	// conversation, so nothing below it is pushed past the bottom of the screen.
-	const detailCap = workflowDetailHeight(
-		terminal.rows,
-		fullscreen !== undefined,
-		composerBoxRows + 1 + (extensionMarks.length > 0 ? 1 : 0) + 4,
-	)
-	// Sized to what it lists, up to the free rows, so a small run leaves no blank rows in it.
-	const detailRows =
-		workflowDetailOpen && agentSurface?.kind === 'cockpit'
-			? cockpitDetailHeight(
-					subagents,
-					workflowRuns,
-					agentSurface.selectedPhaseId,
-					agentSurface.focus,
-					terminal.rows,
-					terminal.columns,
-					detailCap,
-				)
-			: detailCap
+	// The conversation keeps its top rows; the detail is the rest of the screen (less the extension row).
+	const detailRows = workflowDetailHeight(terminal.rows - (extensionMarks.length > 0 ? 1 : 0))
 	const viewRailRows =
 		liveSubagents.length > 0 || liveWorkflows.length > 0
 			? 1 +
@@ -19594,8 +19577,7 @@ function AppBody({
 								/>
 							) : null}
 							{workflowDetailOpen && agentSurface?.kind === 'cockpit' ? (
-								// Above the message box, never in place of it: the conversation stays readable
-								// above, and the box and the status line stay under it.
+								// In place of the message box and the status line, under the conversation.
 								<Box height={detailRows} flexShrink={0} flexDirection="column" overflowY="hidden">
 									<AgentCockpit
 										agents={subagents}
@@ -19652,7 +19634,7 @@ function AppBody({
 										textPrompt !== null ||
 										choicePicker !== null ||
 										copyPicker !== null ||
-										(childSurfaceOpen && !workflowDetailOpen)
+										childSurfaceOpen
 									}
 								>
 									<Composer
@@ -19670,7 +19652,6 @@ function AppBody({
 												: promptSuggestion !== undefined
 													? { promptSuggestion }
 													: {})}
-										parked={workflowDetailOpen}
 										mayReadImage={imageReadPolicy}
 										reasoningEffortLevels={session?.reasoningEffortLevels}
 										onCycleMode={cyclePermissionMode}
@@ -19696,7 +19677,7 @@ function AppBody({
 											textPrompt !== null ||
 											choicePicker !== null ||
 											copyPicker !== null ||
-											(childSurfaceOpen && !workflowDetailOpen)
+											childSurfaceOpen
 										}
 										// A turn is running, so Esc is the interrupt and not
 										// the composer's clear.
@@ -19798,6 +19779,7 @@ function AppBody({
 				    does nothing before the folder is trusted. */}
 					{phase === 'trust' ||
 					transcriptScreen ||
+					workflowDetailOpen ||
 					!showComposerSurface ||
 					statusLineText === undefined ? null : (
 						<StatusLineRows text={statusLineText} padding={ctx.statusLine?.padding ?? 0} />
@@ -19809,6 +19791,7 @@ function AppBody({
 				    its box was a stale row from the composer it replaced. */}
 					{phase === 'trust' ||
 					transcriptScreen ||
+					workflowDetailOpen ||
 					(dialogShowing && !exitHint && !noticeIsImmediate) ? null : (
 						<StatusBar
 							provider={session?.providerSummary ?? null}

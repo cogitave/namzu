@@ -1568,7 +1568,7 @@ describe('the agents cockpit', () => {
 			)
 		})
 
-		it('draws the detail above the message box, with the status line still under it', async () => {
+		it('draws the detail in place of the message box and the status line, and gives them back on escape', async () => {
 			activity.set([
 				flow('wf-a', { startedAt: Date.now() - 9_000 }),
 				flow('wf-c', { startedAt: Date.now() - 8_000 }),
@@ -1584,28 +1584,34 @@ describe('the agents cockpit', () => {
 				'enter did not open the workflow phases',
 			)
 			const rows = screen.viewport()
+			const text = rows.join('\n')
 			const at = (pattern: RegExp) => rows.findIndex((row) => pattern.test(row))
 			const rules = rows.flatMap((row, index) => (/^─{20,}$/u.test(row) ? [index] : []))
-			const detail = at(/ Phases /u)
-			// The detail's own rule, then the message box's two rules (the box itself reads `…` while the
-			// detail has the keys), then the status line: the box is not replaced, the line is not hidden.
-			expect(rules.length, rows.join('\n')).toBeGreaterThanOrEqual(3)
-			const [first, boxTop, boxBottom] = [
-				rules[0] as number,
-				rules.at(-2) as number,
-				rules.at(-1) as number,
-			]
-			expect(detail).toBeGreaterThan(first)
-			expect(boxTop).toBeGreaterThan(detail)
-			expect(at(/model/u)).toBeGreaterThan(boxBottom)
-			// The detail ends on its key line right above the box (one spacing row), with no blank rows
-			// kept for log lines the workflow never wrote.
-			expect(boxTop - at(/esc back/u), rows.join('\n')).toBeLessThanOrEqual(2)
-			// The detail is one block of the height the rule gives, never the whole screen, and the
-			// conversation's header stays readable above it.
-			expect(boxTop - first).toBeLessThanOrEqual(workflowDetailHeight(40, false) + 1)
+			// One rule across the top of the detail, and no other: the message box's two rules are gone.
+			expect(rules, text).toHaveLength(1)
+			expect(text).not.toContain('Type a message')
+			expect(text).not.toContain('(/help for commands)')
+			expect(text).not.toMatch(/model/u)
+			const first = rules[0] as number
+			const top = at(/ Phases /u)
+			const key = at(/esc back/u)
+			expect(top).toBeGreaterThan(first)
+			// The key line is the last drawn row, directly under the box's bottom border.
+			expect(key, text).toBe(rows.map((row) => row.trim() !== '').lastIndexOf(true))
+			expect(rows[key - 1]).toMatch(/^ *╰/u)
+			// The box fills the rest of the screen: the detail is the rule's height, no matter how few agents it lists.
+			expect(key - first + 2).toBeGreaterThanOrEqual(workflowDetailHeight(40) - 1)
 			expect(first).toBeGreaterThan(2)
-			expect(rows.join('\n')).toContain('Namzu')
+			expect(text).toContain('Namzu')
+			expect(rows[key]).toContain('↑↓ select')
+			expect(rows[key]).toContain('x stop workflow')
+			expect(rows[key]).not.toContain('space close')
+			screen.press('\x1b')
+			await waitUntil(
+				screen,
+				() => screen.viewport().join('\n').includes('Type a message'),
+				'the message box did not come back',
+			)
 		})
 
 		it('moves with j and k, goes deeper with right and back with left, and closes with left at the top or with space', async () => {
