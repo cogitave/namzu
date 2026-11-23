@@ -68,9 +68,7 @@ export function describeRule(rule: AuthorizationRule, call?: AuthorizationPredic
 			const finding = dangerousFindingFor(call.toolDef, call.toolInput, {
 				commandDialect: call.commandDialect,
 				strict: rule.strict === true,
-				...(call.workingDirectory !== undefined
-					? { workingDirectory: call.workingDirectory }
-					: {}),
+				...(call.workingDirectory !== undefined ? { workingDirectory: call.workingDirectory } : {}),
 			})
 			return finding === undefined
 				? 'this command is one the dangerous-command floor refuses or asks about'
@@ -281,9 +279,7 @@ export class AuthorizationGate {
 				{
 					...(ctx.commandDialect !== undefined ? { commandDialect: ctx.commandDialect } : {}),
 					...(ctx.toolSource !== undefined ? { toolSource: ctx.toolSource } : {}),
-					...(ctx.workingDirectory !== undefined
-						? { workingDirectory: ctx.workingDirectory }
-						: {}),
+					...(ctx.workingDirectory !== undefined ? { workingDirectory: ctx.workingDirectory } : {}),
 				},
 			)
 

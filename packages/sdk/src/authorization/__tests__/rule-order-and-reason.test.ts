@@ -137,6 +137,35 @@ describe('a refusal says what the rule said', () => {
 		expect(result.reason).not.toMatch(/^Matched rule:/)
 	})
 
+	it('asks about a removal of the working directory when the gate is told which it is', () => {
+		const bash = {
+			...toolDef('bash', false),
+			commandArgument: 'command',
+			category: 'shell',
+		} as unknown as ToolDefinition
+		const decide = (command: string, workingDirectory?: string) =>
+			gate({ denyDangerousPatterns: true }).evaluate({
+				toolName: 'bash',
+				toolInput: { command },
+				toolDef: bash,
+				...(workingDirectory !== undefined ? { workingDirectory } : {}),
+			})
+
+		const inside = decide('rm -rf .', '/srv/build/proj')
+		expect(inside.decision).toBe('review')
+		expect(inside.matchedRule?.type).toBe('deny_dangerous_patterns')
+		expect(inside.reason).toContain('removes the working directory')
+		expect(inside.reason).toContain('asked before it runs')
+		expect(decide('rm -rf ../..', '/srv/build/proj').decision).toBe('review')
+
+		// The floor's own refusal is unchanged, and a folder inside the working
+		// directory is still an ordinary removal.
+		expect(decide('rm -rf /', '/srv/build/proj').reason).toContain('file system root')
+		expect(decide('rm -rf build', '/srv/build/proj').matchedRule).toBeNull()
+		// Without the directory there is nothing to read the target against.
+		expect(decide('rm -rf .').matchedRule).toBeNull()
+	})
+
 	it('is reachable by a caller driving the rules without the gate', async () => {
 		// `evaluateRule` is public and answers only WHETHER a rule matched. A
 		// caller holding that verdict and no describer is back to switching on

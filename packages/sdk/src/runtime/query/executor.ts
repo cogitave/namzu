@@ -2362,9 +2362,7 @@ export class ToolExecutor {
 			toolDef: this.config.tools.get(name),
 			commandDialect: this.commandDialect(name),
 			toolSource: this.toolSource(name),
-			...(nestedWorkingDirectory !== undefined
-				? { workingDirectory: nestedWorkingDirectory }
-				: {}),
+			...(nestedWorkingDirectory !== undefined ? { workingDirectory: nestedWorkingDirectory } : {}),
 		})
 		// A tool that declares `requiresApproval` for this input needs a person's
 		// yes for every call, and no rule outranks that. An operator review cannot

@@ -95,9 +95,9 @@ The floor reads what a shell line runs, not its text: the commands in it after `
 - a fork bomb;
 - `chmod 777 /` (`/*` too).
 
-**Asked about** (in `default`, `plan` and `accept-edits` you get the normal question and can allow it once; `bypass` and `auto` lift it as they lift any other ask): `sudo`, `doas`, `pkexec`, `su -`, `ssh user@host`, `eval` of a quoted or expanded string, and a `curl` or `wget` piped straight into a shell.
+**Asked about** (in `default`, `plan` and `accept-edits` you get the normal question and can allow it once; `bypass` and `auto` lift it as they lift any other ask): `sudo`, `doas`, `pkexec`, `su -`, `ssh user@host`, `eval` of a quoted or expanded string, a `curl` or `wget` piped straight into a shell, and a recursive removal of the folder the command runs in or of a folder above it (`rm -rf .`, `rm -rf ..`, `find . -delete`) — the checkout being worked in, and everything uncommitted in it, is one wrong path away, so that one is put to you rather than run. The folder is the one the line actually starts in, which an earlier `cd` in the same conversation may have changed.
 
-With nobody to ask (`exec`, a scheduled run) an asked command is refused like any other question. A scheduled script is checked in strict mode: every one of these is refused there.
+With nobody to ask (`exec`, a scheduled run) an asked command is refused like any other question, the working folder included. A scheduled script is checked in strict mode: every one of these is refused there.
 
 To keep the old strictness (every one of these refused in every mode, matched on the raw text), a host using the SDK sets `denyDangerousPatterns: 'strict'` on its gate. The CLI has no setting for it yet.
 

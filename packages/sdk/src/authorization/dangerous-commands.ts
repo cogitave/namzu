@@ -474,14 +474,8 @@ function irreversibleRemoval(
 		if (/[$`]/.test(spelled)) continue
 		if (cwd !== undefined && recursive) {
 			const settled = settledRemovalTarget(spelled, cwd)
-			if (settled !== undefined && withinOrEqual(settled, cwd)) {
-				asked ??= {
-					tier: 'ask',
-					reason:
-						fold(settled.replace(/\/+$/, '')) === fold(cwd.replace(/\/+$/, ''))
-							? 'it removes the working directory'
-							: 'it removes a directory above the working directory',
-				}
+			if (settled !== undefined && withinOrEqual(settled, cwd) && asked === undefined) {
+				asked = { tier: 'ask', reason: workdirRemoval(settled, cwd) }
 			}
 		}
 		if (!spelled.startsWith('/')) continue
@@ -491,7 +485,8 @@ function irreversibleRemoval(
 		if (settled === '/') return { tier: 'stop', reason: 'it removes the file system root' }
 		if (/^\/[^/]+$/.test(settled))
 			return { tier: 'stop', reason: `it removes the top-level directory ${settled}` }
-		if (fold(settled) === fold(home)) return { tier: 'stop', reason: 'it removes the home directory' }
+		if (fold(settled) === fold(home))
+			return { tier: 'stop', reason: 'it removes the home directory' }
 	}
 	return asked
 }
@@ -518,6 +513,14 @@ function settledRemovalTarget(spelled: string, cwd: string): string | undefined 
 	if (bare === '' || bare.startsWith('~') || /^[A-Za-z]:$/.test(bare)) return undefined
 	if (bare.startsWith('/')) return posix.normalize(bare)
 	return posix.normalize(`${cwd.replace(/\/+$/, '')}/${bare}`)
+}
+
+/** Why a removal that reaches the working directory asks, in the tier's words. */
+function workdirRemoval(settled: string, cwd: string): string {
+	const target = fold(settled).replace(/\/+$/, '')
+	return target === fold(cwd).replace(/\/+$/, '')
+		? 'it removes the working directory'
+		: 'it removes a directory above the working directory'
 }
 
 /** Whether `directory` is `child` or a directory above it. */
@@ -575,7 +578,7 @@ export function findDangerousCommand(
 			const found = hardStop(layer, options)
 			if (found === undefined) continue
 			if (found.tier === 'stop') return found
-			asked ??= found
+			if (asked === undefined) asked = found
 		}
 		if (asked === undefined) {
 			for (const layer of layers) {
