@@ -262,10 +262,18 @@ function codexToolOutput(
 export function toCodexInput(
 	messages: ChatCompletionParams['messages'],
 	targetRoute: ProviderRoute,
+	openingSystemRun = messages.findIndex((message) => message.role !== 'system'),
 ): ResponseInputItem[] {
 	const input: ResponseInputItem[] = []
-	for (const message of messages) {
-		if (message.role === 'system') continue
+	const opening = openingSystemRun < 0 ? messages.length : openingSystemRun
+	for (const [at, message] of messages.entries()) {
+		if (message.role === 'system') {
+			// The opening run is `instructions`; a later one keeps its place.
+			if (at >= opening && message.content) {
+				input.push({ type: 'message', role: 'developer', content: message.content })
+			}
+			continue
+		}
 		if (message.role === 'user') {
 			input.push({
 				type: 'message',
@@ -407,8 +415,16 @@ function buildRequest(
 			'CodexProvider: disabling reasoning requires `effort: "none"`; omitting that level would not prove reasoning was disabled.',
 		)
 	}
+	// Only the system messages that open the conversation are the standing
+	// instructions. The runtime places a step's preamble (changing guidance,
+	// skills, turn notes) later in the list; hoisting it into `instructions`
+	// put changing text at the very front of every request, so no request
+	// shared a cache prefix with the one before it. Later system messages stay
+	// where they were, as developer messages in the input.
+	let openingRun = 0
+	while (params.messages[openingRun]?.role === 'system') openingRun++
 	const instructions = params.messages
-		.filter((message) => message.role === 'system')
+		.slice(0, openingRun)
 		.map((message) => message.content)
 		.join('\n\n')
 	const request = {
@@ -416,7 +432,10 @@ function buildRequest(
 		stream: true,
 		store: false,
 		instructions: instructions || undefined,
-		input: toCodexInput(params.messages, targetRoute),
+		input: toCodexInput(params.messages, targetRoute, openingRun),
+		// One key for the whole conversation routes every request to the same
+		// cache; without it the backend keys on the request alone.
+		...(params.cacheKey ? { prompt_cache_key: params.cacheKey } : {}),
 		// The Codex subscription request schema deliberately has no
 		// `max_output_tokens` member. `ChatCompletionParams.maxTokens` is a public
 		// API control, but projecting it onto this route makes the whole request
@@ -555,7 +574,14 @@ export class CodexProvider implements LLMProvider {
 		try {
 			stream = (await this.client.responses.create(request, {
 				signal: params.signal,
-				...(fast?.header ? { headers: fast.header } : {}),
+				...(fast?.header || params.cacheKey
+					? {
+							headers: {
+								...(fast?.header ?? {}),
+								...(params.cacheKey ? { session_id: params.cacheKey } : {}),
+							},
+						}
+					: {}),
 			})) as AsyncIterable<ResponseStreamEvent>
 		} catch (error) {
 			if (isCallerAbortError(error, params.signal)) throw params.signal?.reason ?? error

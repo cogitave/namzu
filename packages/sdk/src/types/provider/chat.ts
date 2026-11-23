@@ -74,6 +74,15 @@ export interface ChatCompletionParams {
 
 	cacheControl?: CacheControl
 
+	/**
+	 * A stable name for the conversation this request belongs to. A driver
+	 * whose wire has a cache-routing field (a prompt cache key, a session
+	 * header) sends it so every request of one conversation lands on the same
+	 * cache; a driver without one ignores it. Never a secret and never
+	 * derived from the content of the request.
+	 */
+	cacheKey?: string
+
 	topP?: number
 	topK?: number
 	frequencyPenalty?: number
