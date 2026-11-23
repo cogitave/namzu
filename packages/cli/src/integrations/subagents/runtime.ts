@@ -871,9 +871,9 @@ export async function createSubagentRuntime(
 	const taskViews = new Map<string, string>()
 	// The names `Agent` calls have given, to the task each one addresses.
 	const agentNames = new AgentNames()
-	/** The one id the model sees for an agent, whichever run of it a task handle belongs to. */
 	/** Which workflow run an agent id (its view id or its task id) belonged to, so a later lookup can say so. */
 	const workflowAgentRuns = new Map<string, string>()
+	/** The one id the model sees for an agent, whichever run of it a task handle belongs to. */
 	const publicTaskId = (taskId: TaskId | string): string => {
 		const viewId = taskViews.get(String(taskId))
 		const owned = viewId === undefined ? undefined : conversations.get(viewId)
@@ -1393,7 +1393,6 @@ export async function createSubagentRuntime(
 			return undefined
 		}
 	}
-	/** Why no task answered to an id: what is running, and where a saved record might be. */
 	const workflowRunOfAgent = (id: string): string | undefined => {
 		const direct = workflowAgentRuns.get(id)
 		if (direct !== undefined) return direct
@@ -1402,6 +1401,7 @@ export async function createSubagentRuntime(
 			? entry.workflowId.slice(WORKFLOW_RUN_GROUP_PREFIX.length)
 			: undefined
 	}
+	/** Why no task answered to an id: what is running, and where a saved record might be. */
 	const unknownTaskMessage = async (asked: string, turnId: TurnId): Promise<string> => {
 		const taskId = asked.trim().slice(0, 80)
 		const parentKey = sessionKey(await resolveParent(turnId))
@@ -1437,7 +1437,7 @@ export async function createSubagentRuntime(
 		return [
 			`No task with ID ${taskId} in this conversation.`,
 			run !== undefined
-				? `That agent belonged to workflow run ${run}, which has ended with the run (an agent of a workflow is not a task of its own once its run is over). Read the run with agent_task_list run_id ${run}; to get its agents' outputs set include_output: true with that run_id, and to continue it call workflow with resumeFromRunId ${run}.`
+				? `That agent belonged to workflow run ${run}, (an agent of a workflow is not a task of its own once no run holds it). Read the run's state with agent_task_list run_id ${run}; to get its agents' outputs set include_output: true with that run_id, and to continue it call workflow with resumeFromRunId ${run}.`
 				: '',
 			running.length > 0 ? `Running agents: ${running.join(', ')}.` : '',
 			saved
