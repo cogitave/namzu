@@ -114,6 +114,7 @@ export function createNetworkController(options: {
 		trustOffer?: JoinRequestView['trustOffer'],
 	): JoinRequestView => ({
 		requestId: join.requestId,
+		...(join.joinerMachineId ? { machineId: join.joinerMachineId } : {}),
 		name: join.name,
 		code: formatJoinCode(join.code),
 		sourceAddr: join.sourceAddr,
