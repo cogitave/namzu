@@ -6,8 +6,8 @@ import { frameReminder, isOperatorTurn, reminderKindOf } from './frame.js'
  * The memory nudge: a quiet reminder that a short lesson about this machine or
  * project is worth saving with the memory tool. It speaks in two cases only:
  *
- * - the same kind of command failure came back twice (the same exit status; a
- *   program not found counts as exit 127) since the last nudge or memory save;
+ * - the same environment failure came back twice (exit 127 or 126; a
+ *   program not found counts as exit 127; an ordinary exit 1 never counts) since the last nudge or memory save;
  * - right after a compaction, once, because what was learned about the
  *   environment is exactly what a summary tends to lose.
  *
@@ -46,6 +46,9 @@ export function failureSignature(message: Message): string | undefined {
 	return undefined
 }
 
+/** The failures that say something about the machine: a program missing or not runnable. */
+const ENVIRONMENT_FAILURES = new Set(['exit 127', 'exit 126'])
+
 export function memoryNudge(messages: readonly Message[]): string[] {
 	const seen = new Map<string, number>()
 	let repeated: string | undefined
@@ -63,7 +66,8 @@ export function memoryNudge(messages: readonly Message[]): string[] {
 			break
 		}
 		const signature = failureSignature(message)
-		if (signature === undefined) continue
+		// An ordinary red test or lint run (exit 1) is not a lesson about the machine.
+		if (signature === undefined || !ENVIRONMENT_FAILURES.has(signature)) continue
 		const count = (seen.get(signature) ?? 0) + 1
 		seen.set(signature, count)
 		if (count >= MEMORY_NUDGE_REPEATS && repeated === undefined) repeated = signature

@@ -28,6 +28,15 @@ describe('the memory nudge', () => {
 		expect(memoryNudge(history)).toEqual([])
 	})
 
+	it('stays quiet on repeated ordinary exit 1 failures', () => {
+		const history = [
+			createUserMessage('go'),
+			...failed('a', 'Command exited with code 1'),
+			...failed('b', 'Command exited with code 1'),
+		]
+		expect(memoryNudge(history)).toEqual([])
+	})
+
 	it('speaks after the same failure twice', () => {
 		const history = [
 			createUserMessage('go'),

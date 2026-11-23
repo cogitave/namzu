@@ -1,6 +1,7 @@
 import { resolve as resolvePath } from 'node:path'
 
 import { CHARS_PER_TOKEN } from '../constants/limits.js'
+import { LOG_SECRET_PATTERNS } from '../constants/secret-patterns.js'
 import {
 	CARRY_MAX_SKILLS,
 	CARRY_SKILLS_TOTAL_TOKENS,
@@ -115,13 +116,41 @@ export function recordRestorable(
 /** Heading of the section that carries the commands that worked. */
 export const WORKING_COMMANDS_HEADING = '### Working commands'
 
-/** A command that says how code is run, built or tested here, or how a path is converted for a Windows program. */
-const RUNNER_COMMAND =
-	/(?:^|[\s;&|(])(?:node(?:\.exe)?|npm|npx|pnpm|yarn|bun|deno|python3?|pytest|cargo|rustc|go|make|dotnet|mvn|gradle|wslpath|powershell\.exe|cmd\.exe)(?=\s|$)/
+/** The first word of a command segment says how code is run, built or tested here, or how a path is converted for a Windows program. */
+const RUNNER_WORD =
+	/^(?:node(?:\.exe)?|npm|npx|pnpm|yarn|bun|deno|python3?|pytest|cargo|rustc|go|make|dotnet|mvn|gradle|wslpath|powershell\.exe|cmd\.exe)$/
 
-/** True for a shell command worth keeping the form of. */
+/** Shapes that put a credential on a command line, beyond the known token prefixes. */
+const COMMAND_SECRET_SHAPES: readonly RegExp[] = [
+	// An inline VAR=value assignment at the start of a segment.
+	/(?:^|[;&|(]\s*)[A-Za-z_][A-Za-z0-9_]*=/,
+	// Header, auth and credential flags.
+	/(?:^|\s)(?:-H|--header|-u|--user|--proxy-user)(?:\s|=|$)/,
+	/(?:^|\s)--?(?:[\w-]*(?:token|password|passwd|secret|api-?key|auth|credential)[\w-]*)(?:\s|=|$)/i,
+	/\b(?:authorization|bearer|x-api-key)\b/i,
+	// A URL with userinfo, or a token in its query string.
+	/:\/\/[^\s/:@]+:[^\s/@]+@/,
+	/[?&](?:[\w-]*(?:token|key|secret|password|sig|signature)[\w-]*)=/i,
+]
+
+/** True when a command line may carry a credential and so must not be kept. */
+export function commandMayCarrySecret(command: string): boolean {
+	if (COMMAND_SECRET_SHAPES.some((shape) => shape.test(command))) return true
+	return LOG_SECRET_PATTERNS.some(([, pattern]) => {
+		pattern.lastIndex = 0
+		const hit = pattern.test(command)
+		pattern.lastIndex = 0
+		return hit
+	})
+}
+
+/** True for a shell command worth keeping the form of, and safe to carry in a summary. */
 export function isRunnerCommand(command: string): boolean {
-	return RUNNER_COMMAND.test(command)
+	if (commandMayCarrySecret(command)) return false
+	return command.split(/&&|\|\||[;|\n]/).some((segment) => {
+		const first = segment.trim().replace(/^\(+/, '').split(/\s+/)[0] ?? ''
+		return RUNNER_WORD.test(first)
+	})
 }
 
 /** The commands an earlier summary carried, read back from its restored section. */

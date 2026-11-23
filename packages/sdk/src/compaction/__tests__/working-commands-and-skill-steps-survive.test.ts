@@ -16,6 +16,25 @@ const manager = () => new WorkingStateManager(config)
 const ran = (m: WorkingStateManager, command: string, success = true) =>
 	recordRestorable(m, { toolName: 'bash', input: { command }, output: 'ok', success })
 
+describe('a working command never carries a credential', () => {
+	it('drops token assignments, auth headers and userinfo URLs, and anchors to the first word', () => {
+		const m = manager()
+		ran(m, 'GITHUB_TOKEN=ghp_abc123 npm publish')
+		ran(m, 'python app.py && curl -H "Authorization: Bearer sk-secret" https://x.io')
+		ran(m, 'npm run deploy --token abc')
+		ran(m, 'git commit -m make it')
+		ran(m, 'echo hi | node -e "x"')
+		ran(m, 'pnpm test')
+		const text = renderRestoredContext(m.getState()) ?? ''
+		expect(text).not.toContain('ghp_abc123')
+		expect(text).not.toContain('Bearer')
+		expect(text).not.toContain('--token')
+		expect(text).not.toContain('git commit')
+		expect(text).toContain('- `echo hi | node -e "x"`')
+		expect(text).toContain('- `pnpm test`')
+	})
+})
+
 describe('the commands that worked are put back after a compaction', () => {
 	it('keeps a successful runner command and ignores a failed or unrelated one', () => {
 		const m = manager()

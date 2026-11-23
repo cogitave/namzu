@@ -10,6 +10,8 @@ import type { WorkflowRunView } from './view.js'
  */
 export class WorkflowOwners {
 	private readonly owners = new Map<string, SessionId>()
+	/** Runs the registry has listed at least once; only these can be forgotten. */
+	private readonly seen = new Set<string>()
 
 	set(runId: string, sessionId: SessionId): void {
 		this.owners.set(runId, sessionId)
@@ -18,7 +20,13 @@ export class WorkflowOwners {
 	/** The runs of one session among the registry's runs, ended ones included. */
 	ownedBy(sessionId: SessionId, runs: readonly WorkflowRunView[]): readonly WorkflowRunView[] {
 		const held = new Set(runs.map((run) => run.runId))
-		for (const runId of this.owners.keys()) if (!held.has(runId)) this.owners.delete(runId)
+		for (const runId of held) if (this.owners.has(runId)) this.seen.add(runId)
+		// An owner is set before the registry starts the run, so one not yet listed is new, not gone.
+		for (const runId of [...this.owners.keys()]) {
+			if (held.has(runId) || !this.seen.has(runId)) continue
+			this.owners.delete(runId)
+			this.seen.delete(runId)
+		}
 		return runs.filter((run) => this.owners.get(run.runId) === sessionId)
 	}
 }

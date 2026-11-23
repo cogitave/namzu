@@ -31,6 +31,8 @@ system message was joined into `instructions`, so a preamble that changed each
 step changed the first bytes of the request and no request shared a cache
 prefix with the one before it.
 
+Not yet confirmed against the live subscription backend: that it accepts a `developer`-role item in `input` and the `session_id` header. Confirm with one real round trip before a release.
+
 The turn record already keeps the cached share of each call's prompt tokens
 (`cachedTokens` on the usage and the `cache read tokens` span attribute); read
 it to see whether a conversation is hitting its cache.

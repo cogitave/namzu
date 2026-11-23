@@ -17,7 +17,15 @@ describe('workflow owners', () => {
 	it('forgets a run the registry no longer holds', () => {
 		const owners = new WorkflowOwners()
 		owners.set('w1', 's1' as SessionId)
+		owners.ownedBy('s1' as SessionId, [run('w1')])
 		owners.ownedBy('s1' as SessionId, [])
 		expect(owners.ownedBy('s1' as SessionId, [run('w1')])).toEqual([])
+	})
+
+	it('keeps an owner set before the registry lists the run', () => {
+		const owners = new WorkflowOwners()
+		owners.set('w1', 's1' as SessionId)
+		owners.ownedBy('s2' as SessionId, [])
+		expect(owners.ownedBy('s1' as SessionId, [run('w1')]).map((r) => r.runId)).toEqual(['w1'])
 	})
 })
