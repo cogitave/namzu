@@ -290,10 +290,12 @@
         "--provider",
         "--model",
         "--effort",
-        "--permission-mode",
+        "--permission-mode"
+      ],
+      "hiddenFlags": [
         "--message"
       ],
-      "about": "Passed to the terminal UI of a project view; --message is passed as one argument, `--message=<text>`.",
+      "about": "Passed to the terminal UI of a project view; the first message follows `--` as one argument. Builds already installed pass it as `--message=<text>`, a flag the CLI keeps accepting but hides from help.",
       "permissionModeValues": [
         "prompt",
         "accept-edits",

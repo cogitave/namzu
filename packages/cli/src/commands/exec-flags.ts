@@ -417,6 +417,10 @@ export function parseExecFlags(rawArgs: readonly string[]): ExecFlags {
 			)
 		)
 			continue
+		if (a === '-r' && idx.v + 1 < rawArgs.length) {
+			out.resume = rawArgs[++idx.v].trim() || null
+			continue
+		}
 		if (
 			take(
 				a,

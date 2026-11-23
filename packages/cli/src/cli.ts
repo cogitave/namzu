@@ -91,7 +91,7 @@ function collectFlagValue(value: string, previous: string[] | undefined): string
  * only recognises a root option before the subcommand name (positional options
  * are on), so `namzu resume --yolo <id>` needs `resume` to declare them too.
  * The options that choose a conversation (`--continue`, `--resume`,
- * `--from-pr`) and `--message` stay on the root alone.
+ * `--from-pr`) and the first message stay on the root alone.
  */
 function addLaunchOptions(command: Command): Command {
 	return command
@@ -293,6 +293,10 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 	const program = new Command()
 		.name('namzu')
 		.description('Operator CLI for the Namzu agent platform')
+		.argument(
+			'[prompt]',
+			'First message of the interactive session, sent as a plain prompt (never a slash command). With -p it is answered without opening the session.',
+		)
 		.version(CLI_VERSION, '-V, --version', 'Print version and exit')
 		.addOption(
 			new Option('-f, --format <type>', 'Output format: text, json, yaml').choices([
@@ -312,16 +316,18 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 				'Log record format for exec/drain/TUI-flush output: pretty (default) or json. namzu exec --json always writes json, regardless of this flag.',
 			).choices(['pretty', 'json']),
 		)
-		.addOption(
-			new Option(
-				'--max-budget-usd <amount>',
-				'Spend limit in dollars. It belongs to a headless run: pass it after exec.',
-			).hideHelp(),
-		)
 		.option(
-			'--message <text>',
-			'Send this text as the first message once the interactive session is ready, for this launch only. It runs as a plain prompt, never a slash command, and is not sent again on resume.',
+			'-p, --print',
+			'Answer one prompt and exit, without opening the session: `namzu -p "<prompt>"` is `namzu exec "<prompt>"`. It takes the options of `namzu exec`, such as --output-format text|json|stream-json, --input-format text|stream-json and --max-budget-usd; piped input is read the same way. See `namzu exec --help`.',
 		)
+		// The print-only options are declared so that using one without -p is
+		// refused in one line; with -p they are read by `namzu exec`, not here.
+		.addOption(new Option('--output-format <format>', 'Needs -p.').hideHelp())
+		.addOption(new Option('--input-format <format>', 'Needs -p.').hideHelp())
+		.addOption(new Option('--max-budget-usd <amount>', 'Needs -p.').hideHelp())
+		// Already shipped: Namzu Desktop's earlier builds start the CLI with this
+		// flag. It keeps working, hidden; `namzu "<text>"` is the spelling to use.
+		.addOption(new Option('--message <text>', 'First message; use namzu "<text>".').hideHelp())
 		.option('-c, --continue', 'Continue the most recent conversation in this directory.')
 		.option(
 			'-r, --resume [value]',
@@ -374,7 +380,6 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 					'allowedTools',
 					'disallowedTools',
 					'fallbackModel',
-					'maxBudgetUsd',
 					'maxOutputTokens',
 					'account',
 				] as const
@@ -404,9 +409,25 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 				)
 			if (action.name() === 'resume' && command.opts().message !== undefined)
 				command.error(
-					'--message is the first message of a new conversation; it is not sent when resuming one.',
+					'The first message starts a new conversation; it is not sent when resuming one.',
 					{ exitCode: EX_USAGE, code: 'commander.invalidArgument' },
 				)
+			// With -p the arguments were handed to `namzu exec` before parsing, so
+			// a print-only option that reaches here was given without it.
+			const needsPrint = (
+				[
+					['outputFormat', '--output-format'],
+					['inputFormat', '--input-format'],
+					['maxBudgetUsd', '--max-budget-usd'],
+				] as const
+			).filter(([key]) => command.opts()[key] !== undefined)
+			if (needsPrint.length > 0) {
+				const names = needsPrint.map(([, flag]) => flag)
+				command.error(
+					`${names.join(', ')} ${names.length === 1 ? 'needs' : 'need'} -p: namzu -p ${names[0]} <value> "<prompt>". For a subcommand, write it after the command.`,
+					{ exitCode: EX_USAGE, code: 'commander.invalidArgument' },
+				)
+			}
 			if (command.opts().outputSchema && !['namzu', 'resume'].includes(action.name())) {
 				command.error(
 					action.name() === 'exec'
@@ -674,6 +695,8 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 		})
 	}
 
+	/** The text of `namzu "<text>"`: the first message of the interactive launch. */
+	let launchPrompt: string | undefined
 	const launchInteractiveTui = async (
 		initialConversationId?: string,
 		/** `namzu resume` with no id: open the picker of this folder's conversations. */
@@ -867,7 +890,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 				...(launchPlan.source === 'launch-flag' || launchPlan.source === 'config-default'
 					? { permissionMode: launchPlan.mode }
 					: {}),
-				...(launchOpts.message?.trim() ? { message: launchOpts.message } : {}),
+				...(launchPrompt?.trim() ? { message: launchPrompt } : {}),
 				...(launchOpts.fallbackModel?.length ? { fallbackModels: launchOpts.fallbackModel } : {}),
 			}
 			// The same three lines `exec` uses. The TUI compiled
@@ -1094,9 +1117,30 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 	// the TUI (M3). When stdout is not a TTY (tests, pipes, CI), print a
 	// one-line marker instead so the binary stays scriptable and our test
 	// suite does not try to render Ink against a non-tty stream.
-	program.action(async () => {
+	program.action(async (prompt: string | undefined) => {
+		const hidden = program.opts<{ message?: string }>().message
+		if (prompt !== undefined && hidden !== undefined)
+			program.error('Give the first message once: namzu "<text>".', {
+				exitCode: EX_USAGE,
+				code: 'commander.invalidArgument',
+			})
+		launchPrompt = prompt ?? hidden ?? promptAfterDashes
 		await launchInteractiveTui()
 	})
+
+	// `namzu -- "<text>"`: the text after `--` is the first message even when
+	// it begins with a dash or spells a command, so it never reaches the
+	// command lookup.
+	let argv = opts.argv as string[]
+	let promptAfterDashes: string | undefined
+	const dashed = dashedPrompt(program, argv.slice(2))
+	if (dashed !== undefined) {
+		argv = argv.slice(0, 2 + dashed.index)
+		promptAfterDashes = dashed.prompt
+	}
+	// `namzu -p "<prompt>"` is `namzu exec "<prompt>"`.
+	const printed = printModeArgs(program, argv.slice(2))
+	if (printed !== undefined) argv = [...argv.slice(0, 2), ...printed]
 
 	try {
 		// Checked before commander parses, because commander answers `--help`
@@ -1111,7 +1155,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 				code: 'commander.unknownCommand',
 			})
 		}
-		await program.parseAsync(opts.argv as string[], { from: 'node' })
+		await program.parseAsync(argv, { from: 'node' })
 		return exitCode
 	} catch (err) {
 		if (err instanceof CommanderError) {
@@ -1151,6 +1195,61 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 		catalogueRefresh?.cancel()
 		await (await otlpExport)?.shutdown()
 	}
+}
+
+/** The root options that `-p` leaves on the root: the output controls, not the run's options. */
+const PRINT_ROOT_FLAGS = new Set(['-q', '--quiet', '-v', '--verbose', '--debug'])
+const PRINT_ROOT_VALUE_FLAGS = new Set(['-f', '--format', '--log-format'])
+
+/**
+ * The arguments of `namzu -p …`, as `namzu exec …`: the root's output
+ * controls stay in front, every other word goes after `exec`, which reads
+ * them as it always has. Undefined when the call is not print mode: no `-p`,
+ * or a subcommand name came first, so the `-p` belongs to that command.
+ */
+export function printModeArgs(program: Command, args: readonly string[]): string[] | undefined {
+	const end = args.indexOf('--')
+	const head = end === -1 ? args : args.slice(0, end)
+	if (!head.some((arg) => arg === '-p' || arg === '--print')) return undefined
+	const first = firstRootOperand(program, head)
+	if (first !== undefined && isCommandName(program, first)) return undefined
+	if (first !== undefined && Object.hasOwn(REMOVED_COMMANDS, first)) return undefined
+	const root: string[] = []
+	const rest: string[] = []
+	for (let i = 0; i < head.length; i++) {
+		const arg = head[i] as string
+		if (PRINT_ROOT_FLAGS.has(arg)) root.push(arg)
+		else if (PRINT_ROOT_VALUE_FLAGS.has(arg)) {
+			root.push(arg)
+			if (i + 1 < head.length) root.push(head[++i] as string)
+		} else if (arg.startsWith('--format=') || arg.startsWith('--log-format=')) root.push(arg)
+		else rest.push(arg)
+	}
+	return [...root, 'exec', ...rest, ...args.slice(head.length)]
+}
+
+function isCommandName(program: Command, name: string): boolean {
+	return program.commands.some(
+		(command) => command.name() === name || command.aliases().includes(name),
+	)
+}
+
+/**
+ * `namzu [root options] -- "<text>"`: where the `--` is and the one word
+ * after it. Undefined when there is no `--` at the root, or an operand
+ * came first (the `--` then belongs to that command).
+ */
+function dashedPrompt(
+	program: Command,
+	args: readonly string[],
+): { index: number; prompt: string } | undefined {
+	const index = args.indexOf('--')
+	if (index === -1) return undefined
+	const before = args.slice(0, index)
+	if (firstRootOperand(program, before) !== undefined) return undefined
+	if (before.some((arg) => arg === '-p' || arg === '--print')) return undefined
+	if (args.length !== index + 2) return undefined
+	return { index, prompt: args[index + 1] as string }
 }
 
 /**

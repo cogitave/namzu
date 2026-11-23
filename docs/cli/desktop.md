@@ -4561,7 +4561,7 @@ unzoomed width.
 
 | Engine | Program and arguments |
 | --- | --- |
-| Namzu | the bundled CLI as the terminal's program (`process.execPath` with `ELECTRON_RUN_AS_NODE=1`, the Desktop runtime's Node flags, then the entry): `--provider <id> --model <id> --effort <level> --permission-mode <mode>` (the CLI's own words: `bypass` for Full access, `auto` for Auto). The [launch flags](launch-flags.md) apply to that session only and never write `preferences.json`. The composer's text goes as `--message=<text>` (one argument, never re-parsed by a shell): the session sends it once, as a plain prompt, when its composer is ready, and shows it as the first user message |
+| Namzu | the bundled CLI as the terminal's program (`process.execPath` with `ELECTRON_RUN_AS_NODE=1`, the Desktop runtime's Node flags, then the entry): `--provider <id> --model <id> --effort <level> --permission-mode <mode>` (the CLI's own words: `bypass` for Full access, `auto` for Auto). The [launch flags](launch-flags.md) apply to that session only and never write `preferences.json`. The composer's text goes after `--` as one argument (never re-parsed by a shell): the session sends it once, as a plain prompt, when its composer is ready, and shows it as the first user message |
 | Codex CLI | `codex -m <model> -c model_reasoning_effort=<level>` and the approval and sandbox flags below, then `-- <message>` |
 | Second engine | its own program `--model <id> --effort <level> --permission-mode <mode>`, then `-- <message>` |
 

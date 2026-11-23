@@ -80,7 +80,7 @@ interface Inventory {
 	}
 	flags: {
 		host: { command: string; flags: string[] }
-		terminalUi: { flags: string[]; permissionModeValues: string[] }
+		terminalUi: { flags: string[]; hiddenFlags: string[]; permissionModeValues: string[] }
 		shortCommands: { command: string; verbs: string[]; flags: string[] }
 	}
 	kernelFolder: { files: { path: string }[] }
@@ -347,6 +347,18 @@ describe('the flags the application passes', () => {
 			(flag) => !new RegExp(`^\\s+(?:-\\w, )?${flag}(?:[ ,]|$)`, 'm').test(out),
 		)
 		expect(missing, `The terminal UI no longer takes: ${missing.join(', ')}\n${RULE}`).toEqual([])
+		// Flags an installed build passes that help no longer lists still have to be accepted,
+		// and so does the first message after `--`.
+		for (const flag of inventory.flags.terminalUi.hiddenFlags) {
+			expect(
+				await runCli({ argv: ['node', 'namzu', `${flag}=hello`] }),
+				`The terminal UI no longer takes ${flag}\n${RULE}`,
+			).toBe(0)
+		}
+		expect(
+			await runCli({ argv: ['node', 'namzu', '--', '--hello'] }),
+			`The terminal UI no longer takes a first message after --\n${RULE}`,
+		).toBe(0)
 		const words = inventory.flags.terminalUi.permissionModeValues.filter(
 			(word) => !(PERMISSION_MODE_NAMES as readonly string[]).includes(word),
 		)

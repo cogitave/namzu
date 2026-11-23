@@ -187,7 +187,7 @@ export interface EngineChoices {
 	model?: string
 	effort?: ReasoningEffort
 	permissionMode: ReviewMode
-	/** What the person typed in the composer: the first message of the engine's CLI (`--message=` for Namzu). */
+	/** What the person typed in the composer: the first message of the engine's CLI (after `--` for Namzu). */
 	prompt?: string
 }
 
@@ -342,10 +342,10 @@ export function buildEngineLaunch(
 		if (choices.effort) args.push('--effort', choices.effort)
 		args.push('--permission-mode', namzuPermissionArgument(choices.permissionMode))
 		const message = choices.prompt?.trim() ? choices.prompt : undefined
-		// `--message=<text>` is one argument, so a leading dash or a space in the message is not parsed
+		// The message goes after `--` as one argument, so a leading dash or a space in it is not parsed
 		// as anything else; the TUI sends it once, as a plain prompt, when its composer is ready.
 		const namzuLaunch = (withMessage: boolean) => {
-			const all = withMessage && message ? [...args, `--message=${message}`] : args
+			const all = withMessage && message ? [...args, '--', message] : args
 			if (host.cliEntry) {
 				const launch = wrap(host, host.execPath, [...host.nodeArgs, host.cliEntry, ...all], true)
 				return { ...launch, env: { ELECTRON_RUN_AS_NODE: '1' }, title, omitted }

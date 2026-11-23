@@ -1,7 +1,7 @@
 ---
 type: Reference
 title: Launch flags for the interactive session
-description: --provider, --model, --effort, --fast, --permission-mode, --message, --continue, --resume and --from-pr on the interactive namzu and namzu resume, what each chooses for that launch only, how they combine with the saved choice and --yolo, the switch that lets Shift+Tab reach bypass, and what happens when one cannot be honoured.
+description: --provider, --model, --effort, --fast, --permission-mode, the first message, --continue, --resume and --from-pr on the interactive namzu and namzu resume, what each chooses for that launch only, how they combine with the saved choice and --yolo, the switch that lets Shift+Tab reach bypass, and what happens when one cannot be honoured.
 resource: packages/cli/src/tui/launch-settings.ts
 tags: [cli, tui, providers, permissions]
 status: stable
@@ -37,9 +37,11 @@ Five options choose how one interactive session starts. They are written before 
 
 Two switches change what Shift+Tab may reach rather than where the session starts. `--dangerously-skip-permissions` (alias `--yolo`) starts in `bypass`, and `--allow-dangerously-skip-permissions` keeps the launch mode but lets Shift+Tab and `/permissions` reach `bypass`; the cycle is `prompt`, `accept-edits`, `plan`, then `bypass` (only when the launch allowed it), then `auto` (unless `permissions.disableAutoMode` is set), then `prompt`. `--permission-mode bypass` counts as launching in `bypass`. `--permission-mode auto` is the classifier mode, not the old no-prompt one. A launch the settings or the root guard forbid (`permissions.disableBypassMode`, bypass as the superuser outside a sandbox) is refused with exit status 64 and a plain sentence. The first time a launch starts in `bypass` it asks `Start in bypass mode? [y/N]` once; a no starts in the ordinary mode. `--allow-dangerously-skip-permissions` is for the interactive session only; `namzu exec` does not take it.
 
-A fifth, `--message <text>`, is the first message of the launch: the session sends it once, as a plain prompt (a leading `/`, `!` or `#` is text, not a command), as soon as the composer is ready, and the turn runs with the provider, model, effort and mode chosen above. It is shown as the first user message, is kept in the composer's history, and is never sent again by a later `/resume`, reload or re-login. Pass it as `--message=<text>` when the text may begin with a dash. It is refused before a subcommand like the others, and before `resume` (exit 64): a resumed conversation never gets a first message.
+The first message of a launch is written as a plain argument: `namzu "fix the failing test"`. The session sends it once, as a plain prompt (a leading `/`, `!` or `#` is text, not a command), as soon as the composer is ready, and the turn runs with the provider, model, effort and mode chosen above. It is shown as the first user message, is kept in the composer's history, and is never sent again by a later `/resume`, reload or re-login. A word that is the name of a command runs that command, so put a prompt that is one such word after `--`: `namzu -- "providers"`. `--` is also how a prompt that begins with a dash is written: `namzu -- "--rm is a flag, explain it"`. Write it as one argument, in quotes; two words that are not one argument are refused (`Too many arguments`). A retired command name typed as the prompt prints what replaced it. The first message is refused before a subcommand like the other launch options, and before `resume` (exit 64): a resumed conversation never gets a first message. To answer one prompt without opening the session, use `namzu -p` ([Print mode](print-mode.md)).
 
-Four more options are per-run settings rather than a choice of provider, model or mode: `--append-system-prompt <text|@file>`, `--allowed-tools <list>`, `--disallowed-tools <list>` and `--fallback-model <provider/model[,…]>`. They are session-only too, are written before the command, and are described in [Flags for one run](run-flags.md). `--max-budget-usd` is not one of them: a spend limit belongs to a headless run, so it is refused here and written after `exec`.
+`--message=<text>` is the older spelling, hidden from `--help`: builds already installed pass it, so it keeps working and gives the same result. Use `namzu "<text>"` in anything new.
+
+Four more options are per-run settings rather than a choice of provider, model or mode: `--append-system-prompt <text|@file>`, `--allowed-tools <list>`, `--disallowed-tools <list>` and `--fallback-model <provider/model[,…]>`. They are session-only too, are written before the command, and are described in [Flags for one run](run-flags.md). `--max-budget-usd` is not one of them: a spend limit belongs to a headless run, so without `-p` it is refused with `--max-budget-usd needs -p` ([Print mode](print-mode.md)).
 
 The same four flags exist on `namzu exec` and `namzu drain`, written after the command, where they apply to that run. Written before `exec`, `drain` or any other subcommand they are refused with exit status 64 and a line naming where they go, so a flag is never silently ignored.
 
@@ -52,7 +54,7 @@ namzu resume --yolo 11de68ce-02f2-49e4-a7e4-7f29355d7aaf
 namzu resume --permission-mode plan --model gpt-5
 ```
 
-A flag given on both sides is not an error: the value after `resume` wins, and a repeatable one (`--add-dir`, `--plugin-dir`, `--allowed-tools`, …) keeps the values from both. `--continue`, `--resume`, `--from-pr` and `--message` choose or start a conversation, so they stay before the command, where they are refused beside `resume`. The global output flags (`--format`, `--quiet`, `--verbose`, `--debug`, `--log-format`) are not launch options and also stay before the command.
+A flag given on both sides is not an error: the value after `resume` wins, and a repeatable one (`--add-dir`, `--plugin-dir`, `--allowed-tools`, …) keeps the values from both. `--continue`, `--resume`, `--from-pr` and the first message choose or start a conversation, so they stay before the command, where they are refused beside `resume`. The global output flags (`--format`, `--quiet`, `--verbose`, `--debug`, `--log-format`) are not launch options and also stay before the command.
 
 ## Picking up a conversation: `-c` and `-r`
 
@@ -86,4 +88,4 @@ The terminal app draws live in a terminal even when the shell exports `CI` or a 
 
 ## The desktop's terminal tabs
 
-The Desktop's "CLI" surface for the Namzu engine starts this same command in a terminal tab with the composer's choices as these flags, and the composer's text as `--message=`, which is why they are session-only: the person's saved preferences are theirs, and a tab started for one task must not rewrite them. See [Desktop](desktop.md#host-terminals).
+The Desktop's "CLI" surface for the Namzu engine starts this same command in a terminal tab with the composer's choices as these flags, and the composer's text as the one argument after `--`, which is why they are session-only: the person's saved preferences are theirs, and a tab started for one task must not rewrite them. See [Desktop](desktop.md#host-terminals).

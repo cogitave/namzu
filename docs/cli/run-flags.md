@@ -26,7 +26,7 @@ namzu --append-system-prompt @team-rules.md --allowed-tools "edit read"
 | `--allowed-tools <list>` | yes, repeatable | yes, repeatable |
 | `--disallowed-tools <list>` | yes, repeatable | yes, repeatable |
 | `--fallback-model <provider/model[,…]>` | yes, repeatable | yes, repeatable |
-| `--max-budget-usd <amount>` | yes | refused: it stops a headless run, so it is written after `exec` |
+| `--max-budget-usd <amount>` | yes | refused (`--max-budget-usd needs -p`): it stops a headless run, so it is written after `exec` or `-p` ([Print mode](print-mode.md)) |
 
 Written before `exec`, `drain` or any other subcommand they are refused with exit status 64 and a line saying where they go.
 
