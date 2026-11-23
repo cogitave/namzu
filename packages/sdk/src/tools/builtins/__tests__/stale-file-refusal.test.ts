@@ -350,8 +350,8 @@ describe('an edit against a file that moved is refused, not applied', () => {
 
 		const first = await EditTool.execute(miss, context)
 		expect(first.success).toBe(false)
-		expect(first.error).toContain('1\talpha')
-		expect(first.error).toContain('2\tbeta')
+		expect(first.error).toContain('     1→alpha')
+		expect(first.error).toContain('     2→beta')
 		// The file was handed over, so the read it amounts to is credited.
 		const second = await EditTool.execute(input, context)
 		expect(second.success).toBe(true)

@@ -24,7 +24,7 @@ import { ToolManager } from '../../../toolsets/manager.js'
  * Deterministic: the schemas are rendered from the source, nothing here reads
  * a clock, a network or the host.
  */
-const CEILING_BYTES = 18_800
+const CEILING_BYTES = 19_300
 
 const REASONS: readonly string[] = [
 	'Initial ceiling: 16498 bytes measured when this gate landed (nine tools), plus about 3% headroom for wording fixes.',
@@ -32,6 +32,7 @@ const REASONS: readonly string[] = [
 	"Raised to 18200 at 18156 bytes. bash says that long output and a background job's output are saved to a file whose path the model is given, so it does not redirect them into files in the working directory (+156). About 1% headroom kept.",
 	'Raised to 18500 at 18332 bytes. bash says its command has no input (stdin closed, no terminal) and what to do instead, so the model does not wait on, or loop around, a prompt nobody can answer (+176). About 1% headroom kept.',
 	'Raised to 18800 at 18575 bytes. bash takes an optional description, a short label in plain words that the person sees for a background job in place of the command line (+243). About 1% headroom kept.',
+	'Raised to 19300 at 19065 bytes. read says what its numbered lines look like (a number, an arrow, then the line as it is) and edit says to copy old_string after the arrow, keeping the tabs and spaces, and that an indentation-only miss on one place is applied and reported (+265). The cost of a tab-indented file edited one level short is a whole refused batch. About 1.2% headroom kept.',
 ]
 
 function defaultToolsBlock() {

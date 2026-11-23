@@ -55,11 +55,13 @@ describe('edit flexible matching', () => {
 		})
 	})
 
-	it('does not resolve across a whitespace/indentation difference', () => {
+	it('resolves a pure indentation difference only through the indentation road, and says so', () => {
 		const content = '\tif (x) {\n\t\treturn 1\n\t}'
-		// old_string uses spaces where the file uses tabs: a real miss, both tools.
+		// old_string uses spaces where the file uses tabs: same lines, shifted alike.
 		const out = run(content, replace('  if (x) {', '  if (y) {'))
-		expect(out).toMatchObject({ success: false })
+		expect(out).toMatchObject({ success: true, content: '\tif (y) {\n\t\treturn 1\n\t}' })
+		// A change inside a line is never made by that road.
+		expect(run(content, replace('  if (z) {', '  if (y) {'))).toMatchObject({ success: false })
 	})
 
 	it('still enforces uniqueness after a flexible match', () => {

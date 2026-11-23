@@ -110,7 +110,11 @@ describe('replaying one operation at a time is replaying the batch', () => {
 				// The same message, too: a caller that surfaced one of these would
 				// otherwise be telling the model about a different refusal than the
 				// tool's own.
-				expect(walked.error, shape).toBe(batch.error)
+				// The batch names every hunk that failed; the walk stops at the first,
+				// so its message is the first of the batch's.
+				expect(batch.error, shape).toContain(
+					walked.error.replace(/ Nothing was written — the whole batch is refused.*$/s, ''),
+				)
 			}
 
 			// Step by step against the same fold, because a prediction wrong in

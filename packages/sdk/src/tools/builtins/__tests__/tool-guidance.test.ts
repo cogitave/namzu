@@ -79,7 +79,8 @@ describe('the edit tool when the text is not found or not unique', () => {
 		expect(result.error).toContain('not found in file')
 		expect(result.error).toContain('including whitespace and indentation')
 		expect(result.error).toContain('line 2')
-		expect(result.error).toContain('read around it again')
+		expect(result.error).toContain('→ for a tab and · for a space')
+		expect(result.error).toContain('····return 1')
 	})
 
 	it('names no line when the first line is only a brace', async () => {

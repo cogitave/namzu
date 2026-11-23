@@ -103,7 +103,7 @@ describe('read of a picture', () => {
 		const dir = dirWith({ 'notes.png': 'just words' })
 		const result = await ReadFileTool.execute({ path: 'notes.png' }, makeContext(dir))
 		expect(result.success).toBe(true)
-		expect(result.output).toBe('1\tjust words')
+		expect(result.output).toBe('     1→just words')
 	})
 
 	it('says plainly when the picture is damaged', async () => {

@@ -615,7 +615,7 @@ describe('a read that returned the whole file', () => {
 		const r = read()
 		const receipt = r.messages[1] as ToolMessage
 		const shown = receipt.content as string
-		for (const changed of [`${shown} `, shown.replace('1\t', '1 '), shown.slice(0, -1)])
+		for (const changed of [`${shown} `, shown.replace('     1→', '1 '), shown.slice(0, -1)])
 			expect(
 				r.describe([r.messages[0] as Message, { ...receipt, content: changed }]),
 			).toBeUndefined()

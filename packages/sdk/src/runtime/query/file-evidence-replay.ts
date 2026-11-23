@@ -4,6 +4,7 @@ import { replayEditCallWithin } from '../../tools/builtins/edit-apply.js'
 import { EditTool } from '../../tools/builtins/edit.js'
 import { ReadFileTool } from '../../tools/builtins/read-file.js'
 import {
+	LINE_NUMBER_WIDTH,
 	type ReadWindowRequest,
 	renderNumberedRead,
 	resolveReadWindow,
@@ -659,7 +660,7 @@ function mutate(
  * compared whole.
  *
  * Equality is conclusive because of the numbering. Every line of a rendering
- * goes out behind its own `${n}\t`, so one rendering belongs to exactly one
+ * goes out behind its own `linePrefix(n)`, so one rendering belongs to exactly one
  * body and window; and the partial-view notice carries no such prefix on its
  * lines, so a rendering that covers a whole file cannot be equal to one that
  * was cut short. A read this cannot match leaves the path known and its body
@@ -708,9 +709,9 @@ function observeRead(
  * What `read` would return for this whole body, in UTF-16 units, without
  * building it — and `undefined` for a window that would leave a line out.
  *
- * The rendering puts `${n}\t` in front of every line and joins them back with
- * the newlines the body already carries, so its length is the body's, plus one
- * tab per line, plus the digits of the numbers `1..lines`. A windowed read
+ * The rendering puts `linePrefix(n)` in front of every line and joins them back with
+ * the newlines the body already carries, so its length is the body's, plus the
+ * prefix of every line: the arrow and the number padded to its column. A windowed read
  * renumbers from its offset and carries the PARTIAL notice, and can never equal
  * a whole body's rendering — so it is refused here rather than built and
  * compared, which is also what makes the figure above exact.
@@ -736,7 +737,7 @@ function countLines(body: string): number {
 function lineNumberUnits(lines: number): number {
 	let units = 0
 	for (let width = 1, first = 1; first <= lines; width++, first *= 10)
-		units += (Math.min(lines, first * 10 - 1) - first + 1) * width
+		units += (Math.min(lines, first * 10 - 1) - first + 1) * Math.max(width, LINE_NUMBER_WIDTH)
 	return units
 }
 

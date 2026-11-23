@@ -77,7 +77,7 @@ describe('an edit refused because the file was never read', () => {
 		)
 		expect(refused.success).toBe(false)
 		expect(refused.error).toContain('without reading the file again')
-		expect(refused.error).toContain('1\talpha')
+		expect(refused.error).toContain('     1→alpha')
 	})
 })
 
