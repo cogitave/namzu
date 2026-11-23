@@ -46,6 +46,9 @@ nothing else.
 | `namzu e "<prompt>"` | `namzu exec "<prompt>"` |
 | `namzu config reset <key>` | `namzu config unset <key>` |
 | `--yolo` | `--dangerously-skip-permissions` |
+| `namzu upgrade` | `namzu update` |
+| `namzu login <provider>` | `namzu auth login <provider>` |
+| `namzu logout` | `namzu auth logout` |
 | `namzu run`, `namzu run-stream` | `namzu exec`, `namzu exec --json` |
 | `namzu skills-json`, `namzu providers-json` | `namzu skills list --json`, `namzu providers list --json` |
 

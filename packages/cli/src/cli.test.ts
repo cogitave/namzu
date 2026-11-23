@@ -185,6 +185,11 @@ describe('runCli', () => {
 		expect(stdout).toMatch(/\d+\.\d+\.\d+/)
 	})
 
+	it('refuses a first message given twice, by --message and after --', async () => {
+		expect(await invoke(['--message=hi', '--', 'x'])).toBe(64)
+		expect(flat(stderr)).toContain('Give the first message once')
+	})
+
 	it('a word that is not a command is the prompt; two loose words are refused with EX_USAGE (64)', async () => {
 		expect(await invoke(['definitely-not-a-command'])).toBe(0)
 		expect(stdout).toContain('interactive TUI requires a terminal')
@@ -316,6 +321,11 @@ describe('runCli', () => {
 			['resume'],
 		])('prints what `namzu %s --help` prints', async (name) => {
 			await same(['help', name], [name, '--help'])
+		})
+
+		it('prints the help when a launch flag is written before it', async () => {
+			await same(['-n', 'x', 'help', 'exec'], ['exec', '--help'])
+			await same(['--model', 'm', 'exec', '--help'], ['exec', '--help'])
 		})
 
 		it('takes an action as well as a command', async () => {

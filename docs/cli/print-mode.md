@@ -40,7 +40,7 @@ Without `-p` the prompt is the first message of the interactive session, sent on
 | `-n`, `--name`; `--mcp-config`, `--strict-mcp-config` | name the conversation; choose tool servers |
 | `--bare`, `--settings`, `--debug-file` | minimal run, one more settings layer, a debug log file (read by the root, so they work before or after the prompt) |
 
-Every other option `namzu exec` reads works the same after `-p`. `-f/--format`, `-q`, `-v`, `--debug` and `--log-format` stay root options. `namzu exec` is unchanged and is what scheduled jobs, workflow files and Desktop call.
+Every other option `namzu exec` reads works the same after `-p`. `-f/--format`, `-q`, `-v`, `--debug` and `--log-format` stay root options. The options that only shape an interactive session are not read by `namzu exec`, so `-p` refuses them as unknown options: `--profile`, `--add-dir`, `--plugin-dir`, `--fast`, `--no-done-gate`, `--from-pr` and `--allow-dangerously-skip-permissions`. `namzu exec` is unchanged and is what scheduled jobs, workflow files and Desktop call.
 
 ## Print-only options without `-p`
 

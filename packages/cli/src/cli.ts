@@ -438,84 +438,88 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 					})
 				}
 			}
-			const launchOnly = (
-				[
-					'provider',
-					'model',
-					'effort',
-					'fast',
-					'permissionMode',
-					'message',
-					'continue',
-					'resume',
-					'fromPr',
-					'appendSystemPrompt',
-					'systemPrompt',
-					'tools',
-					'name',
-					'mcpConfig',
-					'strictMcpConfig',
-					'allowedTools',
-					'disallowedTools',
-					'fallbackModel',
-					'maxOutputTokens',
-					'account',
-				] as const
-			).filter((key) => command.opts()[key] !== undefined)
-			if (launchOnly.length > 0 && !['namzu', 'resume'].includes(action.name())) {
-				const flags = launchOnly.map(
-					(key) => `--${key.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)}`,
+			// A request for help prints the help: a launch flag written before the
+			// command (`namzu -n x help exec`) does not turn it into a usage error.
+			if (!asksForHelp(helpArgv)) {
+				const launchOnly = (
+					[
+						'provider',
+						'model',
+						'effort',
+						'fast',
+						'permissionMode',
+						'message',
+						'continue',
+						'resume',
+						'fromPr',
+						'appendSystemPrompt',
+						'systemPrompt',
+						'tools',
+						'name',
+						'mcpConfig',
+						'strictMcpConfig',
+						'allowedTools',
+						'disallowedTools',
+						'fallbackModel',
+						'maxOutputTokens',
+						'account',
+					] as const
+				).filter((key) => command.opts()[key] !== undefined)
+				if (launchOnly.length > 0 && !['namzu', 'resume'].includes(action.name())) {
+					const flags = launchOnly.map(
+						(key) => `--${key.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)}`,
+					)
+					// `drain` takes the model and mode flags after it, not the per-run ones.
+					const perRun = launchOnly.some((key) => PER_RUN_FLAG_KEYS.has(key))
+					command.error(
+						action.name() === 'exec' || (action.name() === 'drain' && !perRun)
+							? `${flags.join(', ')} before the command apply to the interactive TUI; for ${action.name()}, pass them after it: namzu ${action.name()} ${flags[0]} <value> "<prompt>".`
+							: `${flags.join(', ')} apply to the interactive TUI, not this subcommand.`,
+						{ exitCode: EX_USAGE, code: 'commander.invalidArgument' },
+					)
+				}
+				if (
+					action.name() === 'resume' &&
+					(command.opts().continue !== undefined ||
+						command.opts().resume !== undefined ||
+						command.opts().fromPr !== undefined)
 				)
-				// `drain` takes the model and mode flags after it, not the per-run ones.
-				const perRun = launchOnly.some((key) => PER_RUN_FLAG_KEYS.has(key))
-				command.error(
-					action.name() === 'exec' || (action.name() === 'drain' && !perRun)
-						? `${flags.join(', ')} before the command apply to the interactive TUI; for ${action.name()}, pass them after it: namzu ${action.name()} ${flags[0]} <value> "<prompt>".`
-						: `${flags.join(', ')} apply to the interactive TUI, not this subcommand.`,
-					{ exitCode: EX_USAGE, code: 'commander.invalidArgument' },
-				)
-			}
-			if (
-				action.name() === 'resume' &&
-				(command.opts().continue !== undefined ||
-					command.opts().resume !== undefined ||
-					command.opts().fromPr !== undefined)
-			)
-				command.error(
-					'--continue, --resume and --from-pr choose a conversation to open; `namzu resume <conversation-id>` already names one.',
-					{ exitCode: EX_USAGE, code: 'commander.invalidArgument' },
-				)
-			if (action.name() === 'resume' && command.opts().message !== undefined)
-				command.error(
-					'The first message starts a new conversation; it is not sent when resuming one.',
-					{ exitCode: EX_USAGE, code: 'commander.invalidArgument' },
-				)
-			// With -p the arguments were handed to `namzu exec` before parsing, so
-			// a print-only option that reaches here was given without it.
-			const needsPrint = (
-				[
-					['outputFormat', '--output-format'],
-					['inputFormat', '--input-format'],
-					['maxBudgetUsd', '--max-budget-usd'],
-				] as const
-			).filter(([key]) => command.opts()[key] !== undefined)
-			if (needsPrint.length > 0) {
-				const names = needsPrint.map(([, flag]) => flag)
-				command.error(
-					`${names.join(', ')} ${names.length === 1 ? 'needs' : 'need'} -p: namzu -p ${names[0]} <value> "<prompt>". For a subcommand, write it after the command.`,
-					{ exitCode: EX_USAGE, code: 'commander.invalidArgument' },
-				)
-			}
-			if (command.opts().outputSchema && !['namzu', 'resume'].includes(action.name())) {
-				command.error(
-					action.name() === 'exec'
-						? '--output-schema before the command applies to the interactive TUI; for exec, pass it after: namzu exec --output-schema <file> "<prompt>".'
-						: '--output-schema applies to the interactive TUI and to exec, not this subcommand.',
-					{
-						exitCode: EX_USAGE,
-						code: 'commander.invalidArgument',
-					},
-				)
+					command.error(
+						'--continue, --resume and --from-pr choose a conversation to open; `namzu resume <conversation-id>` already names one.',
+						{ exitCode: EX_USAGE, code: 'commander.invalidArgument' },
+					)
+				if (action.name() === 'resume' && command.opts().message !== undefined)
+					command.error(
+						'The first message starts a new conversation; it is not sent when resuming one.',
+						{ exitCode: EX_USAGE, code: 'commander.invalidArgument' },
+					)
+				// With -p the arguments were handed to `namzu exec` before parsing, so
+				// a print-only option that reaches here was given without it.
+				const needsPrint = (
+					[
+						['outputFormat', '--output-format'],
+						['inputFormat', '--input-format'],
+						['maxBudgetUsd', '--max-budget-usd'],
+					] as const
+				).filter(([key]) => command.opts()[key] !== undefined)
+				if (needsPrint.length > 0) {
+					const names = needsPrint.map(([, flag]) => flag)
+					command.error(
+						`${names.join(', ')} ${names.length === 1 ? 'needs' : 'need'} -p: namzu -p ${names[0]} <value> "<prompt>". For a subcommand, write it after the command.`,
+						{ exitCode: EX_USAGE, code: 'commander.invalidArgument' },
+					)
+				}
+				if (command.opts().outputSchema && !['namzu', 'resume'].includes(action.name())) {
+					command.error(
+						action.name() === 'exec'
+							? '--output-schema before the command applies to the interactive TUI; for exec, pass it after: namzu exec --output-schema <file> "<prompt>".'
+							: '--output-schema applies to the interactive TUI and to exec, not this subcommand.',
+						{
+							exitCode: EX_USAGE,
+							code: 'commander.invalidArgument',
+						},
+					)
+				}
 			}
 			if (opensSessions(action.name()) && !asksForHelp(helpArgv)) {
 				beginCatalogueRefresh(getBootstrapContext().config)
@@ -1242,7 +1246,8 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 	// suite does not try to render Ink against a non-tty stream.
 	program.action(async (prompt: string | undefined) => {
 		const hidden = program.opts<{ message?: string }>().message
-		if (prompt !== undefined && hidden !== undefined)
+		const given = [prompt, hidden, promptAfterDashes].filter((text) => text !== undefined)
+		if (given.length > 1)
 			program.error('Give the first message once: namzu "<text>".', {
 				exitCode: EX_USAGE,
 				code: 'commander.invalidArgument',

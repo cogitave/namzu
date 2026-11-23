@@ -19,7 +19,7 @@ follow upstream without waiting for a new release.
 
 Every launch that opens agent sessions starts one refresh: the interactive TUI
 (`namzu`, `namzu resume`), `namzu exec` (with or without `--json`), `namzu acp`,
-and `namzu drain`. Other commands (`doctor`, `login`, `state`, `eval` and the
+and `namzu drain`. Other commands (`doctor`, `auth`, `state`, `eval` and the
 rest) open no session and start none.
 
 `drain` is on the list because it continues turns
