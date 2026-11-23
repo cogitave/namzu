@@ -850,6 +850,27 @@ describe('a check that failed and then passed', () => {
 		expect(outcome?.verdict).toBe('failing')
 	})
 
+	it('a job id survives a checkpoint, so a wait after a resume still reads the check', async () => {
+		const first = new OutcomeLedger()
+		await turn(first, [[edit('a.ts')], [launched('pnpm test', 'job_1')]])
+		const snapshot = JSON.parse(JSON.stringify(first.snapshot()))
+		const resumed = new OutcomeLedger()
+		resumed.restore(snapshot)
+		const outcome = await turn(resumed, [[waited('job_1', 1)]])
+		expect(outcome?.checks.map((c) => [c.command, c.result])).toEqual([['pnpm test', 'failed']])
+	})
+
+	it('a foreground check the time limit moved to the background is a job the wait can read', async () => {
+		const moved: OutcomeCall = {
+			toolName: 'bash',
+			input: { command: 'pnpm test' },
+			isError: false,
+			facts: { kind: 'command', command: 'pnpm test', background: true, jobId: 'job_9' },
+		}
+		const outcome = await turn(new OutcomeLedger(), [[edit('a.ts')], [moved], [waited('job_9', 0)]])
+		expect(outcome?.checks.at(-1)).toMatchObject({ command: 'pnpm test', result: 'passed' })
+	})
+
 	it('a wait for a job that is not a check says nothing about checks', async () => {
 		const outcome = await turn(new OutcomeLedger(), [
 			[edit('a.ts')],

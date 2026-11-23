@@ -93,7 +93,7 @@ describe('the cannot-tell line, live', () => {
 		let telling = NOTHING_TOLD
 		for (let i = 0; i < 2; i++) {
 			const said = outcomeNotice(UNCHECKED, telling)
-			expect(said.line).toBe('Changed 1 file · not checked')
+			expect(said.line).toBe('Changed 1 file this turn · not checked')
 			telling = said.telling
 		}
 		expect(telling).toBe(NOTHING_TOLD)
@@ -151,12 +151,12 @@ describe('the cannot-tell line, in a resumed conversation', () => {
 			FULL,
 			'ask 1',
 			'reply 1',
-			'Changed 1 file · not checked',
+			'Changed 1 file this turn · not checked',
 			'ask 2',
 			'reply 2',
 			'ask 3',
 			'reply 3',
-			'Changed 1 file · not checked',
+			'Changed 1 file this turn · not checked',
 		])
 	})
 
@@ -193,6 +193,6 @@ describe('the cannot-tell line, in a resumed conversation', () => {
 
 	it('puts the line before the Worked-for line, after a stop notice', () => {
 		const rows = conversation([{ outcome: UNCHECKED }])
-		expect(rows.at(-1)).toBe('Changed 1 file · not checked')
+		expect(rows.at(-1)).toBe('Changed 1 file this turn · not checked')
 	})
 })

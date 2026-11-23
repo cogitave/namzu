@@ -114,11 +114,11 @@ A command in the line is cut after a whole word, never in the middle of a word o
 
 | The record says | The line |
 |---|---|
-| Changed, no check ran | `Changed 4 files · not checked` |
-| Changed, a check passed and nothing changed after it | `Changed 4 files · checked: pnpm test passed, nothing changed since` |
-| Changed, a check passed, then files changed again | `Changed 4 files · pnpm test passed, then files changed again` |
-| A check failed | `Changed 4 files · pnpm test failed`, or `No files changed · pnpm test failed` |
-| A check whose result is hidden, not seen, or of unknown freshness | `Changed 4 files · ran pnpm test | tail -5, but the pipe hides whether it passed` |
+| Changed, no check ran | `Changed 4 files this turn · not checked` |
+| Changed, a check passed and nothing changed after it | `Changed 4 files this turn · checked: pnpm test passed, nothing changed since` |
+| Changed, a check passed, then files changed again | `Changed 4 files this turn · pnpm test passed, then files changed again` |
+| A check failed | `Changed 4 files this turn · pnpm test failed`, or `No files changed · pnpm test failed` |
+| A check whose result is hidden, not seen, or of unknown freshness | `Changed 4 files this turn · ran pnpm test | tail -5, but the pipe hides whether it passed` |
 | A command ran that may have changed files and nothing could answer | `A command ran that may have changed files · cannot tell here · not repeated in this conversation`, the first time only |
 
 "Checked" says a recognised check passed and nothing changed after it; it does not say the check covers the change. When the working folder is a git repository and the tools run there, shell commands are seen too. In a folder git cannot read, with a sandbox that works in a copy of its own, or in an isolated child worktree, only the edit tools are, and a change made by a shell command is not.

@@ -396,7 +396,7 @@ describe('per-call review: execute while asking', () => {
 		)
 	})
 
-	it('a plain refusal closes open questions, refuses what has not started and ends the turn, and leaves a call already running to finish', async () => {
+	it("a person's plain refusal cancels what runs, refuses what has not started, closes open questions and ends the turn", async () => {
 		const h = harness({ perCallReview: {} })
 		const resp = responseOf(
 			call('r1', 'read'),
@@ -418,14 +418,10 @@ describe('per-call review: execute while asking', () => {
 			declined: {},
 			endTurn: true,
 		})
-		await settleWork()
-		// The refusal is about the call it answered: the read that was approved is not cancelled.
-		expect(toolSignal.aborted).toBe(false)
-		h.finish('r1')
 		const outcome = await running
 
 		expect(outcome.decision).toBe('stop')
-		expect(h.finished).toContain('r1')
+		expect(toolSignal.aborted).toBe(true)
 		// The question left open on the third call was closed from here.
 		expect(h.questions[2]?.context?.signal?.aborted).toBe(true)
 		// The unsafe call was never asked.
@@ -438,7 +434,27 @@ describe('per-call review: execute while asking', () => {
 		expect(toolText(h.messages, 'r3')).toContain('turn was stopped')
 	})
 
-	it('a refused shell call does not stop the reads and searches beside it that need no review', async () => {
+	it("a person's No still stops a call that a rule already allows, later in the batch", async () => {
+		const h = harness({
+			perCallReview: {},
+			gateDecision: (tool) => (tool === 'bash' ? 'review' : 'allow'),
+		})
+		const resp = responseOf(call('b1', 'bash'), call('w1', 'write'))
+		const running = drive(h.ctx, resp)
+		await h.untilQuestions(1)
+		h.questions[0]?.answer({
+			action: 'reject_tools',
+			feedback: 'declined',
+			declined: {},
+			endTurn: true,
+		})
+		const outcome = await running
+		expect(outcome.decision).toBe('stop')
+		expect(h.started).toEqual([])
+		expectEveryCallAnswered(h.messages, resp)
+	})
+
+	it('a refusal by the safety check does not stop the reads and searches beside it that need no review', async () => {
 		// The gate allows reads and searches; the shell call is asked and refused.
 		const h = harness({
 			perCallReview: {},
@@ -450,8 +466,7 @@ describe('per-call review: execute while asking', () => {
 		await h.untilQuestions(1)
 		h.questions[0]?.answer({
 			action: 'reject_tools',
-			feedback: 'not that',
-			declined: {},
+			feedback: 'Blocked by auto mode: not that',
 			endTurn: true,
 		})
 		await h.untilStarted('r1')
@@ -467,7 +482,7 @@ describe('per-call review: execute while asking', () => {
 		expect(h.questions).toHaveLength(1)
 		expect(toolText(h.messages, 'r1')).toContain('read ok')
 		expect(toolText(h.messages, 'g1')).toContain('grep ok')
-		expect(toolText(h.messages, 'b1')).toContain('not that')
+		expect(toolText(h.messages, 'b1')).toContain('Blocked by auto mode: not that')
 		expectEveryCallAnswered(h.messages, resp)
 	})
 

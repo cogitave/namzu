@@ -847,7 +847,7 @@ it('hands back what the turn changed and what checked it, in the terminal wordin
 		await finish(f.log, f.lease, unread.turnId)
 		const result = await f.history()
 		expect(result.work?.turns.map((turn) => turn.outcome)).toEqual([
-			{ verdict: 'failing', line: 'Changed 1 file · npm test failed', changed: 1 },
+			{ verdict: 'failing', line: 'Changed 1 file this turn · npm test failed', changed: 1 },
 			undefined,
 		])
 	} finally {

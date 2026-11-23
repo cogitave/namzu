@@ -654,6 +654,24 @@ describe('a classifier that gives no verdict', () => {
 		expect(onClassifierUnavailable).not.toHaveBeenCalled()
 	})
 
+	it('puts every call of the batch to the person when the check could not be completed for one of them', async () => {
+		let n = 0
+		const { classifier } = scripted(() => (n++ === 0 ? allow : noVerdict()))
+		const prompt = approve()
+		const decision = await createReviewHandler({
+			mode: 'classify',
+			classifier,
+			prompt,
+			registry,
+		})(review(bash('npm run build'), bash('npm test')))
+		expect(decision).toMatchObject({ action: 'approve_tools' })
+		expect(prompt).toHaveBeenCalledTimes(1)
+		const asked = (prompt as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as {
+			toolCalls: readonly unknown[]
+		}
+		expect(asked.toolCalls).toHaveLength(2)
+	})
+
 	it('a person who says no to the fallback question refuses the call as any no does', async () => {
 		const { classifier } = scripted(() => noVerdict())
 		const decision = await createReviewHandler({

@@ -17,15 +17,15 @@ const none = { total: 0, paths: [], outsideKnownTools: false }
 
 describe('the line a turn ends with', () => {
 	it.each<[string, Partial<TurnOutcome>, string]>([
-		['checked', {}, 'Changed 4 files · checked: pnpm test passed, nothing changed since'],
-		['unchecked', { verdict: 'unchecked', checks: [] }, 'Changed 4 files · not checked'],
+		['checked', {}, 'Changed 4 files this turn · checked: pnpm test passed, nothing changed since'],
+		['unchecked', { verdict: 'unchecked', checks: [] }, 'Changed 4 files this turn · not checked'],
 		[
 			'failing',
 			{
 				verdict: 'failing',
 				checks: [{ command: 'pnpm test', step: 2, result: 'failed', exitCode: 1 }],
 			},
-			'Changed 4 files · pnpm test failed',
+			'Changed 4 files this turn · pnpm test failed',
 		],
 		[
 			'stale',
@@ -33,7 +33,7 @@ describe('the line a turn ends with', () => {
 				verdict: 'stale',
 				checks: [{ command: 'pnpm test', step: 2, result: 'passed', fresh: false }],
 			},
-			'Changed 4 files · pnpm test passed, then files changed again',
+			'Changed 4 files this turn · pnpm test passed, then files changed again',
 		],
 		[
 			'masked by a pipe',
@@ -41,7 +41,7 @@ describe('the line a turn ends with', () => {
 				verdict: 'inconclusive',
 				checks: [{ command: 'pnpm test | tail -5', step: 2, result: 'masked', exitCode: 0 }],
 			},
-			'Changed 4 files · ran pnpm test | tail -5, but the pipe hides whether it passed',
+			'Changed 4 files this turn · ran pnpm test | tail -5, but the pipe hides whether it passed',
 		],
 		[
 			'masked by something else',
@@ -49,17 +49,17 @@ describe('the line a turn ends with', () => {
 				verdict: 'inconclusive',
 				checks: [{ command: 'pnpm test || true', step: 2, result: 'masked', exitCode: 0 }],
 			},
-			'Changed 4 files · ran pnpm test || true, but the command line hides whether it passed',
+			'Changed 4 files this turn · ran pnpm test || true, but the command line hides whether it passed',
 		],
 		[
 			'not seen',
 			{ verdict: 'inconclusive', checks: [{ command: 'pnpm test', step: 2, result: 'unsettled' }] },
-			'Changed 4 files · ran pnpm test, but its result was not seen',
+			'Changed 4 files this turn · ran pnpm test, but its result was not seen',
 		],
 		[
 			'passed, freshness unknown',
 			{ verdict: 'inconclusive', checks: [{ command: 'pnpm test', step: 2, result: 'passed' }] },
-			'Changed 4 files · pnpm test passed, but it is not known whether files changed after it',
+			'Changed 4 files this turn · pnpm test passed, but it is not known whether files changed after it',
 		],
 		[
 			'one file',
@@ -68,7 +68,7 @@ describe('the line a turn ends with', () => {
 				checks: [],
 				changes: { total: 1, paths: ['a'], outsideKnownTools: false },
 			},
-			'Changed 1 file · not checked',
+			'Changed 1 file this turn · not checked',
 		],
 		[
 			'a change no edit tool explains',
@@ -138,7 +138,7 @@ describe('the line a turn ends with', () => {
 			}),
 		)
 		expect(line).toBe(
-			'Changed 4 files · ran node bin/sales.js; node -e …, but the command line hides whether it passed',
+			'Changed 4 files this turn · ran node bin/sales.js; node -e …, but the command line hides whether it passed',
 		)
 		expect(line).not.toContain('import(')
 	})
@@ -271,7 +271,7 @@ describe('a check that failed and was run again', () => {
 			}),
 		)
 		// The old failure of `pnpm test` is gone; only the lint failure remains, with nothing more.
-		expect(line).toBe('Changed 4 files · pnpm lint failed')
+		expect(line).toBe('Changed 4 files this turn · pnpm lint failed')
 	})
 
 	it('counts the other failing commands, not the same command twice', () => {
@@ -285,6 +285,6 @@ describe('a check that failed and was run again', () => {
 				],
 			}),
 		)
-		expect(line).toBe('Changed 4 files · pnpm test failed (and 1 more)')
+		expect(line).toBe('Changed 4 files this turn · pnpm test failed (and 1 more)')
 	})
 })

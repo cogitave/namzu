@@ -322,6 +322,15 @@ describe('failing closed', () => {
 			'provider returned 401',
 		],
 		[
+			'a 401 whose text says invalid credentials',
+			new ProviderError({
+				code: 'auth',
+				message: 'invalid credentials, sign in again',
+				status: 401,
+			}),
+			'provider returned 401: the credential was refused',
+		],
+		[
 			'a bad request',
 			new ProviderError({ code: 'invalid_request', message: 'nope', status: 400 }),
 			'provider returned 400',
@@ -553,8 +562,36 @@ describe('counting blocks', () => {
 		expect(classifier.denials).toEqual({ consecutive: 0, total: 0 })
 	})
 
-	it('counts a check that could not run, and can be reset by the host', async () => {
+	it('does not count a check that could not run toward the blocks', async () => {
 		const { classifier } = make([new ProviderError({ code: 'auth', message: 'x' })])
+		await review(classifier)
+		expect(classifier.denials).toEqual({ consecutive: 0, total: 0 })
+	})
+
+	it('two checks that could not run, then one real block, do not reach the limit', async () => {
+		let answer: 'down' | 'block' = 'down'
+		const { classifier } = make(
+			[
+				async (params) => {
+					if (answer === 'down') throw new ProviderError({ code: 'auth', message: 'x' })
+					return params.maxTokens === 64
+						? '<verdict>block'
+						: '<verdict>block</verdict><reason>No.</reason>'
+				},
+			],
+			{ limits: { consecutive: 3, total: 3, noVerdict: 10 } },
+		)
+		await review(classifier)
+		await review(classifier)
+		answer = 'block'
+		const real = await review(classifier)
+		expect(real).toMatchObject({ verdict: 'block', cause: 'rule' })
+		expect(real).not.toHaveProperty('limitReached')
+		expect(classifier.denials).toEqual({ consecutive: 1, total: 1 })
+	})
+
+	it('can be reset by the host', async () => {
+		const { classifier } = make(['<verdict>block', '<verdict>block</verdict><reason>No.</reason>'])
 		await review(classifier)
 		expect(classifier.denials).toEqual({ consecutive: 1, total: 1 })
 		classifier.reset()

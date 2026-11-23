@@ -151,7 +151,7 @@ A block reaches the model as a refused tool result:
 
 # Block limits
 
-The classifier counts blocks (`classifier.denials`): three in a row, or twenty over the session (`limits`). The block that brings a counter to its limit carries `limitReached: 'consecutive' | 'total'`, and both counters start over. The review policy calls `onClassifierLimit` and then asks a person about that call; with nobody to ask it ends the turn with an `abort` decision naming the reason. The SDK does not change the mode: the host owns the mode and how it is shown, so falling back to `prompt` is its callback's job. `reset()` zeroes the counters, for a host that re-enters `classify`.
+The classifier counts blocks (`classifier.denials`; a check that could not be completed is not a block and is counted only by the no-verdict run below): three in a row, or twenty over the session (`limits`). The block that brings a counter to its limit carries `limitReached: 'consecutive' | 'total'`, and both counters start over. The review policy calls `onClassifierLimit` and then asks a person about that call; with nobody to ask it ends the turn with an `abort` decision naming the reason. The SDK does not change the mode: the host owns the mode and how it is shown, so falling back to `prompt` is its callback's job. `reset()` zeroes the counters, for a host that re-enters `classify`.
 
 ## A run of answers with no verdict
 

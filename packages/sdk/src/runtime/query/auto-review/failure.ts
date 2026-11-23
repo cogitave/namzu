@@ -16,15 +16,20 @@ export function describeCheckFailure(error: unknown, deadlineMs?: number): strin
 			? `timed out after ${Math.round(deadlineMs / 1000)} s`
 			: 'timed out'
 	}
-	const message = error instanceof Error ? error.message : String(error)
-	if (
-		/no (api )?(key|credential)|missing (api )?(key|credential)|not signed in|not logged in|sign in|api key (is )?(required|missing|not set)|credential/i.test(
-			message,
-		)
-	) {
-		return 'no credential for the check model'
-	}
 	const classified = classifyProviderError(error)
+	// An HTTP status names the failure better than any word in the message: a
+	// 401 that says "invalid credentials" is a refused credential, not a missing one.
+	// The words are read only when there is no status.
+	if (classified.status === undefined) {
+		const message = error instanceof Error ? error.message : String(error)
+		if (
+			/no (api )?(key|credential)s?|missing (api )?(key|credential)s?|credentials? (is |are )?(not (set|configured|found)|missing)|not signed in|not logged in|api key (is )?(required|missing|not set)/i.test(
+				message,
+			)
+		) {
+			return 'no credential for the check model'
+		}
+	}
 	const status = classified.status
 	switch (classified.code) {
 		case 'auth':

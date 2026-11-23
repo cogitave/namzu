@@ -34,7 +34,7 @@ describe('the outcome notification', () => {
 			sessionId: 's1',
 			turnId: 't1',
 			verdict: 'unchecked',
-			line: 'Changed 2 files · not checked',
+			line: 'Changed 2 files this turn · not checked',
 			changed: 2,
 			outcome: record,
 		})
@@ -63,21 +63,21 @@ describe('the outcome notification', () => {
 			checks: [{ command: 'npm test | tail -5', step: 1, result: 'masked' }],
 		})
 		expect(outcomeNotification('s1', ended('turn_completed', masked))?.line).toBe(
-			'Changed 2 files · ran npm test | tail -5, but the pipe hides whether it passed',
+			'Changed 2 files this turn · ran npm test | tail -5, but the pipe hides whether it passed',
 		)
 		const failing = outcome({
 			verdict: 'failing',
 			checks: [{ command: 'npm test', step: 1, result: 'failed', exitCode: 1 }],
 		})
 		expect(outcomeNotification('s1', ended('turn_failed', failing))?.line).toBe(
-			'Changed 2 files · npm test failed',
+			'Changed 2 files this turn · npm test failed',
 		)
 		const checked = outcome({
 			verdict: 'checked',
 			checks: [{ command: 'npm test', step: 1, result: 'passed', exitCode: 0, fresh: true }],
 		})
 		expect(outcomeNotification('s1', ended('turn_completed', checked))?.line).toBe(
-			'Changed 2 files · checked: npm test passed, nothing changed since',
+			'Changed 2 files this turn · checked: npm test passed, nothing changed since',
 		)
 	})
 
@@ -123,7 +123,7 @@ describe('a saved outcome', () => {
 	it('keeps the verdict, the words and the count, nothing of the record', () => {
 		expect(savedTurnOutcome(outcome())).toEqual({
 			verdict: 'unchecked',
-			line: 'Changed 2 files · not checked',
+			line: 'Changed 2 files this turn · not checked',
 			changed: 2,
 		})
 	})

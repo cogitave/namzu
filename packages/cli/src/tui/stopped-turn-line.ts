@@ -14,8 +14,14 @@ import {
 export function isCallNotRun(output: string | undefined): boolean {
 	if (output === undefined) return false
 	if (isReviewRefusalResult(output)) return true
+	// Only the executor's own refusal wrapper counts: a tool that ran and
+	// printed these words (a read of the docs, a grep) is not a call that was not run.
+	const match = /^Error: Tool "[^"]*" was not executed\. /.exec(output)
+	if (match === null) return false
+	const reason = output.slice(match[0].length)
 	return (
-		output.includes(AUTO_REVIEW_UNAVAILABLE_PREFIX) || output.includes(AUTO_REVIEW_BLOCKED_PREFIX)
+		reason.startsWith(AUTO_REVIEW_UNAVAILABLE_PREFIX) ||
+		reason.startsWith(AUTO_REVIEW_BLOCKED_PREFIX)
 	)
 }
 
@@ -33,10 +39,17 @@ export function stoppedTurnLine(input: {
 	readonly notRun: number
 }): string {
 	const changed = input.outcome?.changes.total ?? 0
+	// A shell command's changes are not counted, so "nothing was changed" is said
+	// only when the turn's own verdict is that nothing changed.
+	const maybe =
+		input.outcome !== undefined &&
+		(input.outcome.verdict === 'unknown' || input.outcome.changes.outsideKnownTools === true)
 	const done =
 		changed > 0
-			? `changed ${changed} ${changed === 1 ? 'file' : 'files'} so far`
-			: 'nothing was changed'
+			? `changed ${changed} ${changed === 1 ? 'file' : 'files'} so far${maybe ? ' and a command may have changed more' : ''}`
+			: maybe
+				? 'some files may have changed'
+				: 'nothing was changed'
 	const left =
 		input.notRun > 0
 			? `${input.notRun} ${input.notRun === 1 ? 'call' : 'calls'} not run`

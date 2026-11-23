@@ -140,6 +140,8 @@ export interface OutcomeLedgerSnapshot {
 	readonly unseen?: boolean
 	/** Absent in a snapshot written before it existed. */
 	readonly pathless?: number
+	/** Background jobs that run a recognised check: job id and command. Absent in an older snapshot. */
+	readonly jobs?: readonly (readonly [string, string])[]
 	readonly checks: readonly {
 		readonly key: string
 		readonly command: string
@@ -405,6 +407,8 @@ export class OutcomeLedger {
 		this.writes = parsed.writes
 		this.pathless = parsed.pathless ?? 0
 		this.couldHaveChangedUnseen = parsed.unseen === true
+		this.jobChecks.clear()
+		for (const [id, command] of parsed.jobs ?? []) this.jobChecks.set(id, command)
 		this.checks.clear()
 		for (const check of parsed.checks) {
 			this.checks.set(check.key, { ...check, fingerprint: check.fingerprint })
@@ -421,6 +425,7 @@ export class OutcomeLedger {
 			writes: this.writes,
 			unseen: this.couldHaveChangedUnseen,
 			pathless: this.pathless,
+			jobs: [...this.jobChecks.entries()].slice(-MAX_REMEMBERED_CHECKS),
 			checks: [...this.checks.values()].map((check) => ({
 				key: check.key,
 				command: check.command,
@@ -490,11 +495,13 @@ export class OutcomeLedger {
 		for (const call of calls) {
 			// A check started as a background job is not a result yet; the wait that
 			// reads its exit is. Remember which command the job runs.
+			// A foreground check the time limit moved to the background is a job too,
+			// though the call was not marked `launched`.
 			if (
-				call.launched === true &&
 				call.toolName === 'bash' &&
 				call.facts?.kind === 'command' &&
-				call.facts.jobId !== undefined
+				call.facts.jobId !== undefined &&
+				(call.launched === true || call.facts.background === true)
 			) {
 				const started = commandOf(call.input)
 				if (started !== undefined && runsRecognisedCheck(started, this.config.isCheck)) {
@@ -741,6 +748,19 @@ function parseSnapshot(value: unknown): OutcomeLedgerSnapshot | undefined {
 	if (
 		snap.pathless !== undefined &&
 		(typeof snap.pathless !== 'number' || !Number.isSafeInteger(snap.pathless) || snap.pathless < 0)
+	) {
+		return undefined
+	}
+	if (
+		snap.jobs !== undefined &&
+		(!Array.isArray(snap.jobs) ||
+			!snap.jobs.every(
+				(j) =>
+					Array.isArray(j) &&
+					j.length === 2 &&
+					typeof j[0] === 'string' &&
+					typeof j[1] === 'string',
+			))
 	) {
 		return undefined
 	}

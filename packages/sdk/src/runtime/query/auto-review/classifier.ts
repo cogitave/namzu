@@ -304,7 +304,10 @@ export function createAutoReviewClassifier(
 	): AutoReviewDecision {
 		let limitReached: 'consecutive' | 'total' | undefined
 		let noVerdictLimitReached = false
-		if (cause !== 'aborted') {
+		// A check that could not be completed says nothing about the action, so it
+		// does not count toward the blocks that take auto mode away; the no-verdict
+		// counter below is its own limit.
+		if (cause !== 'aborted' && cause !== 'unavailable' && cause !== 'unreadable') {
 			consecutive += 1
 			total += 1
 			if (consecutive >= limits.consecutive) limitReached = 'consecutive'

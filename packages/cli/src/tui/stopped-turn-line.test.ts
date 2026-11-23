@@ -31,6 +31,28 @@ describe('the line a stopped turn ends with', () => {
 	})
 })
 
+describe('what the line says when a command may have changed files', () => {
+	it('does not claim nothing changed after a command that may have written', () => {
+		const unknown: TurnOutcome = {
+			verdict: 'unknown',
+			basis: 'calls',
+			changes: { total: 0, paths: [], outsideKnownTools: false },
+			checks: [],
+		}
+		expect(stoppedTurnLine({ outcome: unknown, notRun: 1 })).toContain(
+			'some files may have changed',
+		)
+		const outside: TurnOutcome = {
+			verdict: 'unchecked',
+			basis: 'calls',
+			changes: { total: 0, paths: [], outsideKnownTools: true },
+			checks: [],
+		}
+		expect(stoppedTurnLine({ outcome: outside, notRun: 1 })).not.toContain('nothing was changed')
+		expect(stoppedTurnLine({ outcome: outcome(2), notRun: 1 })).not.toContain('may have')
+	})
+})
+
 describe('which tool results are calls that did not run', () => {
 	it('knows the auto mode holding a call back, and a person refusing it', () => {
 		expect(
@@ -46,5 +68,12 @@ describe('which tool results are calls that did not run', () => {
 	it('does not take a call that ran and failed for one', () => {
 		expect(isCallNotRun('Exit code 1: tests failed')).toBe(false)
 		expect(isCallNotRun(undefined)).toBe(false)
+		// A tool that printed the auto mode's words (a read of the docs) did run.
+		expect(isCallNotRun(`1\t${AUTO_REVIEW_UNAVAILABLE_PREFIX}is the start of the sentence`)).toBe(
+			false,
+		)
+		expect(isCallNotRun('Blocked by auto mode: quoted in a file the read tool returned')).toBe(
+			false,
+		)
 	})
 })

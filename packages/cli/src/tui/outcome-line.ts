@@ -36,7 +36,7 @@ export function outcomeLine(
 	// verdicts only exist because something did.
 	const lead =
 		changes.total > 0
-			? `Changed ${changes.total} ${changes.total === 1 ? 'file' : 'files'}`
+			? `Changed ${changes.total} ${changes.total === 1 ? 'file' : 'files'} this turn`
 			: changes.outsideKnownTools
 				? 'Changed files outside the edit tools'
 				: verdict === 'failing'
