@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import { linePrefix } from './read-render.js'
 
 /**
  * A short, stable fingerprint of a file body.
@@ -50,7 +51,7 @@ export function unreadEditShownError(path: string, content: string): string | un
 	const lines = content.split('\n')
 	if (lines.length > 1 && lines[lines.length - 1] === '') lines.pop()
 	if (lines.length > UNREAD_EDIT_SHOWN_MAX_LINES) return undefined
-	const numbered = lines.map((line, i) => `${i + 1}\t${line}`).join('\n')
+	const numbered = lines.map((line, i) => `${linePrefix(i + 1)}${line}`).join('\n')
 	return `${path} had not been read in this session, so this edit was not applied. It has now been read for you; its current contents follow. Repeat the edit against them, without reading the file again. Nothing was written.\n\n${numbered}`
 }
 

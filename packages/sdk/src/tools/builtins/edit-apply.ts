@@ -1,4 +1,10 @@
-import { reconcileNewString, resolveOldString } from './edit-match.js'
+import {
+	describeIndent,
+	reconcileNewString,
+	resolveIndentedMatch,
+	resolveOldString,
+	showWhitespace,
+} from './edit-match.js'
 import type { EditInput } from './edit.js'
 
 /**
@@ -156,30 +162,49 @@ export type EditApplyFailure = {
 export function applyEdit(
 	content: string,
 	operations: readonly NormalizedEditInput[],
-): { success: true; content: string; replacements: number } | EditApplyFailure {
+): { success: true; content: string; replacements: number; notes: string[] } | EditApplyFailure {
 	let current = content
 	let replacements = 0
+	const notes: string[] = []
+	const failures: string[] = []
+	let reason: EditApplyFailure['reason']
 
+	// Every hunk is tried, so one reply names every one that does not apply
+	// rather than the first. A failed hunk leaves the content as it was, so
+	// the ones after it are judged against the file without it; the write
+	// stays all-or-nothing either way.
 	for (const [index, operation] of operations.entries()) {
 		const result = applyOne(current, operation)
 		if (!result.success) {
-			return {
-				success: false,
-				error: framedError(result.error, index, operations.length),
-				...(result.reason ? { reason: result.reason } : {}),
-			}
+			failures.push(framedFailure(result.error, index, operations.length))
+			reason ??= result.reason
+			continue
 		}
 		current = result.content
 		replacements += result.replacements
+		if (result.note !== undefined) {
+			notes.push(operations.length === 1 ? result.note : `edits[${index}]: ${result.note}`)
+		}
 	}
 
-	return { success: true, content: current, replacements }
+	if (failures.length > 0) {
+		return {
+			success: false,
+			error:
+				operations.length === 1
+					? (failures[0] as string)
+					: `${failures.join('\n')}\nNothing was written — the whole batch is refused, so the file is exactly as it was.`,
+			...(reason ? { reason } : {}),
+		}
+	}
+
+	return { success: true, content: current, replacements, notes }
 }
 
 function applyOne(
 	content: string,
 	input: NormalizedEditInput,
-): { success: true; content: string; replacements: number } | EditApplyFailure {
+): { success: true; content: string; replacements: number; note?: string } | EditApplyFailure {
 	if (input.operation === 'insert') {
 		return applyLineInsert(content, input)
 	}
@@ -194,22 +219,30 @@ function applyOne(
 	// replacement so it fits where it lands. See `edit-match.ts`.
 	let oldString = replacement.oldString
 	let newString = replacement.newString
+	let note: string | undefined
 	if (!content.includes(oldString)) {
 		const resolved = resolveOldString(content, oldString)
-		if (resolved === null) {
-			const near = nearLine(content, oldString)
-			return {
-				success: false,
-				reason: 'text_not_found',
-				error: `old_string/oldStr not found in file. Make sure the string matches exactly, including whitespace and indentation. ${
-					near === undefined
-						? 'Read the lines you mean to change again and copy them as they are.'
-						: `A line that matches its first line apart from spacing is at line ${near}; read around it again and copy it as it is.`
-				}`,
+		if (resolved !== null) {
+			newString = reconcileNewString(oldString, resolved, newString)
+			oldString = resolved
+		} else {
+			// Last resort, and only for one place: the same lines with different
+			// leading whitespace. `replace_all` names no single place, so it never
+			// takes this road.
+			const indented = replacement.replace_all
+				? null
+				: resolveIndentedMatch(content, oldString, newString)
+			if (indented === null) {
+				return {
+					success: false,
+					reason: 'text_not_found',
+					error: notFoundError(content, oldString),
+				}
 			}
+			oldString = indented.span
+			newString = indented.newString
+			note = INDENT_NOTE
 		}
-		newString = reconcileNewString(oldString, resolved, newString)
-		oldString = resolved
 	}
 
 	// A deletion takes the line's trailing newline with it, so removing a whole
@@ -248,7 +281,46 @@ function applyOne(
 		content:
 			content.slice(0, firstIndex) + newString + content.slice(firstIndex + oldString.length),
 		replacements: 1,
+		...(note === undefined ? {} : { note }),
 	}
+}
+
+/** Said once when an edit applied although the indentation of old_string was not the file's. */
+const INDENT_NOTE =
+	'matched with adjusted indentation (old_string was indented differently from the file; new_string was re-indented to fit). Copy leading whitespace as it is after the arrow in read output.'
+
+const CONTEXT_LINES = 12
+const CONTEXT_LINE_MAX_CHARS = 160
+
+/**
+ * The not-found refusal. When a line of the file matches the first line of
+ * old_string apart from spacing, the file's own lines there are shown with
+ * their whitespace made visible, so the model can copy them without a read.
+ */
+function notFoundError(content: string, oldString: string): string {
+	const head =
+		'old_string/oldStr not found in file. Make sure the string matches exactly, including whitespace and indentation.'
+	const near = nearLine(content, oldString)
+	if (near === undefined) {
+		return `${head} Read the lines you mean to change again and copy them as they are.`
+	}
+	const lines = content.split('\n')
+	const wanted = oldString.split('\n')
+	const firstWanted = wanted.find((line) => line.trim() !== '') ?? ''
+	const count = Math.min(Math.max(wanted.length, 3) + 1, CONTEXT_LINES)
+	const from = Math.max(1, near - 1)
+	const to = Math.min(lines.length, near - 1 + count)
+	const shown: string[] = []
+	for (let n = from; n <= to; n++) {
+		// The empty piece after a final newline is not a line of the file.
+		if (n === lines.length && lines[n - 1] === '') break
+		const raw = (lines[n - 1] ?? '').replace(/\r$/, '')
+		const visible = showWhitespace(raw)
+		shown.push(
+			`${String(n).padStart(6)}| ${visible.length > CONTEXT_LINE_MAX_CHARS ? `${visible.slice(0, CONTEXT_LINE_MAX_CHARS)}…` : visible}`,
+		)
+	}
+	return `${head} A line that matches its first line apart from spacing is at line ${near}: the file has ${describeIndent(lines[near - 1] ?? '')} there, your old_string has ${describeIndent(firstWanted)}. The file's lines, with → for a tab and · for a space (the numbers and | are not part of the file):\n${shown.join('\n')}\nCopy the text after the | exactly, turning → back into a tab and · into a space.`
 }
 
 const NEAR_LINE_MIN_CHARS = 8
@@ -336,7 +408,13 @@ function normalizeLineEndings(
 /** The batch framing an operation's own error is reported under. */
 function framedError(error: string, index: number, total: number): string {
 	if (total === 1) return error
-	return `edits[${index}] of ${total}: ${error} Nothing was written — the whole batch is refused, so the file is exactly as it was.`
+	return `${framedFailure(error, index, total)} Nothing was written — the whole batch is refused, so the file is exactly as it was.`
+}
+
+/** One failing hunk of a batch, named by its index. */
+function framedFailure(error: string, index: number, total: number): string {
+	if (total === 1) return error
+	return `edits[${index}] of ${total}: ${error}`
 }
 
 /**

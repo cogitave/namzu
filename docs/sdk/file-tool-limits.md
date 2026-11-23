@@ -15,6 +15,8 @@ runtime applies to the results of one assistant message. Each section names wher
 
 ## read
 
+Every numbered line is a right-aligned line number (width 6), an arrow, then the line exactly as it is in the file: `    12→\tconst x` is line 12, whose text is a tab and `const x`. The number and the arrow are not part of the file, and what follows the arrow, tabs and spaces included, is the real indentation. The separator used to be a tab, which made the first tab of an indented line look like part of the prefix and left a model copying a tab-indented block one level short. The same prefix is used for the contents `edit` hands back for an unread file and for the changed-file snippet the CLI shows after a file moved on disk.
+
 | Rule | Value |
 | --- | --- |
 | Lines returned with no window | 2000 |
@@ -132,7 +134,13 @@ is left to the tool, and `execute` repeats the check, because the file can move 
 
 ### When the text is not found or not unique
 
-The reason codes (`text_not_found`, `not_unique`) and the rules behind them are unchanged. The message now ends with a hint: a miss says to read the lines again and copy them as they are and, when one line of the file matches the first line of `old_string` apart from spacing, names its line number; a `not_unique` miss, which already names the first two lines, says to read around them and pick context that is in only one.
+The reason codes (`text_not_found`, `not_unique`) are unchanged. A `not_unique` miss names its first two lines and says to read around them and pick context that is in only one.
+
+**Indentation-tolerant match.** When `old_string` matches nothing exactly (after the quote and `\uXXXX` forms), `edit` compares lines with leading and trailing whitespace ignored. It applies the edit only when exactly one run of lines matches, the indentation differs by the same number of columns on every non-blank line (a tab counts as 4, 2 or 8 spaces, the first that makes the difference constant) and the call is not `replace_all`. `new_string` is moved by the same number of columns in the file's own style (tabs stay tabs), and only leading whitespace is changed. Two matching places, an uneven difference, or an unread file (an unread file is edited only on an exact match) leave it refused. The result ends with a `Note: matched with adjusted indentation ...` line.
+
+**A miss shows the file's lines.** When a line of the file matches the first line of `old_string` apart from spacing, the message names its line number, says how that line and the first line of `old_string` are indented (`3 tabs`, `4 spaces`), and prints up to 12 lines of the file from there with `→` for a tab and `·` for a space (`   5| →→→{rows.map(...)`; the number and `|` are not part of the file). Lines are cut at 160 characters.
+
+**A batch names every failing hunk.** All hunks are tried, and one error lists each that does not apply (`edits[1] of 3: ...`, `edits[2] of 3: ...`) followed by one `Nothing was written` line. The write is still all or nothing. A hunk after a failed one is judged against the file as that failed hunk left it, unchanged.
 
 ### One shape per call
 

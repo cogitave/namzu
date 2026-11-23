@@ -271,3 +271,165 @@ export function reconcileNewString(oldString: string, resolved: string, newStrin
 	if (hasCurlySingle) reconciled = curlifySingleQuotes(reconciled)
 	return reconciled
 }
+
+/** Spaces a tab stands for when indentation of different styles is compared. */
+const TAB_WIDTHS = [4, 2, 8] as const
+
+/** The result of finding `old_string` again by its content alone, ignoring how it was indented. */
+export interface IndentedMatch {
+	/** The real span of the file the lines occupy. */
+	readonly span: string
+	/** `new_string`, re-indented by the difference the match found. */
+	readonly newString: string
+}
+
+function leadingWhitespace(line: string): string {
+	let end = 0
+	while (end < line.length && (line[end] === ' ' || line[end] === '\t')) end++
+	return line.slice(0, end)
+}
+
+function indentWidth(indent: string, tab: number): number {
+	let width = 0
+	for (const ch of indent) width += ch === '\t' ? tab : 1
+	return width
+}
+
+function isBlank(line: string): boolean {
+	return line.trim() === ''
+}
+
+/** The text of a line apart from its indentation and trailing whitespace. */
+function lineKey(line: string): string {
+	return line.trim()
+}
+
+/**
+ * Find `oldString` in `content` by comparing lines with their leading and
+ * trailing whitespace ignored, for the case where the model copied the right
+ * lines with the wrong indentation (the usual cause: one level short, because
+ * the first tab of an indented line was taken for a separator).
+ *
+ * Applies only when ALL of these hold, and otherwise answers null:
+ *
+ *   - exactly one run of lines in the file matches (a second place is
+ *     ambiguous, and nothing is guessed);
+ *   - the indentation differs by the same amount on every non-blank line
+ *     (the model's text is the file's text shifted, not a different shape);
+ *   - at least one line is not blank.
+ *
+ * The shift is measured in columns with a tab counted as 4, 2 or 8 spaces
+ * (the first that makes the shift constant), and `newString` is moved by the
+ * same number of columns in the file's own style, so a tab-indented file stays
+ * tab-indented. Only leading whitespace is ever changed.
+ */
+export function resolveIndentedMatch(
+	content: string,
+	oldString: string,
+	newString: string,
+): IndentedMatch | null {
+	const wanted = oldString.split('\n')
+	const endsWithNewline = wanted.length > 1 && wanted[wanted.length - 1] === ''
+	if (endsWithNewline) wanted.pop()
+	if (wanted.every(isBlank)) return null
+	// A leading blank line has no content to anchor on and a trailing one is
+	// whitespace the model added; neither is part of what is compared.
+	const wantedKeys = wanted.map(lineKey)
+
+	const lines = content.split('\n')
+	const keys = lines.map(lineKey)
+	const first = wantedKeys.findIndex((key) => key !== '')
+	let found = -1
+	for (let at = 0; at + wanted.length <= lines.length; at++) {
+		// biome-ignore lint/style/noNonNullAssertion: index < length
+		if (keys[at + first]! !== wantedKeys[first]!) continue
+		let same = true
+		for (let i = 0; i < wanted.length; i++) {
+			if (keys[at + i] !== wantedKeys[i]) {
+				same = false
+				break
+			}
+		}
+		if (!same) continue
+		if (found !== -1) return null
+		found = at
+	}
+	if (found === -1) return null
+
+	const pairs: { file: string; model: string }[] = []
+	for (let i = 0; i < wanted.length; i++) {
+		// biome-ignore lint/style/noNonNullAssertion: index < length
+		const model = wanted[i]!
+		if (isBlank(model)) continue
+		// biome-ignore lint/style/noNonNullAssertion: index < length
+		pairs.push({ file: leadingWhitespace(lines[found + i]!), model: leadingWhitespace(model) })
+	}
+
+	let tab = 0
+	let delta = 0
+	for (const candidate of TAB_WIDTHS) {
+		const [head, ...rest] = pairs
+		if (head === undefined) return null
+		const shift = indentWidth(head.file, candidate) - indentWidth(head.model, candidate)
+		if (
+			rest.every((p) => indentWidth(p.file, candidate) - indentWidth(p.model, candidate) === shift)
+		) {
+			tab = candidate
+			delta = shift
+			break
+		}
+	}
+	if (tab === 0) return null
+
+	const fileUsesTabs = pairs.some((p) => p.file.includes('\t'))
+	const render = (width: number): string => {
+		if (!fileUsesTabs) return ' '.repeat(width)
+		return '\t'.repeat(Math.floor(width / tab)) + ' '.repeat(width % tab)
+	}
+	const modelUsesTabs = pairs.some((p) => p.model.includes('\t'))
+	const shifted =
+		delta === 0 && fileUsesTabs === modelUsesTabs
+			? newString
+			: newString
+					.split('\n')
+					.map((line) => {
+						if (isBlank(line)) return line
+						const indent = leadingWhitespace(line)
+						const width = Math.max(0, indentWidth(indent, tab) + delta)
+						return render(width) + line.slice(indent.length)
+					})
+					.join('\n')
+
+	let start = 0
+	for (let i = 0; i < found; i++) start += (lines[i] as string).length + 1
+	let end = start
+	for (let i = 0; i < wanted.length; i++)
+		end += (lines[found + i] as string).length + (i < wanted.length - 1 ? 1 : 0)
+	if (endsWithNewline) {
+		if (content[end] === '\n') end += 1
+	} else if (content[end - 1] === '\r') {
+		end -= 1
+	}
+	return { span: content.slice(start, end), newString: shifted }
+}
+
+/** How a line's indentation reads, for a message: "2 tabs", "4 spaces", "none". */
+export function describeIndent(line: string): string {
+	const indent = leadingWhitespace(line)
+	if (indent === '') return 'no indentation'
+	const tabs = [...indent].filter((c) => c === '\t').length
+	const spaces = indent.length - tabs
+	const parts: string[] = []
+	if (tabs > 0) parts.push(`${tabs} ${tabs === 1 ? 'tab' : 'tabs'}`)
+	if (spaces > 0) parts.push(`${spaces} ${spaces === 1 ? 'space' : 'spaces'}`)
+	return parts.join(' and ')
+}
+
+/** A line with its indentation and trailing whitespace made visible: `→` is a tab, `·` a space. */
+export function showWhitespace(line: string): string {
+	const indent = leadingWhitespace(line)
+	const body = line.slice(indent.length).replace(/[ \t\r]+$/, (tail) => {
+		return tail.replaceAll('\t', '→').replaceAll(' ', '·').replaceAll('\r', '⏎')
+	})
+	return indent.replaceAll('\t', '→').replaceAll(' ', '·') + body
+}

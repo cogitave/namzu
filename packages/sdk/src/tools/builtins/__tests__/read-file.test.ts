@@ -105,7 +105,7 @@ describe('ReadFileTool', () => {
 		)
 
 		expect(result.success).toBe(true)
-		expect(result.output).toContain('2\ttwo\n3\tthree')
+		expect(result.output).toContain('     2→two\n     3→three')
 		// A window over a longer file still says so, so the model can tell
 		// "these are all the lines" from "these are the lines I asked for". It
 		// is worded as what was asked, not as a cut: only a cut the cap imposed
@@ -136,8 +136,8 @@ describe('ReadFileTool', () => {
 				makeContext(dir),
 			)
 			expect(tail.data).toMatchObject({ totalLines: total, returnedLines: 3 })
-			expect(tail.output.endsWith('1502\tline 1502')).toBe(false)
-			expect(tail.output).toContain('1502\tline 1502')
+			expect(tail.output.endsWith('  1502→line 1502')).toBe(false)
+			expect(tail.output).toContain('  1502→line 1502')
 
 			const past = await ReadFileTool.execute(
 				{ path: name, readRange: [1600, 1700] },
@@ -153,7 +153,7 @@ describe('ReadFileTool', () => {
 
 		const result = await ReadFileTool.execute({ path: 'doc.md' }, makeContext(dir))
 
-		expect(result.output).toBe('1\tone\n2\ttwo')
+		expect(result.output).toBe('     1→one\n     2→two')
 		expect(result.data).toMatchObject({ truncated: false })
 	})
 
@@ -207,7 +207,7 @@ describe('ReadFileTool', () => {
 			makeContext('/host', { sandbox: sandboxOver('ordinary text') }),
 		)
 		expect(result.success).toBe(true)
-		expect(result.output).toBe('1\tordinary text')
+		expect(result.output).toBe('     1→ordinary text')
 	})
 })
 
@@ -447,7 +447,7 @@ describe('a window the file cannot fill', () => {
 	it('treats the line after the last as past the end, for offset and for a range', async () => {
 		expect((await read(lines(3), { offset: 3 })).output).toContain('It has 3 lines.')
 		expect((await read(lines(3), { readRange: [4, 9] })).output).toContain('(line 4)')
-		expect((await read(lines(3), { offset: 2 })).output).toContain('3\tline 3')
+		expect((await read(lines(3), { offset: 2 })).output).toContain('     3→line 3')
 	})
 
 	it('uses the singular for a one-line file', async () => {
@@ -485,7 +485,7 @@ describe('content that is not text', () => {
 		expect(out.output).toContain('not readable as text')
 		expect(out.output).toContain('10 B')
 		expect(out.output).toContain('xxd')
-		expect(out.output).not.toContain('1\t')
+		expect(out.output).not.toContain('     1→')
 		expect(out.facts).toMatchObject({ kind: 'read', binary: true, bytes: 10 })
 	})
 

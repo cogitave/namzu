@@ -34,7 +34,7 @@ describe('EditTool', () => {
 				old_string: {
 					type: 'string',
 					description:
-						'For a single change: exact unique text from the file, without read-tool line-number prefixes. Must not be empty. Do not send together with edits.',
+						'For a single change: exact unique text from the file, without the line number and arrow that read puts in front of each line. Must not be empty. Do not send together with edits.',
 				},
 				new_string: {
 					type: 'string',
@@ -57,7 +57,8 @@ describe('EditTool', () => {
 						properties: {
 							old_string: {
 								type: 'string',
-								description: 'Exact text from the file at this point in the sequence.',
+								description:
+									'Exact text from the file at this point in the sequence, without the line number and arrow from read.',
 							},
 							new_string: { type: 'string', description: 'Exact replacement text.' },
 							replace_all: {
