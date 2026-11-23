@@ -416,6 +416,14 @@ export function factsHeadline(facts: ToolFacts | undefined): string | undefined 
 			const stats = changeStats(facts.added, facts.removed)
 			return `${lead} ${name}${stats ? ` ${stats}` : ''}`
 		}
+		case 'shared': {
+			const [first, ...rest] = facts.files
+			if (!first) return undefined
+			// One file: its name and where it is. Several: the names, and how many.
+			if (rest.length === 0) return `Shared ${fileName(first.path)} · ${first.path}`
+			const names = facts.files.map((file) => fileName(file.path))
+			return `Shared ${plural(names.length, 'file')} · ${clipped(names.join(', '), 80)}`
+		}
 		case 'edit': {
 			if (!facts.path) return undefined
 			// A final-newline-only change is +1 −1 in the kernel's count, so a real

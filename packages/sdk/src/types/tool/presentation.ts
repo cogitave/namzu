@@ -220,6 +220,18 @@ export type ToolFacts =
 			readonly hunksTruncated?: true
 	  }
 	| {
+			readonly kind: 'shared'
+			/** Files handed to the person, as absolute paths. */
+			readonly files: readonly {
+				readonly path: string
+				/** Where the path led when the call checked it, links followed; a host compares it again at use. */
+				readonly real?: string
+				readonly bytes?: number
+			}[]
+			/** One line saying what they are. */
+			readonly caption?: string
+	  }
+	| {
 			readonly kind: 'failure'
 			readonly reason: ToolFailureReason
 			/** What it was about: a path, or the tool's name for `unknown_tool`. */

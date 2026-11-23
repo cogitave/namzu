@@ -29,6 +29,7 @@ const card = (over: Partial<OutputCard> = {}): OutputCard => ({
 	canOpenWithSystem: true,
 	canCopy: true,
 	canSave: true,
+	canShowInFolder: false,
 	...over,
 })
 const html = (node: Parameters<typeof renderToStaticMarkup>[0]) => renderToStaticMarkup(node)
@@ -53,6 +54,27 @@ describe('a card', () => {
 		// The actions sit beside the main button, never inside it.
 		expect(out.match(/<button/g)).toHaveLength(4)
 		expect(out).not.toMatch(/<button[^>]*output-card-main[^>]*>(?:(?!<\/button>).)*<button/)
+	})
+	it('draws a handed-over file with a folder action, a caption, and a chevron only inside the project', () => {
+		const shared = card({
+			path: '/work/app/out/report.md',
+			name: 'report.md',
+			stateWord: 'Shared',
+			shared: true,
+			canShowInFolder: true,
+			caption: 'The report',
+		})
+		const inside = html(
+			createElement(OutputCardView, { card: shared, ctx: { ...ctx, projectPath: '/work/app' } }),
+		)
+		expect(inside).toContain('output-card-chevron')
+		expect(inside).toContain('Show report.md in its folder')
+		expect(inside).toContain('>The report<')
+		const outside = html(
+			createElement(OutputCardView, { card: shared, ctx: { ...ctx, projectPath: '/work/other' } }),
+		)
+		expect(outside).not.toContain('output-card-chevron')
+		expect(outside).toContain('Open with the app for this kind of file.')
 	})
 	it('shows a writing card with a progress line and no actions', () => {
 		const out = html(

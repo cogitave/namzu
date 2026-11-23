@@ -223,7 +223,7 @@ describe('explicit tool loading reaches the real session and query', () => {
 				]),
 			)
 			expect(names(requests[0])).not.toContain('search_tools')
-			expect(names(requests[0])).toHaveLength(25)
+			expect(names(requests[0])).toHaveLength(26)
 			expect(JSON.stringify(requests[0].messages)).not.toContain('Before using a tool listed under')
 		} finally {
 			await session.close()
@@ -265,7 +265,7 @@ describe('explicit tool loading reaches the real session and query', () => {
 			)
 			expect(names(requests[0])).toContain('monitor')
 			expect(names(requests[0])).not.toContain('search_tools')
-			expect(names(requests[0])).toHaveLength(26)
+			expect(names(requests[0])).toHaveLength(27)
 			expect(JSON.stringify(requests[0].messages)).not.toContain('Before using a tool listed under')
 		} finally {
 			await session.close()

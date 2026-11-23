@@ -81,6 +81,7 @@ The kernel.
 * [Zen and Zen Go](zen.md) - Native model protocol routing, conversation attribution, validated reasoning replay and catalogue limits.
 * [Bounded file discovery](file-discovery.md) - Explicit glob scope, incremental sandbox enumeration and recoverable incomplete results.
 * [File tools - reads, edits and searches](file-tool-limits.md) - The read size and token caps, the read-before-edit rule, grep output modes and paging, and the combined result budget for one assistant message.
+* [Handing a file to the person](present-file.md) - The present_file tool: the roots and file checks, the refusals, the shared fact, and the terminal row and desktop card.
 * [Bounded code execution](code-execution.md) - Opt-in tool batching, structured results and interpreter resource limits.
 * [Advisory context](advisory-context.md) - Public trajectory records, source attribution, bounded text and consultation limits.
 * [Answer verification](verification.md) - Command-backed review, cancellation, interrupted checks and honest completion boundaries.

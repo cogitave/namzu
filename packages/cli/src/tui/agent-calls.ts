@@ -33,6 +33,7 @@ export function callMark(state: CallState): string {
 const PLAIN_VERBS: Readonly<Record<string, string>> = {
 	read: 'Read',
 	view_image: 'View',
+	present_file: 'Share',
 	grep: 'Search',
 	glob: 'Find',
 	ls: 'List',

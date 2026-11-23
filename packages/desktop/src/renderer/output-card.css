@@ -124,6 +124,16 @@ div.output-card-main {
 	color: var(--muted-foreground);
 	transition: opacity 120ms ease-out;
 }
+.output-card-caption {
+	flex: 1 1 100%;
+	padding: 0 12px 6px 36px;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	color: var(--muted-foreground);
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
+}
 .output-card-reason {
 	flex: 1 1 100%;
 	padding: 0 12px 6px 36px;

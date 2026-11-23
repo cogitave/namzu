@@ -121,6 +121,7 @@ import {
 	type PluginSessionSource,
 	type PrepareStep,
 	type PrepareStepChain,
+	PresentFileTool,
 	type ProjectId,
 	type ProjectInstructionContext,
 	type PromoteMemory,
@@ -2697,7 +2698,7 @@ function foregroundOnlyBash(tool: ToolDefinition): ToolDefinition {
 }
 
 function builtinTools(backgroundJobs: boolean): ToolDefinition[] {
-	return getBuiltinTools().flatMap((source) => {
+	return [...getBuiltinTools(), PresentFileTool].flatMap((source) => {
 		if (EXCLUDED_BUILTINS.has(source.name)) return []
 		const tool = ['bash', 'write', 'edit'].includes(source.name)
 			? { ...source, executionBarrier: true }

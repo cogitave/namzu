@@ -23,6 +23,7 @@ export type {
 	PalReferenceImageImportOptions,
 	PalReferenceImageToolOptions,
 } from './pals/reference-images.js'
+export type { PresentedFile } from './tools/builtins/present-file.js'
 export type { ViewImageToolOptions } from './tools/builtins/view-image.js'
 export type * from './types/message/index.js'
 export type * from './types/message/inbound-delivery.js'

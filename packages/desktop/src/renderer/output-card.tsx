@@ -5,6 +5,7 @@ import {
 	Download,
 	ExternalLink,
 	FileText,
+	FolderOpen,
 	TriangleAlert,
 } from 'lucide-react'
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
@@ -16,6 +17,7 @@ import {
 	type OutputGroupView,
 	cardAccessibleName,
 	outputGroupView,
+	sharedFilesOf,
 	turnOutputCards,
 } from './output-card-model.js'
 import type { OutputFile } from './outputs-model.js'
@@ -30,6 +32,8 @@ export interface OutputCardsContextValue {
 		'readSessionOutput' | 'openSessionOutput' | 'describeSessionOutputs' | 'saveSessionOutput'
 	>
 	sessionId: string
+	/** The conversation's folder: a handed-over file outside it opens in its own program, not beside the conversation. */
+	projectPath?: string
 	/** Result files found by the host that no receipt names. */
 	made: readonly OutputFile[]
 	/** Shows the output beside the conversation. */
@@ -68,12 +72,20 @@ function CardActions({ card, ctx }: { card: OutputCard; ctx: OutputCardsContextV
 	useEffect(() => () => window.clearTimeout(timer.current), [])
 	if (card.state !== 'done') return null
 	const fail = (what: string) => (failure: unknown) => ctx.onNotice(plainErrorText(failure, what))
-	const open = (target: 'browser' | 'system') =>
+	const open = (target: 'browser' | 'system' | 'file-manager') =>
 		void (
 			ctx.api.openSessionOutput
 				? ctx.api.openSessionOutput(ctx.sessionId, card.path, target)
 				: Promise.reject(new Error('Opening is not available.'))
-		).catch(fail(target === 'browser' ? 'open the page' : 'open the file'))
+		).catch(
+			fail(
+				target === 'browser'
+					? 'open the page'
+					: target === 'file-manager'
+						? 'show the file in its folder'
+						: 'open the file',
+			),
+		)
 	const copy = () =>
 		void (async () => {
 			const read = ctx.api.readSessionOutput
@@ -115,6 +127,17 @@ function CardActions({ card, ctx }: { card: OutputCard; ctx: OutputCardsContextV
 					<ExternalLink aria-hidden />
 				</button>
 			)}
+			{card.canShowInFolder && (
+				<button
+					type="button"
+					className="output-card-action"
+					title="Show in folder"
+					aria-label={`Show ${card.name} in its folder`}
+					onClick={() => open('file-manager')}
+				>
+					<FolderOpen aria-hidden />
+				</button>
+			)}
 			{card.canCopy && (
 				<button
 					type="button"
@@ -141,9 +164,30 @@ function CardActions({ card, ctx }: { card: OutputCard; ctx: OutputCardsContextV
 	)
 }
 
+const slashes = (path: string): string => path.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
+
+/** A handed-over file that sits outside the conversation's folder, which the Files pane cannot show. */
+function outsideFolder(card: OutputCard, projectPath: string | undefined): boolean {
+	if (!card.shared || !projectPath) return false
+	const root = slashes(projectPath)
+	return !slashes(card.path).startsWith(`${root}/`)
+}
+
 /** One compact row: a document icon, the title, one state word, a chevron. */
 export function OutputCardView({ card, ctx }: { card: OutputCard; ctx: OutputCardsContextValue }) {
 	const [opened, setOpened] = useState(false)
+	const outside = outsideFolder(card, ctx.projectPath)
+	const beside = card.canOpen && !outside
+	const press = () => {
+		setOpened(true)
+		if (!outside) return ctx.onOpen(card.path)
+		const target = card.canOpenWithSystem ? 'system' : 'file-manager'
+		void (
+			ctx.api.openSessionOutput
+				? ctx.api.openSessionOutput(ctx.sessionId, card.path, target)
+				: Promise.reject(new Error('Opening is not available.'))
+		).catch((failure: unknown) => ctx.onNotice(plainErrorText(failure, 'open the file')))
+	}
 	const word = opened && card.state === 'done' ? 'Opened' : card.stateWord
 	const failed = card.state === 'failed'
 	const body = (
@@ -153,7 +197,7 @@ export function OutputCardView({ card, ctx }: { card: OutputCard; ctx: OutputCar
 			</span>
 			<span className="output-card-name">{card.name}</span>
 			<span className="output-card-state">{word}</span>
-			{card.canOpen && <ChevronRight className="output-card-chevron" aria-hidden />}
+			{beside && <ChevronRight className="output-card-chevron" aria-hidden />}
 		</>
 	)
 	const title = card.reason ? `${card.kindLine}. ${card.reason}` : card.kindLine
@@ -163,11 +207,12 @@ export function OutputCardView({ card, ctx }: { card: OutputCard; ctx: OutputCar
 				<button
 					type="button"
 					className="output-card-main"
-					aria-label={cardAccessibleName(card)}
-					onClick={() => {
-						setOpened(true)
-						ctx.onOpen(card.path)
-					}}
+					aria-label={
+						outside
+							? `${card.name}, ${card.kindLine}. ${card.canOpenWithSystem ? 'Open with the app for this kind of file.' : 'Show in its folder.'}`
+							: cardAccessibleName(card)
+					}
+					onClick={press}
 				>
 					{body}
 				</button>
@@ -177,6 +222,7 @@ export function OutputCardView({ card, ctx }: { card: OutputCard; ctx: OutputCar
 				</div>
 			)}
 			{failed && card.reason && <span className="output-card-reason">{card.reason}</span>}
+			{card.caption && <span className="output-card-caption">{card.caption}</span>}
 			<CardActions card={card} ctx={ctx} />
 			{card.state === 'writing' && <span className="output-card-progress" aria-hidden="true" />}
 		</div>
@@ -223,8 +269,11 @@ export function TurnOutputs({
 		() => [
 			...(changes?.files.map((file) => file.path) ?? []),
 			...(ctx?.made.filter((file) => file.turn === turn).map((file) => file.path) ?? []),
+			...sharedFilesOf({ timeline: thread.timeline, tools: thread.tools }, turn).map(
+				(file) => file.path,
+			),
 		],
-		[changes, ctx?.made, turn],
+		[changes, ctx?.made, turn, thread.timeline, thread.tools],
 	)
 	const details = useDetails(ctx, paths, settled)
 	const { timeline, tools, turns, undo, running, activeToolIds } = thread
