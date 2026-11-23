@@ -73,7 +73,7 @@ async function check(
 export const PresentFileTool: ToolDefinition<z.infer<typeof inputSchema>> = defineTool({
 	name: 'present_file',
 	description:
-		"Hand finished files to the person only when they live outside the person's own folder (in the scratch folder) or should be opened right now: a file you wrote inside the person's own folder is already there, so say where it is instead. Each path must be a regular file, not a folder.",
+		"Show a file to the person: from the scratch folder or to open now; one already there, say its path. A file you wrote in the person's own folder is already there. Each path must be a regular file, not a folder.",
 	inputSchema,
 	category: 'filesystem',
 	permissions: ['file_read'],

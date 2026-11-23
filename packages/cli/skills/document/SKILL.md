@@ -57,7 +57,7 @@ pretend a Markdown file is a Word file.
      header row, the same number of cells in every row, short cells.
    - Task lists (`- [ ] item`) for actions someone must do.
    - Images only if the person gave you the file: a relative link to it.
-5. **Read it back once.** Use `read` on the file. Check that heading levels do
+5. **After the write, read it back once.** Use `read` on the file. Check that heading levels do
    not skip, no heading is empty, every table row has the same number of
    cells, and nothing says "TBD" without a reason. Fix what you find with
    `edit` and say nothing about the fixes.
@@ -82,7 +82,10 @@ Keep it short, and in this order:
 1. One sentence that names the document by its title as a link to the file, for
    example: `I wrote [Project kickoff - Billing rewrite](docs/project-kickoff-billing-rewrite.md).`
    Write the link once, in the first sentence. Do not paste the document into
-   the reply.
+   the reply. When the file is in the scratch folder, or is the edited copy of an
+   upload, also hand it over with `present_file` (load it with `search_tools`)
+   instead of only naming the path; for a file in the person's own folder, the
+   link is enough.
 2. **Assumptions** — a short list of what you took as given.
 3. **Open questions** — a short list of what the person should settle, if any.
 
@@ -91,7 +94,7 @@ it to one page"). Do not describe how you worked.
 
 ## When asked to change a document
 
-When the document is an upload from the person, work on a copy and leave the original as it is. Read the file first, change only what was asked with `edit`, and keep its
+When the document is an upload from the person, work on a copy (in the project's `docs` folder, or in the scratch folder) and leave the original as it is. Read the file first, change only what was asked with `edit`, and keep its
 title, headings and wording elsewhere. Say what changed in one sentence.
 Update the date line only if the person asks.
 
