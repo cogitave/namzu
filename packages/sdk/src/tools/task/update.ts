@@ -9,7 +9,7 @@ export function buildTaskUpdateTool(taskStore: TaskStore): ToolDefinition {
 	return defineTool({
 		name: 'task_update',
 		description:
-			'Update task fields, owner or dependencies. Built-in statuses move forward only; completed/failed are terminal. Create follow-up tasks instead of reopening. Record failures as failed. An unconfirmed status may leave other edits applied. Outcomes are reported, not verified. Use "deleted" to remove a task.',
+			'Update task fields, owner or dependencies. Built-in statuses move forward only; completed/failed are terminal. Create follow-up tasks instead of reopening. Record failures as failed. An unconfirmed status may leave other edits applied. Outcomes are reported, not verified. Use "deleted" to remove a task that no longer applies.',
 		inputSchema: z.object({
 			id: z.string().describe('Task ID (e.g. "task_abc123")'),
 			subject: z.string().optional().describe('Updated title'),

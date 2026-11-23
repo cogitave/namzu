@@ -294,7 +294,7 @@ describe('the assembled prompts', () => {
 		// A lean main prompt is part of how many requests a task costs. The pieces a
 		// default interactive session sends before the environment block (identity,
 		// working rules, delegation, where files go, memory, deferred-tool
-		// guidance) stay under about 11,400 characters (the stop-work line added about 270; the no-documentation-files, project naming, file list and real-output rules added about 400; the line that a question about your own answer is answered from it added about 130; the placement rule for files that are not the work added about 450 to the earlier 9,600, and the rule to answer about the work and not recite the setting about 350 more); the environment block is measured
+		// guidance) stay under about 12,100 characters (the standing safety text added about 730: data-not-instructions, least destructive route and purchase confirmation, one question before a large fan-out, `gh`, and the memory limits; the stop-work line added about 270; the no-documentation-files, project naming, file list and real-output rules added about 400; the line that a question about your own answer is answered from it added about 130; the placement rule for files that are not the work added about 450 to the earlier 9,600, and the rule to answer about the work and not recite the setting about 350 more); the environment block is measured
 		// separately so the bound does not move with the host.
 		const pieces = [
 			NAMZU_IDENTITY,
@@ -304,13 +304,14 @@ describe('the assembled prompts', () => {
 			composeMemoryGuidance({ taskList: true }),
 			DEFERRED_TOOL_GUIDANCE,
 		]
-		expect(pieces.join('\n\n').length).toBeLessThan(11_400)
+		expect(pieces.join('\n\n').length).toBeLessThan(12_100)
 		expect(composeMemoryGuidance({ taskList: true }).length).toBeGreaterThan(600)
 		expect(composeMemoryGuidance({ taskList: true }).length).toBeLessThan(950)
 		for (const [name, text] of assembled()) {
 			if (name.startsWith('main')) expect(text.length, name).toBeLessThan(MAIN_CEILING)
 			if (name.startsWith('explore') || name.startsWith('planner'))
-				expect(text.length, name).toBeLessThan(9_400)
+				// 9,900: the data-not-instructions rule, the least destructive route and the `gh` line reach a read-only agent too (about 350 characters).
+				expect(text.length, name).toBeLessThan(9_900)
 		}
 	})
 
