@@ -479,11 +479,12 @@ export function FullscreenTranscript({
 		(dragging: Dragging) => {
 			const { rows: now } = latest.current
 			const text = selectedText(now, textWidth, dragging.selection)
-			if (text.trim() === '' || !copy) return
+			if (text.trim() === '' || !copy) return false
 			updateSelection({ ...dragging, copied: true })
 			void copy(text).then((report) => {
 				if (report) showNote(report)
 			})
+			return true
 		},
 		[copy, showNote, textWidth, updateSelection],
 	)
@@ -774,9 +775,15 @@ export function FullscreenTranscript({
 				// on release), so the next ctrl+c is the interrupt.
 				const current = selectionRef.current
 				if (!current?.moved || current.pressing) return false
-				if (current.copied) updateSelection(null)
-				else copySelection(current)
-				return true
+				if (current.copied) {
+					updateSelection(null)
+					return true
+				}
+				if (copySelection(current)) return true
+				// Nothing to copy (blank text, or no copy function): let go of the
+				// selection and leave the key to the interrupt.
+				updateSelection(null)
+				return false
 			},
 		}
 		return () => {
