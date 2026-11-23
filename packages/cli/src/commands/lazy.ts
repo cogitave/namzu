@@ -6,20 +6,19 @@ import type { CommandDef } from './types.js'
  *
  * `namzu --version`, `namzu --help` and the usage error for a mistyped
  * command are answered by commander before any action runs, from nothing but
- * each command's name, aliases, description and whether it passes its
+ * each command's name, description and whether it passes its
  * arguments through. A command that carried its handler in its definition
  * made all of them compile every command module and the SDK behind them
  * first: about 400 ms to print a version number. This is the definition
  * without the handler; `load` fetches the real one the first time the
  * command is run, or its `--help` is asked for.
  */
-export interface LazyCommandDef
-	extends Pick<CommandDef, 'name' | 'aliases' | 'description' | 'passThrough'> {
+export interface LazyCommandDef extends Pick<CommandDef, 'name' | 'description' | 'passThrough'> {
 	readonly load: () => Promise<CommandDef>
 }
 
 export function lazyCommand(
-	meta: Pick<CommandDef, 'name' | 'aliases' | 'description' | 'passThrough'>,
+	meta: Pick<CommandDef, 'name' | 'description' | 'passThrough'>,
 	load: () => Promise<CommandDef>,
 ): LazyCommandDef {
 	let loaded: Promise<CommandDef> | undefined

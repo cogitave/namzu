@@ -178,7 +178,7 @@ Installing or signing in to Claude Desktop does not guarantee a Claude Code
 CLI session for Namzu to reuse. The Desktop app includes a Code tab, and
 [Anthropic documents the terminal CLI as a separate installation](https://code.claude.com/docs/en/desktop-quickstart).
 If `namzu doctor --category providers` reports no Claude Code session, sign in
-from Namzu with `namzu login claude` (see [Signing in from a shell that cannot paste](#signing-in-from-a-shell-that-cannot-paste)), or install the standalone `claude` CLI
+from Namzu with `namzu auth login claude` (see [Signing in from a shell that cannot paste](#signing-in-from-a-shell-that-cannot-paste)), or install the standalone `claude` CLI
 and use its `/login` command. A detected Codex session says nothing about
 Claude Code's separate credential file. Namzu does not inspect the Desktop
 app's own OAuth storage.
@@ -235,7 +235,7 @@ meanwhile is taken as it stands and never overwritten.
 - **Locked or unreadable.** An unreadable or corrupt file reads as no sign-in.
   A lock the Windows side holds refuses the refresh with a sentence naming
   Desktop; the current access token keeps working until it expires.
-- **Signing out.** `namzu logout` in the terminal never removes Desktop's
+- **Signing out.** `namzu auth logout` in the terminal never removes Desktop's
   sign-in (that would sign Desktop out); it says so, including when the terminal's
   own sign-in was hiding Desktop's and Desktop's is now the one in use. Signing out in Desktop
   removes the file, and the terminal then sees none. Signing in on the terminal
@@ -260,11 +260,11 @@ checked private write and atomic replacement as the subscription credential
 store. An explicit `GEMINI_API_KEY` or `GOOGLE_API_KEY` environment variable
 takes priority over it; the saved key takes priority over the installed Google
 session. Internal discovery callers can skip Namzu-owned stores with
-`skipStored`. Run `/logout gemini` in the TUI or `namzu logout gemini` in a
+`skipStored`. Run `/logout gemini` in the TUI or `namzu auth logout gemini` in a
 shell to remove it; `/logout <provider>` (for example `/logout deepseek`, or
 `/logout anthropic-key` for an Anthropic API key, since `/logout anthropic`
-removes the subscription) and `namzu logout <provider>` remove another
-provider's key from `api-keys.json`. `/logout all` and `namzu logout all` remove
+removes the subscription) and `namzu auth logout <provider>` remove another
+provider's key from `api-keys.json`. `/logout all` and `namzu auth logout all` remove
 every saved key along with Namzu-owned subscriptions, including keys the Desktop's Settings > Models saved in the same file (remove single providers instead to keep them). Removing an `/auth` account leaves a key already kept for startup; use `/logout <provider>` for that. `/auth` accounts are not
 touched by any of them. These commands remove the saved key for future
 launches; an already-running Namzu session may continue using its in-memory
@@ -322,7 +322,7 @@ grant as another user's access; signing in to Claude again does not repair
 that local ACL interpretation.
 
 The fixes must be installed before retrying startup. On native Windows, CLI
-23.0.0's own `namzu upgrade` can fail with `spawn EINVAL` because it tries to
+23.0.0's own `namzu update` can fail with `spawn EINVAL` because it tries to
 launch npm's command shim directly. Install the update once from PowerShell
 or Git Bash with `npm.cmd install --global @namzu/cli@latest`, using the same
 Node installation and adding `--prefix "<existing-prefix>"` for a custom
@@ -331,10 +331,10 @@ is not needed to fix this updater failure.
 
 ## Signing in from a shell that cannot paste
 
-`namzu login claude` in a terminal prints the address and waits for you to paste the code the browser shows. A shell whose standard input closes at once (a chat tool's shell prefix, a script) cannot take that paste, and the one-time verifier would die with the process. Namzu therefore keeps the waiting sign-in (verifier, state, redirect address, start time) in `login-pending/anthropic.json` under the Namzu home, a file readable only by your account in an owner-only folder. It is never printed or logged. The command prints the address and one line, and exits 0 meaning "waiting for the code":
+`namzu auth login claude` in a terminal prints the address and waits for you to paste the code the browser shows. A shell whose standard input closes at once (a chat tool's shell prefix, a script) cannot take that paste, and the one-time verifier would die with the process. Namzu therefore keeps the waiting sign-in (verifier, state, redirect address, start time) in `login-pending/anthropic.json` under the Namzu home, a file readable only by your account in an owner-only folder. It is never printed or logged. The command prints the address and one line, and exits 0 meaning "waiting for the code":
 
 ```text
-Finish with `namzu login claude --code <code>` within 10 minutes.
+Finish with `namzu auth login claude --code <code>` within 10 minutes.
 ```
 
-Open the address, sign in, then run `namzu login claude --code <value>`, where the value is the bare code, `code#state`, or the finished address. Namzu refuses a sign-in that is missing, older than 10 minutes, or whose state does not match, says so in a sentence, and stores nothing. After the exchange has been tried, whether it worked or not, the waiting file is deleted, so a second `--code` says no sign-in is waiting. Exit codes: 0 signed in or waiting, 1 the sign-in failed, 2 the command was used wrongly. A terminal that can paste keeps the interactive flow, and the Codex sign-in is unchanged.
+Open the address, sign in, then run `namzu auth login claude --code <value>`, where the value is the bare code, `code#state`, or the finished address. Namzu refuses a sign-in that is missing, older than 10 minutes, or whose state does not match, says so in a sentence, and stores nothing. After the exchange has been tried, whether it worked or not, the waiting file is deleted, so a second `--code` says no sign-in is waiting. Exit codes: 0 signed in or waiting, 1 the sign-in failed, 2 the command was used wrongly. A terminal that can paste keeps the interactive flow, and the Codex sign-in is unchanged.

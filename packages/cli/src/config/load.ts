@@ -172,6 +172,41 @@ export interface LoadConfigOptions {
 	readonly profile?: string
 	/** Overridable for tests; defaults to {@link MANAGED_CONFIG_PATH}. */
 	readonly managedPath?: string
+	/**
+	 * Settings this launch carries on the command line (`--bare`, `--settings`),
+	 * lowest first. Each is a layer above the environment and below the managed
+	 * file, already checked by `launchSettingsLayer`.
+	 */
+	readonly launchLayers?: readonly LaunchSettingsLayer[]
+}
+
+/** One command-line settings layer: the settings, and the name shown where a value's source is. */
+export interface LaunchSettingsLayer {
+	readonly label: string
+	readonly config: MutableConfig
+}
+
+/**
+ * Read the keys of one launch layer the way a config file's are read, after
+ * refusing a key no setting has: a file lets an unknown key pass so an older
+ * Namzu can read a newer file, but a layer typed on the command line is
+ * checked now, so a misspelling is not a silent no-op.
+ */
+export function launchSettingsLayer(label: string, raw: unknown): LaunchSettingsLayer {
+	if (raw === null || typeof raw !== 'object' || Array.isArray(raw))
+		throw new ConfigLoadError(
+			label,
+			`${label} must be a set of named settings, not ${raw === null ? 'nothing' : describe(raw)}.`,
+			{ complete: true },
+		)
+	const unknown = Object.keys(raw).filter((key) => !CONFIG_KEYS.includes(key))
+	if (unknown.length > 0)
+		throw new ConfigLoadError(
+			label,
+			`${label} has ${unknown.length === 1 ? 'a setting' : 'settings'} Namzu does not know: ${unknown.join(', ')}.`,
+			{ complete: true },
+		)
+	return { label, config: sanitize(raw, { kind: 'file', path: label }) }
 }
 
 /**
@@ -230,6 +265,8 @@ export type ConfigSource =
 	| { readonly kind: 'env'; readonly variable: string }
 	/** A machine-wide file that wins the cascade; see `MANAGED_CONFIG_PATH`. */
 	| { readonly kind: 'managed'; readonly path: string }
+	/** A setting given on this launch's command line: `--bare` or `--settings`. */
+	| { readonly kind: 'launch'; readonly label: string }
 
 /**
  * Which `ConfigSource` won each key of the resolved config.
@@ -423,6 +460,12 @@ function resolveConfigWithProvenance(
 				return { kind: 'env', variable }
 			},
 		},
+		// This launch's command line: above the files, the profile and the
+		// environment (a flag is this launch, a variable is this shell), below
+		// the managed file.
+		...(opts.launchLayers ?? []).map((layer) =>
+			constantLayer(layer.config, { kind: 'launch', label: layer.label }),
+		),
 		// Last, so it beats the project file and the environment both. That
 		// ordering is the whole of what a managed layer is.
 		constantLayer(managedCfg, { kind: 'managed', path: managedPath }),
@@ -893,7 +936,7 @@ function reasonOf(cause: unknown): string {
  * file namzu read. The cast is what made that possible: it told the compiler to
  * stop checking exactly where the gap was.
  */
-type MutableConfig = {
+export type MutableConfig = {
 	-readonly [K in keyof NamzuCliConfig]?: NamzuCliConfig[K]
 }
 

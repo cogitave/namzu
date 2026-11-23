@@ -1,5 +1,5 @@
 /**
- * `namzu login` under WSL opens the sign-in page in the Windows browser.
+ * `namzu auth login` under WSL opens the sign-in page in the Windows browser.
  *
  * It used to hand the address to `xdg-open`, which under WSL reaches a Linux
  * browser at best and usually nothing, so the operator had to copy the URL by
@@ -65,7 +65,7 @@ beforeEach(() => {
 	return () => vi.unstubAllEnvs()
 })
 
-describe('namzu login under WSL', () => {
+describe('namzu auth login under WSL', () => {
 	it('opens the sign-in page through Windows PowerShell, the address intact', async () => {
 		const lines: string[] = []
 		const ctx = {

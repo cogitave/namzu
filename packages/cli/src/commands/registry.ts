@@ -29,7 +29,6 @@ export function registerCommandOrLazy(
 ): void {
 	const resolve = async (): Promise<CommandDef> => (isLazyCommand(def) ? def.load() : def)
 	const cmd = program.command(def.name).description(def.description)
-	if (def.aliases) cmd.aliases([...def.aliases])
 
 	if (def.passThrough) {
 		cmd

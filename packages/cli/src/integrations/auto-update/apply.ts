@@ -278,7 +278,7 @@ export function manualUpdateCommand(
 ): string | null {
 	if (install.kind === 'npm-global') {
 		const base = `npm install --global --prefix ${quoteIfNeeded(install.prefix)} @namzu/cli@${version}`
-		return install.writable ? 'namzu upgrade' : platform === 'win32' ? base : `sudo ${base}`
+		return install.writable ? 'namzu update' : platform === 'win32' ? base : `sudo ${base}`
 	}
 	if (install.kind === 'pnpm-global') return `pnpm add --global @namzu/cli@${version}`
 	return null
@@ -312,7 +312,7 @@ export function classifyInstallerFailure(
 	return 'install_failed'
 }
 
-/** Plain words for a failure, for the last-result record and `namzu upgrade --check`. */
+/** Plain words for a failure, for the last-result record and `namzu update --check`. */
 export function describeFailure(code: FailureStatus): string {
 	switch (code) {
 		case 'no_permission':

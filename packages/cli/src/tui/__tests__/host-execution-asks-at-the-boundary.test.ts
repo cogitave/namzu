@@ -193,7 +193,7 @@ describe('by default the CLI runs tools on the host', () => {
 		expect(feedback).toContain('--add-dir /mnt/c/Users/me')
 	})
 
-	it('asks about a path outside under --yolo (auto) when a person is there', async () => {
+	it('asks about a path outside under --dangerously-skip-permissions (auto) when a person is there', async () => {
 		const onPermission = vi.fn<PermissionFn>(async () => ({ kind: 'reject' }))
 		const { handler } = await turn({ permissionMode: 'auto', onPermission })
 
@@ -242,7 +242,7 @@ describe('by default the CLI runs tools on the host', () => {
 })
 
 describe('a sandbox escape', () => {
-	it('is asked about under --yolo (auto) when a person is there, never approved by the mode', async () => {
+	it('is asked about under --dangerously-skip-permissions (auto) when a person is there, never approved by the mode', async () => {
 		const onPermission = vi.fn<PermissionFn>(async () => ({ kind: 'approve' }))
 		const { handler } = await turn({
 			sandbox: { enabled: true },
@@ -257,7 +257,7 @@ describe('a sandbox escape', () => {
 		expect(onPermission).toHaveBeenCalledTimes(1)
 	})
 
-	it('is refused in a headless turn, even under --yolo', async () => {
+	it('is refused in a headless turn, even under --dangerously-skip-permissions', async () => {
 		const { handler, params } = await turn({
 			sandbox: { enabled: true },
 			permissionMode: 'auto',

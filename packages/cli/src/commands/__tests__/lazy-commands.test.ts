@@ -126,6 +126,7 @@ describe('the command manifest', () => {
 			[
 				'acp',
 				'archive',
+				'auth',
 				'browser',
 				'computer',
 				'config',
@@ -140,8 +141,6 @@ describe('the command manifest', () => {
 				'hooks',
 				'learn',
 				'learning',
-				'login',
-				'logout',
 				'mcp',
 				'pal',
 				'peers',
@@ -153,7 +152,7 @@ describe('the command manifest', () => {
 				'skills',
 				'workspaces',
 				'state',
-				'upgrade',
+				'update',
 				'watch',
 				'worktree',
 			].sort(),
@@ -167,12 +166,10 @@ describe('the command manifest', () => {
 
 			expect({
 				name: lazy.name,
-				aliases: lazy.aliases,
 				description: lazy.description,
 				passThrough: lazy.passThrough,
 			}).toEqual({
 				name: real.name,
-				aliases: real.aliases,
 				description: real.description,
 				passThrough: real.passThrough,
 			})

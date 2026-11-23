@@ -5,7 +5,7 @@
  * standard input closes at once), the verifier would die with the process and
  * the code the browser then shows could never be used. This keeps the values
  * the exchange needs in one owner-only file for ten minutes so a second
- * invocation (`namzu login claude --code <code>`) can finish the exchange.
+ * invocation (`namzu auth login claude --code <code>`) can finish the exchange.
  *
  * The file holds the PKCE verifier, so it is never printed, logged or put in
  * an error, and it is deleted as soon as an exchange has been attempted.

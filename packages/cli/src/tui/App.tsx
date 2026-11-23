@@ -6984,6 +6984,9 @@ function AppBody({
 								: { codeAnalysis: activeCtx.codeAnalysis ?? {} }),
 							rules: activeCtx.rules,
 							...(activeCtx.appendSystem ? { appendSystem: activeCtx.appendSystem } : {}),
+							...(activeCtx.replaceSystem ? { replaceSystem: activeCtx.replaceSystem } : {}),
+							...(activeCtx.onlyTools ? { onlyTools: activeCtx.onlyTools } : {}),
+							...(activeCtx.bare ? { bare: true } : {}),
 							...(sessionsRef.current
 								? {
 										sessionGoals: sessionsRef.current.goals,
@@ -12329,7 +12332,7 @@ function AppBody({
 			const turnLimits = resolveTurnGuards(ctxRef.current.limits, turnLimitsOverrideRef.current)
 			// Always carry the guarded callback. `auto` and `strict` decide before
 			// calling it in makeResumeHandler; retaining it is what lets a session
-			// launched with --yolo later return to prompt mode truthfully.
+			// launched with --dangerously-skip-permissions later return to prompt mode truthfully.
 			//
 			// A background agent this turn launched outlives it and keeps asking
 			// through this same callback, so a turn that has merely ended (or been
@@ -16713,6 +16716,16 @@ function AppBody({
 			source: 'launch-message',
 		})
 	}, [phase, state, session, permission, textPrompt, choicePicker, handleSubmit])
+	// `--name`: names the conversation once the composer is ready, the way `/rename` does, so the
+	// resume picker and the terminal title carry it. Spent before the call, so a re-render or a
+	// resume cannot name it twice.
+	const launchNameRef = useRef(initialCtx.launchSettings?.name)
+	useEffect(() => {
+		const name = launchNameRef.current
+		if (name === undefined || phase !== 'ready' || !session?.hasProvider) return
+		launchNameRef.current = undefined
+		void doTitle(name, false)
+	}, [phase, session, doTitle])
 	// `applyChoiceSelection` is declared before `handleSubmit` because the
 	// picker is also used by review/export flows. Keep only this dispatch hop in
 	// a ref so selecting a help row re-enters the one ordinary slash-command
@@ -20386,7 +20399,7 @@ function pluginActionPicker(owner: AgentSession, name: string): ChoicePickerStat
 
 /** Why bypass cannot be entered, in the words a person can act on. */
 const BYPASS_UNAVAILABLE_NOTICE =
-	'Bypass mode is not available in this session. Start Namzu with --allow-dangerously-skip-permissions (or --yolo), or set permissions.allowBypassMode to true in your own config file, to use it, unless permissions.disableBypassMode is set.'
+	'Bypass mode is not available in this session. Start Namzu with --allow-dangerously-skip-permissions, or set permissions.allowBypassMode to true in your own config file, to use it, unless permissions.disableBypassMode is set.'
 const AUTO_UNAVAILABLE_NOTICE = 'Auto mode is not available in this session.'
 /** Said when the turn ended because auto mode kept getting no verdict. */
 export const AUTO_MODE_STOPPED_NOTICE =

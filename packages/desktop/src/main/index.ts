@@ -537,7 +537,7 @@ const palComputerSettings = palComputerSetupSettings(
 	isEverydayLaunch(app.isPackaged, process.argv),
 )
 // How to run the same CLI as the runtime as its own short process: `computer status | setup |
-// stop-idle`, and the folder trust dialog's `hooks --cwd <folder> --json`.
+// stop idle`, and the folder trust dialog's `hooks --cwd <folder> --json`.
 const cliCommand: ComputerCliCommand | (() => Promise<ComputerCliLease>) = engineDelivery
 	? async () => {
 			const lease = await engineDelivery.lease()

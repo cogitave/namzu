@@ -68,15 +68,15 @@ beforeEach(() => {
 	})
 })
 
-describe('namzu login provider routing', () => {
+describe('namzu auth login provider routing', () => {
 	it('requires a provider instead of silently choosing Claude', async () => {
 		const { ctx, lines } = context()
 
 		const code = await loginCommand.handler({ ctx, rawArgs: [] })
 
 		expect(code).toBe(EXIT_USAGE)
-		expect(lines.join('\n')).toContain('namzu login claude')
-		expect(lines.join('\n')).toContain('namzu login codex')
+		expect(lines.join('\n')).toContain('namzu auth login claude')
+		expect(lines.join('\n')).toContain('namzu auth login codex')
 		expect(starts.browser).not.toHaveBeenCalled()
 		expect(starts.codex).not.toHaveBeenCalled()
 	})

@@ -395,13 +395,13 @@ describe('what gets past the gate', () => {
 })
 
 describe('what does NOT get past the gate', () => {
-	it('--yolo does not imply trust', async () => {
+	it('--dangerously-skip-permissions does not imply trust', async () => {
 		// The two answer different questions: which tool calls may run inside a
 		// folder, and whether this folder may be worked in at all. Someone who
-		// passes --yolo in their own repository has asserted nothing about a
+		// passes --dangerously-skip-permissions in their own repository has asserted nothing about a
 		// stranger's, and a gate an existing flag satisfies is a gate satisfied
 		// by accident.
-		const { code } = await runIn(stranger, ['--yolo'])
+		const { code } = await runIn(stranger, ['--dangerously-skip-permissions'])
 
 		expect(code).toBe(EXIT_UNTRUSTED)
 		expect(sessionsCreated).toEqual([])

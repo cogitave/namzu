@@ -49,7 +49,7 @@ const inventory = JSON.parse(
 	}
 	flags: {
 		host: { command: string; flags: string[] }
-		terminalUi: { flags: string[]; permissionModeValues: string[] }
+		terminalUi: { flags: string[]; hiddenFlags: string[]; permissionModeValues: string[] }
 		shortCommands: { command: string; verbs: string[]; flags: string[] }
 	}
 	kernelFolder: { files: { path: string }[] }
@@ -206,7 +206,10 @@ describe('the app against the desktop contract inventory', () => {
 				{ name: 'project' },
 			)
 			const args = launch.args ?? []
-			for (const arg of args.slice(args.indexOf('/x/dist/bin.js') + 1))
+			const after = args.slice(args.indexOf('/x/dist/bin.js') + 1)
+			// The first message follows `--` as one argument, whatever it holds.
+			expect(after.slice(-2)).toEqual(['--', 'hello'])
+			for (const arg of after.slice(0, -2))
 				if (arg.startsWith('--')) flags.add(arg.split('=')[0] as string)
 			values.add(namzuPermissionArgument(mode))
 		}
@@ -217,7 +220,9 @@ describe('the app against the desktop contract inventory', () => {
 	it('runs the short commands with the verbs and flags the inventory lists', () => {
 		const text = source('pal-computer-setup.ts')
 		const verbs = new Set<string>()
-		for (const match of text.matchAll(/'computer',\s*'([a-z-]+)'/gu)) verbs.add(match[1] as string)
+		// A verb of two words (`stop idle`) is passed as two arguments.
+		for (const match of text.matchAll(/'computer',\s*'([a-z-]+)'(?:,\s*'(idle)')?/gu))
+			verbs.add(match[2] === undefined ? (match[1] as string) : `${match[1]} ${match[2]}`)
 		const flags = new Set<string>()
 		for (const match of text.matchAll(/'(--[a-z-]+)'/gu)) flags.add(match[1] as string)
 		expect(sorted(verbs)).toEqual(sorted(inventory.flags.shortCommands.verbs))

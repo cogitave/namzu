@@ -1,11 +1,11 @@
 /**
  * Shuts the Linux machine for Pal computers down once no Pal computer has run for a while. Desktop
- * only watches the states it shows; `computer stop-idle` itself refuses while anything runs, so a
+ * only watches the states it shows; `computer stop idle` itself refuses while anything runs, so a
  * computer this class did not see is never stopped.
  */
 export interface IdleStopperOptions {
 	delayMs: number
-	/** Calls `computer stop-idle`; resolves to what it answered. */
+	/** Calls `computer stop idle`; resolves to what it answered. */
 	stop: (timeoutMs?: number) => Promise<'stopped' | 'busy' | 'not-running' | 'failed'>
 	/** Runs `run` after `ms`; returns the way to cancel it. */
 	schedule: (ms: number, run: () => void) => () => void

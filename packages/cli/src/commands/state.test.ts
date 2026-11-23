@@ -107,7 +107,7 @@ describe('namzu state command', () => {
 		expect(h.inspect).not.toHaveBeenCalled()
 		expect(h.errors).toEqual([
 			expect.objectContaining({
-				message: expect.stringContaining('namzu state [report | move legacy [--dry-run]]'),
+				message: expect.stringContaining('namzu state [report | move legacy [--dry-run] | purge'),
 			}),
 		])
 	})

@@ -4,7 +4,7 @@
  */
 
 import type { UpdatesConfig } from '../../config/schema.js'
-import { removeOwnPowerShellShim, runNpmUpgrade } from '../npm-global.js'
+import { removeOwnPowerShellShim, runNpmUpdate } from '../npm-global.js'
 import { fetchNamzuRelease } from '../updates.js'
 import { type InstallerRequest, PUBLIC_REGISTRY } from './apply.js'
 import { currentInstall } from './current-install.js'
@@ -47,7 +47,7 @@ export function startAutoUpdate(options: StartAutoUpdateOptions): {
 		fetchRelease: (channel) => fetchNamzuRelease({ channel, registry: PUBLIC_REGISTRY }),
 		applyDeps: {
 			runInstaller: (request: InstallerRequest) =>
-				runNpmUpgrade({
+				runNpmUpdate({
 					executable: request.executable,
 					args: request.args,
 					prefix: request.cwd,

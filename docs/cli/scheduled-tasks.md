@@ -792,7 +792,7 @@ checkpoint.
 ### Credentials
 
 A service does not see what your shell exported. A run finds its provider
-credential in namzu's own store (`namzu login`), a provider's own sign-in file,
+credential in namzu's own store (`namzu auth login`), a provider's own sign-in file,
 or `NAMZU_HOME/schedule/daemon.env` — `KEY=value` lines, mode 0600, read by the
 run and handed to provider discovery only, never put into the environment a
 shell tool inherits. A run that used another program's sign-in (another coding
@@ -982,7 +982,7 @@ created with `--execution sandbox` and off for one on the host (only for a job
 that can run a command: one whose `bash` is denied, such as `read-only`,
 continues the same either way), and with exactly
 the job's `--add-dir` roots, no more and no fewer, and with a credential for the
-job's provider (`namzu login`, or its API key). A session that differs is
+job's provider (`namzu auth login`, or its API key). A session that differs is
 refused before anything is asked, and the refusal names the difference and the
 command that opens a matching session
 (`cd <folder> && namzu --add-dir <dir> resume <session-id>`).

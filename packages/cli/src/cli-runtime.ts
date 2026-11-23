@@ -17,6 +17,8 @@ export {
 	loadBootstrapConfigWithProvenance,
 	loadConfigWithProvenance,
 } from './config/load.js'
+export { launchMcpServers } from './commands/exec-flags.js'
+export { launchLayersFor } from './commands/launch-extras.js'
 export { resolveRunFlags } from './commands/run-flags.js'
 export { startOtlpExport } from './integrations/telemetry/otlp-export.js'
 export { startZenCatalogueRefresh } from './integrations/providers/zen-catalogue.js'
@@ -26,6 +28,7 @@ export {
 	cliLogger,
 	createStderrSink,
 	installCliLogging,
+	openDebugFile,
 	resolveLogFormat,
 	resolveLogLevel,
 } from './logging.js'

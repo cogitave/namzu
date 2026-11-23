@@ -314,7 +314,7 @@ describe('Shift+Tab and the two modes that stop asking', () => {
 			)
 		})
 
-		it('keeps both in the cycle after --yolo once the key has left them', async () => {
+		it('keeps both in the cycle after --dangerously-skip-permissions once the key has left them', async () => {
 			acknowledgeBypass()
 			autoModeUsable = true
 			const harness = await mountReady({ skipPermissions: true })

@@ -57,6 +57,8 @@ export interface LoadedInstructionFile {
 export interface ProjectInstructionTrackerOptions {
 	/** The Namzu home holding the person's own file; `null` loads none. */
 	readonly userHome?: string | null
+	/** Load no instruction file at all, the person's own included (`--bare`). */
+	readonly disabled?: boolean
 	/**
 	 * Called once for each file the first time it is part of what the session
 	 * is given: the files found at the start say `session_start`, an included
@@ -150,6 +152,7 @@ export class ProjectInstructionTracker {
 	private readonly touched = new Set<string>()
 	private user: ScopeInstructions = { files: [], skipped: [] }
 	private readonly onLoaded: ProjectInstructionTrackerOptions['onLoaded']
+	private readonly disabled: boolean
 	/** The files already announced to `onLoaded`, by path. */
 	private readonly announced = new Set<string>()
 	private announcedStart = false
@@ -161,6 +164,7 @@ export class ProjectInstructionTracker {
 		this.root = canonicalRoot(instructionSearchPath(this.cwd)[0] ?? this.cwd)
 		this.userHome = options.userHome === undefined ? userInstructionHome() : options.userHome
 		this.onLoaded = options.onLoaded
+		this.disabled = options.disabled === true
 		this.refreshDirectories(instructionSearchPath(this.cwd))
 	}
 
@@ -250,6 +254,14 @@ export class ProjectInstructionTracker {
 	}
 
 	private refreshDirectories(directories: Iterable<string>): void {
+		if (this.disabled) {
+			this.user = { files: [], skipped: [] }
+			for (const directory of [...directories]) {
+				this.registerPath(directory)
+				this.scopes.set(directory, emptyScope(directory))
+			}
+			return
+		}
 		const touched = [...this.touched]
 		this.user =
 			this.userHome === null

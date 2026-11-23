@@ -53,7 +53,7 @@ Under `strict`, `auto` and the unattended mode a refused call is not followed by
 | How | Mode |
 | --- | --- |
 | `--permission-mode prompt\|accept-edits\|plan\|bypass\|auto\|strict` | that mode, for this launch only |
-| `--dangerously-skip-permissions`, `--yolo` | `bypass` (a `--permission-mode` given as well wins) |
+| `--dangerously-skip-permissions` | `bypass` (a `--permission-mode` given as well wins) |
 | `--allow-dangerously-skip-permissions` | keeps the launch mode, but lets Shift+Tab and `/permissions` reach `bypass` |
 | `/permissions` | a menu of every mode; only `strict` and the rules are under "More options" |
 | `/permissions <word>` | that mode, for this conversation |
@@ -61,7 +61,7 @@ Under `strict`, `auto` and the unattended mode a refused call is not followed by
 | nothing of the above, in the interactive terminal | `auto` when the classifier can reach a model, `prompt` when it cannot ([Auto is the terminal's default](#auto-is-the-terminals-default)) |
 | Shift+Tab | the cycle below |
 
-`--permission-mode auto` is the classifier. It used to mean "approve everything the gates did not stop", and that is now `bypass`; to keep the old no-prompt behaviour, use `--yolo` or `--permission-mode bypass`.
+`--permission-mode auto` is the classifier. It used to mean "approve everything the gates did not stop", and that is now `bypass`; to keep the old no-prompt behaviour, use `--dangerously-skip-permissions` or `--permission-mode bypass`.
 
 ### The cycle
 
@@ -75,7 +75,7 @@ The question before the screen opens when bypass starts (the one-time "Run witho
 
 ## Which modes are available
 
-**Bypass** is available only when the launch opened it: `--yolo`, `--dangerously-skip-permissions`, `--allow-dangerously-skip-permissions`, `--permission-mode bypass`, or `permissions.defaultMode: bypass` or `permissions.allowBypassMode: true` in your own user file or the managed file. A project file cannot open it. `allowBypassMode` is the opt-in for choosing bypass from a menu: with it off (the default) Desktop's permission chip and an ACP client do not offer bypass, and Shift+Tab does not stop on it; a flag you type still starts the session you asked for. `permissions.disableBypassMode: true` in any file shuts it for good (it has no Settings row: it is for administrators and the managed file, and written in a file it works as before), and a flag that names it is then an error (`Bypass mode is turned off by permissions.disableBypassMode in your configuration.`). Switching to bypass from inside a session when the launch did not open it is refused with a sentence that says how to start one that can.
+**Bypass** is available only when the launch opened it: `--dangerously-skip-permissions`, `--allow-dangerously-skip-permissions`, `--permission-mode bypass`, or `permissions.defaultMode: bypass` or `permissions.allowBypassMode: true` in your own user file or the managed file. A project file cannot open it. `allowBypassMode` is the opt-in for choosing bypass from a menu: with it off (the default) Desktop's permission chip and an ACP client do not offer bypass, and Shift+Tab does not stop on it; a flag you type still starts the session you asked for. `permissions.disableBypassMode: true` in any file shuts it for good (it has no Settings row: it is for administrators and the managed file, and written in a file it works as before), and a flag that names it is then an error (`Bypass mode is turned off by permissions.disableBypassMode in your configuration.`). Switching to bypass from inside a session when the launch did not open it is refused with a sentence that says how to start one that can.
 
 **The first time** a person enters bypass, one question is asked: before the screen opens when the launch is in bypass (`Start in bypass mode? [y/N]`), or in the terminal when the switch is made from inside. The answer is kept in `~/.namzu/acknowledgements.json`; answering no leaves the session in the mode it was in.
 
@@ -226,7 +226,7 @@ A sub-agent borrows the review channel of the turn that started it, so each call
 
 ## Headless runs
 
-`namzu exec` and `exec --json` take `--permission-mode` and `--yolo` the same way. With neither flag and nobody to ask, the kernel's own unattended default applies (it has no word of its own): routine calls run and anything out of bounds is refused. `--yolo` there means `bypass`, so a path outside the folder runs and the immune list above is refused. `--permission-mode auto` needs a model it can reach and exits 64 with the reason when there is none; when it gets no verdict three times in a row, the turn stops, nothing more runs, and `exec` says so and exits 1. Auto is not the default here: the interactive terminal's default does not reach `exec`. `--allow-dangerously-skip-permissions` is for the interactive session only.
+`namzu exec` and `exec --json` take `--permission-mode` and `--dangerously-skip-permissions` the same way. With neither flag and nobody to ask, the kernel's own unattended default applies (it has no word of its own): routine calls run and anything out of bounds is refused. `--dangerously-skip-permissions` there means `bypass`, so a path outside the folder runs and the immune list above is refused. `--permission-mode auto` needs a model it can reach and exits 64 with the reason when there is none; when it gets no verdict three times in a row, the turn stops, nothing more runs, and `exec` says so and exits 1. Auto is not the default here: the interactive terminal's default does not reach `exec`. `--allow-dangerously-skip-permissions` is for the interactive session only.
 
 ## Desktop and ACP
 

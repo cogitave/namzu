@@ -25,7 +25,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { runNpmUpgrade } from '../npm-global.js'
+import { runNpmUpdate } from '../npm-global.js'
 import { fetchNamzuRelease } from '../updates.js'
 import {
 	type ApplyDeps,
@@ -167,7 +167,7 @@ let home: string
 let root: string
 
 async function installVersion(version: string): Promise<void> {
-	const code = await runNpmUpgrade({
+	const code = await runNpmUpdate({
 		executable: 'npm',
 		args: npmInstallArgs(prefix, version, registry),
 		prefix,
@@ -195,7 +195,7 @@ function applyDeps(over: Partial<ApplyDeps> = {}): ApplyDeps {
 		installedVersion: readInstalledVersion,
 		smokeTest: smokeTestInstalled,
 		runInstaller: (request) =>
-			runNpmUpgrade({
+			runNpmUpdate({
 				executable: request.executable,
 				args: request.args,
 				prefix: request.cwd,

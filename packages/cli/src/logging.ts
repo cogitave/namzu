@@ -15,7 +15,10 @@
  * the default that used to be silence.
  */
 
-import type { LevelFilter, LogSink, Logger } from '@namzu/sdk'
+import { createWriteStream, mkdirSync, openSync } from 'node:fs'
+import { dirname, resolve } from 'node:path'
+
+import type { LevelFilter, LogRecord, LogSink, Logger } from '@namzu/sdk'
 import {
 	NOOP_LOGGER,
 	createLogger,
@@ -138,7 +141,11 @@ export function contextLogging(ctx: { readonly logging?: ResolvedLogging }): Res
  */
 let _cliLogger: Logger = NOOP_LOGGER
 
-export function installCliLogging(sink: LogSink, level: LevelFilter): Logger {
+export function installCliLogging(chosenSink: LogSink, chosenLevel: LevelFilter): Logger {
+	// With a debug file, every record down to debug goes to it; the sink the
+	// entry point chose still sees only what its own level lets through.
+	const sink = debugFileSink ? teeToDebugFile(chosenSink, chosenLevel, debugFileSink) : chosenSink
+	const level: LevelFilter = debugFileSink ? 'debug' : chosenLevel
 	installProcessSink(sink, level, { replace: true })
 	_cliLogger = createLogger(
 		{
@@ -157,6 +164,46 @@ export function installCliLogging(sink: LogSink, level: LevelFilter): Logger {
 		getProcessSinkCounters(),
 	)
 	return _cliLogger
+}
+
+const SEVERITY_RANK: Readonly<Record<string, number>> = { debug: 0, info: 1, warn: 2, error: 3 }
+
+function teeToDebugFile(primary: LogSink, level: LevelFilter, file: LogSink): LogSink {
+	return {
+		emit(record: LogRecord) {
+			file.emit(record)
+			if (level === 'silent') return
+			if ((SEVERITY_RANK[record.severityText] ?? 0) >= (SEVERITY_RANK[level] ?? 0))
+				primary.emit(record)
+		},
+	}
+}
+
+let debugFileSink: LogSink | undefined
+
+/**
+ * `--debug-file <path>`: from now on every log record, debug level included,
+ * is also written to this file as one JSON object per line. Only the folders
+ * of the path given are created. A path that cannot be opened throws, with a
+ * sentence for the person.
+ */
+export function openDebugFile(path: string): void {
+	const target = resolve(path)
+	try {
+		mkdirSync(dirname(target), { recursive: true })
+		const stream = createWriteStream(target, { fd: openSync(target, 'a', 0o600) })
+		stream.on('error', () => undefined)
+		debugFileSink = jsonLinesSink(stream)
+	} catch (error) {
+		throw new Error(
+			`--debug-file could not open ${target}: ${error instanceof Error ? error.message : String(error)}`,
+		)
+	}
+}
+
+/** Test seam: stop writing to the debug file. */
+export function __closeDebugFileForTests(): void {
+	debugFileSink = undefined
 }
 
 /** The logger `installCliLogging` built, or a no-op if boot has not run. */

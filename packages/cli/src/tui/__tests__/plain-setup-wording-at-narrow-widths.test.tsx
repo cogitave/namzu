@@ -19,7 +19,7 @@ vi.mock('../../integrations/providers/setup.js', () => ({
 			harness: { id: 'claude', label: 'Claude Code', npmPackage: '@anthropic-ai/claude-code' },
 			installed: true,
 			version: '2.1.295',
-			access: 'Not signed in for Namzu · run namzu login claude',
+			access: 'Not signed in for Namzu · run namzu auth login claude',
 		},
 		{
 			harness: { id: 'opencode', label: 'OpenCode', npmPackage: 'opencode-ai' },
@@ -62,7 +62,7 @@ describe.each([40, 50, 54, 80])('at %i columns', (cols) => {
 		expect(text).toContain(
 			'Codex, Claude Code and OpenCode are optional; Namzu can reuse their sign-ins.',
 		)
-		expect(text).toContain('Not signed in for Namzu · run namzu login claude')
+		expect(text).toContain('Not signed in for Namzu · run namzu auth login claude')
 		expect(text).toContain('Zen free models · experimental, and Zen may refuse them')
 		expect(text).toContain('Choose one. Installing and signing in are separate steps.')
 		// Ink keeps the space it broke a line at, so a continuation would start one

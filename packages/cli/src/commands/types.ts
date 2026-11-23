@@ -16,6 +16,8 @@ export interface CommandContext {
 	 * `getContext()` would have produced with no flags set.
 	 */
 	readonly logging?: ResolvedLogging
+	/** `--bare` was given: the run reads no project instruction files or saved memory notes. */
+	readonly bare?: boolean
 }
 
 export interface CommandHandlerArgs {
@@ -28,8 +30,6 @@ export type CommandHandler = (args: CommandHandlerArgs) => Promise<number>
 
 export interface CommandDef {
 	readonly name: string
-	/** Other names the command answers to, listed in `namzu --help`. */
-	readonly aliases?: readonly string[]
 	readonly description: string
 	/**
 	 * When true, command-level option parsing is disabled. All arguments after

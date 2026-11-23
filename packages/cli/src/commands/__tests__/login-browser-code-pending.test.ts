@@ -79,7 +79,7 @@ describe('claude sign-in from a shell whose stdin closes', () => {
 		}
 		const output = printed.join('\n')
 		expect(output).toContain('https://')
-		expect(output).toContain('namzu login claude --code <code>')
+		expect(output).toContain('namzu auth login claude --code <code>')
 		expect(output).toContain('10 minutes')
 		expect(output).not.toContain(raw.verifier)
 		expect(existsSync(credentialsPath(home))).toBe(false)
@@ -102,7 +102,7 @@ describe('claude sign-in from a shell whose stdin closes', () => {
 	})
 })
 
-describe('namzu login claude --code', () => {
+describe('namzu auth login claude --code', () => {
 	for (const [name, build] of [
 		['a bare code', (_s: string) => CODE],
 		['code#state', (s: string) => `${CODE}#${s}`],

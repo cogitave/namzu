@@ -14,7 +14,7 @@ function missingClaudeSessionNote(env: NodeJS.ProcessEnv, windowsHome: string | 
 		process.platform === 'darwin' && !env.CLAUDE_CONFIG_DIR
 			? ` and macOS Keychain service ${KEYCHAIN_SERVICE}`
 			: ''
-	return `Claude Code session not detected; checked ${paths.join(', ')}${keychain}. Desktop sign-in does not guarantee a reusable Claude Code CLI session; Namzu does not read Desktop's credential store. Sign in to the standalone Claude Code CLI, or run \`namzu login claude\`.`
+	return `Claude Code session not detected; checked ${paths.join(', ')}${keychain}. Desktop sign-in does not guarantee a reusable Claude Code CLI session; Namzu does not read Desktop's credential store. Sign in to the standalone Claude Code CLI, or run \`namzu auth login claude\`.`
 }
 
 /**
@@ -61,7 +61,7 @@ export const credentialSourcesCheck: DoctorCheck = {
 				status: 'warn',
 				message: `no LLM credential found\n${missingNote}`,
 				remediation:
-					'Namzu no longer reads the secrets file. It first reuses current Claude and Codex sessions on this device, then subscriptions signed in with `namzu login claude|codex`. API keys remain optional alternatives through ANTHROPIC_API_KEY or OPENAI_API_KEY; local Ollama and LM Studio servers are also detected.',
+					'Namzu no longer reads the secrets file. It first reuses current Claude and Codex sessions on this device, then subscriptions signed in with `namzu auth login claude|codex`. API keys remain optional alternatives through ANTHROPIC_API_KEY or OPENAI_API_KEY; local Ollama and LM Studio servers are also detected.',
 			}
 		}
 

@@ -647,7 +647,7 @@ describe('/permissions session mode', () => {
 		expect(permissionModes).toEqual(['prompt'])
 	})
 
-	it('restores prompting after a --yolo launch before any tool can run', async () => {
+	it('restores prompting after a --dangerously-skip-permissions launch before any tool can run', async () => {
 		const harness = render(<App ctx={{ ...ctx, skipPermissions: true }} />)
 		mounted.push(harness)
 		const { stdin, lastFrame } = harness

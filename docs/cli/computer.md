@@ -19,7 +19,7 @@ the agent runtime never calls it, so a model cannot cause an install.
 ```bash
 namzu computer status [--json] [--bundle <dir>]
 namzu computer setup  [--json] [--plan <id>] [--yes] [--bundle <dir>] [--resume-command <command>]
-namzu computer stop-idle [--json]
+namzu computer stop idle [--json]
 ```
 
 The image ships inside the Namzu installer. `--bundle <dir>` (or
@@ -77,7 +77,7 @@ Types are those of the setup contract (`WslcReadiness`, `WslcSetupPlan`,
 {"version":1,"progress":{"step":"download-wsl","phase":"progress","done":1048576,"total":367001600,"unit":"bytes"}}
 {"version":1,"result":{"outcome":"restart-required"}}
 
-// stop-idle --json: one line
+// stop idle --json: one line
 {"version":1,"outcome":"stopped"}   // or "busy" or "not-running"
 
 // setup --json off Windows (exit 69)
@@ -121,4 +121,6 @@ Windows error number when Windows gave one ("Windows reported a problem while
 installing Linux support. Windows error 1603."), never the internal code. The
 `--json` result keeps the code, a plain `detail` and `exitCode`.
 
-Ctrl-C, Ctrl-D or a closed terminal at `Continue?` count as no: `Nothing was changed.` and exit 0. Off Windows `stop-idle` says there is no Linux machine to stop.
+Ctrl-C, Ctrl-D or a closed terminal at `Continue?` count as no: `Nothing was changed.` and exit 0. Off Windows `stop idle` says there is no Linux machine to stop.
+
+The hyphenated `namzu computer stop-idle` is what Namzu Desktop builds installed before this spelling call, so it still works and is left out of the help; Desktop now says `computer stop idle`.

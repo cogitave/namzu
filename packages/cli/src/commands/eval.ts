@@ -449,7 +449,7 @@ export const evalCommand: CommandDef = {
 	description: 'Run eval suites and set an exit code',
 	passThrough: true,
 	handler: async ({ ctx, rawArgs }): Promise<number> => {
-		const program = new Command('eval')
+		const program = new Command('namzu eval')
 			.exitOverride()
 			.description('Run eval suites and set an exit code')
 			.option('-d, --dir <path>', 'Directory to discover *.eval.js suites in', 'packages/evals')
@@ -540,7 +540,7 @@ async function readReportFile(path: string) {
  * of a comparison does not say who won, and a script reads `--json`.
  */
 async function runCompare(ctx: CommandContext, args: readonly string[]): Promise<number> {
-	const program = new Command('eval compare')
+	const program = new Command('namzu eval compare')
 		.exitOverride()
 		.description('Compare two eval reports, paired by suite and case id')
 		.argument('<a>', 'Report written by --out: the baseline')

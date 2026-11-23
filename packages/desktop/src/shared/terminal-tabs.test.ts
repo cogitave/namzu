@@ -359,16 +359,17 @@ describe('the composer message', () => {
 		}
 	})
 
-	it('starts the Namzu CLI on the message as one --message= argument', () => {
+	it('starts the Namzu CLI on the message as one argument after --', () => {
 		const launch = buildEngineLaunch(
 			{ engine: 'namzu', permissionMode: 'plan', prompt: '--rm -rf: test message' },
 			linux,
 			{ name: 'api' },
 		)
-		expect(launch.args.slice(-3)).toEqual([
+		expect(launch.args.slice(-4)).toEqual([
 			'--permission-mode',
 			'plan',
-			'--message=--rm -rf: test message',
+			'--',
+			'--rm -rf: test message',
 		])
 		expect(launch.omitted).toEqual([])
 	})
@@ -386,7 +387,7 @@ describe('the composer message', () => {
 			)
 			expect(launch.omitted).toEqual([])
 			expect(launch.command).toBe('cmd.exe')
-			expect(launch.args.at(-1)).toBe(`--message=${text}`)
+			expect(launch.args.slice(-2)).toEqual(['--', text])
 		}
 	})
 

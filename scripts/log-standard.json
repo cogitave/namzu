@@ -216,10 +216,22 @@
 			"reason": "installTuiLogSink's fatal handler. Ink owns the screen while the TUI runs, so this sink buffers rather than writes; on a crash it flushes the buffer and then writes the error itself, after Ink's render loop has stopped. This file IS the TUI's sink implementation — the one place permitted to touch the stream directly on the way out of a process that is already ending."
 		},
 		{
-			"file": "packages/cli/src/commands/upgrade.ts",
+			"file": "packages/cli/src/commands/update.ts",
 			"symbol": "process.stderr.write",
 			"count": 1,
-			"reason": "Upgrade command replays bounded, terminal-control-stripped installer output after stopping the animation; this is operator-facing subprocess output, not a structured log event."
+			"reason": "Update command replays bounded, terminal-control-stripped installer output after stopping the animation; this is operator-facing subprocess output, not a structured log event."
+		},
+		{
+			"file": "packages/cli/src/commands/auth.ts",
+			"symbol": "process.stdout.write",
+			"count": 1,
+			"reason": "the `--json` array is the command's machine-readable output."
+		},
+		{
+			"file": "packages/cli/src/commands/mcp.ts",
+			"symbol": "process.stderr.write",
+			"count": 1,
+			"reason": "a retired `mcp add` flag spelling prints the one line naming the new form, the same bare line a retired command prints."
 		},
 		{
 			"file": "packages/cli/src/network/install.ts",

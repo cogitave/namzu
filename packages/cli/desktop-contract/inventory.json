@@ -290,10 +290,12 @@
         "--provider",
         "--model",
         "--effort",
-        "--permission-mode",
+        "--permission-mode"
+      ],
+      "hiddenFlags": [
         "--message"
       ],
-      "about": "Passed to the terminal UI of a project view; --message is passed as one argument, `--message=<text>`.",
+      "about": "Passed to the terminal UI of a project view; the first message follows `--` as one argument. Builds already installed pass it as `--message=<text>`, a flag the CLI keeps accepting but hides from help.",
       "permissionModeValues": [
         "prompt",
         "accept-edits",
@@ -308,6 +310,9 @@
       "verbs": [
         "status",
         "setup",
+        "stop idle"
+      ],
+      "legacyVerbs": [
         "stop-idle"
       ],
       "flags": [
@@ -448,7 +453,7 @@
           "HookRow": "07e3c83658b87f3a",
           "HookModuleRow": "5645f12c6dbba5bf",
           "HookProblem": "252aa1e17ca6760e",
-          "SwitchSource": "be9ff61cac567b63",
+          "SwitchSource": "f75f3b27ca882295",
           "SwitchReport": "4d0d2af61833670b",
           "HooksSwitches": "94f8c3941e4336cd",
           "HooksReport": "2cc680c2e6497951"

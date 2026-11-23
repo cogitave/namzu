@@ -350,7 +350,7 @@ export class PalComputerSetupService {
 		let outcome: 'stopped' | 'busy' | 'not-running' | 'failed' = 'failed'
 		try {
 			await this.deps.cli.run(
-				['computer', 'stop-idle', '--json'],
+				['computer', 'stop', 'idle', '--json'],
 				(line) => {
 					if (line.kind === 'stop-idle') outcome = line.outcome
 				},

@@ -6,7 +6,7 @@
  *    running at this point, because their screens are read from them.
  * 2. Only then do the runtimes stop (they flush their own journals while ending), the speech
  *    engines are released and the idle Pal computer machine is stopped, all at once. The machine stop
- *    is safe beside them: it does nothing while a Pal computer runs, and `computer stop-idle` refuses
+ *    is safe beside them: it does nothing while a Pal computer runs, and `computer stop idle` refuses
  *    while anything does.
  * 3. The live viewer's port closes once the runtimes have stopped, because a runtime lets go of its
  *    live viewers while it ends.

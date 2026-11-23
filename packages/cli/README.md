@@ -69,7 +69,7 @@ namzu.cmd --version
 
 In the Windows Command Prompt, use `npm.cmd install --global @namzu/cli`, then run `namzu.cmd` in place of `namzu`. If an install fails, npm's diagnostic output stays on screen so you can read the cause. The PATH and reopen troubleshooting is in [Installing and reopening Namzu](https://github.com/cogitave/namzu/blob/main/docs/cli/installation.md).
 
-To update later, `namzu upgrade --check` reports whether npm has a newer version, and `namzu upgrade` installs it.
+To update later, `namzu update --check` reports whether npm has a newer version, and `namzu update` installs it.
 
 ## First run
 
@@ -101,7 +101,7 @@ To start with a specific model for one session, use `--provider` and `--model` o
 You can connect a provider in four ways:
 
 - **Reuse a sign-in you already have.** Namzu looks for sessions that your installed command-line tools already hold, and uses them without asking you to paste anything.
-- **Sign in from Namzu.** Run `namzu login claude` or `namzu login codex`, or type `/login` in a session. `namzu logout codex` removes only the credential Namzu stored for you.
+- **Sign in from Namzu.** Run `namzu auth login claude` or `namzu auth login codex`, or type `/login` in a session. `namzu auth logout codex` removes only the credential Namzu stored for you.
 - **Use an API key.** Set the provider's variable, for example `OPENROUTER_API_KEY` for the `openrouter` provider, or paste a key in the picker. Most keys you paste there last for that session only; a Google key is saved for later launches.
 - **Run a local model.** If a local model server is running on this machine, such as the `ollama` provider on its default port, the picker finds it and lists it. [Provider credentials](https://github.com/cogitave/namzu/blob/main/docs/cli/credentials.md)
 
@@ -124,7 +124,7 @@ Type a request and press Enter. While a turn is running, you can keep typing:
 - **Enter** sends a message that steers the running turn at its next safe point.
 - **Tab** queues a message to run after the current turn.
 - **Esc** interrupts the running turn. **Ctrl+C** exits.
-- **Shift+Tab** cycles the permission mode between asking before changes, accepting edits, and plan (read-only), then to bypass (run everything without asking) when the session was launched with `--yolo`, `--dangerously-skip-permissions` or `--allow-dangerously-skip-permissions`, and to auto (a second model checks each call you would be asked about). See [Permission modes](../../docs/cli/permission-modes.md).
+- **Shift+Tab** cycles the permission mode between asking before changes, accepting edits, and plan (read-only), then to bypass (run everything without asking) when the session was launched with `--dangerously-skip-permissions` or `--allow-dangerously-skip-permissions`, and to auto (a second model checks each call you would be asked about). See [Permission modes](../../docs/cli/permission-modes.md).
 - **Ctrl+T** shows or hides the task checklist. **Ctrl+O** expands a tool's output, and opens a viewer for long output.
 - **Ctrl+V** and **Alt+V** attach a clipboard image to the prompt.
 - **Alt+W** drops, restores or arms the composer trigger nearest the cursor.
@@ -185,7 +185,7 @@ namzu exec --json "refactor the parser" > events.ndjson
 namzu exec --output-schema answer.schema.json "rate this diff from 1 to 5"
 ```
 
-- `namzu exec` (alias `namzu e`) prints the final answer on stdout. Logs go to stderr, so stdout stays clean for the next command.
+- `namzu exec` prints the final answer on stdout. Logs go to stderr, so stdout stays clean for the next command.
 - `--json` writes one JSON event per line as the turn runs, so a script can react before the turn ends. The event kinds are in [namzu exec --json](https://github.com/cogitave/namzu/blob/main/docs/cli/exec-json.md).
 - `--output-schema <file>` makes the final answer match a JSON Schema you provide. Pass it after `exec`.
 - `--format json` (or `yaml`) on the root command switches the output of `namzu state` and `namzu exec` to that format. `--verbose` and `--quiet` also go before the command.
@@ -203,7 +203,7 @@ Exit codes matter in scripts. The main ones: `1` means the turn failed, `2` mean
 
 ## Status
 
-The terminal app is published on npm as `@namzu/cli`. Versions follow semantic versioning: a change that breaks the public interface is a major version. Read the [changelog](https://github.com/cogitave/namzu/blob/main/packages/cli/CHANGELOG.md) before you upgrade across a major version. Run `namzu upgrade --check` to see whether a newer version is out.
+The terminal app is published on npm as `@namzu/cli`. Versions follow semantic versioning: a change that breaks the public interface is a major version. Read the [changelog](https://github.com/cogitave/namzu/blob/main/packages/cli/CHANGELOG.md) before you upgrade across a major version. Run `namzu update --check` to see whether a newer version is out.
 
 ## For developers
 

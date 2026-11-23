@@ -113,11 +113,12 @@ it('refuses a tool list with an unclosed bracket instead of dropping it', async 
 
 it('sends a spend limit to the command that can honour it', async () => {
 	await expect(runCli({ argv: argv('--max-budget-usd', '2') })).resolves.toBe(64)
-	expect(flat(stderr)).toContain('namzu exec --max-budget-usd <amount>')
+	expect(flat(stderr)).toContain('--max-budget-usd needs -p')
 	expect(launchTui).not.toHaveBeenCalled()
 	stderr = ''
 	await expect(runCli({ argv: argv('--max-budget-usd', '2', 'exec', 'hi') })).resolves.toBe(64)
-	expect(flat(stderr)).toContain('namzu exec --max-budget-usd <value> "<prompt>"')
+	expect(flat(stderr)).toContain('--max-budget-usd needs -p')
+	expect(flat(stderr)).toContain('write it after the command')
 })
 
 it('points the per-run flags at their place after exec', async () => {

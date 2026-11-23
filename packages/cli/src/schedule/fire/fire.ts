@@ -178,7 +178,7 @@ function credentialSource(source: {
 }
 
 export const BORROWED_CREDENTIAL_WARNING =
-	'This run used another program’s sign-in. Refreshing it here can race that program’s own refresh; store a credential with `namzu login` or daemon.env for unattended runs.'
+	'This run used another program’s sign-in. Refreshing it here can race that program’s own refresh; store a credential with `namzu auth login` or daemon.env for unattended runs.'
 
 export interface FireDependencies {
 	/** The environment the service gave this process; read, never modified. */
@@ -536,7 +536,7 @@ export async function runFire(
 	const detected = probe.detected.find((d) => d.entry.id === model.provider)
 	if (!detected) {
 		return blocked(
-			`no credential for ${model.provider} in the scheduler’s environment; run namzu login, or put the key in ${paths.daemonEnv}`,
+			`no credential for ${model.provider} in the scheduler’s environment; run namzu auth login, or put the key in ${paths.daemonEnv}`,
 		)
 	}
 	const source = credentialSource(detected.source as { kind: string })

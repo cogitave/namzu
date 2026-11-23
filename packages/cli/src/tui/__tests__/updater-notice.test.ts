@@ -21,11 +21,11 @@ describe('the footer line the background updater leaves', () => {
 
 	it('gives the exact command, in the warning tone, when Namzu leaves the install to the person', () => {
 		expect(
-			updaterEventAmbient({ type: 'available', latest: '2.0.0', command: 'namzu upgrade' }),
+			updaterEventAmbient({ type: 'available', latest: '2.0.0', command: 'namzu update' }),
 		).toEqual({
-			text: 'Update available! Run: namzu upgrade',
+			text: 'Update available! Run: namzu update',
 			tone: 'warn',
-			strong: 'namzu upgrade',
+			strong: 'namzu update',
 		})
 	})
 
@@ -33,10 +33,10 @@ describe('the footer line the background updater leaves', () => {
 		const line = updaterEventAmbient({
 			type: 'available',
 			latest: '2.0.0',
-			command: 'namzu upgrade',
+			command: 'namzu update',
 			failure: 'network',
 		})
-		expect(line.text).toBe("Couldn't update Namzu on its own. Run: namzu upgrade")
+		expect(line.text).toBe("Couldn't update Namzu on its own. Run: namzu update")
 		expect(line.tone).toBe('warn')
 	})
 

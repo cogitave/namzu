@@ -258,7 +258,9 @@ describe('namzu computer', () => {
 			['frobnicate'],
 			['status', '--yes'],
 			['setup', '--plan'],
-			['stop-idle', '--bundle', 'x'],
+			['stop', 'idle', '--bundle', 'x'],
+			['stop'],
+			['stop', 'soon'],
 		]) {
 			const { deps, err } = harness()
 			expect(await runComputerCommand(args, deps)).toBe(EXIT_USAGE)
@@ -507,7 +509,7 @@ describe('namzu computer', () => {
 		})
 	})
 
-	it('stop-idle says stopped, busy or not running, and prints the outcome as JSON', async () => {
+	it('stop idle says stopped, busy or not running, and prints the outcome as JSON', async () => {
 		const words: Record<string, string> = {
 			stopped: 'The Linux machine for Pal computers was stopped to free memory.\n',
 			busy: 'A Pal computer is still running, so nothing was stopped.\n',
@@ -516,12 +518,19 @@ describe('namzu computer', () => {
 		for (const outcome of Object.keys(words)) {
 			setupApi.stopIdleWslcSession.mockResolvedValue({ outcome })
 			const human = harness()
-			expect(await runComputerCommand(['stop-idle'], human.deps)).toBe(0)
+			expect(await runComputerCommand(['stop', 'idle'], human.deps)).toBe(0)
 			expect(human.out.join('')).toBe(words[outcome])
 			const json = harness()
-			await runComputerCommand(['stop-idle', '--json'], json.deps)
+			await runComputerCommand(['stop', 'idle', '--json'], json.deps)
 			expect(JSON.parse(json.out.join(''))).toEqual({ version: 1, outcome })
 		}
+	})
+
+	it('still answers the hyphenated spelling an installed Desktop build passes', async () => {
+		setupApi.stopIdleWslcSession.mockResolvedValue({ outcome: 'stopped' })
+		const json = harness()
+		expect(await runComputerCommand(['stop-idle', '--json'], json.deps)).toBe(0)
+		expect(JSON.parse(json.out.join(''))).toEqual({ version: 1, outcome: 'stopped' })
 	})
 
 	it('reports a failure of the setup module in plain words, never JSON prose fields beyond message', async () => {
@@ -545,9 +554,9 @@ describe('namzu computer', () => {
 		})
 	})
 
-	it('stop-idle off Windows says there is nothing to stop', async () => {
+	it('stop idle off Windows says there is nothing to stop', async () => {
 		const { deps, out } = harness({ platform: 'linux' })
-		expect(await runComputerCommand(['stop-idle'], deps)).toBe(0)
+		expect(await runComputerCommand(['stop', 'idle'], deps)).toBe(0)
 		expect(out.join('')).toBe(
 			'There is no Linux machine for Pal computers to stop on this system.\n',
 		)

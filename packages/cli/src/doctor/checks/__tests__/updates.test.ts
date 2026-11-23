@@ -70,6 +70,6 @@ describe('what doctor says about updates', () => {
 
 	it('offers the plain command for a writable install', () => {
 		learn('2.0.0')
-		expect(describeUpdates(input(install(true))).remediation).toBe('Run: namzu upgrade')
+		expect(describeUpdates(input(install(true))).remediation).toBe('Run: namzu update')
 	})
 })

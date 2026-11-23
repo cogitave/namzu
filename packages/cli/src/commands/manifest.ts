@@ -3,7 +3,7 @@ import type { createWorktreeCommand } from './worktree.js'
 
 /**
  * The commands `namzu` registers, as definitions that do not import their
- * handlers. The name, aliases, description and `passThrough` here are what
+ * handlers. The name, description and `passThrough` here are what
  * `namzu --help` prints; `commands/__tests__/manifest.test.ts` loads each real
  * definition and fails when one of these has drifted from it.
  */
@@ -29,8 +29,6 @@ export const computerCommand = lazyCommand(
 export const workspacesCommand = lazyCommand(
 	{
 		name: 'workspaces',
-		// The name from before the rename; deprecated, removed in the next major.
-		aliases: ['spaces'],
 		description: 'Run Namzu sessions side by side in one terminal (preview)',
 		passThrough: true,
 	},
@@ -94,7 +92,6 @@ export const doctorCommand = lazyCommand(
 export const execCommand = lazyCommand(
 	{
 		name: 'exec',
-		aliases: ['e'],
 		description: 'Run a single prompt headlessly: print the reply, or stream events with --json',
 		passThrough: true,
 	},
@@ -119,22 +116,13 @@ export const learningCommand = lazyCommand(
 	async () => (await import('./learn.js')).learningCommand,
 )
 
-export const loginCommand = lazyCommand(
+export const authCommand = lazyCommand(
 	{
-		name: 'login',
-		description: 'Sign in with a provider subscription and store the credential.',
+		name: 'auth',
+		description: 'Sign in or out of a provider, and see which credentials are stored',
 		passThrough: true,
 	},
-	async () => (await import('./login.js')).loginCommand,
-)
-
-export const logoutCommand = lazyCommand(
-	{
-		name: 'logout',
-		description: 'Remove a credential namzu stored on this machine.',
-		passThrough: true,
-	},
-	async () => (await import('./login.js')).logoutCommand,
+	async () => (await import('./auth.js')).authCommand,
 )
 
 export const mcpCommand = lazyCommand(
@@ -219,19 +207,19 @@ export const providersCommand = lazyCommand(
 	async () => (await import('./providers.js')).providersCommand,
 )
 
-export const upgradeCommand = lazyCommand(
+export const updateCommand = lazyCommand(
 	{
-		name: 'upgrade',
+		name: 'update',
 		description: 'Update the active global Namzu installation',
 		passThrough: true,
 	},
-	async () => (await import('./upgrade.js')).upgradeCommand,
+	async () => (await import('./update.js')).updateCommand,
 )
 
 export const serveCommand = lazyCommand(
 	{
 		name: 'serve',
-		description: 'namzu needs no central server; each session is a process',
+		description: 'Print a note on why Namzu needs no server and how sessions run',
 	},
 	async () => (await import('./serve.js')).serveCommand,
 )

@@ -1,5 +1,5 @@
 /**
- * `namzu computer status | setup | stop-idle`: the Windows Pal computer setup
+ * `namzu computer status | setup | stop idle`: the Windows Pal computer setup
  * from a terminal. The agent runtime never calls this; setup runs only when a
  * person asks for it here, or when Namzu Desktop drives `--json`.
  */
@@ -44,10 +44,10 @@ export const COMPUTER_HELP = [
 	'',
 	'  status [--json] [--bundle <dir>]',
 	'  setup [--json] [--plan <id>] [--yes] [--bundle <dir>] [--resume-command <command>]',
-	'  stop-idle [--json]',
+	'  stop idle [--json]',
 	'',
 	'Pal computers on Windows run on Microsoft’s Linux container support. status says whether this PC',
-	'is ready; setup installs what is missing after you agree; stop-idle shuts the idle Linux machine down.',
+	'is ready; setup installs what is missing after you agree; stop idle shuts the idle Linux machine down.',
 	'--bundle <dir> (or NAMZU_PAL_COMPUTER_BUNDLE) names the folder that comes with the Pal computer.',
 	'setup asks "Continue? [y/N]". Without a terminal it prints the plan and exits 75 unless --yes or --plan is given.',
 	'--resume-command <command> is run once at the next sign-in when setup needs a restart (Namzu Desktop passes its own).',
@@ -69,7 +69,7 @@ export interface ComputerDeps {
 }
 
 interface Parsed {
-	readonly verb: 'status' | 'setup' | 'stop-idle'
+	readonly verb: 'status' | 'setup' | 'stop idle'
 	readonly json: boolean
 	readonly yes: boolean
 	readonly plan: string | undefined
@@ -78,9 +78,16 @@ interface Parsed {
 }
 
 function parse(args: readonly string[]): Parsed | string {
-	const [verb, ...rest] = args
-	if (verb !== 'status' && verb !== 'setup' && verb !== 'stop-idle')
-		return 'Choose status, setup or stop-idle. namzu computer --help lists the options.'
+	const [first, ...afterFirst] = args
+	// `stop-idle` is the spelling Namzu Desktop builds already installed pass
+	// (`computer stop-idle --json`). It keeps working, hidden from help, so
+	// those builds do not break; every caller in this repo says `stop idle`.
+	const legacyStopIdle = first === 'stop-idle'
+	const stopIdle = legacyStopIdle || (first === 'stop' && afterFirst[0] === 'idle')
+	const verb = stopIdle ? 'stop idle' : first
+	const rest = first === 'stop' && stopIdle ? afterFirst.slice(1) : afterFirst
+	if (verb !== 'status' && verb !== 'setup' && verb !== 'stop idle')
+		return 'Choose status, setup or stop idle. namzu computer --help lists the options.'
 	let json = false
 	let yes = false
 	let plan: string | undefined
@@ -93,7 +100,7 @@ function parse(args: readonly string[]): Parsed | string {
 		else if (
 			(arg === '--plan' && verb === 'setup') ||
 			(arg === '--resume-command' && verb === 'setup') ||
-			(arg === '--bundle' && verb !== 'stop-idle')
+			(arg === '--bundle' && verb !== 'stop idle')
 		) {
 			const value = rest[++i]
 			if (value === undefined || value.startsWith('--')) return `Expected one value for ${arg}.`

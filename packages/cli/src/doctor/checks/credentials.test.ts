@@ -104,7 +104,7 @@ describe('the credential-sources doctor check', () => {
 		})
 		expect(result.message).toContain(`checked ${join(profile, '.credentials.json')}`)
 		expect(result.message).toContain('Desktop sign-in does not guarantee')
-		expect(result.message).toContain('namzu login claude')
+		expect(result.message).toContain('namzu auth login claude')
 		expect(result.message).not.toContain('secret-fixture')
 	})
 

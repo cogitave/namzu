@@ -1,8 +1,8 @@
 /**
- * What `--yolo` does to the calls the owner kept being asked about.
+ * What `--dangerously-skip-permissions` does to the calls the owner kept being asked about.
  *
  * A real kernel turn with a scripted model: the model asks for one shell
- * command, the CLI's own review handler decides it in `bypass` (what `--yolo`
+ * command, the CLI's own review handler decides it in `bypass` (what `--dangerously-skip-permissions`
  * now means), and the test counts the questions put to a person and the
  * commands that ran. Nothing here calls a model or waits on a clock.
  */
@@ -107,7 +107,7 @@ async function run(
 	return { asked, execute, provider }
 }
 
-describe('a --yolo session', () => {
+describe('a --dangerously-skip-permissions session', () => {
 	it.each([
 		['a path outside the folder', 'cat /tmp/x'],
 		['a program the line does not name', '$CMD build'],
@@ -147,7 +147,7 @@ describe('a --yolo session', () => {
 	})
 
 	it('would have asked about the first two under the old reading of the flag', async () => {
-		// The kernel's `auto` is what `--yolo` used to mean: it asks about a path
+		// The kernel's `auto` is what `--dangerously-skip-permissions` used to mean: it asks about a path
 		// outside the folder and a program it cannot name. This pins the difference.
 		const outside = await run('cat /tmp/x', 'auto', 'approve')
 		const unnamed = await run('$CMD build', 'auto', 'approve')

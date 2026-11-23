@@ -1,5 +1,5 @@
 /**
- * `namzu login` / `namzu logout` — sign in without a running TUI.
+ * `namzu auth login` / `namzu auth logout` — sign in without a running TUI.
  *
  * ## Why this exists, having been argued against
  *
@@ -75,7 +75,7 @@ import { openInBrowser } from '../tui/open-browser.js'
 import type { CommandDef } from './types.js'
 
 const LOGIN_HELP = [
-	'Usage: namzu login <claude|codex> [options]',
+	'Usage: namzu auth login <claude|codex> [options]',
 	'',
 	'Sign in with a provider subscription and store the credential on this machine.',
 	'',
@@ -89,14 +89,14 @@ const LOGIN_HELP = [
 	'Claude sign-in opens a registered browser flow; paste the returned code or',
 	'finished address into this terminal. Where the shell cannot take a paste',
 	'(standard input closed), the sign-in is kept for 10 minutes, the address is',
-	'printed, and you finish with: namzu login claude --code <code>.',
+	'printed, and you finish with: namzu auth login claude --code <code>.',
 	'Codex sign-in prints a device code and polls while you approve it in the browser.',
 	'',
 	'Exit status: 0 signed in, or waiting for the code (the sign-in is kept; run',
 	'--code to finish); 1 the sign-in failed; 2 the command was used wrongly.',
 	'',
 	'The credential is written to ~/.namzu/credentials.json, readable only by your',
-	"account. Run 'namzu logout' to remove it.",
+	"account. Run 'namzu auth logout' to remove it.",
 	'',
 	'Inside WSL, a Claude or Codex sign-in made in Namzu Desktop on Windows is used in',
 	'place when this terminal has none of its own; signing in here keeps a separate one.',
@@ -108,7 +108,7 @@ const DESKTOP_SHARED_LOGOUT_NOTE =
 	'This terminal now uses the subscription signed in on Namzu Desktop on Windows (a sign-in of its own was hidden behind it, or never existed). It was not removed: it belongs to Desktop, so signing out here would sign Desktop out too. Sign out in Desktop to remove it, or set shareDesktopSignIn to false (or NAMZU_SHARE_DESKTOP_SIGNIN=0) so this terminal stops using it.'
 
 const LOGOUT_HELP = [
-	'Usage: namzu logout [claude|codex|gemini|<provider>|all]',
+	'Usage: namzu auth logout [claude|codex|gemini|<provider>|all]',
 	'',
 	'Remove a credential created by Namzu on this machine.',
 	'With no target, all Namzu-owned credentials are removed.',
@@ -248,7 +248,7 @@ export const loginCommand: CommandDef = {
 		}
 		if (!flags.provider) {
 			ctx.formatter.print({
-				text: `Choose which subscription Namzu should own:\n  namzu login claude\n  namzu login codex\n\nAPI keys remain optional alternatives.\n\n${LOGIN_HELP}`,
+				text: `Choose which subscription Namzu should own:\n  namzu auth login claude\n  namzu auth login codex\n\nAPI keys remain optional alternatives.\n\n${LOGIN_HELP}`,
 			})
 			return EXIT_USAGE
 		}
@@ -291,8 +291,8 @@ export const loginCommand: CommandDef = {
 			login.cancel()
 			ctx.formatter.print({
 				text: describeLoginOutcome(outcome, {
-					retry: 'namzu login codex',
-					remove: 'namzu logout',
+					retry: 'namzu auth login codex',
+					remove: 'namzu auth logout',
 				}),
 			})
 			return outcome.ok ? EXIT_OK : EXIT_FAIL
@@ -318,12 +318,12 @@ export interface BrowserCodeLoginDeps {
 	readonly openBrowser?: (url: string) => boolean
 }
 
-const WAITING_LINE = 'Finish with `namzu login claude --code <code>` within 10 minutes.'
+const WAITING_LINE = 'Finish with `namzu auth login claude --code <code>` within 10 minutes.'
 
 export async function runBrowserCodeLogin(deps: BrowserCodeLoginDeps): Promise<number> {
 	const { print, flags } = deps
 	const options = { home: deps.home, fetch: deps.fetch }
-	const retry = { retry: 'namzu login claude', remove: 'namzu logout' }
+	const retry = { retry: 'namzu auth login claude', remove: 'namzu auth logout' }
 
 	if (flags.code !== undefined) {
 		const outcome = await completePendingSubscriptionLogin(flags.code, options)
@@ -382,7 +382,7 @@ export async function runBrowserCodeLogin(deps: BrowserCodeLoginDeps): Promise<n
 		} catch (err) {
 			login.cancel()
 			print(
-				`Could not keep the sign-in for a later code: ${err instanceof Error ? err.message : String(err)}\n\nRun namzu login claude in a terminal that can take a paste.`,
+				`Could not keep the sign-in for a later code: ${err instanceof Error ? err.message : String(err)}\n\nRun namzu auth login claude in a terminal that can take a paste.`,
 			)
 			return EXIT_FAIL
 		}

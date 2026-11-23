@@ -1,7 +1,7 @@
 ---
 type: Reference
 title: Updates
-description: How the terminal keeps Namzu up to date in the background, which installs it updates by itself, the updates config keys and environment variables, how a failed update leaves the old version working, and how namzu upgrade shares the same code.
+description: How the terminal keeps Namzu up to date in the background, which installs it updates by itself, the updates config keys and environment variables, how a failed update leaves the old version working, and how namzu update shares the same code.
 resource: packages/cli/src/integrations/auto-update
 tags: [cli, updates, installation, config]
 status: stable
@@ -104,13 +104,13 @@ off (`updates.check` false or `NAMZU_UPDATE_CHECK=0`) a window writes nothing in
 install. When the terminal window itself goes away (hang-up) or the process is asked to stop
 (terminate), the installer is started and the file removed before the process ends; a process
 that is killed outright (`SIGKILL`, power loss) starts nothing, and the next window that
-ends starts it. Short commands (`--version`, `doctor`, `upgrade`) and `namzu acp` leave
+ends starts it. Short commands (`--version`, `doctor`, `update`) and `namzu acp` leave
   none. The background process gives up after six hours and leaves the update for the
   next window to close. The cost: the update lands when you stop, not ten seconds after
   you start.
 - **An install by someone else can still remove files** from a window that is open
-  (`npm install --global` in another terminal, `namzu upgrade`, a package manager).
-  `namzu upgrade` says when other windows are open from the install it just replaced.
+  (`npm install --global` in another terminal, `namzu update`, a package manager).
+  `namzu update` says when other windows are open from the install it just replaced.
   A window that needs a file that is gone says one plain line, never a stack trace:
   `Namzu 41.3.0 was installed while this window was open, so part of Namzu 41.2.0 is no
   longer on disk and this could not be done. Your conversation is saved; start Namzu
@@ -214,13 +214,13 @@ In CI the terminal still looks, but it does not install unless you ask for it
    names a registry version and not a path to a file that no longer exists (pnpm would
    otherwise skip Namzu in `pnpm update --global`) and what is installed is the
    checked file. When the store cannot serve it the update stands and the file entry
-   stays; `namzu upgrade` says so and names the one command that switches it.
-   `namzu upgrade` runs these same steps, writes the same marker, and puts the
+   stays; `namzu update` says so and names the one command that switches it.
+   `namzu update` runs these same steps, writes the same marker, and puts the
    previous version back the same way (offline from the store first, and it must start).
 6. If any step fails the previous copy is put back (pnpm installs the previous
    version again, offline from its store first and from the registry only if the
    store lacks it, and the result must start), so a failed update leaves a working Namzu. The outcome of the
-   last automatic attempt is kept per install in `updates/last-result-<install>.json` and `namzu upgrade
+   last automatic attempt is kept per install in `updates/last-result-<install>.json` and `namzu update
    --check` says when that attempt did not finish, and where the installer's log is,
    only when it was for the version now offered.
 
@@ -246,17 +246,17 @@ checksum, the installer did not finish) the footer says once `Namzu X could not
 start here; staying on Y` (or `could not be installed`) and offers nothing for that
 version: the command would fail the same way. `namzu doctor` keeps saying so, with
 the log of the attempt, until a newer version is published.
-`namzu upgrade --check` says the same for a version that did not start: it is available,
+`namzu update --check` says the same for a version that did not start: it is available,
 it did not start here last time, the previous version was put back, and where the
-installer's log is; it does not suggest installing it. `namzu upgrade` itself still
+installer's log is; it does not suggest installing it. `namzu update` itself still
 tries it when you run it.
 
-`namzu upgrade` keeps the installer's own output out of the way: nothing of it is
+`namzu update` keeps the installer's own output out of the way: nothing of it is
 shown on success, and after a failure it follows the error under `Details:`.
 
 On Windows a `node_modules\@namzu\cli` folder is only treated as a global
 install when `namzu.cmd` sits beside it (or it is Namzu's own folder); a copy
-inside a project is never updated. `namzu upgrade --check` says so when
+inside a project is never updated. `namzu update --check` says so when
 `channel: stable` is set and no stable release has been published.
 
 pnpm global installs are recognised in the layouts pnpm has used: the store
@@ -265,7 +265,7 @@ inside `…/pnpm/global/<n>/.pnpm`, the store under `…/pnpm/global/<n>/node_mo
 
 A window that was already open keeps running the code it started with. Restart it
 to use the new version. The record of the last automatic attempt (`last-result-<install>.json`,
-`namzu upgrade --check`, `namzu doctor`) is written by the background process that did the
+`namzu update --check`, `namzu doctor`) is written by the background process that did the
 install, so it is there for the next window to read.
 
 ## Settings
@@ -283,18 +283,18 @@ updates:
 |---|---|---|
 | `updates.auto` | `NAMZU_AUTO_UPDATE` (`0`/`off` or `1`/`on`) | Install without being asked. `false` leaves only the footer line with the command. `true` asks for it even in CI. The variable wins over the file. |
 | `updates.channel` | `NAMZU_UPDATE_CHANNEL` (`latest` or `stable`) | Which release tag to follow. `stable` follows the `stable` tag, which is moved by hand and may lag `latest`. Namzu never installs an older version than the one running. |
-| `updates.check` | `NAMZU_UPDATE_CHECK` (`0`/`off`) | `false` stops the background look altogether: no network, no footer line. `namzu upgrade` still works. |
+| `updates.check` | `NAMZU_UPDATE_CHECK` (`0`/`off`) | `false` stops the background look altogether: no network, no footer line. `namzu update` still works. |
 
 A project config file can only turn `auto` and `check` off for its own runs; it
 cannot turn installing on or pick a channel.
 
-## `namzu upgrade`
+## `namzu update`
 
-`namzu upgrade` runs the same code once, in the foreground, with the same lock,
+`namzu update` runs the same code once, in the foreground, with the same lock,
 the same checked download, the same kept copy and the same start check, and shows
 progress. It ignores a version the background update gave up on: asking for it
 is a request to try again. It follows the
-configured channel. `namzu upgrade --check` reports what is available without
+configured channel. `namzu update --check` reports what is available without
 changing anything. It also updates pnpm global installs; it refuses a layout it
 does not recognise instead of guessing.
 
@@ -314,7 +314,7 @@ does not recognise instead of guessing.
 - Homebrew, winget, scoop and distro packages do not exist for Namzu today.
 - TODO: the look at the registry and the download do not follow a proxy
   configured in the environment (`HTTPS_PROXY`, `NO_PROXY`) yet; behind a proxy
-  that blocks direct connections the terminal stays silent and `namzu upgrade`
+  that blocks direct connections the terminal stays silent and `namzu update`
   reports that it could not check. The package manager it starts does follow
   your own proxy settings. Proxy support for the CLI's network calls lands
   separately, and these two calls should use it when it does.

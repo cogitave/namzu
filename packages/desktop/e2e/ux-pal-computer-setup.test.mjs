@@ -1,5 +1,5 @@
 // The Pal computer row when this PC has to be set up (Windows), walked on Linux with a stand-in for
-// `namzu computer status | setup | stop-idle`. No engine, no paid model, no owner data.
+// `namzu computer status | setup | stop idle`. No engine, no paid model, no owner data.
 // Run: pnpm --filter @namzu/desktop build && cd packages/desktop && xvfb-run -a node --test e2e/ux-pal-computer-setup.test.mjs
 // Set PAL_SETUP_SHOTS to a directory to keep the screenshots.
 import assert from "node:assert/strict";
@@ -323,7 +323,7 @@ test(
 			await start.click();
 			const stop = context.getByRole("button", { name: "Stop computer" });
 			await expect(stop).toBeVisible({ timeout: 90000 });
-			const idleCalls = () => flow.calls().filter((call) => call[0] === "stop-idle").length;
+			const idleCalls = () => flow.calls().filter((call) => call[0] === "stop" && call[1] === "idle").length;
 			const before = idleCalls();
 			await stop.click();
 			await expect(context.getByRole("button", { name: "Start Kiro" })).toBeVisible({
@@ -331,7 +331,7 @@ test(
 			});
 			// The stand-in is asked once the quiet period after the stop has passed.
 			await expect(async () => {
-				assert.ok(idleCalls() > before, "stop-idle was asked after the computer stopped");
+				assert.ok(idleCalls() > before, "stop idle was asked after the computer stopped");
 			}).toPass({ timeout: 60000 });
 			assert.deepEqual(flow.world.faults, []);
 			failed = false;

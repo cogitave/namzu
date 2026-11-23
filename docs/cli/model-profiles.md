@@ -29,7 +29,7 @@ different endpoint.
 Main provider/model/effort exports apply to interactive launches and both
 `exec` output modes. They are launch defaults, not saved preferences or a
 replacement for a paused turn's recorded state. An exported model does not
-become a misplaced root flag on commands such as `history` or `upgrade`.
+become a misplaced root flag on commands such as `history` or `update`.
 Unknown effort levels and invalid token sizes are refused with the setting's
 name. A syntactically valid effort still needs support from the chosen model;
 capabilities come from its driver and catalogue.

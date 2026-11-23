@@ -75,7 +75,7 @@ export interface ExecFlags {
 	cwd: string | null
 	/** How calls no `[permissions]` rule decided are resolved: one of the `--permission-mode` words. */
 	permissionMode: string | null
-	/** --yolo / --dangerously-skip-permissions was given. */
+	/** --dangerously-skip-permissions was given. */
 	skipPermissions: boolean
 	/**
 	 * `--trust`: the operator accepts this working directory, for this turn.
@@ -83,7 +83,7 @@ export interface ExecFlags {
 	 * Separate from `skipPermissions` on purpose, and the two must never imply
 	 * each other. Skipping permissions is a statement about which tool calls may
 	 * run inside a folder; trust is a statement about the folder. Someone who
-	 * passes `--yolo` in their own repository has asserted nothing whatever
+	 * passes `--dangerously-skip-permissions` in their own repository has asserted nothing whatever
 	 * about a stranger's, and letting an existing flag satisfy a new gate is the
 	 * definition of a gate satisfied by accident.
 	 */
@@ -124,6 +124,20 @@ export interface ExecFlags {
 	 * command reads the file when it starts with `@`.
 	 */
 	appendSystemPrompt: string | null
+	/**
+	 * `--system-prompt <text|@file>`: replaces Namzu's own system prompt text for
+	 * this run. The value as given; the command reads the file when it starts with `@`.
+	 */
+	systemPrompt: string | null
+	/**
+	 * `--tools <list>`: the tools offered to the model. The value as given
+	 * (possibly empty, meaning none); null when the flag was not given.
+	 */
+	tools: string | null
+	/** `-n, --name <name>`: the name this run's conversation is listed under. */
+	name: string | null
+	/** `--strict-mcp-config`: use only the tool servers named by `--mcp-config`. */
+	strictMcpConfig: boolean
 	/**
 	 * `--max-budget-usd <amount>`: the turn stops when its priced spend reaches
 	 * this many dollars. Null means the flag was not given and the config decides.
@@ -206,6 +220,10 @@ export function parseExecFlags(rawArgs: readonly string[]): ExecFlags {
 		maxOutputTokens: null,
 		waitForProviderMs: null,
 		appendSystemPrompt: null,
+		systemPrompt: null,
+		tools: null,
+		name: null,
+		strictMcpConfig: false,
 		maxBudgetUsd: null,
 		allowedTools: [],
 		disallowedTools: [],
@@ -359,6 +377,47 @@ export function parseExecFlags(rawArgs: readonly string[]): ExecFlags {
 		if (
 			take(
 				a,
+				'system-prompt',
+				(v) => {
+					out.systemPrompt = v
+				},
+				idx,
+			)
+		)
+			continue
+		if (
+			take(
+				a,
+				'tools',
+				(v) => {
+					out.tools = v
+				},
+				idx,
+			)
+		)
+			continue
+		if (
+			take(
+				a,
+				'name',
+				trimmed((v) => {
+					out.name = v
+				}),
+				idx,
+			)
+		)
+			continue
+		if (a === '-n' && idx.v + 1 < rawArgs.length) {
+			out.name = rawArgs[++idx.v].trim() || null
+			continue
+		}
+		if (a === '--strict-mcp-config') {
+			out.strictMcpConfig = true
+			continue
+		}
+		if (
+			take(
+				a,
 				'max-budget-usd',
 				(v) => {
 					out.maxBudgetUsd = dollars(v, '--max-budget-usd')
@@ -417,6 +476,10 @@ export function parseExecFlags(rawArgs: readonly string[]): ExecFlags {
 			)
 		)
 			continue
+		if (a === '-r' && idx.v + 1 < rawArgs.length) {
+			out.resume = rawArgs[++idx.v].trim() || null
+			continue
+		}
 		if (
 			take(
 				a,
@@ -517,7 +580,7 @@ export function parseExecFlags(rawArgs: readonly string[]): ExecFlags {
 		// cannot reopen a `deny`, an `ask` rule or the dangerous-pattern floor,
 		// and a catastrophic removal still needs a person, so with nobody to ask
 		// that one is refused.
-		if (a === '--yolo' || a === '--dangerously-skip-permissions') {
+		if (a === '--dangerously-skip-permissions') {
 			out.skipPermissions = true
 			continue
 		}
@@ -756,10 +819,15 @@ export function applyLaunchFlags(
 export function launchMcpServers(
 	configured: McpServersConfig | undefined,
 	files: readonly string[],
+	strict = false,
 ): { readonly servers: McpServersConfig | undefined } | { readonly error: string } {
+	// Strict with no file names no servers at all.
+	if (strict && files.length === 0) return { servers: {} }
 	try {
 		return {
-			servers: mergeLaunchMcpServers(configured, files, (file) => resolve(process.cwd(), file)),
+			servers: mergeLaunchMcpServers(strict ? undefined : configured, files, (file) =>
+				resolve(process.cwd(), file),
+			),
 		}
 	} catch (error) {
 		if (error instanceof McpServerFileError) return { error: error.message }
