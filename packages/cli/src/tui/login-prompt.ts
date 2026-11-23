@@ -79,7 +79,7 @@ export function describeCodexDeviceLoginStart(start: {
  * `retryHint` and `removeHint` name the commands as THIS surface spells them,
  * for the same reason `completionHint` exists above. A failed sign-in run from
  * a bare terminal used to end with "Run /login to try again" — a slash command,
- * in a shell, where the thing to type is `namzu login`. Instructions that name
+ * in a shell, where the thing to type is `namzu auth login`. Instructions that name
  * another surface's spelling are the defect that made the sign-in unreachable
  * from the picker; it is not any better in an error message.
  */

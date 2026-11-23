@@ -90,7 +90,7 @@ export interface UpdateResult {
 	readonly method: string
 	readonly from: string
 	readonly to: string
-	/** Plain-words reason, kept for `namzu upgrade --check`. */
+	/** Plain-words reason, kept for `namzu update --check`. */
 	readonly detail?: string
 	/** The installer's output for that attempt, for the person who wants the details. */
 	readonly log?: string

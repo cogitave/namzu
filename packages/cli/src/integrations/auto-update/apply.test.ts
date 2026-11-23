@@ -430,7 +430,7 @@ describe('applying an update to a pnpm global installation', () => {
 
 describe('what a person is told to run', () => {
 	it('is the shared upgrade command where Namzu can write, and the exact manager command where it cannot', () => {
-		expect(manualUpdateCommand(npm(), '2.0.0', 'linux')).toBe('namzu upgrade')
+		expect(manualUpdateCommand(npm(), '2.0.0', 'linux')).toBe('namzu update')
 		expect(manualUpdateCommand(npm({ writable: false, prefix: '/usr' }), '2.0.0', 'linux')).toBe(
 			'sudo npm install --global --prefix /usr @namzu/cli@2.0.0',
 		)

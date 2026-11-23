@@ -159,7 +159,7 @@ export function askingOf(request: HITLDecisionRequest): string {
  * folder), or before holders said where they ran, proves nothing here: the lease's own time
  * decides for it.
  */
-function holderPidOf(lease: SessionLease | null): number | undefined {
+export function holderPidOf(lease: SessionLease | null): number | undefined {
 	const parsed = parseTurnHolder(lease?.holder ?? '')
 	if (!parsed || parsed.place === undefined || parsed.place !== currentPlace()) return undefined
 	return parsed.pid

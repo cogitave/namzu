@@ -12,12 +12,12 @@ import {
 } from '../integrations/auto-update/state.js'
 import type { Formatter } from '../output/index.js'
 import {
-	type NpmUpgradeRequest,
-	type UpgradeCommandDeps,
-	createUpgradeCommand,
+	type NpmUpdateRequest,
+	type UpdateCommandDeps,
+	createUpdateCommand,
 	npmGlobalPrefixFor,
 	removeOwnPowerShellShim,
-} from './upgrade.js'
+} from './update.js'
 
 /** What the registry says about a version: its digest and where the tarball is. */
 const release = (version: string) => ({
@@ -26,7 +26,7 @@ const release = (version: string) => ({
 	tarball: `https://registry.npmjs.org/@namzu/cli/-/cli-${version}.tgz`,
 })
 
-function harness(overrides: Partial<UpgradeCommandDeps> = {}) {
+function harness(overrides: Partial<UpdateCommandDeps> = {}) {
 	const printed: unknown[] = []
 	const errors: unknown[] = []
 	const info: string[] = []
@@ -36,9 +36,9 @@ function harness(overrides: Partial<UpgradeCommandDeps> = {}) {
 		error: (value) => errors.push(value),
 		info: (value) => info.push(value),
 	}
-	const requests: NpmUpgradeRequest[] = []
+	const requests: NpmUpdateRequest[] = []
 	const tarballs: string[] = []
-	const deps: UpgradeCommandDeps = {
+	const deps: UpdateCommandDeps = {
 		currentVersion: '14.2.1',
 		packageRoot: '/opt/namzu/lib/node_modules/@namzu/cli',
 		platform: 'linux',
@@ -55,7 +55,7 @@ function harness(overrides: Partial<UpgradeCommandDeps> = {}) {
 		installedVersion: () => '14.3.0',
 		...overrides,
 	}
-	const command = createUpgradeCommand(deps)
+	const command = createUpdateCommand(deps)
 	const invoke = (rawArgs: readonly string[] = []) =>
 		command.handler({ ctx: { config: {}, formatter }, rawArgs })
 	return { invoke, requests, printed, errors, info, tarballs }
@@ -79,7 +79,7 @@ describe('npm global installation ownership', () => {
 	})
 })
 
-describe('namzu upgrade with other windows open', () => {
+describe('namzu update with other windows open', () => {
 	it('says how many windows still run the old version, and to reopen them', async () => {
 		const one = harness({ windowsOpen: () => 1 })
 		expect(await one.invoke()).toBe(0)
@@ -103,7 +103,7 @@ describe('namzu upgrade with other windows open', () => {
 	})
 })
 
-describe('namzu upgrade', () => {
+describe('namzu update', () => {
 	it('checks without spawning and names the command that can apply the update', async () => {
 		const h = harness()
 		expect(await h.invoke(['--check'])).toBe(0)
@@ -113,7 +113,7 @@ describe('namzu upgrade', () => {
 				current: '14.2.1',
 				latest: '14.3.0',
 				upToDate: false,
-				text: expect.stringContaining('namzu upgrade'),
+				text: expect.stringContaining('namzu update'),
 			}),
 		])
 	})
@@ -297,7 +297,7 @@ describe('the PowerShell shim after an upgrade', () => {
 	})
 })
 
-describe('namzu upgrade keeps a working Namzu', () => {
+describe('namzu update keeps a working Namzu', () => {
 	function layout() {
 		const base = mkdtempSync(join(tmpdir(), 'namzu-upgrade-safety-'))
 		const root = join(base, 'prefix', 'lib', 'node_modules', '@namzu', 'cli')
@@ -360,7 +360,7 @@ describe('namzu upgrade keeps a working Namzu', () => {
 			expect(text).toContain('did not start here last time')
 			expect(text).toContain('previous version was put back')
 			expect(text).toContain('/tmp/install.log')
-			expect(text).not.toContain('Run `namzu upgrade`')
+			expect(text).not.toContain('Run `namzu update`')
 		})
 
 		it('does not print a failure for another version', async () => {
@@ -495,7 +495,7 @@ describe('namzu upgrade keeps a working Namzu', () => {
 				'cli',
 			)
 			const linked = join(globalDir, 'node_modules', '@namzu', 'cli')
-			const requests: NpmUpgradeRequest[] = []
+			const requests: NpmUpdateRequest[] = []
 			const read = vi.fn(() => '14.3.0')
 			const h = harness({
 				packageRoot: storeRoot,
@@ -568,7 +568,7 @@ describe('namzu upgrade keeps a working Namzu', () => {
 	it('follows the configured channel when it asks the registry', async () => {
 		const latestRelease = vi.fn(async () => release('14.3.0'))
 		const printed: unknown[] = []
-		const command = createUpgradeCommand({
+		const command = createUpdateCommand({
 			currentVersion: '14.2.1',
 			packageRoot: '/opt/namzu/lib/node_modules/@namzu/cli',
 			platform: 'linux',
@@ -592,7 +592,7 @@ describe('namzu upgrade keeps a working Namzu', () => {
 	})
 	it('says plainly that no stable release exists when the registry has none', async () => {
 		const errors: { message: string }[] = []
-		const command = createUpgradeCommand({
+		const command = createUpdateCommand({
 			currentVersion: '14.2.1',
 			packageRoot: '/opt/namzu/lib/node_modules/@namzu/cli',
 			platform: 'linux',

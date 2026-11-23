@@ -9,7 +9,7 @@ const update = updateAmbient({
 	name: 'namzu',
 	current: '1.0.0',
 	latest: '1.1.0',
-	how: 'namzu upgrade',
+	how: 'namzu update',
 })
 
 describe('the right end of the footer', () => {
@@ -26,7 +26,7 @@ describe('the right end of the footer', () => {
 	})
 
 	it('words the update pointer with the command to run', () => {
-		expect(update.text).toBe('Update available! Run: namzu upgrade')
+		expect(update.text).toBe('Update available! Run: namzu update')
 	})
 
 	it("keeps the model on the row; the update notice is not the status row's", () => {

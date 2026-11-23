@@ -1,6 +1,6 @@
 import { NAMZU_COMPACT_WORDMARK, NAMZU_WORDMARK } from '../tui/logo.js'
 
-export function upgradeFrame(tick: number, columns: number, complete = false): string {
+export function updateFrame(tick: number, columns: number, complete = false): string {
 	const logo = columns >= 28 ? NAMZU_WORDMARK : NAMZU_COMPACT_WORDMARK
 	const width = Math.max(...logo.split('\n').map((line) => line.length))
 	const edge = tick % width
@@ -15,7 +15,7 @@ export function upgradeFrame(tick: number, columns: number, complete = false): s
 }
 
 /** A bounded two-line activity indicator; npm has no trustworthy percent API. */
-export function startUpgradeProgress(
+export function startUpdateProgress(
 	stream: {
 		readonly isTTY?: boolean
 		readonly columns?: number
@@ -42,7 +42,7 @@ export function startUpgradeProgress(
 	}
 	const draw = (complete = false) => {
 		clear()
-		const frame = upgradeFrame(tick++, stream.columns ?? 80, complete)
+		const frame = updateFrame(tick++, stream.columns ?? 80, complete)
 		stream.write(`${frame}\n`)
 		rows = frame.split('\n').length
 	}

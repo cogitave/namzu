@@ -1,9 +1,22 @@
-import { EXIT_OK, EXIT_UNAVAILABLE, EXIT_USAGE } from '../exit-codes.js'
+import { realpath } from 'node:fs/promises'
+import { resolve } from 'node:path'
+import { createInterface } from 'node:readline/promises'
+
+import { EXIT_FAIL, EXIT_OK, EXIT_UNAVAILABLE, EXIT_USAGE } from '../exit-codes.js'
 import { resolveNamzuHome } from '../integrations/state/home.js'
 import {
 	type LegacyMoveResult,
 	moveProjectLegacyState,
 } from '../integrations/state/project-legacy.js'
+import { cliProjectRoot } from '../integrations/state/project.js'
+import {
+	type PurgeOutcome,
+	type PurgePlan,
+	type PurgeSeams,
+	executePurge,
+	planAllPurge,
+	planProjectPurge,
+} from '../integrations/state/purge.js'
 import { type NamzuStateReport, inspectNamzuState } from '../integrations/state/report.js'
 import { homePath } from '../tui/person-terms.js'
 import { terminalDisplayText } from '../tui/terminal-display.js'
@@ -15,6 +28,7 @@ Usage:
   namzu state
   namzu state report
   namzu state move legacy [--dry-run]
+  namzu state purge [path] [--dry-run] [--yes] [--all]
 
 report (the default) lists what Namzu keeps and where, without changing
 anything: it does not load project configuration, create a Session, repair,
@@ -27,16 +41,34 @@ trust, moves only names an earlier Namzu wrote, and leaves in place what git
 tracks, a git worktree with changes and anything it cannot check, saying why.
 --dry-run says what would move and changes nothing.
 
+purge deletes the state Namzu keeps in its home for one project (this folder's
+by default, or the project of [path]): its conversations, checkpoints, file
+history, plans, memory, recovery copies, its prompts in the prompt history and
+its rows in the session index. It never deletes anything in the project folder
+itself, so settings files kept there stay. It lists what it will delete and asks
+first; with no terminal it needs --yes. It stops while a session of the project
+is running, and while git worktrees Namzu made for it still exist.
+
 Output:
   Use the global --format json or --format yaml flag for structured output.
 
 Options:
-  --dry-run   With move legacy: list what would move, change nothing
+  --dry-run   With move legacy or purge: list what would change, change nothing
+  --yes       With purge: delete without asking
+  --all       With purge: every project, not one
   -h, --help  Show this help`
 
 export interface StateCommandDeps {
 	readonly inspect: () => Promise<NamzuStateReport>
 	readonly moveLegacy?: (options: { readonly dryRun: boolean }) => Promise<LegacyMoveResult>
+	/** Test seams for `state purge`; each defaults to the real thing. */
+	readonly purge?: {
+		readonly cwd?: () => string
+		readonly home?: () => string
+		readonly isTerminal?: () => boolean
+		readonly confirm?: (question: string) => Promise<boolean>
+		readonly seams?: PurgeSeams
+	}
 }
 
 export function createStateCommand(deps: StateCommandDeps): CommandDef {
@@ -50,6 +82,7 @@ export function createStateCommand(deps: StateCommandDeps): CommandDef {
 				ctx.formatter.error({ message: 'This command is now `namzu state move legacy`.' })
 				return EXIT_USAGE
 			}
+			if (rawArgs[0] === 'purge') return await runPurge(ctx.formatter, rawArgs.slice(1), deps.purge)
 			if (rawArgs[0] === 'move' && rawArgs[1] === 'legacy') {
 				const rest = rawArgs.slice(2)
 				if (!(rest.length === 0 || (rest.length === 1 && rest[0] === '--dry-run'))) {
@@ -73,7 +106,10 @@ export function createStateCommand(deps: StateCommandDeps): CommandDef {
 				return EXIT_OK
 			}
 			if (!(rawArgs.length === 0 || (rawArgs.length === 1 && rawArgs[0] === 'report'))) {
-				ctx.formatter.error({ message: 'Usage: namzu state [report | move legacy [--dry-run]]' })
+				ctx.formatter.error({
+					message:
+						'Usage: namzu state [report | move legacy [--dry-run] | purge [path] [--dry-run] [--yes] [--all]]',
+				})
 				return EXIT_USAGE
 			}
 			const report = await deps.inspect()
@@ -81,6 +117,132 @@ export function createStateCommand(deps: StateCommandDeps): CommandDef {
 			return EXIT_OK
 		},
 	}
+}
+
+type Fmt = Parameters<CommandDef['handler']>[0]['ctx']['formatter']
+
+async function askOnTerminal(question: string): Promise<boolean> {
+	const rl = createInterface({ input: process.stdin, output: process.stderr })
+	try {
+		const answer = await rl.question(question)
+		return /^y(es)?$/i.test(answer.trim())
+	} finally {
+		rl.close()
+	}
+}
+
+async function runPurge(
+	formatter: Fmt,
+	args: readonly string[],
+	seams: StateCommandDeps['purge'] = {},
+): Promise<number> {
+	let dryRun = false
+	let yes = false
+	let all = false
+	const operands: string[] = []
+	for (const arg of args) {
+		if (arg === '--dry-run') dryRun = true
+		else if (arg === '--yes') yes = true
+		else if (arg === '--all') all = true
+		else if (arg.startsWith('-')) {
+			formatter.error({ message: 'Usage: namzu state purge [path] [--dry-run] [--yes] [--all]' })
+			return EXIT_USAGE
+		} else operands.push(arg)
+	}
+	if (operands.length > 1 || (all && operands.length > 0)) {
+		formatter.error({
+			message: all
+				? '`namzu state purge --all` takes no path.'
+				: 'Usage: namzu state purge [path] [--dry-run] [--yes] [--all]',
+		})
+		return EXIT_USAGE
+	}
+	const isTerminal =
+		seams.isTerminal ?? (() => Boolean(process.stdin.isTTY && process.stdout.isTTY))
+	// Checked before anything is read or listed: with no terminal and no --yes there is nobody to ask.
+	if (!dryRun && !yes && !isTerminal()) {
+		formatter.error({
+			message: 'There is no terminal to ask on: add --yes to delete, or --dry-run to only list.',
+		})
+		return EXIT_USAGE
+	}
+	const home = (seams.home ?? (() => resolveNamzuHome()))()
+	let plan: PurgePlan
+	if (all) {
+		plan = await planAllPurge(home, seams.seams)
+	} else {
+		const cwd = (seams.cwd ?? (() => process.cwd()))()
+		let folder: string
+		try {
+			folder = await realpath(resolve(cwd, operands[0] ?? '.'))
+		} catch {
+			formatter.error({ message: `There is no folder at ${safePath(operands[0] ?? cwd)}.` })
+			return EXIT_USAGE
+		}
+		plan = await planProjectPurge(home, cliProjectRoot(folder), seams.seams)
+	}
+	const blocked = plan.projects.filter((project) => project.blocked !== undefined)
+	const items = plan.projects.flatMap((project) => project.items)
+	if (items.length === 0 && plan.history === undefined) {
+		const text =
+			blocked.length > 0
+				? renderPurgePlan(plan, dryRun)
+				: 'Nothing is kept in the Namzu home for this.'
+		formatter.print({ ...plan, text })
+		return blocked.length > 0 ? EXIT_FAIL : EXIT_OK
+	}
+	if (dryRun) {
+		formatter.print({ ...plan, dryRun: true, text: renderPurgePlan(plan, true) })
+		return blocked.length > 0 ? EXIT_FAIL : EXIT_OK
+	}
+	formatter.print({ ...plan, text: renderPurgePlan(plan, false) })
+	if (!yes) {
+		const ok = await (seams.confirm ?? askOnTerminal)('Delete this? [y/N] ')
+		if (!ok) {
+			formatter.print({ text: 'Nothing was deleted.' })
+			return EXIT_OK
+		}
+	}
+	const outcomes = await executePurge(plan, { all })
+	formatter.print({ outcomes, text: renderPurgeOutcome(outcomes) })
+	return outcomes.some((outcome) => outcome.failed.length > 0) || blocked.length > 0
+		? EXIT_FAIL
+		: EXIT_OK
+}
+
+export function renderPurgePlan(plan: PurgePlan, dryRun: boolean): string {
+	const lines: string[] = [
+		dryRun ? 'Would delete (nothing is deleted):' : 'This deletes, under the Namzu home:',
+	]
+	const describe = (item: PurgePlan['projects'][number]['items'][number]): string =>
+		item.count !== undefined
+			? `${item.count} ${item.count === 1 ? item.what.replace(/^(prompt|row)s /, '$1 ') : item.what}`
+			: `${item.what}: ${formatBytes(item.bytes)} · ${item.files} files`
+	for (const project of plan.projects) {
+		lines.push('', project.folder !== null ? safePath(project.folder) : project.slug)
+		if (project.blocked !== undefined) {
+			lines.push(`  left alone: ${safeLine(project.blocked)}`)
+			continue
+		}
+		for (const item of project.items) {
+			lines.push(`  ${safePath(homePath(item.path))}`)
+			lines.push(`    ${describe(item)}`)
+		}
+	}
+	if (plan.history !== undefined) {
+		lines.push('', `  ${safePath(homePath(plan.history.path))}`, `    ${describe(plan.history)}`)
+	}
+	lines.push('', 'Files inside the project folders are not touched.')
+	return lines.join('\n')
+}
+
+export function renderPurgeOutcome(outcomes: readonly PurgeOutcome[]): string {
+	const lines: string[] = []
+	for (const outcome of outcomes) {
+		for (const done of outcome.deleted) lines.push(`Deleted ${safePath(homePath(done))}`)
+		for (const bad of outcome.failed) lines.push(`Could not delete ${safeLine(bad)}`)
+	}
+	return lines.length > 0 ? lines.join('\n') : 'Nothing was deleted.'
 }
 
 export const stateCommand: CommandDef = createStateCommand({

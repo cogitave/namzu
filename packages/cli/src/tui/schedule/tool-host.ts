@@ -152,7 +152,7 @@ async function credentialText(provider: string): Promise<string> {
 			(d) => d.entry.id === provider,
 		)
 		if (!found)
-			return `no ${provider} credential found here; the scheduler must find one (namzu login or daemon.env)`
+			return `no ${provider} credential found here; the scheduler must find one (namzu auth login or daemon.env)`
 		const source = found.source as {
 			kind: string
 			envName?: string

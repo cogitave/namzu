@@ -33,30 +33,30 @@ import {
 	writeInProgress,
 } from '../integrations/auto-update/state.js'
 import {
-	type NpmUpgradeRequest,
+	type NpmUpdateRequest,
 	npmGlobalPrefixFor,
 	removeOwnPowerShellShim,
-	runNpmUpgrade,
+	runNpmUpdate,
 } from '../integrations/npm-global.js'
 import { resolveNamzuHome } from '../integrations/state/home.js'
 import { type NamzuRelease, compareVersions, fetchNamzuRelease } from '../integrations/updates.js'
 import type { CommandDef } from './types.js'
-import { startUpgradeProgress } from './upgrade-progress.js'
+import { startUpdateProgress } from './update-progress.js'
 
-const HELP = `namzu upgrade — update the active global Namzu installation
+const HELP = `namzu update — update the active global Namzu installation
 
 Usage:
-  namzu upgrade
-  namzu upgrade --check
+  namzu update
+  namzu update --check
 
 Options:
   --check   Check the registry without changing the installation
   -h, --help  Show this help`
 
-export { npmGlobalPrefixFor, removeOwnPowerShellShim, runNpmUpgrade }
-export type { NpmUpgradeRequest }
+export { npmGlobalPrefixFor, removeOwnPowerShellShim, runNpmUpdate }
+export type { NpmUpdateRequest }
 
-export interface UpgradeCommandDeps {
+export interface UpdateCommandDeps {
 	readonly currentVersion: string
 	readonly packageRoot: string
 	readonly platform: NodeJS.Platform
@@ -67,13 +67,13 @@ export interface UpgradeCommandDeps {
 	 * downloaded from the registry the release came from.
 	 */
 	readonly fetchTarball?: (release: NamzuRelease, file: string) => Promise<void>
-	readonly runNpm: (request: NpmUpgradeRequest) => Promise<number>
+	readonly runNpm: (request: NpmUpdateRequest) => Promise<number>
 	readonly installedVersion: (packageRoot: string) => string
 	/**
 	 * After a verified update: ask a running scheduler to finish its runs and
 	 * restart on the new code. Best effort; the scheduler also notices by itself.
 	 */
-	readonly afterUpgrade?: () => Promise<void>
+	readonly afterUpdate?: () => Promise<void>
 	/**
 	 * How many other Namzu windows run from the installation that was just replaced. They keep the
 	 * old code in memory and can fail to load more of it, so the person is told.
@@ -133,12 +133,12 @@ function safeHome(): string {
 	}
 }
 
-const productionDeps: UpgradeCommandDeps = {
+const productionDeps: UpdateCommandDeps = {
 	currentVersion: readInstalledVersion(PACKAGE_ROOT),
 	packageRoot: PACKAGE_ROOT,
 	platform: process.platform,
 	latestRelease: (channel) => fetchNamzuRelease({ channel }),
-	runNpm: runNpmUpgrade,
+	runNpm: runNpmUpdate,
 	installedVersion: readInstalledVersion,
 	safety: { home: safeHome(), smokeTest: smokeTestInstalled },
 	windowsOpen: () => {
@@ -148,7 +148,7 @@ const productionDeps: UpgradeCommandDeps = {
 		if (install.kind !== 'npm-global' && install.kind !== 'pnpm-global') return 0
 		return otherRunning(install, { except: process.pid }).length
 	},
-	afterUpgrade: async () => {
+	afterUpdate: async () => {
 		const [{ callEndpoint, readEndpoint }, { schedulePaths }, { resolveNamzuHome }] =
 			await Promise.all([
 				import('../schedule/daemon/endpoint.js'),
@@ -166,16 +166,16 @@ function parseArgs(rawArgs: readonly string[]): { readonly check: boolean } | nu
 	return null
 }
 
-export function createUpgradeCommand(deps: UpgradeCommandDeps): CommandDef {
+export function createUpdateCommand(deps: UpdateCommandDeps): CommandDef {
 	return {
-		name: 'upgrade',
+		name: 'update',
 		description: 'Update the active global Namzu installation',
 		passThrough: true,
 		help: HELP,
 		handler: async ({ ctx, rawArgs }) => {
 			const flags = parseArgs(rawArgs)
 			if (!flags) {
-				ctx.formatter.error({ message: 'Usage: namzu upgrade [--check]' })
+				ctx.formatter.error({ message: 'Usage: namzu update [--check]' })
 				return EXIT_USAGE
 			}
 
@@ -235,7 +235,7 @@ export function createUpgradeCommand(deps: UpgradeCommandDeps): CommandDef {
 					current: deps.currentVersion,
 					latest,
 					upToDate: false,
-					text: `Namzu ${latest} is available (current: ${deps.currentVersion}). Run \`namzu upgrade\` to install it.${
+					text: `Namzu ${latest} is available (current: ${deps.currentVersion}). Run \`namzu update\` to install it.${
 						last?.outcome === 'failed' && last.detail
 							? `\nThe last automatic update did not finish: ${last.detail}${
 									last.log ? `\nWhat the installer printed is in ${last.log}` : ''
@@ -288,7 +288,7 @@ export function createUpgradeCommand(deps: UpgradeCommandDeps): CommandDef {
 }
 
 interface InstallInput {
-	readonly deps: UpgradeCommandDeps
+	readonly deps: UpdateCommandDeps
 	readonly ctx: Parameters<CommandDef['handler']>[0]['ctx']
 	readonly release: NamzuRelease
 	readonly prefix: string | null
@@ -303,10 +303,10 @@ interface InstallInput {
 async function installUpdate(input: InstallInput): Promise<number> {
 	const { deps, ctx, release, prefix, pnpmDir } = input
 	const scope = scopeFor(deps.platform, prefix, pnpmDir)
-	// Loaded here, not at the top: `namzu upgrade` should not pull the runtime in for a path it may not take.
+	// Loaded here, not at the top: `namzu update` should not pull the runtime in for a path it may not take.
 	const scratch = deps.safety
 		? undefined
-		: (await import('@namzu/sdk')).createTempDirSync('upgrade-')
+		: (await import('@namzu/sdk')).createTempDirSync('update-')
 	const file = deps.safety
 		? tarballPath(deps.safety.home, scope, release.version)
 		: join(scratch ?? '', `namzu-cli-${release.version}.tgz`)
@@ -340,7 +340,7 @@ async function installVerified({
 	const executable = pnpmDir ? 'pnpm' : deps.platform === 'win32' ? 'npm.cmd' : 'npm'
 	const cwd = pnpmDir ?? prefix ?? ''
 	const activeRootPath = pnpmDir ? join(pnpmDir, 'node_modules', '@namzu', 'cli') : deps.packageRoot
-	const request: NpmUpgradeRequest = {
+	const request: NpmUpdateRequest = {
 		executable,
 		prefix: cwd,
 		args: pnpmDir
@@ -425,7 +425,7 @@ async function installVerified({
 
 	const progress =
 		ctx.formatter.name === 'text' && !['silent', 'error'].includes(ctx.logging?.level ?? 'info')
-			? startUpgradeProgress()
+			? startUpdateProgress()
 			: undefined
 	let output = ''
 	// The installer's own words are for the failure details only; a success never shows them.
@@ -523,11 +523,11 @@ async function installVerified({
 					: ''
 			}`,
 		})
-		await deps.afterUpgrade?.().catch(() => undefined)
+		await deps.afterUpdate?.().catch(() => undefined)
 		return EXIT_OK
 	} finally {
 		progress?.stop()
 	}
 }
 
-export const upgradeCommand: CommandDef = createUpgradeCommand(productionDeps)
+export const updateCommand: CommandDef = createUpdateCommand(productionDeps)

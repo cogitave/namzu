@@ -10,7 +10,7 @@
  */
 
 import { CLI_VERSION } from '../../version.js'
-import { removeOwnPowerShellShim, runNpmUpgrade } from '../npm-global.js'
+import { removeOwnPowerShellShim, runNpmUpdate } from '../npm-global.js'
 import { fetchNamzuRelease } from '../updates.js'
 import { scopeOf, sharedStateHome } from './apply.js'
 import { type InstallerRequest, PUBLIC_REGISTRY } from './apply.js'
@@ -99,7 +99,7 @@ export async function runApplyAtExit(
 			fetchRelease: (channel) => fetchNamzuRelease({ channel, registry: PUBLIC_REGISTRY }),
 			applyDeps: {
 				runInstaller: (request: InstallerRequest) =>
-					runNpmUpgrade({
+					runNpmUpdate({
 						executable: request.executable,
 						args: request.args,
 						prefix: request.cwd,

@@ -159,7 +159,7 @@ export async function checkNamzuUpdate(
 	try {
 		const latest = await latestNamzuVersion(options)
 		if (compareVersions(latest, current) <= 0) return null
-		return { name: 'namzu', current, latest, how: 'namzu upgrade' }
+		return { name: 'namzu', current, latest, how: 'namzu update' }
 	} catch {
 		return null
 	}

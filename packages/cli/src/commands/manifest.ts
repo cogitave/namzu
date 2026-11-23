@@ -119,22 +119,13 @@ export const learningCommand = lazyCommand(
 	async () => (await import('./learn.js')).learningCommand,
 )
 
-export const loginCommand = lazyCommand(
+export const authCommand = lazyCommand(
 	{
-		name: 'login',
-		description: 'Sign in with a provider subscription and store the credential.',
+		name: 'auth',
+		description: 'Sign in or out of a provider, and see which credentials are stored',
 		passThrough: true,
 	},
-	async () => (await import('./login.js')).loginCommand,
-)
-
-export const logoutCommand = lazyCommand(
-	{
-		name: 'logout',
-		description: 'Remove a credential namzu stored on this machine.',
-		passThrough: true,
-	},
-	async () => (await import('./login.js')).logoutCommand,
+	async () => (await import('./auth.js')).authCommand,
 )
 
 export const mcpCommand = lazyCommand(
@@ -219,13 +210,13 @@ export const providersCommand = lazyCommand(
 	async () => (await import('./providers.js')).providersCommand,
 )
 
-export const upgradeCommand = lazyCommand(
+export const updateCommand = lazyCommand(
 	{
-		name: 'upgrade',
+		name: 'update',
 		description: 'Update the active global Namzu installation',
 		passThrough: true,
 	},
-	async () => (await import('./upgrade.js')).upgradeCommand,
+	async () => (await import('./update.js')).updateCommand,
 )
 
 export const serveCommand = lazyCommand(

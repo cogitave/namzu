@@ -5,7 +5,7 @@
  * `xdg-open`, `start`, `explorer.exe` — and read the launcher's exit status as
  * the answer. Under WSL `explorer.exe` opens the page and exits 1, so a turn
  * that had done what was asked reported failure. This hands the address to
- * {@link openInBrowser}, the opener `namzu login` uses: http and https only,
+ * {@link openInBrowser}, the opener `namzu auth login` uses: http and https only,
  * no shell, the launcher by absolute path, and under WSL the Windows browser.
  *
  * The result says only that a launcher STARTED. No platform reports whether a

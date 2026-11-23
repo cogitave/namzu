@@ -76,12 +76,12 @@ describe('the commands are reachable and describe themselves', () => {
 	it('login renders its own help, because passThrough turns commander’s off', () => {
 		expect(loginCommand.passThrough).toBe(true)
 		expect(loginCommand.help).toBeDefined()
-		expect(loginCommand.help).toContain('namzu login')
+		expect(loginCommand.help).toContain('namzu auth login')
 	})
 
 	it('logout accepts an exact provider target and owns its help', () => {
 		expect(logoutCommand.passThrough).toBe(true)
-		expect(logoutCommand.help).toContain('namzu logout [claude|codex|gemini|<provider>|all]')
+		expect(logoutCommand.help).toContain('namzu auth logout [claude|codex|gemini|<provider>|all]')
 	})
 
 	it('names itself for what an operator is trying to do', () => {
@@ -115,25 +115,25 @@ describe('parseLogoutTarget', () => {
  * exists, and both of the surfaces below have none.
  */
 describe('a surface names its own spelling of the command', () => {
-	it('the terminal tells you to run namzu login, not to type a slash command', () => {
+	it('the terminal tells you to run namzu auth login, not to type a slash command', () => {
 		const text = describeLoginOutcome(
 			{ ok: false, reason: 'Something failed.' },
-			{ retry: 'namzu login', remove: 'namzu logout' },
+			{ retry: 'namzu auth login', remove: 'namzu auth logout' },
 		)
-		expect(text).toContain('namzu login')
+		expect(text).toContain('namzu auth login')
 		expect(text).not.toContain('/login')
 	})
 
-	it('and names namzu logout on success', () => {
+	it('and names namzu auth logout on success', () => {
 		const text = describeLoginOutcome(
 			{
 				ok: true,
 				credential: { accessToken: 'zzz-secret' },
 				storedAt: '/p/credentials.json',
 			},
-			{ retry: 'namzu login', remove: 'namzu logout' },
+			{ retry: 'namzu auth login', remove: 'namzu auth logout' },
 		)
-		expect(text).toContain('namzu logout')
+		expect(text).toContain('namzu auth logout')
 		expect(text).not.toContain('/logout')
 		expect(text).not.toContain('zzz-secret')
 	})

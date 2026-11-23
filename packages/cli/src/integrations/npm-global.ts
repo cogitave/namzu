@@ -13,7 +13,7 @@ import { dirname, join, posix, win32 } from 'node:path'
 
 import { resolveNpmInvocation } from './npm-invocation.js'
 
-export interface NpmUpgradeRequest {
+export interface NpmUpdateRequest {
 	readonly executable: string
 	readonly args: readonly string[]
 	readonly prefix: string
@@ -110,7 +110,7 @@ export function killTree(pid: number): void {
 	}
 }
 
-export function runNpmUpgrade(request: NpmUpgradeRequest): Promise<number> {
+export function runNpmUpdate(request: NpmUpdateRequest): Promise<number> {
 	return new Promise((resolveRun, reject) => {
 		const invocation = resolveNpmInvocation(request.executable, request.args)
 		let logFd: number | undefined

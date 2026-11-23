@@ -30,7 +30,7 @@ reviewed like other outward actions: `prompt` mode asks before it runs, and a
 
 ## How it opens the page
 
-It uses the same opener as `namzu login` (`packages/cli/src/tui/open-browser.ts`).
+It uses the same opener as `namzu auth login` (`packages/cli/src/tui/open-browser.ts`).
 No shell reads the address, and the launcher is named by absolute path, so a
 same-named program earlier on `PATH` cannot answer instead:
 
@@ -41,7 +41,7 @@ same-named program earlier on `PATH` cannot answer instead:
 | WSL with interop | `<root>c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe`, where `<root>` is `[automount] root` in `/etc/wsl.conf` (`/mnt/` by default), started in `<root>c` and running the fixed script `Start-Process -FilePath $env:NAMZU_OPEN_URL`, sent as `-EncodedCommand`. The address is passed only in `NAMZU_OPEN_URL`, which `WSLENV` names, so the script's text never contains it |
 | Other Linux, or WSL without interop or PowerShell | `xdg-open <url>`, found on an absolute `PATH` entry |
 
-Under WSL the page therefore opens in the Windows browser, and `namzu login`'s
+Under WSL the page therefore opens in the Windows browser, and `namzu auth login`'s
 sign-in page does too. It used to go to `xdg-open`, which under WSL usually
 reaches nothing. The opener does not use `cmd.exe /c start`, because `cmd.exe`
 treats `&` in a URL as a command separator. It does not use `explorer.exe`
