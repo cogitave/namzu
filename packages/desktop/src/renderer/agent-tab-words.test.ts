@@ -6,7 +6,5 @@ it('says who holds an agent tab, in plain words', () => {
 	expect(agentStatusWords({ control: 'agent', working: true })).toBe(
 		'Namzu is using this tab · working',
 	)
-	expect(agentStatusWords({ control: 'person', working: true })).toBe(
-		'You have control',
-	)
+	expect(agentStatusWords({ control: 'person', working: true })).toBe('You have control')
 })
