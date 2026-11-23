@@ -1,7 +1,7 @@
 ---
 type: Reference
 title: Launch flags for the interactive session
-description: --provider, --model, --effort, --fast, --permission-mode, the first message, --continue, --resume and --from-pr on the interactive namzu and namzu resume, what each chooses for that launch only, how they combine with the saved choice and --yolo, the switch that lets Shift+Tab reach bypass, and what happens when one cannot be honoured.
+description: --system-prompt, --tools, --name, --bare, --debug-file, --settings, --mcp-config, --provider, --model, --effort, --fast, --permission-mode, the first message, --continue, --resume and --from-pr on the interactive namzu and namzu resume, what each chooses for that launch only, how they combine with the saved choice and --yolo, the switch that lets Shift+Tab reach bypass, and what happens when one cannot be honoured.
 resource: packages/cli/src/tui/launch-settings.ts
 tags: [cli, tui, providers, permissions]
 status: stable
@@ -45,9 +45,71 @@ Four more options are per-run settings rather than a choice of provider, model o
 
 The same four flags exist on `namzu exec` and `namzu drain`, written after the command, where they apply to that run. Written before `exec`, `drain` or any other subcommand they are refused with exit status 64 and a line naming where they go, so a flag is never silently ignored.
 
+## Shaping one launch
+
+These options change what one launch starts with. All are session-only: nothing is written to a settings file. Written before the command or after `namzu resume`; for headless work they go after `exec`, or anywhere after `-p` ([Print mode](print-mode.md)).
+
+| Flag | What it does |
+| --- | --- |
+| `--system-prompt <text\|@file>` | replaces Namzu's own system prompt text |
+| `--tools <list>` | offers the model only these tools |
+| `-n`, `--name <name>` | names the conversation |
+| `--bare` | minimal start, see below |
+| `--debug-file <path>` | writes every log record to a file |
+| `--settings <file-or-json>` | adds one settings layer |
+| `--mcp-config <file-or-json>`, `--strict-mcp-config` | adds tool servers, or uses only those |
+
+### `--system-prompt`
+
+`--system-prompt "<text>"` or `--system-prompt @rules.md` (a file, relative to the folder you ran the command from; up to 100,000 characters) puts your text where Namzu's own system prompt text would be.
+
+**Replaced:** Namzu's identity and working rules, the sections that teach tools (memory, questions, files, delegation, browser), the reply style and commit-text notes, and the environment block (folder, date, git facts).
+
+**Not replaced:** the tools themselves and their descriptions, `--append-system-prompt` (it still goes after your text), project instruction files (`AGENTS.md`), saved memory notes, the notes a turn adds about itself (the permission mode, a hook's message), and skills. A launch with `--system-prompt` and `--bare` is the plainest start Namzu has. An empty value, an unreadable file or a folder is refused with exit status 64 before anything opens.
+
+### `--tools`
+
+`--tools "read edit bash"` offers the model only those tools; names are the ones `--allowed-tools` takes (comma or space separated, built-in names in lower case, a tool server's tools by their exact `mcp__server__tool` name). `--tools ""` offers none, and `--tools default` offers all (the same as leaving the flag out).
+
+This **removes tools**, it is not a permission rule: a tool that is not listed is not in any request, and its guidance is left out of the prompt (leave out `agent` and the delegation advice goes with it). Permission rules (`--allowed-tools`, `--disallowed-tools`, `permissions`) still decide the calls of the tools that remain. An entry with a pattern such as `bash(git status*)` is refused here with exit status 64; patterns go in `--allowed-tools`. A name no tool has is not an error: it matches nothing.
+
+### `--name`
+
+`-n "billing fix"` or `--name "billing fix"` names the conversation as `/rename` does, so the resume picker, `namzu --resume "billing fix"` and the terminal title carry it. The conversation is created at once rather than at the first message. With `-c`, `-r` or `namzu resume <id>` it renames the conversation you open. In `namzu exec` and `-p` it names the conversation the run is kept in.
+
+### `--bare`
+
+A minimal start for a run that should depend on nothing but the prompt and the tools. It turns off:
+
+| What | How |
+| --- | --- |
+| hooks | `disableHooks` for this launch (every hook from your files and the project's; managed hooks follow the managed file's own rule) |
+| plugins | `plugins.enabled: false` (a folder named with `--plugin-dir` still loads: naming it is consent) |
+| project instruction files | no `AGENTS.md`, rules or personal instruction file is read or offered, including for delegated agents |
+| saved memory notes | the curated memory files are not put in the prompt and automatic recall is off (`memory.recall: false`) |
+| learning | no observations are recorded and the background learning generator is off |
+| code index | the `code_analysis` tool is not mounted and its index is never built |
+| skill proposals | the one-line offer to save a turn as a skill is off |
+| background catalogue refresh | `modelCatalogueRefresh: false`: no network read for the model list; the bundled one is used |
+| update check | `updates.check` and `updates.auto` off: no background look for a newer Namzu |
+
+Skills you name yourself (`/skills`, `--skills`) and the built-in skills still work. Namzu has no language-server integration, so there is nothing of that kind to turn off. `--bare` is a settings layer, so `--settings` can switch one of these back on.
+
+### `--debug-file`
+
+`--debug-file /tmp/namzu/debug.log` appends every log record, debug level included, to that file as one JSON object per line, from the start of the process. What appears on screen keeps its usual level (`-v` and `-q` still decide that). Only the folders of the path you give are created; a path that cannot be opened is refused with exit status 64. It works for every command and for the terminal session, which writes nothing to stderr while it runs.
+
+### `--settings`
+
+`--settings team.json` or `--settings '{"effort": "high"}'` adds one settings layer from a JSON file or an inline JSON object, with the keys of the [configuration](config-command.md). Its place in the order is above your user file, the project files, a profile and the environment, below the command-line flags that name the same thing (`--effort`, `--permission-mode`, ...) and below the organisation-managed file, which always wins. A key Namzu does not know, a value of the wrong kind, text that is not JSON, or a file that cannot be read is one sentence on stderr and exit status 64. The layer is not saved and counts as your own word: a repository cannot supply it.
+
+### `--mcp-config` and `--strict-mcp-config`
+
+`--mcp-config <file-or-json>` adds the tool servers of a file (the shape of `.mcp.json`) or of inline JSON starting with `{`, for this launch; repeat it for more. A later one wins over an earlier one and over the config for a server of the same name; a missing file or invalid JSON is refused with exit status 64 before anything opens. Write one value per use (`--mcp-config a.json --mcp-config b.json`), so a first message after it is not read as a file. `--strict-mcp-config` uses only the servers named by `--mcp-config`: the configured servers and the project's `.mcp.json` start nothing; with no `--mcp-config` it starts no tool servers at all. A server given with `--mcp-config` needs no approval, because you chose it ([Tool servers](mcp-servers.md)).
+
 ## After `resume`
 
-`namzu resume <conversation-id>` is the command Namzu prints when it exits, so every launch option above is accepted after it as well as before it, with the same meaning: `--provider`, `--account`, `--model`, `--max-output-tokens`, `--no-done-gate`, `--effort`, `--permission-mode`, `--dangerously-skip-permissions` / `--yolo`, `--allow-dangerously-skip-permissions`, `--append-system-prompt`, `--allowed-tools`, `--disallowed-tools`, `--fallback-model`, `--add-dir`, `--plugin-dir`, `--profile` and `--output-schema`. They go through the same checks as before the command, including the one-time `Start in bypass mode? [y/N]` question, and a permission flag given at resume time wins over the mode the conversation was last in, exactly as it does for `namzu --resume <id> --yolo`.
+`namzu resume <conversation-id>` is the command Namzu prints when it exits, so every launch option above is accepted after it as well as before it, with the same meaning: `--provider`, `--account`, `--model`, `--max-output-tokens`, `--no-done-gate`, `--effort`, `--permission-mode`, `--dangerously-skip-permissions` / `--yolo`, `--allow-dangerously-skip-permissions`, `--append-system-prompt`, `--allowed-tools`, `--disallowed-tools`, `--fallback-model`, `--system-prompt`, `--tools`, `--name`, `--bare`, `--debug-file`, `--settings`, `--mcp-config`, `--strict-mcp-config`, `--add-dir`, `--plugin-dir`, `--profile` and `--output-schema`. They go through the same checks as before the command, including the one-time `Start in bypass mode? [y/N]` question, and a permission flag given at resume time wins over the mode the conversation was last in, exactly as it does for `namzu --resume <id> --yolo`.
 
 ```sh
 namzu resume --yolo 11de68ce-02f2-49e4-a7e4-7f29355d7aaf

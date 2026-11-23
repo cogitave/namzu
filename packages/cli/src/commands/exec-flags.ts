@@ -125,6 +125,20 @@ export interface ExecFlags {
 	 */
 	appendSystemPrompt: string | null
 	/**
+	 * `--system-prompt <text|@file>`: replaces Namzu's own system prompt text for
+	 * this run. The value as given; the command reads the file when it starts with `@`.
+	 */
+	systemPrompt: string | null
+	/**
+	 * `--tools <list>`: the tools offered to the model. The value as given
+	 * (possibly empty, meaning none); null when the flag was not given.
+	 */
+	tools: string | null
+	/** `-n, --name <name>`: the name this run's conversation is listed under. */
+	name: string | null
+	/** `--strict-mcp-config`: use only the tool servers named by `--mcp-config`. */
+	strictMcpConfig: boolean
+	/**
 	 * `--max-budget-usd <amount>`: the turn stops when its priced spend reaches
 	 * this many dollars. Null means the flag was not given and the config decides.
 	 */
@@ -206,6 +220,10 @@ export function parseExecFlags(rawArgs: readonly string[]): ExecFlags {
 		maxOutputTokens: null,
 		waitForProviderMs: null,
 		appendSystemPrompt: null,
+		systemPrompt: null,
+		tools: null,
+		name: null,
+		strictMcpConfig: false,
 		maxBudgetUsd: null,
 		allowedTools: [],
 		disallowedTools: [],
@@ -356,6 +374,47 @@ export function parseExecFlags(rawArgs: readonly string[]): ExecFlags {
 			)
 		)
 			continue
+		if (
+			take(
+				a,
+				'system-prompt',
+				(v) => {
+					out.systemPrompt = v
+				},
+				idx,
+			)
+		)
+			continue
+		if (
+			take(
+				a,
+				'tools',
+				(v) => {
+					out.tools = v
+				},
+				idx,
+			)
+		)
+			continue
+		if (
+			take(
+				a,
+				'name',
+				trimmed((v) => {
+					out.name = v
+				}),
+				idx,
+			)
+		)
+			continue
+		if (a === '-n' && idx.v + 1 < rawArgs.length) {
+			out.name = rawArgs[++idx.v].trim() || null
+			continue
+		}
+		if (a === '--strict-mcp-config') {
+			out.strictMcpConfig = true
+			continue
+		}
 		if (
 			take(
 				a,
@@ -760,10 +819,15 @@ export function applyLaunchFlags(
 export function launchMcpServers(
 	configured: McpServersConfig | undefined,
 	files: readonly string[],
+	strict = false,
 ): { readonly servers: McpServersConfig | undefined } | { readonly error: string } {
+	// Strict with no file names no servers at all.
+	if (strict && files.length === 0) return { servers: {} }
 	try {
 		return {
-			servers: mergeLaunchMcpServers(configured, files, (file) => resolve(process.cwd(), file)),
+			servers: mergeLaunchMcpServers(strict ? undefined : configured, files, (file) =>
+				resolve(process.cwd(), file),
+			),
 		}
 	} catch (error) {
 		if (error instanceof McpServerFileError) return { error: error.message }

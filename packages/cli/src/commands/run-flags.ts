@@ -1,6 +1,6 @@
 /**
- * What `--append-system-prompt`, `--allowed-tools`, `--disallowed-tools` and
- * `--fallback-model` mean for one run, in one place.
+ * What `--append-system-prompt`, `--system-prompt`, `--tools`, `--allowed-tools`,
+ * `--disallowed-tools` and `--fallback-model` mean for one run, in one place.
  *
  * `exec`, `exec --json` and the interactive launcher read the same four flags,
  * and a flag that one of them applies and another quietly ignores is the
@@ -13,12 +13,17 @@ import type { Preferences } from '../integrations/providers/index.js'
 import type { PermissionsConfig } from '../permissions/rules.js'
 import { toolFlagLayers } from '../permissions/tool-flags.js'
 import { resolveAppendSystemPrompt } from './append-system.js'
+import { resolveSystemPromptFlag, resolveToolsFlag } from './launch-extras.js'
 
 export interface RunFlagInput {
 	readonly appendSystemPrompt: string | null
 	readonly allowedTools: readonly string[]
 	readonly disallowedTools: readonly string[]
 	readonly fallbackModels: readonly string[]
+	/** `--system-prompt <text|@file>`: replaces the default system prompt text. */
+	readonly systemPrompt?: string | null
+	/** `--tools <list>`: the tools offered to the model; null or absent offers every tool. */
+	readonly tools?: string | null
 }
 
 export interface RunFlagEffects {
@@ -28,6 +33,10 @@ export interface RunFlagEffects {
 	readonly permissionLayers: readonly PermissionsConfig[]
 	/** Text for the uncached tail of the system prompt, if one was given. */
 	readonly appendSystem: string | undefined
+	/** Text that replaces the default system prompt, if one was given. */
+	readonly replaceSystem: string | undefined
+	/** The only tools offered to the model; undefined offers every tool, an empty list none. */
+	readonly onlyTools: readonly string[] | undefined
 }
 
 /** The effects of the four flags, or the first thing wrong with them. */
@@ -38,6 +47,10 @@ export function resolveRunFlags(
 ): RunFlagEffects | { readonly error: string } {
 	const appended = resolveAppendSystemPrompt(flags.appendSystemPrompt, base)
 	if (appended && 'error' in appended) return appended
+	const replaced = resolveSystemPromptFlag(flags.systemPrompt ?? null, base)
+	if (replaced && 'error' in replaced) return replaced
+	const offered = resolveToolsFlag(flags.tools)
+	if ('error' in offered) return offered
 	const tools = toolFlagLayers(flags)
 	const problem = tools.problems[0]
 	if (problem) return { error: `${problem.flag}: ${problem.message}` }
@@ -45,6 +58,8 @@ export function resolveRunFlags(
 		prefs: applyFallbackFlag(prefs, flags.fallbackModels),
 		permissionLayers: tools.layers,
 		appendSystem: appended?.text,
+		replaceSystem: replaced?.text,
+		onlyTools: offered.only,
 	}
 }
 

@@ -36,7 +36,9 @@ Without `-p` the prompt is the first message of the interactive session, sent on
 | `-c`, `--continue`; `-r`, `--resume <id>` | carry on an earlier conversation |
 | `--model`, `--provider`, `--effort`, `--fallback-model` | what answers |
 | `--permission-mode`, `--allowed-tools`, `--disallowed-tools` | what may run |
-| `--append-system-prompt`, `--max-output-tokens`, `--no-session-persistence` | per-run settings |
+| `--append-system-prompt`, `--system-prompt`, `--tools`, `--max-output-tokens`, `--no-session-persistence` | per-run settings ([Launch flags](launch-flags.md#shaping-one-launch)) |
+| `-n`, `--name`; `--mcp-config`, `--strict-mcp-config` | name the conversation; choose tool servers |
+| `--bare`, `--settings`, `--debug-file` | minimal run, one more settings layer, a debug log file (read by the root, so they work before or after the prompt) |
 
 Every other option `namzu exec` reads works the same after `-p`. `-f/--format`, `-q`, `-v`, `--debug` and `--log-format` stay root options. `namzu exec` is unchanged and is what scheduled jobs, workflow files and Desktop call.
 

@@ -49,6 +49,7 @@ import {
 	closeSessions,
 	forkConversation,
 	openSessions,
+	setTitle,
 	startConversation,
 } from '../integrations/sessions/store.js'
 import {
@@ -268,7 +269,11 @@ async function execPrint(
 	}
 	const cwd = trust.cwd
 	ctx = resolveTrustedProjectContext(bootstrapCtx, cwd)
-	const mcpServers = launchMcpServers(ctx.config.mcpServers, flags.mcpConfigs)
+	const mcpServers = launchMcpServers(
+		ctx.config.mcpServers,
+		flags.mcpConfigs,
+		flags.strictMcpConfig,
+	)
 	if ('error' in mcpServers) {
 		ctx.formatter.error({ message: mcpServers.error })
 		return EXIT_USAGE
@@ -460,6 +465,16 @@ async function execPrint(
 		})
 		return 1
 	}
+	// `--name`: the conversation is listed under this name from the start.
+	if (flags.name !== null && sessions && !ephemeral) {
+		try {
+			await setTitle(sessions, sessionId, flags.name)
+		} catch (error) {
+			cliLogger().warn('could not name the conversation', {
+				'exception.message': error instanceof Error ? error.message : String(error),
+			})
+		}
+	}
 	const release = async (): Promise<void> => {
 		if (sessions) closeSessions(sessions)
 	}
@@ -482,6 +497,9 @@ async function execPrint(
 		rules: permissions.rules,
 		...(refusedTools.length > 0 ? { withheldTools: refusedTools } : {}),
 		...(run.appendSystem ? { appendSystem: run.appendSystem } : {}),
+		...(run.replaceSystem ? { replaceSystem: run.replaceSystem } : {}),
+		...(run.onlyTools ? { onlyTools: run.onlyTools } : {}),
+		...(ctx.bare ? { bare: true } : {}),
 		...(sessionExport ? { onSessionEvent: sessionExport.listener } : {}),
 		// The operator's --gate commands, as a standing condition on the
 		// answer. Spread rather than passed as undefined so a turn without
@@ -1000,7 +1018,18 @@ export const execCommand: CommandDef = {
 		'                        No prompt arguments; each turn ends with done.',
 		'  --output-schema <f>   Bind the final answer to the JSON Schema in file f,',
 		'                        using the provider’s native structured output',
-		'  --mcp-config <f>      Add the tool servers in file f for this run; repeatable',
+		'  --mcp-config <f>      Add the tool servers in file f (or inline JSON) for this run;',
+		'                        repeatable',
+		'  --strict-mcp-config   Use only the servers from --mcp-config, none configured',
+		'  --name, -n <name>     Name the conversation this run is kept in',
+		'  --system-prompt <text|@file>',
+		'                        Replace Namzu’s own system prompt text for this run',
+		'  --tools <list>        Offer only these tools to the model: "" none, "default" all,',
+		'                        else names such as "read edit bash"',
+		'  --bare                Minimal run: no hooks, plugins, project instruction files,',
+		'                        saved memory notes, learning, code index or update check',
+		'  --settings <f|json>   One more settings layer for this run, above your files',
+		'  --debug-file <path>   Write every log record, debug level included, to this file',
 		'  --cwd <path>          Directory the agent works in (default: this one)',
 		'  --provider <id>       Provider to answer with',
 		'  --model <id>          Model to answer with',

@@ -543,7 +543,7 @@ import { formatMemoryDiagnostics } from '../memory/presentation.js'
 import { archiveUnscreenedRecords } from '../memory/screen-archive.js'
 import { consolidationScreen, screenMemoryPromotion } from '../memory/screen.js'
 import { memorySelectionOptions } from '../memory/select.js'
-import { composeMemoryPrompt, readMemory } from '../memory/store.js'
+import { type MemoryContent, composeMemoryPrompt, readMemory } from '../memory/store.js'
 import { DEFAULT_RETIRE_AFTER_DAYS, describeSweep } from '../memory/sweep.js'
 import {
 	type TypedNoteResult,
@@ -575,6 +575,7 @@ import { tableHoldsRule } from '../permissions/rule-screen.js'
 import { withSandboxShell } from '../permissions/sandbox-shell.js'
 import { type SessionAllow, createSessionAllows } from '../permissions/session-allow.js'
 import type { PermissionSettings } from '../permissions/settings.js'
+import { toolOnOffer } from '../permissions/tool-flags.js'
 import { EXIT_PLAN_MODE_TOOL_NAME, type PlanApprovalFn } from '../plan/approval.js'
 import { buildEnterPlanModeTool } from '../plan/enter-plan-mode-tool.js'
 import { buildExitPlanModeTool } from '../plan/exit-plan-mode-tool.js'
@@ -598,6 +599,30 @@ import { type ModelSwitchOutcome, buildSwitchModelTool } from './model-switch-to
 import { type ModelSwitchRequest, resolveModelSwitch } from './model-switch.js'
 import { type FoldOp, classifyCall } from './read-search-group.js'
 import { admitToolView, createCliToolPresenter } from './tool-presentation.js'
+
+/**
+ * The kernel's own tools (the task tools, the hand-back tool, the tool search)
+ * at the given availability, each `disabled` when `--tools` leaves it out. The
+ * tool search stays unless the list is empty, because a listed tool may be one
+ * that is only found through it.
+ */
+function runtimeToolOverridesFor(
+	only: readonly string[] | undefined,
+	availability: 'active' | 'deferred',
+): Record<string, 'active' | 'deferred' | 'disabled'> {
+	const pick = (name: string): 'active' | 'deferred' | 'disabled' =>
+		toolOnOffer(only, name) ? availability : 'disabled'
+	return {
+		task_create: pick('task_create'),
+		task_update: pick('task_update'),
+		task_list: pick('task_list'),
+		...(only === undefined ? {} : { hand_back_task: pick('hand_back_task') }),
+		...(only !== undefined && only.length === 0 ? { search_tools: 'disabled' as const } : {}),
+	}
+}
+
+/** What `--bare` reads in place of the curated memory files: nothing. */
+const NO_CURATED_MEMORY: MemoryContent = { user: null, memory: null, project: null }
 
 export type AgentEvent =
 	| {
@@ -2934,6 +2959,23 @@ export interface AgentSessionOptions {
 	 * prompt, so the cached prefix stays byte-identical with or without them.
 	 */
 	readonly appendSystem?: string
+	/**
+	 * `--system-prompt`: replaces the default system prompt text (identity,
+	 * working rules, guidance and environment sections). Tools, the appended
+	 * instructions, project instructions and memory are not part of it.
+	 */
+	readonly replaceSystem?: string
+	/**
+	 * `--tools`: the only tools offered to the model, by name; an empty list
+	 * offers none. Absent offers every tool. A removal from the set, not a
+	 * permission rule.
+	 */
+	readonly onlyTools?: readonly string[]
+	/**
+	 * `--bare`: no project instruction files and no saved memory notes in the
+	 * prompt. The settings `--bare` also switches off arrive as settings.
+	 */
+	readonly bare?: boolean
 	/** See `NamzuCliConfig.workflow`: the caps a workflow run is held to. */
 	readonly workflow?: WorkflowCliConfig
 	/**
@@ -3671,6 +3713,7 @@ export async function createAgentSession(
 		}
 	}
 	const projectInstructions = new ProjectInstructionTracker(cwd, {
+		...(options.bare ? { disabled: true } : {}),
 		onLoaded: (file) => {
 			void instructionsLoaded(hookManager(), String(scope.sessionId), {
 				filePath: file.filePath,
@@ -4712,7 +4755,10 @@ export async function createAgentSession(
 			projectInstructionContext: (childCwd) =>
 				childCwd === cwd
 					? projectInstructions.createTurnContext()
-					: new ProjectInstructionTracker(childCwd).createTurnContext(),
+					: new ProjectInstructionTracker(
+							childCwd,
+							options.bare ? { disabled: true } : {},
+						).createTurnContext(),
 			// Same argument as the instructions, one step further: a sub-agent that
 			// does not know what day it is dates a changelog entry from a training
 			// cut-off, and the parent reports the delegation as successful.
@@ -5587,7 +5633,12 @@ export async function createAgentSession(
 	const eagerToolNames = eagerToolsFor({ planApproval: options.planApproval && !options.ephemeral })
 	const sessionToolsets: readonly Toolset[] = toolsets.flatMap((ts) => {
 		const wrapped =
-			withheldTools.size > 0 ? filtered(ts, (tool) => !withheldTools.has(tool.name)) : ts
+			withheldTools.size > 0 || options.onlyTools !== undefined
+				? filtered(
+						ts,
+						(tool) => !withheldTools.has(tool.name) && toolOnOffer(options.onlyTools, tool.name),
+					)
+				: ts
 		return toolLoadingDeferred ? deferExceptToolset(wrapped, eagerToolNames) : [wrapped]
 	})
 	// The memory section is written only for a session that holds the tool
@@ -6107,7 +6158,7 @@ export async function createAgentSession(
 			// A turn parked on a question and resumed here belongs to a conversation
 			// whose skills had hooks: they are back before the parked call goes on.
 			await putSkillHooksBack(entry.sessionId, true)
-			const curatedMemory = readMemory(undefined, cwd)
+			const curatedMemory = options.bare ? NO_CURATED_MEMORY : readMemory(undefined, cwd)
 			for (const notice of formatMemoryDiagnostics(curatedMemory)) cliLogger().warn(notice)
 			const storedMemory = await storedMemoryPrompt()
 			if (storedMemory.notice) cliLogger().warn(storedMemory.notice)
@@ -6132,6 +6183,8 @@ export async function createAgentSession(
 						palBlock: palPromptBlock(),
 						environment: environmentPrompt,
 						withheldTools: options.withheldTools,
+						onlyTools: options.onlyTools,
+						systemOverride: options.replaceSystem,
 						memoryGuidance,
 						shellEscapeGuidance,
 						questionGuidance,
@@ -6248,11 +6301,7 @@ export async function createAgentSession(
 					// A resumed turn re-registers the task tools; leaving them at
 					// the kernel's `deferred` default would hand the model a plan
 					// it started with active tools and can no longer update.
-					runtimeToolOverrides: {
-						task_create: 'active',
-						task_update: 'active',
-						task_list: 'active',
-					},
+					runtimeToolOverrides: runtimeToolOverridesFor(options.onlyTools, 'active'),
 					...(subagentRuntime
 						? {
 								taskScheduler: await subagentRuntime.gatewayForTurn(entry.turnId),
@@ -7435,7 +7484,7 @@ export async function createAgentSession(
 						// `sessionToolsets` (see its construction above) — availability
 						// is derived from the turn's own revealed-tool history now, not
 						// forked per send, so there is nothing to redo here.
-						const curatedMemory = readMemory(undefined, cwd)
+						const curatedMemory = options.bare ? NO_CURATED_MEMORY : readMemory(undefined, cwd)
 						for (const notice of formatMemoryDiagnostics(curatedMemory)) {
 							yield { kind: 'context' as const, text: notice, shed: false }
 						}
@@ -7529,7 +7578,8 @@ export async function createAgentSession(
 						const workflowOffer =
 							workflowHost !== undefined &&
 							opts?.workflowReview !== undefined &&
-							options.workflow?.enabled !== false
+							options.workflow?.enabled !== false &&
+							toolOnOffer(options.onlyTools, 'workflow')
 						if (workflowOffer && workflowHost) {
 							const workflowToolset = toolset('workflow', [workflowHost.tool])
 							// Its schema is the largest of any tool and most turns never run a
@@ -7553,6 +7603,8 @@ export async function createAgentSession(
 									palBlock: palPromptBlock(),
 									environment: environmentPrompt,
 									withheldTools: options.withheldTools,
+									onlyTools: options.onlyTools,
+									systemOverride: options.replaceSystem,
 									memoryGuidance,
 									shellEscapeGuidance,
 									questionGuidance,
@@ -7936,11 +7988,10 @@ export async function createAgentSession(
 								...(turnWebSearch ? { webSearch: turnWebSearch } : {}),
 								// Tasks join this turn's registry inside query, after the fork.
 								// Keep the existing eager path unless deferral was requested.
-								runtimeToolOverrides: {
-									task_create: toolLoadingDeferred ? 'deferred' : 'active',
-									task_update: toolLoadingDeferred ? 'deferred' : 'active',
-									task_list: toolLoadingDeferred ? 'deferred' : 'active',
-								},
+								runtimeToolOverrides: runtimeToolOverridesFor(
+									options.onlyTools,
+									toolLoadingDeferred ? 'deferred' : 'active',
+								),
 								onSessionEvent: (event) => {
 									// A model that refused an image: remember it, so the next turn
 									// does not make the refused request again.

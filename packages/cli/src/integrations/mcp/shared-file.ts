@@ -73,7 +73,8 @@ export function readMcpServerFile(path: string, label: string): McpServersConfig
 /**
  * The servers a launch adds: each `--mcp-config` file in order, a later file
  * replacing an earlier server of the same name, all of it replacing a server
- * of the same name from the config. A file that is missing is an error here,
+ * of the same name from the config. A value that starts with `{` is the JSON
+ * itself rather than a file name. A file that is missing is an error here,
  * unlike the project file, because the person named it.
  */
 export function mergeLaunchMcpServers(
@@ -84,6 +85,11 @@ export function mergeLaunchMcpServers(
 	if (files.length === 0) return configured
 	let merged: Record<string, unknown> = { ...configured }
 	for (const file of files) {
+		// A value that opens a JSON object is the servers themselves, not a path.
+		if (file.trimStart().startsWith('{')) {
+			merged = { ...merged, ...parseMcpServerFile(file, '--mcp-config (inline JSON)') }
+			continue
+		}
 		const absolute = resolvePath(file)
 		const found = readMcpServerFile(absolute, `--mcp-config ${file}`)
 		if (found === undefined) {

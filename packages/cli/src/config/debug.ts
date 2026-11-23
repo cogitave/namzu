@@ -86,6 +86,8 @@ export function formatConfigSource(
 			return `env ${dynamic(source.variable)}`
 		case 'managed':
 			return `managed ${dynamic(source.path)}`
+		case 'launch':
+			return `launch ${dynamic(source.label)}`
 	}
 }
 

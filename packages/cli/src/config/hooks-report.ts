@@ -161,8 +161,11 @@ export interface SwitchSource {
 		| 'profile'
 		| 'env'
 		| 'managed'
+		| 'launch'
 	readonly path?: string
 	readonly variable?: string
+	/** For `launch`: the command-line flag that set it, such as `--bare`. */
+	readonly flag?: string
 	readonly profile?: string
 }
 
@@ -254,6 +257,8 @@ function switchSource(source: ConfigSource | undefined): SwitchSource | undefine
 			return { kind: 'env', variable: source.variable }
 		case 'profile':
 			return { kind: 'profile', path: shortHomePath(source.path), profile: source.name }
+		case 'launch':
+			return { kind: 'launch', flag: source.label }
 		default:
 			return { kind: source.kind, path: shortHomePath(source.path) }
 	}

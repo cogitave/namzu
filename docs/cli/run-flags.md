@@ -10,6 +10,8 @@ generated: { by: human:bahadirarda, at: 2026-10-27T00:00:00Z }
 
 # Flags for one run
 
+`--system-prompt` (replace the default prompt text) and `--tools` (offer fewer tools) are run flags too; they are described with the other launch shapers in [Launch flags](launch-flags.md#shaping-one-launch).
+
 Five options change what a single run does without touching a config file. They are read the same way by `namzu exec`, `namzu exec --json` and the interactive `namzu` (written before the command there), so a script and a person at the keyboard get the same behaviour. None of them is saved.
 
 ```sh

@@ -52,7 +52,7 @@ import { registerCommandOrLazy } from './commands/registry.js'
 import type { CommandContext } from './commands/types.js'
 import type { ConfigDebugSnapshot } from './config/debug.js'
 import { hookSwitch } from './config/hook-layers.js'
-import type { loadConfigWithProvenance } from './config/load.js'
+import type { LaunchSettingsLayer, loadConfigWithProvenance } from './config/load.js'
 import { positiveTokenCount, readModelLaunchEnvironment } from './config/model-environment.js'
 import type { NamzuCliConfig } from './config/schema.js'
 import {
@@ -73,6 +73,11 @@ import { CLI_VERSION } from './version.js'
 /** The root options that only `exec` takes after the command name. */
 const PER_RUN_FLAG_KEYS: ReadonlySet<string> = new Set([
 	'appendSystemPrompt',
+	'systemPrompt',
+	'tools',
+	'name',
+	'mcpConfig',
+	'strictMcpConfig',
 	'allowedTools',
 	'disallowedTools',
 	'fallbackModel',
@@ -157,6 +162,39 @@ function addLaunchOptions(command: Command): Command {
 		.option(
 			'--append-system-prompt <text|@file>',
 			'Add standing instructions for this launch only; @file reads them from a file. They go after the cached part of the prompt, so the cache is untouched.',
+		)
+		.option(
+			'--system-prompt <text|@file>',
+			'Replace Namzu’s own system prompt text for this launch only; @file reads it from a file. Tools, --append-system-prompt, project instructions and memory still apply.',
+		)
+		.option(
+			'--tools <list>',
+			'Offer only these tools to the model, e.g. "read edit bash"; "" offers none and "default" offers all. Unlike --allowed-tools this removes tools; it is not a permission rule.',
+		)
+		.option(
+			'-n, --name <name>',
+			'Name this conversation; the name shows in /resume and in the terminal title.',
+		)
+		.option(
+			'--bare',
+			'Minimal start: no hooks, plugins, project instruction files, saved memory notes, learning, code index, background catalogue refresh or update check. See docs/cli/launch-flags.md.',
+		)
+		.option(
+			'--debug-file <path>',
+			'Write every log record, debug level included, to this file; what appears on screen keeps its usual level. The folders of the path are created.',
+		)
+		.option(
+			'--settings <file-or-json>',
+			'Add one settings layer for this launch, from a JSON file or an inline JSON object. It wins over your user and project settings and loses to flags.',
+		)
+		.option(
+			'--mcp-config <file-or-json>',
+			'Add the tool servers in this JSON file (or inline JSON) for this launch; repeatable.',
+			collectFlagValue,
+		)
+		.option(
+			'--strict-mcp-config',
+			'Use only the tool servers named by --mcp-config; none of the configured or project ones start.',
 		)
 		.option(
 			'--allowed-tools <list>',
@@ -365,6 +403,30 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 			if (usesCustomNetwork(process.env)) {
 				await (await import('./network/install.js')).installNetwork()
 			}
+			// `--debug-file`, `--bare` and `--settings` shape every command that reads
+			// settings or logs: checked first, so a bad value costs nothing else.
+			const launchValues = command.opts<{
+				bare?: boolean
+				settings?: string
+				debugFile?: string
+			}>()
+			const layers = runtime().launchLayersFor(launchValues)
+			if ('error' in layers)
+				return command.error(layers.error, {
+					exitCode: EX_USAGE,
+					code: 'commander.invalidArgument',
+				})
+			launchLayers = layers.layers
+			if (launchValues.debugFile !== undefined) {
+				try {
+					runtime().openDebugFile(launchValues.debugFile)
+				} catch (error) {
+					command.error((error as Error).message, {
+						exitCode: EX_USAGE,
+						code: 'commander.invalidArgument',
+					})
+				}
+			}
 			const launchOnly = (
 				[
 					'provider',
@@ -377,6 +439,11 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 					'resume',
 					'fromPr',
 					'appendSystemPrompt',
+					'systemPrompt',
+					'tools',
+					'name',
+					'mcpConfig',
+					'strictMcpConfig',
 					'allowedTools',
 					'disallowedTools',
 					'fallbackModel',
@@ -463,6 +530,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 			logFormat?: string
 			profile?: string
 			pluginDir?: string[]
+			bare?: boolean
 		}>()
 		const { config: loadedConfig, provenance } = load()
 		// `--plugin-dir` is a launch decision, so it joins the plugin settings here
@@ -514,16 +582,24 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 			config: { ...fileConfig, format, quiet },
 			configDebug,
 			logging,
+			...(globalOpts.bare === true ? { bare: true } : {}),
 		}
 	}
 
+	/** The settings layers `--bare` and `--settings` add; read once the command line is parsed. */
+	let launchLayers: readonly LaunchSettingsLayer[] = []
 	const selectedConfigOpts = (
 		cwd?: string,
-	): { readonly profile?: string; readonly cwd?: string } => {
+	): {
+		readonly profile?: string
+		readonly cwd?: string
+		readonly launchLayers?: readonly LaunchSettingsLayer[]
+	} => {
 		const profile = program.opts<{ profile?: string }>().profile
 		return {
 			...(profile !== undefined ? { profile } : {}),
 			...(cwd !== undefined ? { cwd } : {}),
+			...(launchLayers.length > 0 ? { launchLayers } : {}),
 		}
 	}
 	let bootstrapCtx: ResolvedCommandContext | null = null
@@ -719,6 +795,12 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 				permissionMode?: (typeof PERMISSION_MODE_NAMES)[number]
 				message?: string
 				appendSystemPrompt?: string
+				systemPrompt?: string
+				tools?: string
+				name?: string
+				bare?: boolean
+				mcpConfig?: string[]
+				strictMcpConfig?: boolean
 				allowedTools?: string[]
 				disallowedTools?: string[]
 				fallbackModel?: string[]
@@ -791,6 +873,8 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 			const runFlags = runtime().resolveRunFlags(
 				{
 					appendSystemPrompt: launchOpts.appendSystemPrompt ?? null,
+					systemPrompt: launchOpts.systemPrompt ?? null,
+					tools: launchOpts.tools ?? null,
 					allowedTools: launchOpts.allowedTools ?? [],
 					disallowedTools: launchOpts.disallowedTools ?? [],
 					fallbackModels: launchOpts.fallbackModel ?? [],
@@ -891,6 +975,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 					? { permissionMode: launchPlan.mode }
 					: {}),
 				...(launchPrompt?.trim() ? { message: launchPrompt } : {}),
+				...(launchOpts.name?.trim() ? { name: launchOpts.name.trim() } : {}),
 				...(launchOpts.fallbackModel?.length ? { fallbackModels: launchOpts.fallbackModel } : {}),
 			}
 			// The same three lines `exec` uses. The TUI compiled
@@ -898,7 +983,25 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 			// in the mode most people actually use.
 			const commandCtx = getBootstrapContext()
 			beginCatalogueRefresh(commandCtx.config)
+			// The tool server files are read before the screen opens, so a missing or
+			// broken one is refused here and not reported inside it.
+			const mcpCheck = runtime().launchMcpServers(
+				commandCtx.config.mcpServers,
+				launchOpts.mcpConfig ?? [],
+				launchOpts.strictMcpConfig === true,
+			)
+			if ('error' in mcpCheck) {
+				commandCtx.formatter.error({ message: mcpCheck.error })
+				setExitCode(EX_USAGE)
+				return
+			}
 			const buildTuiContext = (resolvedCtx: ResolvedCommandContext, cwd: string) => {
+				const launchMcp = runtime().launchMcpServers(
+					resolvedCtx.config.mcpServers,
+					launchOpts.mcpConfig ?? [],
+					launchOpts.strictMcpConfig === true,
+				)
+				if ('error' in launchMcp) throw new Error(launchMcp.error)
 				runtime().warnLegacyMcpPermissionNames(resolvedCtx.config.permissions)
 				runtime().warnBroadAllowRules(cwd, runtime().cliLogger())
 				const permissions = runtime().compilePermissionLayers(
@@ -950,6 +1053,9 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 							? 'default'
 							: launchPlan.source,
 					...(runFlags.appendSystem ? { appendSystem: runFlags.appendSystem } : {}),
+					...(runFlags.replaceSystem ? { replaceSystem: runFlags.replaceSystem } : {}),
+					...(runFlags.onlyTools ? { onlyTools: runFlags.onlyTools } : {}),
+					...(launchOpts.bare === true ? { bare: true } : {}),
 					// The project's own file may close bypass or auto for its folder, so the
 					// door is recomputed from the full configuration.
 					bypassAvailable: fullPlan?.bypassAvailable === true,
@@ -964,7 +1070,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 					logging: resolvedCtx.logging,
 					...(conversationId ? { initialConversationId: conversationId } : {}),
 					...(openResumePicker ? { openResumePicker } : {}),
-					...(resolvedCtx.config.mcpServers ? { mcpServers: resolvedCtx.config.mcpServers } : {}),
+					...(launchMcp.servers ? { mcpServers: launchMcp.servers } : {}),
 					...(resolvedCtx.config.plugins ? { plugins: resolvedCtx.config.plugins } : {}),
 					...(resolvedCtx.config.skills ? { skills: resolvedCtx.config.skills } : {}),
 					...(resolvedCtx.config.composerTriggers
@@ -1141,6 +1247,10 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 	// `namzu -p "<prompt>"` is `namzu exec "<prompt>"`.
 	const printed = printModeArgs(program, argv.slice(2))
 	if (printed !== undefined) argv = [...argv.slice(0, 2), ...printed]
+	else {
+		const hoisted = hoistExecLaunchFlags(program, argv.slice(2))
+		if (hoisted !== undefined) argv = [...argv.slice(0, 2), ...hoisted]
+	}
 
 	try {
 		// Checked before commander parses, because commander answers `--help`
@@ -1198,8 +1308,14 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 }
 
 /** The root options that `-p` leaves on the root: the output controls, not the run's options. */
-const PRINT_ROOT_FLAGS = new Set(['-q', '--quiet', '-v', '--verbose', '--debug'])
-const PRINT_ROOT_VALUE_FLAGS = new Set(['-f', '--format', '--log-format'])
+const PRINT_ROOT_FLAGS = new Set(['-q', '--quiet', '-v', '--verbose', '--debug', '--bare'])
+const PRINT_ROOT_VALUE_FLAGS = new Set([
+	'-f',
+	'--format',
+	'--log-format',
+	'--settings',
+	'--debug-file',
+])
 
 /**
  * The arguments of `namzu -p …`, as `namzu exec …`: the root's output
@@ -1222,10 +1338,52 @@ export function printModeArgs(program: Command, args: readonly string[]): string
 		else if (PRINT_ROOT_VALUE_FLAGS.has(arg)) {
 			root.push(arg)
 			if (i + 1 < head.length) root.push(head[++i] as string)
-		} else if (arg.startsWith('--format=') || arg.startsWith('--log-format=')) root.push(arg)
+		} else if (
+			arg.startsWith('--format=') ||
+			arg.startsWith('--log-format=') ||
+			arg.startsWith('--settings=') ||
+			arg.startsWith('--debug-file=')
+		)
+			root.push(arg)
 		else rest.push(arg)
 	}
 	return [...root, 'exec', ...rest, ...args.slice(head.length)]
+}
+
+/**
+ * `namzu exec … --bare --settings <x> --debug-file <p>`: these three shape the
+ * process (which settings load, where logs go), not the run, so they are read
+ * by the root. Written after `exec`, they are moved in front of it. Undefined
+ * when the call is not `exec` or none of them follows it.
+ */
+export function hoistExecLaunchFlags(
+	program: Command,
+	args: readonly string[],
+): string[] | undefined {
+	let at = -1
+	for (let i = 0; i < args.length; i++) {
+		if (args[i] === '--') return undefined
+		if (args[i] === 'exec' && firstRootOperand(program, args.slice(0, i + 1)) === 'exec') {
+			at = i
+			break
+		}
+	}
+	if (at === -1) return undefined
+	const end = args.indexOf('--', at)
+	const tail = end === -1 ? args.slice(at + 1) : args.slice(at + 1, end)
+	const moved: string[] = []
+	const kept: string[] = []
+	for (let i = 0; i < tail.length; i++) {
+		const arg = tail[i] as string
+		if (arg === '--bare') moved.push(arg)
+		else if (arg === '--settings' || arg === '--debug-file') {
+			moved.push(arg)
+			if (i + 1 < tail.length) moved.push(tail[++i] as string)
+		} else if (arg.startsWith('--settings=') || arg.startsWith('--debug-file=')) moved.push(arg)
+		else kept.push(arg)
+	}
+	if (moved.length === 0) return undefined
+	return [...args.slice(0, at), ...moved, 'exec', ...kept, ...(end === -1 ? [] : args.slice(end))]
 }
 
 function isCommandName(program: Command, name: string): boolean {
