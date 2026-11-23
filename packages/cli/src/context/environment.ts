@@ -43,7 +43,12 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { type as osType, release } from 'node:os'
 import { resolve } from 'node:path'
 import { promisify } from 'node:util'
-import { type CommandShell, hostCommandShell, isWindowsBash } from '@namzu/sdk'
+import {
+	type CommandShell,
+	hostCommandShell,
+	isWindowsBash,
+	nodeDirectoryToAppend,
+} from '@namzu/sdk'
 
 import type { PermissionMode } from '../permissions/mode.js'
 
@@ -239,6 +244,11 @@ export interface EnvironmentFacts {
 	/** The resolver used by host command execution, never the login `$SHELL`. */
 	readonly executionShell?: CommandShell
 	/**
+	 * Set when the user's PATH has no `node`: the directory of the runtime's own
+	 * binary, which shell commands get at the end of their PATH.
+	 */
+	readonly nodeDirectory?: string
+	/**
 	 * This surface offers computer use as a switch the person controls. Said whether the switch is
 	 * on or off, so turning it on never rewrites the cached prompt prefix.
 	 */
@@ -277,6 +287,7 @@ export interface EnvironmentProbe {
 	readonly git?: (cwd: string, args: readonly string[]) => Promise<string | null>
 	readonly osVersion?: () => string
 	readonly executionShell?: () => CommandShell
+	readonly nodeDirectory?: () => string | undefined
 }
 
 export async function readEnvironmentFacts(
@@ -309,7 +320,17 @@ export async function readEnvironmentFacts(
 			: {}),
 		osVersion: (probe.osVersion ?? (() => `${osType()} ${release()}`))(),
 		executionShell: (probe.executionShell ?? hostCommandShell)(),
+		...nodeDirectoryFact((probe.nodeDirectory ?? ownNodeDirectory)()),
 	}
+}
+
+function ownNodeDirectory(): string | undefined {
+	const path = process.env.PATH
+	return path === undefined ? undefined : nodeDirectoryToAppend(path)
+}
+
+function nodeDirectoryFact(dir: string | undefined): { nodeDirectory?: string } {
+	return dir === undefined ? {} : { nodeDirectory: dir }
 }
 
 /** How {@link composeEnvironmentPrompt} is read. */
@@ -402,6 +423,11 @@ export function composeEnvironmentPrompt(
 				'Inside the sandbox, commands use bash if the guest has it, otherwise /bin/sh; the host shell above applies only to host execution.',
 			)
 		}
+	}
+	if (facts.nodeDirectory) {
+		lines.push(
+			`No \`node\` is on the user's PATH. Shell commands still find the runtime's own \`node\` because its directory, \`${facts.nodeDirectory}\`, is added at the end of their PATH; so are the tools beside it. Use that one rather than searching the machine for another.`,
+		)
 	}
 	if (facts.boundary) lines.push(...boundaryLines(facts.boundary, stable))
 	if (facts.wsl) lines.push(...wslLines(facts.wsl, facts.boundary))

@@ -49,6 +49,7 @@ import type {
 import { subscribeToAbort } from '../../utils/abort.js'
 import { generateSandboxId } from '../../utils/id.js'
 import type { Logger } from '../../utils/logger.js'
+import { withNodeOnPath } from '../../utils/node-on-path.js'
 import {
 	WINDOWS_CORE_ENV_KEYS,
 	applyEnvironmentOverrides,
@@ -603,7 +604,8 @@ export function buildSafeEnv(
 	// Last: a command in a sandbox is still a command a session started.
 	setEnvironmentEntry(env, SESSION_CHILD_ENV, '1')
 
-	return env
+	// A shell inside the sandbox can run `node` when the user's PATH has none.
+	return withNodeOnPath(env)
 }
 
 /**

@@ -29,6 +29,7 @@ The kernel.
 
 * [Native structured output](native-structured-output.md) - Query response schemas, local validation and bounded correction.
 * [Native provider admission](native-provider-capabilities.md) - Explicit driver support and fallback route checks.
+* [Prompt cache routing](prompt-cache-routing.md) - The conversation cache key and the opening bytes the subscription route keeps identical between requests.
 
 * [Structured output review](structured-output-review.md) - Parsed-result validation, bounded corrections and checkpoint recovery.
 * [Tool call budgets](tool-call-budget.md) - Durable per-turn admissions, batch limits and recovery accounting.

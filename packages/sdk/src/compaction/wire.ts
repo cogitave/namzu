@@ -73,6 +73,7 @@ export function snapshotWorkingState(manager: WorkingStateManager): WorkingState
 					restorable: {
 						skills: state.restorable.skills.map((skill) => ({ ...skill })),
 						files: state.restorable.files.map((file) => ({ ...file })),
+						...(state.restorable.commands ? { commands: [...state.restorable.commands] } : {}),
 					},
 				}
 			: {}),
@@ -111,6 +112,9 @@ export function restoreWorkingState(
 					restorable: {
 						skills: snapshot.restorable.skills.map((skill) => ({ ...skill })),
 						files: snapshot.restorable.files.map((file) => ({ ...file })),
+						...(snapshot.restorable.commands
+							? { commands: [...snapshot.restorable.commands] }
+							: {}),
 					},
 				}
 			: {}),

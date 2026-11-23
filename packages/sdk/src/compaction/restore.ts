@@ -94,6 +94,11 @@ export function recordRestorable(
 		)
 		return
 	}
+	if (call.toolName === 'bash') {
+		const command = typeof input.command === 'string' ? input.command : undefined
+		if (command && call.success && isRunnerCommand(command)) manager.recordWorkingCommand(command)
+		return
+	}
 	if (call.toolName === 'read') {
 		const path = typeof input.path === 'string' ? input.path : undefined
 		if (!path || !call.success || call.unchanged) return
@@ -105,6 +110,34 @@ export function recordRestorable(
 		// The body a read showed is behind the file now.
 		if (path && call.success) manager.forgetFileText(resolveAgainst(path, call.workingDirectory))
 	}
+}
+
+/** Heading of the section that carries the commands that worked. */
+export const WORKING_COMMANDS_HEADING = '### Working commands'
+
+/** A command that says how code is run, built or tested here, or how a path is converted for a Windows program. */
+const RUNNER_COMMAND =
+	/(?:^|[\s;&|(])(?:node(?:\.exe)?|npm|npx|pnpm|yarn|bun|deno|python3?|pytest|cargo|rustc|go|make|dotnet|mvn|gradle|wslpath|powershell\.exe|cmd\.exe)(?=\s|$)/
+
+/** True for a shell command worth keeping the form of. */
+export function isRunnerCommand(command: string): boolean {
+	return RUNNER_COMMAND.test(command)
+}
+
+/** The commands an earlier summary carried, read back from its restored section. */
+export function carriedWorkingCommands(summary: string): string[] {
+	const start = summary.indexOf(WORKING_COMMANDS_HEADING)
+	if (start < 0) return []
+	const commands: string[] = []
+	for (const line of summary
+		.slice(start + WORKING_COMMANDS_HEADING.length)
+		.split('\n')
+		.slice(1)) {
+		const match = /^- `(.+)`$/.exec(line)
+		if (match?.[1]) commands.push(match[1])
+		else if (line.startsWith('#') || (commands.length > 0 && line.trim() === '')) break
+	}
+	return commands
 }
 
 function fit(text: string, tokens: number): string {
@@ -158,6 +191,13 @@ export function renderRestoredContext(
 		fileBudget -= Math.ceil(text.length / CHARS_PER_TOKEN)
 		files += 1
 		sections.push(`### File: ${file.path}\n\n${text}`)
+	}
+
+	const commands = state.restorable?.commands ?? []
+	if (commands.length > 0) {
+		sections.push(
+			`${WORKING_COMMANDS_HEADING}\n\nThese commands ran successfully in this conversation. Run work the same way instead of searching the machine again.\n\n${commands.map((command) => `- \`${command}\``).join('\n')}`,
+		)
 	}
 
 	const note = options.hostNote?.trim()

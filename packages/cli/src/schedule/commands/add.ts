@@ -245,6 +245,7 @@ export function browserInput(
 function permissionInput(
 	args: ParsedArgs,
 	baseBrowser?: PermissionInput['browser'],
+	baseDirectories?: readonly string[],
 ): PermissionInput {
 	const value = flag(args, 'permissions')
 	const browser = browserInput(args, baseBrowser)
@@ -317,16 +318,19 @@ function permissionInput(
 			throw new JobRequestError('--execution is host or sandbox')
 		input = { ...input, execution }
 	}
+	// An edit keeps the stored folders unless the permissions file names its own list.
 	const dirs = args.flags.get('add-dir')
-	if (dirs)
-		input = {
-			...input,
-			additionalDirectories: [
-				...(input.additionalDirectories ?? []),
-				...dirs.map((d) => resolve(d)),
-			],
-		}
+	const kept = input.additionalDirectories ?? baseDirectories
+	if (dirs) input = { ...input, additionalDirectories: mergeDirectories(kept, dirs) }
+	else if (kept && kept.length > 0 && input.additionalDirectories === undefined)
+		input = { ...input, additionalDirectories: [...kept] }
 	return input
+}
+
+function mergeDirectories(kept: readonly string[] | undefined, added: readonly string[]): string[] {
+	const out = [...(kept ?? [])]
+	for (const dir of added.map((d) => resolve(d))) if (!out.includes(dir)) out.push(dir)
+	return out
 }
 
 function promptOf(args: ParsedArgs): string {
@@ -459,11 +463,15 @@ function requestFrom(
 		return promptOf(args)
 	})()
 	const chosenPermissions = has(args, 'permissions')
-		? permissionInput(args, base?.permissions.browser)
+		? permissionInput(args, base?.permissions.browser, base?.permissions.additionalDirectories)
 		: base
 			? (() => {
 					const browser = browserInput(args, base.permissions.browser)
 					const unmatched = flag(args, 'unmatched')
+					const added = args.flags.get('add-dir')
+					const directories = added
+						? mergeDirectories(base.permissions.additionalDirectories, added)
+						: base.permissions.additionalDirectories
 					return {
 						rules: base.permissions.rules,
 						unmatched:
@@ -471,10 +479,8 @@ function requestFrom(
 								? unmatched
 								: base.permissions.unmatched,
 						execution: base.permissions.execution,
-						...(base.permissions.additionalDirectories
-							? {
-									additionalDirectories: base.permissions.additionalDirectories,
-								}
+						...(directories && directories.length > 0
+							? { additionalDirectories: [...directories] }
 							: {}),
 						...(browser ? { browser } : {}),
 					}
