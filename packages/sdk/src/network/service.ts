@@ -39,6 +39,7 @@ import {
 	JOIN_BACKOFF_DENIED_MS,
 	JOIN_BACKOFF_OTHER_MS,
 	JOIN_EXPIRY_MS,
+	JOIN_ORPHAN_MS,
 	JoinTable,
 	type PendingJoin,
 	formatJoinCode,
@@ -482,6 +483,8 @@ export function createNamzuNetwork(options: NetworkServiceOptions): NetworkServi
 	const peerState = new Map<string, PeerState>()
 	const nearby = new Map<string, DiscoveredEndpoint[]>()
 	const pendingConns = new Map<string, ServerContext>()
+	/** Cancels for the timers of requests whose connection dropped. */
+	const orphanTimers = new Map<string, () => void>()
 	/** What a waiting request was made of, so the same machine asking again with the same nonce gets the same code. */
 	const askNonces = new Map<
 		string,
@@ -1298,7 +1301,9 @@ export function createNamzuNetwork(options: NetworkServiceOptions): NetworkServi
 		const publicKey = key.publicKeyDer.toString('base64')
 		// One ask per machine and network: while it waits, a repeat (another terminal, a restart) uses the
 		// same nonce, so the machine asked finds the same request and shows the same code.
-		const target = netIdHint ?? `${endpoint.host}:${endpoint.port}`
+		// A person's ask only knows the address until the member answers; the record is then keyed by the
+		// network id, so a refusal of a person's ask backs the machine's own asks off like any other.
+		let target = netIdHint ?? `${endpoint.host}:${endpoint.port}`
 		const prior = await store.readJoinAttempt().catch(() => undefined)
 		const reuse =
 			prior?.status === 'ok' &&
@@ -1354,6 +1359,7 @@ export function createNamzuNetwork(options: NetworkServiceOptions): NetworkServi
 				})
 				return 'refused'
 			}
+			target = pending.data.netId
 			const code = joinCode(key.machineId, client.peer.machineId, nonce, pending.data.nonce)
 			emit({ type: 'join-waiting', code, shownCode: formatJoinCode(code), endpoint })
 			let final: unknown
@@ -1579,23 +1585,24 @@ export function createNamzuNetwork(options: NetworkServiceOptions): NetworkServi
 			old?.close()
 			return undefined
 		}
+		// A different ask is a new request and meets the same one-a-minute limit as any address; check
+		// before the old one is retired, so a refused ask leaves it standing.
+		if (joiners.tooSoon(ctx.sourceAddress))
+			return { status: 'refused', reason: 'Asked again too soon.' }
 		if (prior) retireJoin(prior)
 		const auto = await autoAdmitMode(ctx.sourceAddress).catch(() => undefined)
 		const nonceM = randomBytes(16).toString('base64')
 		const code = joinCode(joinerId, selfId(), request.nonce, nonceM)
 		const requestId = randomUUID()
-		const added = joiners.addLocal(
-			{
-				requestId,
-				name: sanitizeName(request.machineName),
-				code,
-				sourceAddr: ctx.sourceAddress,
-				viaMachineId: selfId(),
-				joinerMachineId: joinerId,
-				joinerPublicKey: request.publicKey,
-			},
-			{ replacing: prior !== undefined },
-		)
+		const added = joiners.addLocal({
+			requestId,
+			name: sanitizeName(request.machineName),
+			code,
+			sourceAddr: ctx.sourceAddress,
+			viaMachineId: selfId(),
+			joinerMachineId: joinerId,
+			joinerPublicKey: request.publicKey,
+		})
 		if (!added.ok)
 			return {
 				status: 'refused',
@@ -1650,13 +1657,28 @@ export function createNamzuNetwork(options: NetworkServiceOptions): NetworkServi
 	 * newer request from the same machine, or by its ten minutes.
 	 */
 	function watchHeld(requestId: string, ctx: ServerContext): void {
+		orphanTimers.get(requestId)?.()
+		orphanTimers.delete(requestId)
 		ctx.onClose(() => {
-			if (pendingConns.get(requestId) === ctx) pendingConns.delete(requestId)
+			if (pendingConns.get(requestId) !== ctx) return
+			pendingConns.delete(requestId)
+			// Long enough for another terminal of the machine to take over; a stranger that asks and leaves
+			// does not keep a slot for ten minutes.
+			orphanTimers.set(
+				requestId,
+				clock.setTimer(() => {
+					orphanTimers.delete(requestId)
+					const entry = joiners.get(requestId)
+					if (entry?.local && !pendingConns.has(requestId)) retireJoin(entry)
+				}, JOIN_ORPHAN_MS),
+			)
 		})
 	}
 
 	/** A request that a newer one from the same machine replaced: gone from every screen, nobody told it no. */
 	function retireJoin(entry: PendingJoin): void {
+		orphanTimers.get(entry.requestId)?.()
+		orphanTimers.delete(entry.requestId)
 		const conn = pendingConns.get(entry.requestId)
 		pendingConns.delete(entry.requestId)
 		askNonces.delete(entry.requestId)
@@ -2286,6 +2308,10 @@ export function createNamzuNetwork(options: NetworkServiceOptions): NetworkServi
 		)
 		for (const c of pendingConns.values()) c.close()
 		pendingConns.clear()
+		for (const cancel of orphanTimers.values()) cancel()
+		orphanTimers.clear()
+		// A terminal that stops lets go of its waiting ask without withdrawing it, as when its process ends.
+		joinClient?.close()
 		await discovery.close().catch(() => undefined)
 		await Promise.all(netListeners.splice(0).map((l) => l.close()))
 	}

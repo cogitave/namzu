@@ -1043,6 +1043,8 @@ describe('one machine asks once, however many terminals it has', () => {
 		await first.svc.close()
 		// The machine lost its record of the ask: a new nonce, so a new code.
 		unlinkSync(attemptFile(first.home))
+		// The member's one-a-minute limit applies to a different ask too.
+		world.clock.advance(JOIN_ADDRESS_WINDOW_MS - 5000)
 		const settled = leader.until(
 			(e) => e.type === 'join-settled' && e.requestId === asked.request.requestId,
 		)
@@ -1051,6 +1053,68 @@ describe('one machine asks once, however many terminals it has', () => {
 		expect(again.code).not.toBe(waiting.code)
 		expect(leader.svc.pendingJoins()).toHaveLength(1)
 		expect(leader.svc.pendingJoins()[0]?.code).toBe(again.code)
+	})
+
+	it('a different ask inside a minute is refused and leaves the waiting request standing', async () => {
+		const { world, leader, first, terminal } = await setup()
+		await ask(first, world)
+		await leader.until((e) => e.type === 'join-request')
+		const asked = leader.svc.pendingJoins()[0]
+		unlinkSync(attemptFile(first.home))
+		const second = terminal()
+		await second.svc.start()
+		second.announce()
+		world.clock.advance(5000)
+		await second.until((e) => e.type === 'join-ended')
+		expect(second.events.find((e) => e.type === 'join-ended')).toMatchObject({ result: 'refused' })
+		expect(leader.svc.pendingJoins()).toHaveLength(1)
+		expect(leader.svc.pendingJoins()[0]?.requestId).toBe(asked?.requestId)
+	})
+
+	it('a request whose terminal left is dropped after a short wait, not ten minutes', async () => {
+		const { world, leader, first } = await setup()
+		await ask(first, world)
+		const asked = (await leader.until((e) => e.type === 'join-request')) as Requested
+		await first.svc.close()
+		expect(leader.svc.pendingJoins()).toHaveLength(1)
+		const startedAt = world.clock.now()
+		const settled = leader.until(
+			(e) => e.type === 'join-settled' && e.requestId === asked.request.requestId,
+		)
+		// The member notices the dropped connection on its own turn; each pass moves the fake clock one
+		// orphan wait on, never past the ten minutes the request had before.
+		let done = false
+		void settled.then(() => {
+			done = true
+		})
+		for (let pass = 0; !done; pass++) {
+			await new Promise((resolve) => setImmediate(resolve))
+			if (!done) world.clock.advance(1000)
+		}
+		await settled
+		expect(leader.svc.pendingJoins()).toEqual([])
+		expect(world.clock.now() - startedAt).toBeLessThan(JOIN_EXPIRY_MS)
+	})
+
+	it('a refused ask of a person backs the machine off that network too', async () => {
+		const { world, leader, first, terminal } = await setup()
+		await first.svc.start()
+		void first.svc.join(leader.addr()).catch(() => undefined)
+		const asked = (await leader.until((e) => e.type === 'join-request')) as Requested
+		await leader.svc.deny(asked.request.code)
+		await first.until((e) => e.type === 'join-ended')
+		await first.svc.close()
+		leader.fresh()
+		const mark = leader.events.length
+		world.clock.advance(JOIN_BACKOFF_DENIED_MS - 10_000)
+		const second = terminal()
+		await second.svc.start()
+		second.announce()
+		world.clock.advance(5000)
+		await second.until(
+			(e) => e.type === 'state' && e.reason?.includes('will not ask again') === true,
+		)
+		expect(leader.events.slice(mark).some((e) => e.type === 'join-request')).toBe(false)
 	})
 
 	it('after a refusal it does not ask that network again on its own, and a person can', async () => {

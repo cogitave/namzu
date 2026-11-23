@@ -39,6 +39,8 @@ export function formatJoinCode(code: string): string {
 
 export const JOIN_EXPIRY_MS = 10 * 60 * 1000
 export const MAX_PENDING_JOINS = 8
+/** A request whose connection is gone is kept this long for another terminal of the machine to take over. */
+export const JOIN_ORPHAN_MS = 60 * 1000
 export const JOIN_ADDRESS_WINDOW_MS = 60 * 1000
 /** After a person denied the ask, this machine does not ask that network again on its own for this long. */
 export const JOIN_BACKOFF_DENIED_MS = 60 * 60 * 1000
@@ -75,15 +77,19 @@ export class JoinTable {
 	private readonly lastByAddress = new Map<string, number>()
 	constructor(private readonly options: JoinTableOptions) {}
 
+	/** Whether this address asked less than a minute ago. */
+	tooSoon(sourceAddr: string): boolean {
+		const last = this.lastByAddress.get(sourceAddr)
+		return last !== undefined && this.options.clock.now() - last < JOIN_ADDRESS_WINDOW_MS
+	}
+
 	/** A request that arrived on this machine. Refused when the address asked too recently or the table is full. */
 	addLocal(
 		input: Omit<PendingJoin, 'local' | 'expiresAt' | 'createdAt'>,
-		options: { readonly replacing?: boolean } = {},
 	): { ok: true; entry: PendingJoin } | { ok: false; reason: 'rate' | 'full' } {
 		const now = this.options.clock.now()
 		const last = this.lastByAddress.get(input.sourceAddr)
-		// A machine that already has a request waiting replaces it; that is one request, not a second.
-		if (!options.replacing && last !== undefined && now - last < JOIN_ADDRESS_WINDOW_MS)
+		if (last !== undefined && now - last < JOIN_ADDRESS_WINDOW_MS)
 			return { ok: false, reason: 'rate' }
 		if (this.localCount() >= MAX_PENDING_JOINS) return { ok: false, reason: 'full' }
 		this.lastByAddress.set(input.sourceAddr, now)

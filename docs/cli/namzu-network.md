@@ -11,7 +11,7 @@ generated: { by: "claude-sonnet-5", at: "2026-11-21" }
 
 Install Namzu on a second machine on the same network and the two find each other. Each machine's sessions then appear in one list, with their names, folders, states, permission modes and roles, and a session on one machine can send a message to a session on another. Nothing is paired by hand and no account is needed: the machines of one person form **your Namzu network**.
 
-It is built on the SDK's [network module](../sdk/namzu-network.md) and on [local peer messaging](peer-messaging.md); this page is what you see and do. Desktop joins in a later phase.
+It is built on the SDK's [network module](../sdk/namzu-network.md) and on [local peer messaging](peer-messaging.md); this page is what you see and do. Desktop joins in a later phase: it shows no join requests yet, so an Allow or Deny is given in a terminal's `/peers` or with `namzu peers`.
 
 ## Starting and joining
 
