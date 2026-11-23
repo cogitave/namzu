@@ -330,4 +330,8 @@ export async function selectContextModel(
 		model && model !== ctx.turnConfig.model && !ctx.compactionConfig?.contextWindowTokens
 			? await ctx.resolveModelContextWindow?.(model)
 			: undefined
+	ctx.activeProviderAutoCompactLimit =
+		model && model !== ctx.turnConfig.model && !ctx.compactionConfig?.contextWindowTokens
+			? await ctx.resolveModelAutoCompactLimit?.(model)
+			: undefined
 }

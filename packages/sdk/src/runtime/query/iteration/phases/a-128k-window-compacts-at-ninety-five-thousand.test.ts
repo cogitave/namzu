@@ -55,7 +55,12 @@ function sheddableHistory(): Message[] {
 	return messages
 }
 
-function context(messages: Message[], promptTokens: number, strategy: 'structured' | 'salience') {
+function context(
+	messages: Message[],
+	promptTokens: number,
+	strategy: 'structured' | 'salience',
+	providerAutoCompactLimit?: number,
+) {
 	const config = CompactionConfigSchema.parse({
 		strategy,
 		resetThreshold: 0.4,
@@ -77,6 +82,7 @@ function context(messages: Message[], promptTokens: number, strategy: 'structure
 		provider,
 		// The window is the provider's own statement, so the table is not what is measured.
 		providerContextWindow: WINDOW,
+		...(providerAutoCompactLimit !== undefined ? { providerAutoCompactLimit } : {}),
 		tools: { toLLMTools: () => [] },
 		log: NOOP_LOGGER,
 		abortController: new AbortController(),
@@ -106,8 +112,9 @@ async function started(
 	history: Message[],
 	promptTokens: number,
 	strategy: 'structured' | 'salience',
+	providerAutoCompactLimit?: number,
 ) {
-	const { ctx, events } = context(history, promptTokens, strategy)
+	const { ctx, events } = context(history, promptTokens, strategy, providerAutoCompactLimit)
 	await runCompactionCheck(ctx)
 	return events.includes('pre_compact')
 }
@@ -135,6 +142,23 @@ describe('compaction on a 128k window with nothing configured', () => {
 		expect(await started(quietHistory(), 65_000, 'salience')).toBe(false)
 		// The structured strategy has no soft target.
 		expect(await started(sheddableHistory(), 65_000, 'structured')).toBe(false)
+	})
+})
+
+describe('the compaction limit the provider reports', () => {
+	it('starts the pass at the provider limit when it is under 90% of the window', async () => {
+		expect(await started(quietHistory(), 99_900, 'structured', 100_000)).toBe(false)
+		expect(await started(quietHistory(), 100_000, 'structured', 100_000)).toBe(true)
+	})
+
+	it('holds a provider limit above 90% of the window to 90% (115,200 tokens)', async () => {
+		expect(await started(quietHistory(), 115_100, 'structured', 127_000)).toBe(false)
+		expect(await started(quietHistory(), 115_200, 'structured', 127_000)).toBe(true)
+	})
+
+	it('keeps the usual rule when the provider reports none', async () => {
+		expect(await started(quietHistory(), 94_900, 'structured', undefined)).toBe(false)
+		expect(await started(quietHistory(), 95_000, 'structured', undefined)).toBe(true)
 	})
 })
 

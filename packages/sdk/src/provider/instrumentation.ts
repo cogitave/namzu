@@ -58,6 +58,12 @@ export function wrapProviderWithProbes(
 						provider.resolveContextWindow?.(model, signal) ?? Promise.resolve(undefined),
 				}
 			: {}),
+		...(provider.resolveAutoCompactLimit
+			? {
+					resolveAutoCompactLimit: (model: string, signal?: AbortSignal) =>
+						provider.resolveAutoCompactLimit?.(model, signal) ?? Promise.resolve(undefined),
+				}
+			: {}),
 
 		async *chatStream(params: ChatCompletionParams): AsyncIterable<StreamChunk> {
 			const callId = nextCallId()

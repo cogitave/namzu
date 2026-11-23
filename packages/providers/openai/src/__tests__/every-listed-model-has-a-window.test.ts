@@ -4,27 +4,20 @@ import { describe, expect, it, vi } from 'vitest'
 import { CodexProvider } from '../index.js'
 
 /**
- * Subscription listing rows as the account lists them. Some state a window, some do not (the
- * backend is not required to). Whatever a row says, no listed id may fall to the SDK's 128k guess.
+ * Subscription listing rows as the account lists them. A window is whatever the row states; the
+ * driver keeps no table of its own and the SDK carries no gpt-6 row, so a row that states nothing
+ * is an honest unknown that falls to the default guess (the CLI shows a note for it).
  */
 const LISTED = [
-	{ slug: 'gpt-6.2-sol' },
-	{ slug: 'gpt-6.2-astra' },
-	{ slug: 'gpt-6.1-terra' },
-	{ slug: 'gpt-6-luna' },
-	{ slug: 'gpt-6-astra-megamode' },
+	{ slug: 'gpt-6.2-sol', context_window: 500_000 },
+	{ slug: 'gpt-6.1-terra', max_context_window: 400_000 },
 	{ slug: 'gpt-5.6-sol', context_window: 272_000 },
-	{ slug: 'gpt-5.6-luna' },
-	{ slug: 'gpt-5.6-terra' },
-	{ slug: 'gpt-5.5' },
-	{ slug: 'gpt-5.5-pro' },
-	{ slug: 'gpt-5.4' },
-	{ slug: 'gpt-5.4-mini' },
-	{ slug: 'gpt-5.2' },
+	{ slug: 'gpt-6-luna' },
+	{ slug: 'gpt-6' },
 ]
 
-describe('every model the subscription route lists has a known window', () => {
-	it('resolves none of them to the default', async () => {
+describe('the subscription route knows a window only when its listing states one', () => {
+	it('resolves stated rows to the provider window and the rest to the default', async () => {
 		const provider = new CodexProvider({
 			accessToken: 't',
 			accountId: 'every-listed-account',
@@ -32,12 +25,17 @@ describe('every model the subscription route lists has a known window', () => {
 		;(provider as unknown as { client: { get: unknown } }).client.get = vi.fn(async () => ({
 			models: LISTED,
 		}))
-		const guessed: string[] = []
+		const sources: Record<string, string> = {}
 		for (const row of LISTED) {
 			const reported = await provider.resolveContextWindow(row.slug)
-			if (resolveContextWindow(undefined, row.slug, reported).source === 'default')
-				guessed.push(row.slug)
+			sources[row.slug] = resolveContextWindow(undefined, row.slug, reported).source
 		}
-		expect(guessed).toEqual([])
+		expect(sources).toEqual({
+			'gpt-6.2-sol': 'provider',
+			'gpt-6.1-terra': 'provider',
+			'gpt-5.6-sol': 'provider',
+			'gpt-6-luna': 'default',
+			'gpt-6': 'default',
+		})
 	})
 })

@@ -33,7 +33,7 @@ import type {
 } from 'openai/resources/responses/responses'
 
 import { type FastTier, assertFastModeAccepted, servedSpeed } from './fast-mode.js'
-import { declaredContextWindow, effectiveWindowFraction } from './model-limits.js'
+import { subscriptionLimits } from './model-limits.js'
 import type { CodexConfig } from './types.js'
 
 export const CODEX_CAPABILITIES: ProviderCapabilities = {
@@ -526,8 +526,16 @@ const listingByAccount = new Map<
 		speedTiers: Map<string, readonly FastTier[]>
 		reasoningProfiles: Map<string, SubscriptionReasoningProfile>
 		windows: Map<string, number>
+		compactLimits: Map<string, number>
 	}
 >()
+
+/**
+ * The `client_version` the model list is asked with. The backend's own client sends the plain
+ * `major.minor.patch` of its release (its newest published release is 0.171); a version above
+ * every release reads as the newest client, so no model or field is held back for being too new.
+ */
+const MODELS_CLIENT_VERSION = '1.0.0'
 
 /** The most a subscription listing may take before the window is left to the SDK's table. */
 const WINDOW_LISTING_TIMEOUT_MS = 3_000
@@ -546,6 +554,8 @@ export class CodexProvider implements LLMProvider {
 	private speedTiers?: Map<string, readonly FastTier[]>
 	/** Per model, the window the account's listing states. Absent until a listing has answered. */
 	private windows?: Map<string, number>
+	/** Per model, the compaction threshold the account's listing states or implies. */
+	private compactLimits?: Map<string, number>
 	private windowListingRetryAt = 0
 	/** The listing in flight, shared by callers that arrive while it runs. */
 	private windowListing?: Promise<boolean>
@@ -574,6 +584,7 @@ export class CodexProvider implements LLMProvider {
 			this.speedTiers = known.speedTiers
 			this.reasoningProfiles = known.reasoningProfiles
 			this.windows = known.windows
+			this.compactLimits = known.compactLimits
 		}
 	}
 
@@ -625,6 +636,16 @@ export class CodexProvider implements LLMProvider {
 			signal?.throwIfAborted()
 		}
 		return this.windows?.get(model.toLowerCase())
+	}
+
+	/**
+	 * The token count the account's listing says compaction starts at for `model`: its
+	 * `auto_compact_token_limit` held to 90% of the window, or 90% of the window when it sends
+	 * none. Shares the one listing `resolveContextWindow` asks for, with the same bounds.
+	 */
+	async resolveAutoCompactLimit(model: string, signal?: AbortSignal): Promise<number | undefined> {
+		await this.resolveContextWindow(model, signal)
+		return this.compactLimits?.get(model.toLowerCase())
 	}
 
 	/** One bounded listing for every caller waiting on it; a failure is remembered, never thrown. */
@@ -984,13 +1005,14 @@ export class CodexProvider implements LLMProvider {
 
 	async listModels(signal?: AbortSignal): Promise<ModelInfo[]> {
 		signal?.throwIfAborted()
-		const response = (await this.client.get('/models?client_version=1.0.0', {
+		const response = (await this.client.get(`/models?client_version=${MODELS_CLIENT_VERSION}`, {
 			signal,
 		})) as { models?: unknown }
 		signal?.throwIfAborted()
 		const profiles = new Map<string, SubscriptionReasoningProfile>()
 		const tiersBySlug = new Map<string, readonly FastTier[]>()
 		const windows = new Map<string, number>()
+		const compactLimits = new Map<string, number>()
 		const models = (Array.isArray(response.models) ? response.models : []).flatMap(
 			(value): ModelInfo[] => {
 				const item = record(value)
@@ -1000,12 +1022,10 @@ export class CodexProvider implements LLMProvider {
 				if (profile) profiles.set(item.slug.toLowerCase(), profile)
 				const speedTiers = subscriptionSpeedTiers(item)
 				tiersBySlug.set(item.slug.toLowerCase(), speedTiers)
-				const stated = declaredContextWindow(item)
-				const contextWindow =
-					stated === undefined
-						? undefined
-						: Math.max(1, Math.floor(stated * (effectiveWindowFraction(item) ?? 1)))
+				const { contextWindow, autoCompactTokenLimit } = subscriptionLimits(item)
 				if (contextWindow !== undefined) windows.set(item.slug.toLowerCase(), contextWindow)
+				if (autoCompactTokenLimit !== undefined)
+					compactLimits.set(item.slug.toLowerCase(), autoCompactTokenLimit)
 				return [
 					{
 						id: item.slug,
@@ -1016,6 +1036,7 @@ export class CodexProvider implements LLMProvider {
 						...(profile?.default !== undefined ? { reasoningEffortDefault: profile.default } : {}),
 						speedTiers,
 						...(contextWindow !== undefined ? { contextWindow } : {}),
+						...(autoCompactTokenLimit !== undefined ? { autoCompactTokenLimit } : {}),
 					},
 				]
 			},
@@ -1023,10 +1044,12 @@ export class CodexProvider implements LLMProvider {
 		this.reasoningProfiles = profiles
 		this.speedTiers = tiersBySlug
 		this.windows = windows
+		this.compactLimits = compactLimits
 		listingByAccount.set(this.listingKey, {
 			speedTiers: tiersBySlug,
 			reasoningProfiles: profiles,
 			windows,
+			compactLimits,
 		})
 		return models
 	}

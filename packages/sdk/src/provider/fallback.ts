@@ -626,6 +626,12 @@ export function withProviderFallback(
 						first.provider.resolveContextWindow?.(model, signal) ?? Promise.resolve(undefined),
 				}
 			: {}),
+		...(first.provider.resolveAutoCompactLimit
+			? {
+					resolveAutoCompactLimit: (model: string, signal?: AbortSignal) =>
+						first.provider.resolveAutoCompactLimit?.(model, signal) ?? Promise.resolve(undefined),
+				}
+			: {}),
 	} as LLMProvider
 }
 

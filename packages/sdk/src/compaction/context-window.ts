@@ -173,13 +173,6 @@ const WINDOWS: ReadonlyArray<readonly [prefix: string, tokens: number]> = [
 	['claude-3-5-haiku', 200_000],
 	['claude-3-opus', 200_000],
 	['claude-', 200_000],
-	// The gpt-6 family: UNVERIFIED floors. No first-party figure was read; secondary reports put
-	// the subscription route's default between 258k and 500k and the API window near 1M. These
-	// are the low end of that range, so a model that really holds more compacts a little early
-	// instead of dying on a rejection. A provider's own listing always outranks them (see
-	// `resolveContextWindow`), and the subscription driver reads one at run time.
-	['gpt-6.2', 258_000],
-	['gpt-6', 258_000],
 	['gpt-5', 400_000],
 	['gpt-4.1', 1_047_576],
 	['gpt-4o', 128_000],
@@ -258,6 +251,24 @@ function lookupBareContextWindow(model: string | undefined): number | undefined 
 		if (id.includes(prefix)) return tokens
 	}
 	return undefined
+}
+
+/** The share of the window a provider's own compaction limit is held to. */
+export const PROVIDER_COMPACT_LIMIT_MAX_FRACTION = 0.9
+
+/**
+ * The trigger fraction a provider's own compaction limit asks for: `min(limit, 90% of the
+ * window)` as a share of the window. `undefined` when the provider stated no usable limit or
+ * the window is unknown, which leaves Namzu's derived rule to answer.
+ */
+export function providerTriggerFraction(
+	limitTokens: number | undefined,
+	windowTokens: number,
+): number | undefined {
+	if (limitTokens === undefined || !Number.isFinite(limitTokens) || limitTokens <= 0)
+		return undefined
+	if (!(windowTokens > 0)) return undefined
+	return Math.min(limitTokens, windowTokens * PROVIDER_COMPACT_LIMIT_MAX_FRACTION) / windowTokens
 }
 
 /** Output room the trigger keeps free: the model's output cap, at most this many tokens. */

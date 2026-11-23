@@ -142,6 +142,13 @@ describe('wrapProviderWithProbes — chatStream', () => {
 		expect(wrapProviderWithProbes(makeFakeProvider()).resolveContextWindow).toBeUndefined()
 	})
 
+	it('forwards resolveAutoCompactLimit when the inner provider has one', async () => {
+		const resolveAutoCompactLimit = vi.fn(async () => 90_000)
+		const wrapped = wrapProviderWithProbes({ ...makeFakeProvider(), resolveAutoCompactLimit })
+		expect(await wrapped.resolveAutoCompactLimit?.('m')).toBe(90_000)
+		expect(wrapProviderWithProbes(makeFakeProvider()).resolveAutoCompactLimit).toBeUndefined()
+	})
+
 	it('forwards optional methods (listModels, healthCheck) to the inner provider', () => {
 		const listModels = vi.fn()
 		const healthCheck = vi.fn()

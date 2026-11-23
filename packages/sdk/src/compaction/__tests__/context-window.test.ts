@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import {
 	DEFAULT_ASSUMED_CONTEXT_WINDOW,
 	lookupContextWindow,
+	providerTriggerFraction,
 	resolveContextWindow,
 } from '../context-window.js'
 
@@ -104,18 +105,18 @@ describe('resolveContextWindow', () => {
 })
 
 describe('the gpt-6 family', () => {
-	// The rows are UNVERIFIED floors (see the table). What is pinned here is the shape: the family
-	// is recognised, it no longer falls to the 128k guess, and a provider's own number wins.
 	it.each(['gpt-6.2-sol', 'gpt-6.2-astra', 'gpt-6.1-terra', 'gpt-6-luna', 'gpt-6'])(
-		'knows %s from the table',
+		'has no table row for %s: an unknown window is the default guess',
 		(id) => {
-			const resolved = resolveContextWindow(undefined, id)
-			expect(resolved.source).toBe('model-table')
-			expect(resolved.tokens).toBeGreaterThan(DEFAULT_ASSUMED_CONTEXT_WINDOW)
+			expect(lookupContextWindow(id)).toBeUndefined()
+			expect(resolveContextWindow(undefined, id)).toEqual({
+				tokens: DEFAULT_ASSUMED_CONTEXT_WINDOW,
+				source: 'default',
+			})
 		},
 	)
 
-	it('lets the provider value beat the table, up or down', () => {
+	it('takes the provider value, up or down', () => {
 		expect(resolveContextWindow(undefined, 'gpt-6.2-sol', 1_050_000)).toEqual({
 			tokens: 1_050_000,
 			source: 'provider',
@@ -128,5 +129,19 @@ describe('the gpt-6 family', () => {
 
 	it('leaves the gpt-5 row alone', () => {
 		expect(lookupContextWindow('gpt-5.6-sol')).toBe(400_000)
+	})
+})
+
+describe('providerTriggerFraction', () => {
+	it('is the limit as a share of the window, held to 90%', () => {
+		expect(providerTriggerFraction(100_000, 200_000)).toBe(0.5)
+		expect(providerTriggerFraction(190_000, 200_000)).toBe(0.9)
+	})
+
+	it('answers nothing without a usable limit or window', () => {
+		expect(providerTriggerFraction(undefined, 200_000)).toBeUndefined()
+		expect(providerTriggerFraction(0, 200_000)).toBeUndefined()
+		expect(providerTriggerFraction(Number.NaN, 200_000)).toBeUndefined()
+		expect(providerTriggerFraction(100_000, 0)).toBeUndefined()
 	})
 })

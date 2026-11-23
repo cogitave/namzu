@@ -1,5 +1,5 @@
 ---
-'@namzu/sdk': patch
+'@namzu/sdk': minor
 ---
 
-The model-name table now knows the gpt-6 family (`gpt-6.2`, `gpt-6`) at 258,000 tokens, an unverified floor, so those models no longer fall to the 128,000-token guess when the provider reports no window; a provider's own number still wins. A gpt-6 model now compacts later than before (at about 225,000 tokens instead of 95,000); to keep the old trigger, set `compaction.contextWindowTokens` to `128000`.
+A provider can now report the token count at which its service says compaction should start: the optional `LLMProvider.resolveAutoCompactLimit(model, signal)` and `ModelInfo.autoCompactTokenLimit`. When one is reported and the host set none of `triggerThreshold`, `autoCompactWindowTokens` or `contextWindowTokens`, the compaction trigger is `min(limit, 90% of the window)` instead of the derived trigger, so a model whose provider states a limit can now compact earlier than before; to keep the previous trigger, set `compaction.triggerThreshold`. The provider wrappers pass the new member through. No model-name row exists for the gpt-6 family: a gpt-6 model whose provider states no window falls to the 128,000-token default, as before.

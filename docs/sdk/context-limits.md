@@ -49,26 +49,39 @@ order: the configured `contextWindowTokens`, then the number the driver reports,
 then the table of known model-name prefixes, then a 128,000-token guess. The
 result carries `source` (`config`, `provider`, `model-table` or `default`).
 
-The subscription driver (`CodexProvider`) reports a window from the account's
-model listing: `resolveContextWindow(model, signal)` reads the listing once per
-account (a list that fails or takes over three seconds is skipped for five
-minutes and never fails a turn). A row's window is read from the first of
-`context_window_tokens`, `context_window`, `context_length`, `max_model_len` or
-`max_context_window` that holds a positive integer, and is scaled by
-`effective_context_window_percent` when the row sends one (1 to 100). The same
-number is `ModelInfo.contextWindow` on that listing.
+The subscription driver (`CodexProvider`) reports a window and a compaction
+limit from the account's model listing (`GET /models?client_version=<x.y.z>`,
+the path and query the backend's own client sends). The listing is read once per
+account; a list that fails or takes over three seconds is skipped for five
+minutes and never fails a turn. A row is read the way the backend defines it:
 
-The table has rows for the gpt-6 family (`gpt-6.2`, `gpt-6`) at 258,000 tokens.
-These are **unverified floors**, the low end of what secondary reports give, so
-a model that really holds more compacts a little early rather than failing on a
-rejected prompt. A driver's own number always wins over them. The `gpt-5` row is
-unchanged.
+- resolved window = `context_window`, else `max_context_window`;
+- usable window = resolved x `effective_context_window_percent` / 100, the
+  percent being 95 when the row omits it (only this route applies it; the other
+  compatible hosts keep their own window spellings and no percent);
+- compaction limit = `auto_compact_token_limit` held to 90% of the resolved
+  window, or 90% of it when the row sends none, or the row's limit alone when it
+  states no window.
+
+Counts may be numbers or numeric strings. The usable window is
+`ModelInfo.contextWindow` and `resolveContextWindow(model, signal)`; the
+compaction limit is `ModelInfo.autoCompactTokenLimit` and the optional provider
+member `resolveAutoCompactLimit(model, signal)`, asked once per turn with the
+same bounds.
+
+The runtime uses the provider's compaction limit as the trigger, as
+`min(limit, 90% of the window)`, unless the host set `triggerThreshold`,
+`autoCompactWindowTokens` or `contextWindowTokens` (what the host set wins).
+Without a provider limit the rule below applies unchanged.
+
+The table has no gpt-6 rows: a model whose window nobody states is not guessed
+at by name. Its window is the 128,000 default, with the note below.
 
 A model that falls to the 128,000 guess is said so once: `/context` reads "a
 guess: this model's window is not known; set compaction.contextWindowTokens",
 and the transcript says it once per session. `NAMZU_AUTO_COMPACT_WINDOW` is not
 the fix: it can only lower a window. To keep a window that was guessed before
-this change (128,000 for a gpt-6 model), set `compaction.contextWindowTokens` to
+this change, set `compaction.contextWindowTokens` to
 `128000`.
 
 When compaction starts, measured with the window fixed at 128,000 and nothing

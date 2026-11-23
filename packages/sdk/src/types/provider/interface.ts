@@ -281,6 +281,17 @@ export interface LLMProvider {
 	resolveContextWindow?(model: string, signal?: AbortSignal): Promise<number | undefined>
 
 	/**
+	 * The token count at which the provider's own service says a conversation on `model`
+	 * should be compacted, when it states one (the same listing that states the window).
+	 *
+	 * The compaction trigger uses it as `min(limit, 90% of the window)` when the host set no
+	 * threshold of its own; without it Namzu's derived trigger applies. Same contract as
+	 * `resolveContextWindow`: asked once per turn, bounded, and a rejection or `undefined`
+	 * means "no answer", never a failed turn.
+	 */
+	resolveAutoCompactLimit?(model: string, signal?: AbortSignal): Promise<number | undefined>
+
+	/**
 	 * The model to re-run a refused request on, when this provider has one.
 	 *
 	 * Called after `model` declined to answer (`finishReason: 'content_filter'`),
