@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -118,7 +118,7 @@ describe('runCli', () => {
 		// A value-taking flag would swallow this word and start the session; a bare
 		// flag leaves it as a stray argument, which the launch refuses.
 		expect(await invoke(['--fast', 'ultrafast'])).not.toBe(0)
-		expect(flat(stderr)).toContain('Too many arguments')
+		expect(flat(stderr)).toContain("Unknown command 'ultrafast'")
 		expect(stdout).not.toContain('interactive TUI requires a terminal')
 	})
 
@@ -188,10 +188,8 @@ describe('runCli', () => {
 	it('unknown command returns sysexits EX_USAGE (64)', async () => {
 		const code = await invoke(['definitely-not-a-command'])
 		expect(code).toBe(64)
-		// Commander chooses between "unknown command" and "too many arguments"
-		// depending on whether a default action is registered. Either wording
-		// is acceptable — the contract is the sysexit code, not the message.
-		expect(stderr).toMatch(/unknown command|too many arguments/i)
+		expect(stderr).toContain("Unknown command 'definitely-not-a-command'.")
+		expect(stderr).not.toMatch(/too many arguments/i)
 	})
 
 	it.each([
@@ -223,10 +221,141 @@ describe('runCli', () => {
 		expect(stderr.trim().split('\n')).toHaveLength(1)
 	})
 
-	it('lists exec with its alias, and neither removed command', async () => {
+	it('lists exec and help without aliases, and none of the removed commands', async () => {
 		expect(await invoke(['--help'])).toBe(0)
-		expect(stdout).toMatch(/^\s+exec\|e\b/m)
-		expect(stdout).not.toMatch(/^\s+run(-stream)?\b/m)
+		expect(stdout).toMatch(/^\s+exec\b(?!\|)/m)
+		expect(stdout).toMatch(/^\s+help\b/m)
+		expect(stdout).not.toMatch(/^\s+\w+\|\w+/m)
+		expect(stdout).not.toMatch(/^\s+(run(-stream)?|spaces|e|skills-json|providers-json)\b/m)
+		expect(stdout).not.toContain('--yolo')
+	})
+
+	it.each([
+		[['spaces'], '`namzu spaces` is now `namzu workspaces`.'],
+		[['spaces', '--help'], '`namzu spaces` is now `namzu workspaces`.'],
+		[['e', 'hello'], '`namzu e` is now `namzu exec`.'],
+		[['config', 'reset', 'format'], '`namzu config reset` is now `namzu config unset`.'],
+		[['--yolo'], '`--yolo` is now `--dangerously-skip-permissions`.'],
+		[['--yolo', 'exec', 'hello'], '`--yolo` is now `--dangerously-skip-permissions`.'],
+		[['exec', '--yolo', 'hello'], '`--yolo` is now `--dangerously-skip-permissions`.'],
+		[['resume', '--yolo', 'abc'], '`--yolo` is now `--dangerously-skip-permissions`.'],
+		[['drain', '--yolo'], '`--yolo` is now `--dangerously-skip-permissions`.'],
+		[['workspaces', '--yolo'], '`--yolo` is now `--dangerously-skip-permissions`.'],
+		[['help', 'spaces'], '`namzu spaces` is now `namzu workspaces`.'],
+	])('the retired spelling %j prints one line, exits 64 and runs nothing', async (args, line) => {
+		expect(await invoke(args)).toBe(64)
+		expect(flat(stderr)).toContain(line)
+		expect(stderr.trim().split('\n')).toHaveLength(1)
+		expect(stdout).toBe('')
+	})
+
+	it('does not run the old handler of `config reset`', async () => {
+		const home = mkdtempSync(join(tmpdir(), 'namzu-cli-reset-'))
+		tempRoots.push(home)
+		const before = process.env.NAMZU_HOME
+		process.env.NAMZU_HOME = home
+		try {
+			expect(await invoke(['config', 'reset', 'format'])).toBe(64)
+			expect(existsSync(join(home, 'config.yaml'))).toBe(false)
+			expect(existsSync(join(home, 'config.json'))).toBe(false)
+		} finally {
+			// biome-ignore lint/performance/noDelete: assigning undefined to process.env stores the text "undefined"
+			if (before === undefined) delete process.env.NAMZU_HOME
+			else process.env.NAMZU_HOME = before
+		}
+	})
+
+	it('keeps `--yolo` after `--` as plain text for the prompt', async () => {
+		// Only the flag before `--` is a flag; this call is refused for another reason
+		// (no folder trust in the test), never as the retired spelling.
+		await invoke(['exec', '--', '--yolo'])
+		expect(stderr).not.toContain('is now `--dangerously-skip-permissions`')
+	})
+
+	describe('namzu help', () => {
+		const same = async (helpArgs: string[], flagArgs: string[]) => {
+			stdout = ''
+			expect(await invoke(flagArgs)).toBe(0)
+			const expected = stdout
+			stdout = ''
+			expect(await invoke(helpArgs)).toBe(0)
+			expect(stdout).toBe(expected)
+			expect(expected).not.toBe('')
+		}
+
+		it('prints the root help for a bare `namzu help`', async () => {
+			await same(['help'], ['--help'])
+		})
+
+		it.each([
+			['exec'],
+			['config'],
+			['doctor'],
+			['workspaces'],
+			['computer'],
+			['serve'],
+			['resume'],
+		])('prints what `namzu %s --help` prints', async (name) => {
+			await same(['help', name], [name, '--help'])
+		})
+
+		it('takes an action as well as a command', async () => {
+			await same(['help', 'config', 'set'], ['config', 'set', '--help'])
+			await same(['help', 'computer', 'stop', 'idle'], ['computer', 'stop', 'idle', '--help'])
+		})
+
+		it('gives an unknown command the usual unknown-command error', async () => {
+			expect(await invoke(['help', 'definitely-not-a-command'])).toBe(64)
+			expect(stderr).toContain("Unknown command 'definitely-not-a-command'.")
+			stderr = ''
+			expect(await invoke(['definitely-not-a-command'])).toBe(64)
+			expect(stderr).toContain("Unknown command 'definitely-not-a-command'.")
+		})
+	})
+
+	describe('with a Namzu home that does not exist', () => {
+		let missing: string
+		let before: string | undefined
+
+		beforeEach(() => {
+			const root = mkdtempSync(join(tmpdir(), 'namzu-cli-nohome-'))
+			tempRoots.push(root)
+			missing = join(root, 'not', 'there', '.namzu')
+			before = process.env.NAMZU_HOME
+			process.env.NAMZU_HOME = missing
+		})
+
+		afterEach(() => {
+			// biome-ignore lint/performance/noDelete: assigning undefined to process.env stores the text "undefined"
+			if (before === undefined) delete process.env.NAMZU_HOME
+			else process.env.NAMZU_HOME = before
+		})
+
+		it.each([
+			[['--help']],
+			[['-h']],
+			[['--version']],
+			[['-V']],
+			[['help']],
+			[['help', 'exec']],
+			[['help', 'config', 'set']],
+			[['exec', '--help']],
+			[['doctor', '--help']],
+			[['computer', '--help']],
+			[['workspaces', '-h']],
+		])('answers %j with exit 0 and does not create it', async (args) => {
+			expect(await invoke(args)).toBe(0)
+			expect(stdout).not.toBe('')
+			expect(stderr).toBe('')
+			expect(existsSync(missing)).toBe(false)
+			expect(existsSync(join(missing, '..'))).toBe(false)
+			expect(process.env.NAMZU_HOME).toBe(missing)
+		})
+
+		it('still reports it for a command that does need it', async () => {
+			expect(await invoke(['config', 'list'])).not.toBe(0)
+			expect(existsSync(missing)).toBe(false)
+		})
 	})
 
 	it('refuses --output-schema before exec and says where it goes', async () => {

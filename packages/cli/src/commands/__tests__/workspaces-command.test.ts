@@ -1,7 +1,4 @@
-import { Command } from 'commander'
 import { describe, expect, it, vi } from 'vitest'
-import { workspacesCommand } from '../manifest.js'
-import { registerCommandOrLazy } from '../registry.js'
 import { type WorkspacesDeps, runWorkspaces } from '../workspaces.js'
 
 function deps(over: Partial<WorkspacesDeps> = {}) {
@@ -38,25 +35,5 @@ describe('namzu workspaces', () => {
 			'Workspaces needs a terminal component that is not available here (the terminal component failed to load). Starting a single session instead. Run "namzu doctor" to see how to get it.\n',
 		)
 		expect(d.runPlain).toHaveBeenCalledWith(process.execPath, ['/dist/bin.js', '--model', 'x'])
-	})
-})
-
-describe('the name from before the rename', () => {
-	it('stays an alias of workspaces, on the lazy and the loaded definition alike', async () => {
-		expect(workspacesCommand.aliases).toEqual(['spaces'])
-		expect((await workspacesCommand.load()).aliases).toEqual(['spaces'])
-	})
-
-	it('runs the same command as workspaces', () => {
-		const program = new Command().enablePositionalOptions()
-		registerCommandOrLazy(program, workspacesCommand, {
-			getContext: () => {
-				throw new Error('not run')
-			},
-			setExitCode: () => {},
-		})
-		const found = program.commands.find((c) => c.name() === 'workspaces')
-		expect(found?.aliases()).toEqual(['spaces'])
-		expect(program.commands.some((c) => c.name() === 'spaces')).toBe(false)
 	})
 })

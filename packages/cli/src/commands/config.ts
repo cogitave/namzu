@@ -25,7 +25,7 @@ const HELP = [
 	'  namzu config list [--section <name>] [--json]',
 	'  namzu config get <key> [--json]',
 	'  namzu config set <key> <value> [--yes]',
-	'  namzu config unset <key> [--yes]      (also: reset)',
+	'  namzu config unset <key> [--yes]',
 	'',
 	'Read and change the settings Desktop shows, in your user config file. Desktop and this',
 	'command use one description of each setting, so the same value is accepted or refused',
@@ -175,9 +175,8 @@ export const configCommand: CommandDef = {
 					const [key, ...words] = rest as [string, ...string[]]
 					return await change(key, words.join(' '), flags.yes)
 				}
-				case 'unset':
-				case 'reset': {
-					if (rest.length !== 1) return usage(`namzu config ${action} takes one key`)
+				case 'unset': {
+					if (rest.length !== 1) return usage('namzu config unset takes one key')
 					return await change(rest[0] as string, undefined, flags.yes)
 				}
 				default:

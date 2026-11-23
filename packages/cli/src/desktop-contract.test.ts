@@ -38,7 +38,7 @@ import { OUTCOME_NOTIFICATION } from './commands/desktop-outcome-feed.js'
 import { TITLE_NOTIFICATION } from './commands/desktop-title-feed.js'
 import { USAGE_NOTIFICATION } from './commands/desktop-usage-feed.js'
 import { readPalComputerBundle } from './computer/bundle.js'
-import { COMPUTER_HELP } from './computer/run.js'
+import { COMPUTER_HELP, runComputerCommand } from './computer/run.js'
 import { DESKTOP_CONTRACT } from './desktop-contract.js'
 import { createPalInboxStarter } from './pals/inbox-start.js'
 import { PERMISSION_MODE_NAMES } from './permissions/mode-names.js'
@@ -81,7 +81,7 @@ interface Inventory {
 	flags: {
 		host: { command: string; flags: string[] }
 		terminalUi: { flags: string[]; permissionModeValues: string[] }
-		shortCommands: { command: string; verbs: string[]; flags: string[] }
+		shortCommands: { command: string; verbs: string[]; legacyVerbs?: string[]; flags: string[] }
 	}
 	kernelFolder: { files: { path: string }[] }
 	environment: {
@@ -375,13 +375,32 @@ describe('the flags the application passes', () => {
 		expect(err).toContain('is not a valid value')
 	})
 
-	it('keeps the short `computer` commands', () => {
+	it('keeps the short `computer` commands', async () => {
 		expect(inventory.flags.shortCommands.command).toBe('computer')
-		for (const word of [
+		// `verbs` is what the application passes now; `legacyVerbs` is what installed
+		// ones passed before the verb took two words, and stays accepted though the
+		// help does not list it. Each is checked by asking the command to run it, off
+		// Windows where nothing is touched.
+		for (const verb of [
 			...inventory.flags.shortCommands.verbs,
-			...inventory.flags.shortCommands.flags,
+			...(inventory.flags.shortCommands.legacyVerbs ?? []),
 		]) {
-			expect(COMPUTER_HELP, `namzu computer no longer documents ${word}\n${RULE}`).toContain(word)
+			const code = await runComputerCommand(verb.split(' '), {
+				platform: 'linux',
+				env: {},
+				loadSetup: async () => {
+					throw new Error('setup is not used off Windows')
+				},
+				out: () => {},
+				err: () => {},
+				interactive: false,
+				ask: async () => 'n',
+				now: () => new Date(0),
+			})
+			expect(code, `namzu computer no longer answers ${verb}\n${RULE}`).not.toBe(64)
+		}
+		for (const flag of inventory.flags.shortCommands.flags) {
+			expect(COMPUTER_HELP, `namzu computer no longer documents ${flag}\n${RULE}`).toContain(flag)
 		}
 	})
 })

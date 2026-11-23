@@ -308,6 +308,9 @@
       "verbs": [
         "status",
         "setup",
+        "stop idle"
+      ],
+      "legacyVerbs": [
         "stop-idle"
       ],
       "flags": [

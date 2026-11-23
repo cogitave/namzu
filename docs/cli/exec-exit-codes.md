@@ -10,7 +10,7 @@ generated: { by: human:bahadirarda, at: 2026-09-05T00:00:00Z }
 
 # Exit codes of `namzu exec`
 
-`namzu exec` (alias `namzu e`) is built to be called by something that is not a person: a script, a cron job, a benchmark harness. That caller reads two things, the text on stdout and `$?`, and the exit code has to carry every distinction the caller would act on differently.
+`namzu exec` is built to be called by something that is not a person: a script, a cron job, a benchmark harness. That caller reads two things, the text on stdout and `$?`, and the exit code has to carry every distinction the caller would act on differently.
 
 This page is the default mode, which prints the reply. `namzu exec --json`
 streams events instead and sorts its exit codes on a different axis; see

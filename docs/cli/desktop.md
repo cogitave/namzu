@@ -369,7 +369,7 @@ runtime takes the image from the manifest (`packages/desktop/src/main/pal-comput
 Windows nothing is set: Docker stays the default and the Docker help stays as it was.
 
 Main drives the same CLI as the runtime (`ELECTRON_RUN_AS_NODE`, as its own short process) with
-[`namzu computer status | setup | stop-idle --json`](computer.md), parses the JSON lines (partial lines,
+[`namzu computer status | setup | stop idle --json`](computer.md), parses the JSON lines (partial lines,
 noise and unknown fields are skipped) and publishes one `PalComputerSetupState` to every window
 (`namzu:pal-computer-setup`; `palComputerSetup(fresh?)`, `runPalComputerSetup(planId, palId?)` and
 `restartPc()` on the desktop API). The state is read when the app starts, when a Pal's panel opens
@@ -426,7 +426,7 @@ resume command with spaces in the program path looks like when it reaches the se
 
 The consent record is a one-day agreement: an older record, or one left by a run that was declined or
 failed, never lets Desktop continue by itself. The Linux machine for Pal computers stops by itself: when no Pal computer has run for 10 minutes
-(Desktop watches the computer states it shows) it calls `computer stop-idle`, which refuses while
+(Desktop watches the computer states it shows) it calls `computer stop idle`, which refuses while
 anything runs, and it calls it once when the app quits and no Pal computer runs and no setup is running (the quit-time call gives up after 5 seconds and stops the child, so a Linux machine that does not answer never holds the app from quitting or updating). Reading a Pal computer's status never starts that machine on Windows (readiness comes from what
 setup recorded, not from a probe), so a Pal panel that polls while open cannot bring it back. Only an end-to-end run or a trial started with its own `--user-data-dir` (an installed app never has one)
 may shorten the delay, through `NAMZU_E2E_PAL_COMPUTER_IDLE_MS`; `NAMZU_E2E_PAL_COMPUTER_SETUP=1` lets
@@ -1383,7 +1383,7 @@ empty composer while a saved tab is on its way back.
   computer's machine at once, and closes the live viewer's port after the runtimes have stopped,
   since a runtime lets go of its live viewers while it ends (`runShutdown`,
   `src/main/shutdown-sequence.ts`). The machine stop is safe beside the runtimes: it does nothing
-  while a Pal computer runs, and `computer stop-idle` refuses while anything does. A runtime still
+  while a Pal computer runs, and `computer stop idle` refuses while anything does. A runtime still
   flushes its own journals and is waited for (up to its 5 second end-of-input wait before it is
   ended), and the machine stop is given at most 6 seconds. In the unit test's simulated worst case
   (fake timers, a 5 second runtime stop and a 5 second machine stop) quit waits 5.35 s where the

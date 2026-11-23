@@ -3,6 +3,7 @@
 * [Process-local model profiles](model-profiles.md) - Export main, side and delegated model choices, effort, output allowance and automatic-summary window for one process.
 
 * [Pals in the CLI](pals.md) - Saved identities, local guest computers, terminal chat and exact conversation ownership.
+* [Command words and help](command-words.md) - How commands are spelled, `namzu help`, help before the Namzu home exists, and the retired spellings with what to type instead.
 * [namzu computer](computer.md) - Check, set up and stop the Windows Pal computer, in plain words and as JSON lines for Desktop.
 * [Local authenticated Pal channel adapters](pal-channels.md) - Private local fixture verification, shared SDK inboxes and native recorded reply/review-action routing.
 
@@ -51,7 +52,7 @@ The operator application.
 * [Where tools run](tool-boundary.md) - Host execution under the permission system by default, a path outside the working directory as an approval request, the opt-in sandbox and its per-command escape, and WSL.
 * [Permission modes](permission-modes.md) - The six modes (prompt, accept-edits, plan, bypass, auto, strict), the flags and Shift+Tab that reach them, what bypass and auto still ask, the `permissions.defaultMode`, `disableBypassMode`, `disableAutoMode` and `autoMode` settings, and how the auto classifier picks its model.
 * [Permission layers and remembered answers](permission-layers.md) - How the permissions tables of the config layers combine (a deny from any layer wins), where "don't ask again" is written, and which shell commands run without a prompt.
-* [Launch flags](launch-flags.md) - `--provider`, `--model`, `--effort` and `--permission-mode` on the interactive session: session-only, how they combine with the saved choice and `--yolo`, and what happens when one cannot be honoured.
+* [Launch flags](launch-flags.md) - `--provider`, `--model`, `--effort` and `--permission-mode` on the interactive session: session-only, how they combine with the saved choice and `--dangerously-skip-permissions`, and what happens when one cannot be honoured.
 * [Flags for one run](run-flags.md) - `--append-system-prompt`, `--allowed-tools`, `--disallowed-tools`, `--fallback-model` and `--max-budget-usd`: where each goes, how each combines with the config, and what a bad value does.
 * [Proxies and certificates](network.md) - `HTTPS_PROXY`, `HTTP_PROXY` and `NO_PROXY` for providers, tool servers and the web tools, `NODE_EXTRA_CA_CERTS`, a client certificate, the doctor row, and what the setting does not reach.
 * [Adding a directory](add-dir.md) - How a session lets the file tools reach a directory besides the working directory, and what changes for the tools, the sandbox and the model.

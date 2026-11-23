@@ -23,7 +23,7 @@ describe('the flags and the mode they start in', () => {
 	})
 
 	it.each([
-		['--yolo and --dangerously-skip-permissions', { skipPermissions: true }],
+		['--dangerously-skip-permissions', { skipPermissions: true }],
 		['--permission-mode bypass', { permissionModeFlag: 'bypass' }],
 	])('%s start in bypass and open the door to it', (_flag, input) => {
 		expect(plan(input).mode).toBe('bypass')
@@ -114,7 +114,7 @@ describe('the configured default', () => {
 
 describe('what the settings shut', () => {
 	it.each([
-		['--yolo', { skipPermissions: true }],
+		['--dangerously-skip-permissions', { skipPermissions: true }],
 		['--permission-mode bypass', { permissionModeFlag: 'bypass' }],
 	])('refuses %s when permissions.disableBypassMode is set', (_flag, input) => {
 		const result = planLaunchMode({
@@ -195,7 +195,7 @@ describe('auto as the interactive terminal’s default', () => {
 	it.each([
 		['--permission-mode prompt', { permissionModeFlag: 'prompt' }, 'prompt', 'launch-flag'],
 		['--permission-mode auto', { permissionModeFlag: 'auto' }, 'classify', 'launch-flag'],
-		['--yolo', { skipPermissions: true }, 'bypass', 'launch-bypass'],
+		['--dangerously-skip-permissions', { skipPermissions: true }, 'bypass', 'launch-bypass'],
 		['defaultMode: prompt', { settings: { defaultMode: 'prompt' } }, 'prompt', 'config-default'],
 		[
 			'defaultMode: accept-edits',

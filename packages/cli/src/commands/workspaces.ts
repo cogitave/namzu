@@ -31,9 +31,6 @@ affect the others. The options after "workspaces" go to the first session, so
 
 Dots: red needs approval, blue finished and not seen yet, yellow working, green idle.
 
-("namzu spaces" and tui.spacesPrefix, the names from before the rename, still work and are
-deprecated.)
-
 Keys (press ctrl+b first; change it with tui.workspacesPrefix in your config):
   ctrl+b            send a literal ctrl+b to the session (press it twice)
   v / -             split the pane side by side / top over bottom
@@ -264,8 +261,6 @@ export async function runWorkspaces(
 
 export const workspacesCommand: CommandDef = {
 	name: 'workspaces',
-	// The name from before the rename; deprecated, removed in the next major.
-	aliases: ['spaces'],
 	description: 'Run Namzu sessions side by side in one terminal (preview)',
 	passThrough: true,
 	help: WORKSPACES_HELP,

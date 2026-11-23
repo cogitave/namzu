@@ -68,7 +68,7 @@ export interface TuiConfig {
 	 */
 	readonly workspacesPrefix?: string
 	/**
-	 * @deprecated The name from before `namzu spaces` became `namzu workspaces`. It is still read
+	 * @deprecated The name from before `namzu workspaces` was renamed. It is still read
 	 * when `workspacesPrefix` is absent; move the value to `workspacesPrefix`. Removed in the next major.
 	 */
 	readonly spacesPrefix?: string
@@ -1321,7 +1321,7 @@ export interface SandboxConfig {
 	/**
 	 * Whether a sandboxed `bash` call may ask to run one command outside the
 	 * sandbox (`dangerously_disable_sandbox`). Default `true`: the request is
-	 * put to the user every time — `auto` and `--yolo` included; `plan` and
+	 * put to the user every time — `auto` and `--dangerously-skip-permissions` included; `plan` and
 	 * `strict` refuse it — and written to the session's audit trail. `false`
 	 * refuses every such request.
 	 */

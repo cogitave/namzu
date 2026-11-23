@@ -234,15 +234,6 @@ describe('namzu exec reads its options instead of reciting them', () => {
 		expect(code).toBe(0)
 		expect(seen.prompt).toBe('--force is part of the question')
 	})
-
-	it('accepts --yolo and does not put it in the prompt', async () => {
-		// Headless turns never prompt for approval, so there is nothing to skip.
-		// Accepting it silently is what keeps `namzu --yolo run …` working.
-		const { code } = await run(['--yolo', 'hello'])
-
-		expect(code).toBe(0)
-		expect(seen.prompt).toBe('hello')
-	})
 })
 
 describe('a pipe and a question are both the prompt', () => {
