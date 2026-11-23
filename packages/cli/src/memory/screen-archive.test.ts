@@ -120,3 +120,21 @@ describe('the one-time archive pass', () => {
 		expect(retry.archived).toBe(2)
 	})
 })
+
+describe('archiveUnscreenedRecords when disabled', () => {
+	it('does not read or change the store (a --bare session)', async () => {
+		const { directory, store } = temp()
+		const ids = await seed(store)
+		const list = vi.spyOn(store, 'list')
+		const report = await archiveUnscreenedRecords({
+			store,
+			directory,
+			log: NOOP_LOGGER,
+			disabled: true,
+		})
+		expect(report).toEqual({ ran: false, archived: 0, skipped: 0 })
+		expect(list).not.toHaveBeenCalled()
+		expect(existsSync(join(directory, SCREEN_MARKER_FILE))).toBe(false)
+		expect(ids).toBeDefined()
+	})
+})

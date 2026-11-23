@@ -97,7 +97,7 @@ Skills you name yourself (`/skills`, `--skills`) and the built-in skills still w
 
 ### `--debug-file`
 
-`--debug-file /tmp/namzu/debug.log` appends every log record, debug level included, to that file as one JSON object per line, from the start of the process. What appears on screen keeps its usual level (`-v` and `-q` still decide that). Only the folders of the path you give are created; a path that cannot be opened is refused with exit status 64. It works for every command and for the terminal session, which writes nothing to stderr while it runs.
+`--debug-file /tmp/namzu/debug.log` appends every log record, debug level included, to that file as one JSON object per line, from the start of the process. What appears on screen keeps its usual level (`-v` and `-q` still decide that). Only the folders of the path you give are created; a path that cannot be opened is refused with exit status 64. It works for every command and for the terminal session, which writes nothing to stderr while it runs. A file Namzu creates is readable by you only.
 
 ### `--settings`
 

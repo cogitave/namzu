@@ -3927,6 +3927,7 @@ export async function createAgentSession(
 		store: memoryStore,
 		directory: memoryDirectory,
 		log: cliLogger(),
+		disabled: options.bare === true,
 	})
 	/**
 	 * The stored-memory index for this turn's prompt, or null. A store that
@@ -3937,6 +3938,7 @@ export async function createAgentSession(
 		prompt: string | null
 		notice?: string
 	}> => {
+		if (options.bare) return { prompt: null }
 		try {
 			return {
 				prompt: composeStoredMemoryPrompt(await memoryStore.readIndex()),

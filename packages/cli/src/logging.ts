@@ -191,7 +191,7 @@ export function openDebugFile(path: string): void {
 	const target = resolve(path)
 	try {
 		mkdirSync(dirname(target), { recursive: true })
-		const stream = createWriteStream(target, { fd: openSync(target, 'a') })
+		const stream = createWriteStream(target, { fd: openSync(target, 'a', 0o600) })
 		stream.on('error', () => undefined)
 		debugFileSink = jsonLinesSink(stream)
 	} catch (error) {
