@@ -1,5 +1,6 @@
 import { EXIT_USAGE } from '../exit-codes.js'
 import { terminalDisplayText } from '../tui/terminal-display.js'
+import { PROVIDERS_ACTIONS } from './actions/small.js'
 import { collectProviders } from './host-queries.js'
 import type { CommandDef } from './types.js'
 
@@ -19,6 +20,7 @@ export const providersCommand: CommandDef = {
 	description: 'List providers and their models',
 	passThrough: true,
 	help: HELP,
+	actions: PROVIDERS_ACTIONS,
 	handler: async ({ ctx, rawArgs }) => {
 		if (rawArgs[0] !== 'list') {
 			const given = rawArgs[0] === undefined || rawArgs[0].startsWith('-') ? undefined : rawArgs[0]

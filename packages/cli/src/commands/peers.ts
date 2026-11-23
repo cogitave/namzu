@@ -40,6 +40,7 @@ import { planLaunchMode } from '../permissions/launch.js'
 import type { PermissionSettings } from '../permissions/settings.js'
 import { terminalDisplayText } from '../tui/terminal-display.js'
 import { CLI_VERSION } from '../version.js'
+import { PEERS_ACTIONS } from './actions/peers.js'
 import { decodePeerInput, readBoundedFile, readBoundedStream } from './peer-input.js'
 import type { CommandDef } from './types.js'
 
@@ -767,6 +768,7 @@ export const peersCommand: CommandDef = {
 	description: 'List and message live terminals, and manage your Namzu network of machines',
 	passThrough: true,
 	help: HELP,
+	actions: PEERS_ACTIONS,
 	handler: async ({ ctx, rawArgs }) => {
 		const parsed = parsePeersArgs(rawArgs)
 		// With --json every outcome, errors included, is one JSON object on stdout.

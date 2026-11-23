@@ -14,6 +14,7 @@ import {
 import { PROVIDER_REGISTRY } from '../integrations/providers/registry.js'
 import { terminalDisplayText } from '../tui/terminal-display.js'
 import { CLI_VERSION } from '../version.js'
+import { GITHUB_ACTIONS } from './actions/small.js'
 import type { CommandDef } from './types.js'
 
 const HELP = `namzu github — run Namzu from GitHub Actions
@@ -116,6 +117,7 @@ export const githubCommand: CommandDef = {
 		'Run Namzu from GitHub Actions: install workflows that answer mentions and review pull requests',
 	passThrough: true,
 	help: HELP,
+	actions: GITHUB_ACTIONS,
 	handler: async ({ ctx, rawArgs }) => {
 		const [verb, ...rest] = rawArgs
 		if (verb !== 'install') {

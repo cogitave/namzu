@@ -1,6 +1,7 @@
 import type { NamzuCliConfig } from '../config/schema.js'
 import type { ResolvedLogging } from '../logging.js'
 import type { Formatter } from '../output/index.js'
+import type { ActionHelp } from './action-help.js'
 
 export interface CommandContext {
 	readonly formatter: Formatter
@@ -51,5 +52,11 @@ export interface CommandDef {
 	 * Leave it unset only when the command genuinely renders its own.
 	 */
 	readonly help?: string
+	/**
+	 * The command's actions, for `--help`. With it, `namzu <name> <action> --help`
+	 * prints that action's own help and the area's help ends with one line per
+	 * action. See `action-help.ts`.
+	 */
+	readonly actions?: readonly ActionHelp[]
 	readonly handler: CommandHandler
 }

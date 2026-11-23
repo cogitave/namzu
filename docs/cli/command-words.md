@@ -27,6 +27,14 @@ namzu help computer stop idle
 
 A name after `namzu help` that is not a command gets `Unknown command '<name>'.`, exit 64. Typed on its own, a word that is not a command (`namzu fix`) is the first message of a new session, not an error. `--yolo` is refused with its one line on every command.
 
+## Help for one action
+
+A command with actions answers `namzu <area> <action> --help`, and `namzu help <area> <action>`, with that action's own help: a first line that is its usage (`namzu schedule add <name> [options]`), one sentence on what it does, its options with a line each, and one example. `namzu <area> --help` is the area's text followed by an **Actions** list with one line per action and `namzu <area> <action> --help for details.` A group word (`namzu schedule service --help`, `namzu extension signin --help`) lists the actions under it. Words that name no action fall back to the area's help.
+
+The areas that have actions are `schedule` (and `schedule service`), `extension`, `browser`, `mcp`, `auth`, `state`, `computer`, `config`, `skills`, `providers`, `worktree`, `pal`, `peers`, `plugin`, `github` and `archive`. `learn`, `learning`, `hooks` and `workspaces` take options only, so their one help is the whole of it.
+
+Each area declares its actions in one table (`packages/cli/src/commands/actions/`), and a test reads every declared flag against the source of the parser that accepts it, so a flag the parser does not read cannot be listed.
+
 ## Help without a Namzu home
 
 `namzu --help`, `-h`, `--version`, `-V` and `namzu help ...` print their text

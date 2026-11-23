@@ -32,6 +32,7 @@ import {
 import { resolveNamzuHome } from '../integrations/state/home.js'
 import { decideHeadlessTrust } from '../permissions/headless-trust.js'
 import { terminalDisplayText } from '../tui/terminal-display.js'
+import { MCP_ACTIONS } from './actions/mcp.js'
 import { loginMcpServer } from './mcp-oauth-login.js'
 import type { CommandContext, CommandDef } from './types.js'
 
@@ -169,6 +170,7 @@ export const mcpCommand: CommandDef = {
 	description: 'Manage user tool servers',
 	passThrough: true,
 	help: HELP,
+	actions: MCP_ACTIONS,
 	handler: async ({ ctx, rawArgs }) => {
 		const action = parseMcpAction(rawArgs)
 		if (action.kind === 'error') {
