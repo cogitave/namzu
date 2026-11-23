@@ -25,7 +25,7 @@ namzu help config set
 namzu help computer stop idle
 ```
 
-A name that is not a command gets the error `namzu <name>` would get.
+A name that is not a command gets the error `namzu <name>` would get: `Unknown command '<name>'.`, exit 64. `--yolo` is refused the same way on every command.
 
 ## Help without a Namzu home
 

@@ -1141,6 +1141,17 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 				code: 'commander.unknownCommand',
 			})
 		}
+		// The root command takes no operands, so a first word that names no command
+		// is an unknown command; commander would call it "too many arguments".
+		const rootArgs = argv.slice(2)
+		const word = firstRootOperandIndex(program, rootArgs)
+		const typed = word === undefined ? undefined : rootArgs[word]
+		if (typed !== undefined && !program.commands.some((c) => c.name() === typed)) {
+			program.error(`unknown command '${typed}'`, {
+				exitCode: EX_USAGE,
+				code: 'commander.unknownCommand',
+			})
+		}
 		await program.parseAsync(argv as string[], { from: 'node' })
 		return exitCode
 	} catch (err) {
@@ -1218,12 +1229,9 @@ function firstRootOperandIndex(program: Command, args: readonly string[]): numbe
 	return undefined
 }
 
-/** The commands whose launch flags once included `--yolo`. */
-const YOLO_COMMANDS: ReadonlySet<string> = new Set(['resume', 'exec', 'drain'])
-
 /**
  * The one line to print when `args` use a retired spelling, or undefined. The
- * flag is looked for before `--`, on the commands that took it; a command and
+ * flag is looked for before `--`, on every command; a command and
  * its action are matched as typed, side by side.
  */
 function removedSpellingHint(program: Command, args: readonly string[]): string | undefined {
@@ -1240,7 +1248,7 @@ function removedSpellingHint(program: Command, args: readonly string[]): string 
 		const byAction = action === undefined ? undefined : REMOVED_COMMANDS[`${name} ${action}`]
 		if (byAction !== undefined) return byAction
 	}
-	if (sawYolo && (name === undefined || YOLO_COMMANDS.has(name))) return REMOVED_COMMANDS['--yolo']
+	if (sawYolo) return REMOVED_COMMANDS['--yolo']
 	return undefined
 }
 

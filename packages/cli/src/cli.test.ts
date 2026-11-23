@@ -118,7 +118,7 @@ describe('runCli', () => {
 		// A value-taking flag would swallow this word and start the session; a bare
 		// flag leaves it as a stray argument, which the launch refuses.
 		expect(await invoke(['--fast', 'ultrafast'])).not.toBe(0)
-		expect(flat(stderr)).toContain('Too many arguments')
+		expect(flat(stderr)).toContain("Unknown command 'ultrafast'")
 		expect(stdout).not.toContain('interactive TUI requires a terminal')
 	})
 
@@ -188,10 +188,8 @@ describe('runCli', () => {
 	it('unknown command returns sysexits EX_USAGE (64)', async () => {
 		const code = await invoke(['definitely-not-a-command'])
 		expect(code).toBe(64)
-		// Commander chooses between "unknown command" and "too many arguments"
-		// depending on whether a default action is registered. Either wording
-		// is acceptable — the contract is the sysexit code, not the message.
-		expect(stderr).toMatch(/unknown command|too many arguments/i)
+		expect(stderr).toContain("Unknown command 'definitely-not-a-command'.")
+		expect(stderr).not.toMatch(/too many arguments/i)
 	})
 
 	it.each([
@@ -242,6 +240,7 @@ describe('runCli', () => {
 		[['exec', '--yolo', 'hello'], '`--yolo` is now `--dangerously-skip-permissions`.'],
 		[['resume', '--yolo', 'abc'], '`--yolo` is now `--dangerously-skip-permissions`.'],
 		[['drain', '--yolo'], '`--yolo` is now `--dangerously-skip-permissions`.'],
+		[['workspaces', '--yolo'], '`--yolo` is now `--dangerously-skip-permissions`.'],
 		[['help', 'spaces'], '`namzu spaces` is now `namzu workspaces`.'],
 	])('the retired spelling %j prints one line, exits 64 and runs nothing', async (args, line) => {
 		expect(await invoke(args)).toBe(64)
@@ -307,10 +306,10 @@ describe('runCli', () => {
 
 		it('gives an unknown command the usual unknown-command error', async () => {
 			expect(await invoke(['help', 'definitely-not-a-command'])).toBe(64)
-			expect(stderr).toMatch(/unknown command|too many arguments/i)
+			expect(stderr).toContain("Unknown command 'definitely-not-a-command'.")
 			stderr = ''
 			expect(await invoke(['definitely-not-a-command'])).toBe(64)
-			expect(stderr).toMatch(/unknown command|too many arguments/i)
+			expect(stderr).toContain("Unknown command 'definitely-not-a-command'.")
 		})
 	})
 
