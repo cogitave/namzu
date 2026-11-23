@@ -130,6 +130,8 @@ export function AdminDialog({
 				admin: first,
 				...(action === 'background-off' ? { on: false } : {}),
 			})
+			// Refresh on every attempt, so a lock state changed elsewhere shows up after a refusal.
+			await refreshExtensions(api)
 			if (!r.ok) {
 				setFailure(r.failure)
 				return
@@ -138,7 +140,6 @@ export function AdminDialog({
 				setFailure('This version of Namzu could not perform the operation.')
 				return
 			}
-			await refreshExtensions(api)
 			onClose()
 		} catch {
 			setFailure('Namzu could not complete the operation. Try again.')

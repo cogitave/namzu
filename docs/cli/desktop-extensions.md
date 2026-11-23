@@ -100,8 +100,8 @@ The page turns on only when the engine lists every method of the group `extensio
 notification `namzu/extensions/state` (`{ id, state, indicator, since }`) on every change, which keeps the list and the extension's screen current. A
 refusal the person can read is answered as `{ error: { code, check, message } }`. A secret is
 never returned, only whether one is stored and its last four characters. The main process
-lets the page call everything except `add`, and `add` only with the file chosen in the dialog.
-An extension's own page can call none of `add` and `unlock`. A method that the lock guards takes the
+lets Namzu's Extensions settings call everything except `add`, and `add` only with the file chosen
+in the dialog. An extension's own page can call none of the `namzu/*` methods, including `add` and `unlock`. A method that the lock guards takes the
 password as `admin`; it is never stored or sent back.
 
 ## The Start when I sign in switch and the licence group
