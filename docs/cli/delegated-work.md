@@ -647,8 +647,15 @@ Select one task by its public ID or agent name to inspect it without waiting:
 { "task_id": "reviewer", "include_output": true }
 ```
 
-`include_output` requires `task_id` and cannot be combined with the saved
-`history`/`session_id` view. A selection returns one entry under `tasks`; an
+`include_output` requires `task_id` (or `run_id`, below) and cannot be combined with the saved
+`history`/`session_id` view. With `run_id`, `{ "run_id": "w1ab2cd3", "include_output": true }`
+returns the run's status and, under `run_agents`, the same bounded excerpt for each of
+its last 12 agents; a run this session holds no activity for says so under
+`run_agents_note` and names the `resumeFromRunId` call that returns its saved
+answers. A `run_id` this session no longer holds (an earlier process, another
+conversation) is answered with a `runNote` saying nothing runs under it and how to
+continue it. An agent id of a workflow run that has ended is answered with the run
+it belonged to. A selection returns one entry under `tasks`; an
 unknown or foreign-conversation task is refused. `outputState` is `partial` or
 `settled`, and `outputAvailable` says whether activity was observed. A partial
 excerpt is not a final answer; `wait_for_task` remains the settled-result path.

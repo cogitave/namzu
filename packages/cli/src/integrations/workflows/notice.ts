@@ -137,3 +137,28 @@ export function completionNotice(view: WorkflowRunView): string {
 	)
 	return lines.join('\n')
 }
+
+/**
+ * What the model is told, the next time a conversation is opened, about a run
+ * the program itself cut short (the session ended, or the person moved to
+ * another conversation) while the run was going. Not the person stopping it.
+ */
+export function interruptedNotice(
+	view: WorkflowRunView,
+	cause: 'session-ended' | 'conversation-changed',
+): { readonly text: string; readonly line: string } {
+	const counts = countAgents(view)
+	const why =
+		cause === 'session-ended'
+			? 'the session ended while it was running'
+			: 'the person moved to another conversation while it was running'
+	const text = [
+		`Background workflow ${JSON.stringify(view.name)} (run ${view.runId}) was cut short: ${why}. Nobody asked to stop it.`,
+		`${counts.done} agent${counts.done === 1 ? '' : 's'} had finished and saved their results; ${counts.total - counts.done} had not.`,
+		`If the person asks to continue, resume it rather than redoing its work by hand or starting a new run: call ${resumeCallText(view.scriptPath, view.runId)}; agents whose prompt and options are unchanged return their saved results without running again. Say in one line that you are resuming run ${view.runId}.`,
+	].join('\n')
+	return {
+		text,
+		line: `${view.name} was cut short when ${cause === 'session-ended' ? 'the session ended' : 'you left this conversation'}. /workflows to see it or resume it.`,
+	}
+}

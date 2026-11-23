@@ -117,8 +117,15 @@ export function describeWorkflowRuns(
 
 /** What the status read of `agent_task_list` adds: the note's own lines, and the workflow runs in detail. */
 export function readWorkStatus(facts: Omit<OutstandingFacts, 'now'>, now: number, runId?: string) {
+	const described = describeWorkflowRuns(facts.workflows, now, runId)
 	return {
 		outstanding: outstandingLines(collectOutstanding({ ...facts, now })),
-		...describeWorkflowRuns(facts.workflows, now, runId),
+		...described,
+		// A run this process no longer holds is not a run that never existed.
+		...(runId !== undefined && described.workflows.length === 0
+			? {
+					runNote: `This session holds no run ${runId} now (it was started by an earlier process or conversation, or it was removed). Nothing is running under that id. If it was a run of this conversation, workflow with resumeFromRunId ${runId} continues it: agents whose prompt and options are unchanged return their saved results.`,
+				}
+			: {}),
 	}
 }

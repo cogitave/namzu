@@ -204,8 +204,12 @@ A workflow's agents ask their questions through the review channel of the turn
 that started the workflow, but for as long as the workflow runs, not only for as
 long as that turn does: an approval for an agent's `edit` appears on screen even
 when the model's turn is over, under the permission mode the operator has chosen
-at that moment. Leaving the conversation (`/resume`, `/new`) stops running
-workflows.
+at that moment. A turn that is stopped (Esc, or a refused call that ends the turn)
+does not stop a run it started: a run ends only when it finishes, when it is
+stopped on purpose (`x` in `/workflows`, or the model's `stop_task`), or when the
+program ends it. Leaving the conversation (`/resume`, `/new`) and closing the
+session do the last: the run is cut short, and the notice is kept beside its
+journal (see [Resuming a run](#resuming-a-run)).
 
 Limits come from the configuration below, or the SDK defaults: at most `min(16, CPUs − 2)` agents (at least 2) run at
 once, 1000 start per run, one value crossing the bridge is at most 1 MiB, and the
@@ -424,6 +428,15 @@ or was skipped starts running again, and so does everything after it. A call
 that was cut off by a stop or a closed session runs again without ending reuse.
 Resuming a finished run is allowed (every unchanged call replays), and resumes
 compound. Nothing resumes by itself.
+
+A run that was going when the session closed or the person left the
+conversation is told to the model the next time that conversation is opened (the
+same message a run that never recorded an end gets): its run id, how many agents
+had finished, and the `resumeFromRunId` call, with the instruction that when the
+person says to continue the model resumes the run rather than redoing its work
+by hand or starting a new one, and says so in one line. A journal that cannot be
+resumed on this machine is reported as one to start again. A run the person or
+the model stopped is not announced this way: its end was already told.
 
 A resume goes through the same review as a start. It also shows which run it
 continues and what it can reuse:

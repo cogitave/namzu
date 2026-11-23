@@ -9,6 +9,8 @@
  * dropped with Alt+W), hypermode being on, or their own words. Pure.
  */
 
+import { CONTINUE_RUN_GUIDANCE } from '../subagents/stop-guidance.js'
+
 export const WORKFLOW_TOOL_NAME = 'workflow'
 
 /**
@@ -38,7 +40,8 @@ export const WORKFLOW_TOOL_DESCRIPTION = [
 	'',
 	'Scripts must be deterministic: the same inputs make the same agent() calls in the same order. Date.now(), new Date() with no argument and Math.random() throw (they break resume): pass a timestamp through args, and for N independent samples put the index in the label or prompt. new Date(x), Date.parse and Date.UTC work.',
 	'',
-	'Resuming: the receipt of a started run names a script file and the run id. To change the script, edit that file and call workflow again with {scriptPath, resumeFromRunId}; to continue a run that failed, was stopped or was cut off, do the same. Agents whose prompt and options are unchanged return their saved results without running; the first call that differs, failed or never ran starts running again, and so does everything after it. Saved results are in journal.jsonl in the run folder and can be empty, so read it before assuming there is something to recover. Resuming asks the operator, like a start, and a run that is still going cannot be resumed.',
+	'Resuming: the receipt of a started run names a script file and the run id. To change the script, edit that file and call workflow again with {scriptPath, resumeFromRunId}; to continue a run that failed, was stopped or was cut off, do the same. Agents whose prompt and options are unchanged return their saved results without running; the first call that differs, failed or never ran starts running again, and so does everything after it. Saved results are in journal.jsonl in the run folder and can be empty, so read it before assuming there is something to recover. Resuming asks the operator, like a start, and a run that is still going cannot be resumed. ' +
+		CONTINUE_RUN_GUIDANCE,
 	'',
 	'Limits: a handful of agents run at once (the cap comes from the configuration; usually up to 16) and at most 1000 start per run (fewer if configured); a script that asks for more fails, so give any loop a hard iteration cap. The script may be up to 256 KiB and args 64 KiB, but the operator reads the script before it starts, so keep it as short as it can be: loops over lists, shared helpers, prompts built from args. Put long per-agent instructions in a file the agents read.',
 	'',

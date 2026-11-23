@@ -11,9 +11,9 @@
  * cannot be written does not repeat it.
  */
 
-import { existsSync } from 'node:fs'
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { readFile, readdir, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 
 import {
 	FileWorkflowJournal,
@@ -48,6 +48,8 @@ interface StoredNotice {
 	readonly pass: number
 	readonly delivered: boolean
 	readonly at: number
+	/** Written by the running process when it stopped the run itself (session end, conversation change), not found afterwards. */
+	readonly interrupted?: true
 }
 
 const NO_USAGE: WorkflowUsage = {
@@ -97,6 +99,42 @@ function words(count: number, noun: string): string {
 }
 
 /**
+ * A run this process is about to stop because the session is ending or the
+ * conversation is changing: store the notice beside its journal now, so the
+ * next time the conversation is opened the model is told the run was cut
+ * short and how to resume it. Synchronous, because the process may exit
+ * straight after. A failure to write is not an error: the journal still holds
+ * what finished, and the run is then simply not announced.
+ */
+export function storeInterruptedNotice(input: {
+	readonly journalPath: string
+	readonly runId: string
+	readonly name: string
+	readonly pass: number
+	readonly text: string
+	readonly line: string
+	readonly at: number
+}): void {
+	try {
+		const dir = dirname(input.journalPath)
+		mkdirSync(dir, { recursive: true })
+		const notice: StoredNotice = {
+			runId: input.runId,
+			name: input.name,
+			text: input.text,
+			line: input.line,
+			pass: input.pass,
+			delivered: false,
+			at: input.at,
+			interrupted: true,
+		}
+		writeFileSync(join(dir, NOTICE_FILE), JSON.stringify(notice), { mode: 0o600, flag: 'w' })
+	} catch {
+		// See above.
+	}
+}
+
+/**
  * Find the runs of this conversation that no process is running and that never
  * recorded an end. Each is marked stopped and returned once; later calls
  * return only notices that were stored and not yet delivered.
@@ -140,7 +178,18 @@ export async function recoverUnfinishedWorkflows(options: {
 			.slice(Math.max(startedAt, 0))
 			.some((record) => record.type === 'run_finished')
 		if (stored && stored.pass === pass) {
-			if (!stored.delivered) found.push(stored)
+			if (!stored.delivered) {
+				// The resume instruction is only true where the journal can be resumed here.
+				const resumable = !checked.legacy && loadWorkflowResume(checked).resumable
+				found.push(
+					stored.interrupted && !resumable
+						? {
+								...stored,
+								text: `Background workflow ${quotedName(stored.name)} (run ${runId}) was cut short when the previous session ended, and its journal cannot be resumed on this machine. Run it again from the start (call workflow without resumeFromRunId); the agents run again.`,
+							}
+						: stored,
+				)
+			}
 			continue
 		}
 		if (startedAt >= 0 && ended) {
@@ -153,6 +202,14 @@ export async function recoverUnfinishedWorkflows(options: {
 		if (startedAt < 0) {
 			// Nothing in the journal can be trusted. If that is because the signing key no
 			// longer matches, the operator is told why instead of the run vanishing.
+			if (stored?.interrupted && !stored.delivered) {
+				// The program cut this run short and kept the notice; the journal cannot be read now.
+				found.push({
+					...stored,
+					text: `Background workflow ${quotedName(stored.name)} (run ${runId}) was cut short when the previous session ended, and its journal cannot be read or resumed on this machine. Run it again from the start (call workflow without resumeFromRunId); the agents run again.`,
+				})
+				continue
+			}
 			if (stored || !(await keyMismatchOf(dir, runId, options.key))) continue
 			const notice: StoredNotice = {
 				runId,

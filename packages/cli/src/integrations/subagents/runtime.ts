@@ -872,6 +872,8 @@ export async function createSubagentRuntime(
 	// The names `Agent` calls have given, to the task each one addresses.
 	const agentNames = new AgentNames()
 	/** The one id the model sees for an agent, whichever run of it a task handle belongs to. */
+	/** Which workflow run an agent id (its view id or its task id) belonged to, so a later lookup can say so. */
+	const workflowAgentRuns = new Map<string, string>()
 	const publicTaskId = (taskId: TaskId | string): string => {
 		const viewId = taskViews.get(String(taskId))
 		const owned = viewId === undefined ? undefined : conversations.get(viewId)
@@ -1392,6 +1394,14 @@ export async function createSubagentRuntime(
 		}
 	}
 	/** Why no task answered to an id: what is running, and where a saved record might be. */
+	const workflowRunOfAgent = (id: string): string | undefined => {
+		const direct = workflowAgentRuns.get(id)
+		if (direct !== undefined) return direct
+		const entry = activity.getSnapshot().find((item) => item.taskId === id || item.viewId === id)
+		return entry?.workflowId?.startsWith(WORKFLOW_RUN_GROUP_PREFIX)
+			? entry.workflowId.slice(WORKFLOW_RUN_GROUP_PREFIX.length)
+			: undefined
+	}
 	const unknownTaskMessage = async (asked: string, turnId: TurnId): Promise<string> => {
 		const taskId = asked.trim().slice(0, 80)
 		const parentKey = sessionKey(await resolveParent(turnId))
@@ -1423,8 +1433,12 @@ export async function createSubagentRuntime(
 				// Not a saved agent of this conversation either.
 			}
 		}
+		const run = workflowRunOfAgent(taskId)
 		return [
 			`No task with ID ${taskId} in this conversation.`,
+			run !== undefined
+				? `That agent belonged to workflow run ${run}, which has ended with the run (an agent of a workflow is not a task of its own once its run is over). Read the run with agent_task_list run_id ${run}; to get its agents' outputs set include_output: true with that run_id, and to continue it call workflow with resumeFromRunId ${run}.`
+				: '',
 			running.length > 0 ? `Running agents: ${running.join(', ')}.` : '',
 			saved
 				? 'That ID is a saved agent from an earlier run; see agent_task_list with history: true.'
@@ -2108,12 +2122,21 @@ export async function createSubagentRuntime(
 					cancelCause: 'user',
 					onView: (id) => {
 						viewId = id
+						workflowAgentRuns.set(id, launch.runId)
 						launch.onView?.(id)
 					},
 					onEvent: () => report(false),
 				},
 			)
 			report(true)
+			// The ids the model was handed for this agent, so a later lookup that finds nothing can say whose it was.
+			const observed = viewId
+				? activity.getSnapshot().find((item) => item.viewId === viewId)
+				: undefined
+			if (observed?.taskId !== undefined) {
+				workflowAgentRuns.set(observed.taskId, launch.runId)
+				workflowAgentRuns.set(publicTaskId(observed.taskId), launch.runId)
+			}
 			const stats = viewId ? activity.progressOf(viewId) : undefined
 			const tokens = stats?.tokens ?? 0
 			const toolCalls = stats?.toolCalls ?? 0
@@ -2218,7 +2241,7 @@ export async function createSubagentRuntime(
 				run_id?: string
 			}
 			if (
-				(request.include_output && !request.task_id) ||
+				(request.include_output && !request.task_id && request.run_id === undefined) ||
 				((request.history || request.session_id) &&
 					(request.task_id !== undefined || request.include_output))
 			)
@@ -2226,7 +2249,7 @@ export async function createSubagentRuntime(
 					success: false,
 					output: '',
 					error:
-						'include_output requires one task_id. Inspect saved agents separately with history and session_id.',
+						'include_output requires one task_id, or a run_id to read the agents of one workflow run. Inspect saved agents separately with history and session_id.',
 				}
 			if (request.history || request.session_id) {
 				if (!opts.savedAgents)
@@ -2366,7 +2389,34 @@ export async function createSubagentRuntime(
 				opts.workStatus && request.task_id === undefined
 					? opts.workStatus((await resolveParent(context.turnId)).sessionId, request.run_id)
 					: undefined
+			// A run's agents, with what each one did: the one call that gives a run's outputs.
+			const runAgents =
+				request.include_output && request.task_id === undefined && request.run_id !== undefined
+					? snapshot
+							.filter(
+								(entry) => entry.workflowId === `${WORKFLOW_RUN_GROUP_PREFIX}${request.run_id}`,
+							)
+							.slice(-12)
+					: undefined
 			const body = {
+				...(runAgents
+					? {
+							run_agents:
+								runAgents.length > 0
+									? runAgents.map((entry) => ({
+											task_id: entry.taskId ?? entry.viewId,
+											label: entry.description,
+											status: entry.status,
+											...taskActivityOutput(entry, entry.completedAt !== undefined),
+										}))
+									: [],
+							...(runAgents.length === 0
+								? {
+										run_agents_note: `No agent activity is kept for run ${request.run_id} in this session. What its finished agents answered is in the run's journal (the journal path is in the workflows entry), and workflow with resumeFromRunId ${request.run_id} returns those answers without running the agents again.`,
+									}
+								: {}),
+						}
+					: {}),
 				tasks: request.run_id !== undefined && status ? [] : shown,
 				total: request.run_id !== undefined && status ? 0 : total,
 				omitted: request.run_id !== undefined && status ? 0 : total - shown.length,

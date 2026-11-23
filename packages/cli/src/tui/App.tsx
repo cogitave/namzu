@@ -2431,7 +2431,12 @@ function AppBody({
 	}, [session])
 	// Runs a previous process left unfinished: told to the model once with its next
 	// turn (never waking an idle model), and named to the operator in one line.
-	useEffect(() => {
+	/**
+	 * Name the runs of the open conversation that did not finish, once. Called
+	 * when the session opens and again when another conversation is resumed:
+	 * the run may have been cut short when the person left it.
+	 */
+	const announceUnfinishedRuns = useCallback((): void => {
 		const source = session?.workflows
 		if (!source) return
 		void source
@@ -2439,14 +2444,19 @@ function AppBody({
 			.then((notices) => {
 				if (previousSessionRef.current !== session || appLifetime.signal.aborted) return
 				for (const notice of notices) {
-					wakeLedgerRef.current.noteWorkflowEnd(
-						`${ORPHAN_NOTICE_PREFIX}${notice.runIds.join(',')}`,
-						notice.text,
-					)
+					const key = `${ORPHAN_NOTICE_PREFIX}${notice.runIds.join(',')}`
+					// Already waiting for the model: not named to the person twice.
+					if (wakeLedgerRef.current.workflowIds().includes(key)) continue
+					wakeLedgerRef.current.noteWorkflowEnd(key, notice.text)
 					pushMessage('system', notice.line)
 				}
 			})
 			.catch(() => undefined)
+	}, [session])
+	useEffect(() => {
+		const source = session?.workflows
+		if (!source) return
+		announceUnfinishedRuns()
 		// A run resumed before the model was told about it no longer needs the notice.
 		return source.subscribe(() => {
 			const live = new Set(source.runs().map((view) => view.runId))
@@ -2459,7 +2469,7 @@ function AppBody({
 				}
 			}
 		})
-	}, [session])
+	}, [announceUnfinishedRuns, session])
 	const [usage, setUsage] = useState<{
 		budget?: Extract<AgentEvent, { kind: 'usage' }>['budget']
 		totalTokens: number
@@ -9197,6 +9207,7 @@ function AppBody({
 			// children are readable. Without this the first cockpit open after a resume
 			// would have nothing to find.
 			void hydrateSavedChildren()
+			announceUnfinishedRuns()
 			conversationMaterializedRef.current = true
 			sourceDeliveryPollRef.current()
 			pushMessage(
@@ -9230,6 +9241,7 @@ function AppBody({
 			pushMessage,
 			cancelPendingModelSwitch,
 			hydrateSavedChildren,
+			announceUnfinishedRuns,
 			hasUnsettledTurn,
 			hydrateSession,
 			detected,
