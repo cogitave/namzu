@@ -120,3 +120,70 @@ describe('explicit ACP host extensions', () => {
 		await h.server.stop()
 	})
 })
+
+describe('asking the client for work', () => {
+	it('offers a capability only to a client that named it, and relays a request and its answer', async () => {
+		const sent: MCPJsonRpcMessage[] = []
+		let handler: ((message: MCPJsonRpcMessage) => void) | undefined
+		const transport: MCPTransport = {
+			connect: async () => {},
+			close: async () => {},
+			isConnected: () => true,
+			onMessage: (next) => {
+				handler = next
+			},
+			onClose: () => {},
+			onError: () => {},
+			send: async (message) => {
+				sent.push(message)
+			},
+		}
+		const server = new ACPServer({
+			transport,
+			gateway: {
+				prompt: async () => ({ stopReason: 'end_turn' }),
+				load: async () => [],
+			},
+			commands: new HostCommandRegistry(),
+			presenter: createToolPresenter(new ToolManager({ toolsets: [], messages: () => [] })),
+			agentInfo: { name: 'namzu', version: 'test' },
+		})
+		await server.start()
+		expect(server.clientOffers('namzu/browser-pane')).toBe(false)
+		handler?.({
+			jsonrpc: '2.0',
+			id: 1,
+			method: 'initialize',
+			params: { capabilities: ['permission', 'namzu/browser-pane'] },
+		})
+		await vi.waitFor(() => expect(sent.some((m) => m.id === 1)).toBe(true))
+		expect(server.clientOffers('namzu/browser-pane')).toBe(true)
+		expect(server.clientOffers('namzu/other')).toBe(false)
+
+		const answered = server.askClient('namzu/browser/pane/open', {
+			sessionId: 's',
+		})
+		const out = sent.find((m) => m.method === 'namzu/browser/pane/open')
+		expect(out?.params).toEqual({ sessionId: 's' })
+		handler?.({ jsonrpc: '2.0', id: out?.id, result: { tabId: 't1' } })
+		await expect(answered).resolves.toEqual({ tabId: 't1' })
+
+		const failed = server.askClient('namzu/browser/pane/cdp', {})
+		const next = sent.filter((m) => m.method === 'namzu/browser/pane/cdp')[0]
+		handler?.({
+			jsonrpc: '2.0',
+			id: next?.id,
+			error: { code: -32000, message: 'No such tab.' },
+		})
+		await expect(failed).rejects.toThrow('No such tab.')
+
+		await expect(server.askClient('session/prompt', {})).rejects.toThrow(
+			'Invalid ACP client request',
+		)
+		const waiting = server.askClient('namzu/browser/pane/cdp', {})
+		const settled = expect(waiting).rejects.toThrow('closed before it answered')
+		await server.stop()
+		await settled
+		await expect(server.askClient('namzu/browser/pane/cdp', {})).rejects.toThrow('stopped')
+	})
+})

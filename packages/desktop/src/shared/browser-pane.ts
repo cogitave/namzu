@@ -3,6 +3,15 @@
 /** The most tabs a conversation's Browser pane holds; a new one past it is refused. */
 export const MAX_BROWSER_TABS = 8
 
+/** The most tabs the agent holds in one conversation's pane; they never use up the person's own. */
+export const MAX_AGENT_BROWSER_TABS = 4
+
+/** Who opened a tab: the person, or the agent driving the page. */
+export type BrowserTabOwner = 'person' | 'agent'
+
+/** Who holds an agent's tab right now: the agent, or the person who took it over. */
+export type BrowserTabControl = 'agent' | 'person'
+
 export interface BrowserTabView {
 	id: string
 	/** The page's title, or its address while it has none. */
@@ -12,6 +21,12 @@ export interface BrowserTabView {
 	loading: boolean
 	canGoBack: boolean
 	canGoForward: boolean
+	/** Who opened the tab; a tab the agent opened is marked in the strip. */
+	owner: BrowserTabOwner
+	/** Only on an agent's tab: `person` while the person has taken it over, and the agent is paused. */
+	control?: BrowserTabControl
+	/** Only on an agent's tab: true while the agent has a call on the page, so the strip can say so. */
+	working?: boolean
 }
 
 export interface BrowserPaneState {
@@ -41,6 +56,9 @@ export type BrowserPaneRequest =
 	/** An address typed into the bar. */
 	| { kind: 'go'; address: string }
 	| { kind: 'select'; tabId: string }
+	/** The person takes an agent's tab (the agent is paused) or hands it back. */
+	| { kind: 'takeover'; tabId: string }
+	| { kind: 'handback'; tabId: string }
 	| { kind: 'close'; tabId: string }
 	| { kind: 'back' }
 	| { kind: 'forward' }
@@ -70,6 +88,8 @@ export function readBrowserRequest(value: unknown): BrowserPaneRequest {
 		case 'go':
 			return { kind: 'go', address: text(request.address, 4096) }
 		case 'select':
+		case 'takeover':
+		case 'handback':
 		case 'close':
 			return { kind: request.kind, tabId: text(request.tabId, 100) }
 		case 'back':

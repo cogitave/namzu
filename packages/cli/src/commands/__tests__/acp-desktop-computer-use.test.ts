@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
+import { BROWSER_PANE_CAPABILITY, createAcpPaneLink } from '../acp-browser-pane.js'
 import { type AcpRuntimeDependencies, createCliAcpRuntime } from '../acp.js'
 
 /**
@@ -194,4 +195,55 @@ it('leaves a bare ACP client and a switched-off browser without them', async () 
 	expect(
 		'browser' in (await optionsSeen({ computerUse: true }, { browser: { enabled: false } })),
 	).toBe(false)
+})
+
+const paneLink = (offered: boolean) =>
+	createAcpPaneLink({
+		offers: (capability) => offered && capability === BROWSER_PANE_CAPABILITY,
+		ask: async () => ({}),
+	})
+const paneOf = (seen: Record<string, unknown>) => (seen.browser as { pane?: () => unknown }).pane
+
+it('hands the browser the Browser pane when the app named it at initialize', async () => {
+	const link = paneLink(true)
+	const seen = await optionsSeen({ computerUse: true, browserPane: link })
+	expect(paneOf(seen)?.()).toBeDefined()
+	// A connection that ended offers nothing more: the browser opens its own.
+	link.close('gone')
+	expect(paneOf(seen)?.()).toBeUndefined()
+})
+
+it('leaves the pane out for an app that did not name it, and for a browser set to never show a window', async () => {
+	expect(paneOf(await optionsSeen({ computerUse: true, browserPane: paneLink(false) }))?.()).toBe(
+		undefined,
+	)
+	const link = paneLink(true)
+	expect(
+		paneOf(
+			await optionsSeen(
+				{ computerUse: true, browserPane: link },
+				{ browser: { headless: 'always' } },
+			),
+		),
+	).toBeUndefined()
+	// Without a pane link (a bare client, an older host) the browser options are as they were.
+	expect(paneOf(await optionsSeen({ computerUse: true }))).toBeUndefined()
+})
+
+it('passes the site rules the app enforces under the engine’s own', async () => {
+	const asked: Record<string, unknown>[] = []
+	const recording = createAcpPaneLink({
+		offers: () => true,
+		ask: async (_method, params) => {
+			asked.push(params)
+			return { tabId: 't1' }
+		},
+	})
+	const seen = await optionsSeen(
+		{ computerUse: true, browserPane: recording },
+		{ browser: { sites: { 'https://bank.example': 'deny' } } },
+	)
+	const channel = paneOf(seen)?.() as { listTabs(): Promise<unknown> }
+	await channel.listTabs()
+	expect(asked[0]).toMatchObject({ rules: { deny: ['bank.example'] } })
 })

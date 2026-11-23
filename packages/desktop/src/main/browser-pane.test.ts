@@ -91,6 +91,60 @@ describe('the partition a browser tab lives in', () => {
 	})
 })
 
+describe('the agent site rules when two windows share a partition', () => {
+	it('are judged by whichever window holds the tab, through the one handler', () => {
+		const handlers: Before[] = []
+		const sessions = new Map<string, unknown>()
+		const make = (firstId: number) => {
+			let next = firstId
+			return new BrowserPaneHost({
+				window: {
+					isDestroyed: () => false,
+					contentView: { addChildView: () => undefined, removeChildView: () => undefined },
+				} as unknown as BrowserWindow,
+				createView: (partition) => {
+					const view = fakeView(next++, partition)
+					Object.assign(view.webContents, { setBackgroundThrottling: () => undefined })
+					Object.assign(view, { setVisible: () => undefined, setBounds: () => undefined })
+					return view
+				},
+				sessionOf: (partition) => {
+					if (!sessions.has(partition))
+						sessions.set(partition, {
+							setPermissionRequestHandler: () => undefined,
+							setPermissionCheckHandler: () => undefined,
+							setDevicePermissionHandler: () => undefined,
+							on: () => undefined,
+							webRequest: { onBeforeRequest: (handler: Before) => handlers.push(handler) },
+						})
+					return sessions.get(partition) as Session
+				},
+				workFolder: () => '/work/a',
+				caseless: false,
+				send: () => undefined,
+				cookieScope: () => 'restarts',
+			})
+		}
+		const one = make(1)
+		const two = make(100)
+		one.openAgentTab('a', { deny: ['bad.test'] })
+		two.openAgentTab('b', { deny: ['worse.test'] })
+		// Electron keeps one handler per session, so only one is installed, and it asks both windows.
+		expect(handlers).toHaveLength(1)
+		const answer = (url: string, webContentsId: number) => {
+			const callback = vi.fn()
+			;(handlers[0] as Before)({ url, webContentsId, resourceType: 'mainFrame' } as never, callback)
+			return callback.mock.calls[0]?.[0].cancel
+		}
+		expect(answer('https://bad.test/', 1)).toBe(true)
+		expect(answer('https://worse.test/', 100)).toBe(true)
+		expect(answer('https://worse.test/', 1)).toBe(false)
+		expect(answer('https://ok.test/', 100)).toBe(false)
+		two.dispose()
+		expect(answer('https://worse.test/', 100)).toBe(false)
+	})
+})
+
 describe('files on a partition that conversations share', () => {
 	it('are judged by the work folder of the conversation whose tab asked', () => {
 		const pane = setup({ a: '/work/a', b: '/work/b' })

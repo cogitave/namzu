@@ -15,6 +15,8 @@ export type StartupBehavior = 'continue' | 'home'
 export type TranscriptTextSize = 'small' | 'medium' | 'large'
 export type TranscriptWidth = 'narrow' | 'medium' | 'wide'
 export type BrowserCookieScope = 'quit' | 'restarts' | 'conversation'
+/** Where the agent's own browser work happens: a tab of the Browser pane, or a browser window of its own. */
+export type AgentBrowserPlace = 'pane' | 'window'
 export type MotionChoice = 'system' | 'reduce' | 'full'
 /** `badge` is the count on the app icon only; `banner` is a system notification (and the count, while the icon count is on). */
 export type NoticeLevel = 'off' | 'badge' | 'banner'
@@ -114,6 +116,11 @@ export interface DesktopSettings {
 	 * on disk across restarts, or a set for each conversation. Read when a tab is made.
 	 */
 	browserCookies: BrowserCookieScope
+	/**
+	 * Where the agent's browser work runs: a tab of the built-in browser, or a browser window of its
+	 * own. Read when a project's engine starts, and again at each request for a tab.
+	 */
+	agentBrowser: AgentBrowserPlace
 	/** A link in a reply opens in the built-in browser; off, in the system's default browser. */
 	openLinksInBrowser: boolean
 	/** The section the Settings dialog was last on; it opens there again, also after a restart. */

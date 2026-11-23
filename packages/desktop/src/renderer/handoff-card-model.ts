@@ -42,6 +42,10 @@ export function describeHandoff(handoff: DesktopTurnHandoff): HandoffCard {
 		return { title, body: `${reason}. When that is done, choose Continue.` }
 	}
 	const task = `${verb} ${site}`
+	if (handoff.window === 'pane') {
+		// The page is a tab of the Browser pane: nothing to open, and never a terminal command.
+		return { title, body: `${task} in the Browser pane, then choose Continue.` }
+	}
 	const command = handoff.loginCommand
 	if (handoff.window === 'none') {
 		return {
@@ -69,4 +73,13 @@ export function describeHandoff(handoff: DesktopTurnHandoff): HandoffCard {
 				}
 			: {}),
 	}
+}
+
+/** The agent tab a handoff points at: the one it names, else the first agent tab. */
+export function pickAgentTab<T extends { id: string; owner: string }>(
+	tabs: readonly T[],
+	tabId?: string,
+): T | undefined {
+	const agentTabs = tabs.filter((tab) => tab.owner === 'agent')
+	return agentTabs.find((tab) => tab.id === tabId) ?? agentTabs[0]
 }

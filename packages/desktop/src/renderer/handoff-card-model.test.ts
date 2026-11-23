@@ -1,6 +1,6 @@
 import { expect, it } from 'vitest'
 import type { DesktopTurnHandoff } from '../shared/protocol.js'
-import { describeHandoff, siteName } from './handoff-card-model.js'
+import { describeHandoff, pickAgentTab, siteName } from './handoff-card-model.js'
 
 const base: DesktopTurnHandoff = {
 	turnId: 't',
@@ -65,4 +65,26 @@ it('reads a site without its scheme or path', () => {
 	expect(siteName('https://github.com')).toBe('github.com')
 	expect(siteName(undefined)).toBeUndefined()
 	expect(siteName('')).toBeUndefined()
+})
+
+it('sends a sign-in to the Browser pane when the page is a tab there, with no command in sight', () => {
+	const card = describeHandoff({
+		...base,
+		window: 'pane',
+		loginCommand: 'namzu browser login default https://github.com',
+	})
+	expect(card.body).toBe('Sign in to github.com in the Browser pane, then choose Continue.')
+	expect(card.fallback).toBeUndefined()
+})
+
+it('picks the agent tab a handoff names, else the first agent tab', () => {
+	const tabs = [
+		{ id: 'p', owner: 'person' },
+		{ id: 'a1', owner: 'agent' },
+		{ id: 'a2', owner: 'agent' },
+	]
+	expect(pickAgentTab(tabs, 'a2')?.id).toBe('a2')
+	expect(pickAgentTab(tabs)?.id).toBe('a1')
+	expect(pickAgentTab(tabs, 'p')?.id).toBe('a1')
+	expect(pickAgentTab([{ id: 'p', owner: 'person' }], 'p')).toBeUndefined()
 })

@@ -34,3 +34,37 @@
 	overflow-wrap: anywhere;
 	user-select: all;
 }
+/* The footer of a card that can also show the page: "Show the tab" is a quiet text action on the left, Stop and
+   Continue stay together on the right. Only when the card is too narrow for both does the group drop to its own row. */
+.approval-card > .handoff-footer {
+	justify-content: space-between;
+}
+.approval-card .handoff-actions {
+	flex: none;
+	flex-wrap: nowrap;
+}
+.handoff-link {
+	display: inline-flex;
+	align-items: center;
+	height: var(--ask-button);
+	padding: 0;
+	border: 0;
+	border-radius: var(--ask-button-radius);
+	background: transparent;
+	color: var(--muted-foreground);
+	font: inherit;
+	font-size: var(--text-small);
+	font-weight: var(--weight-control);
+	line-height: var(--leading-small);
+	cursor: pointer;
+	transition: color 120ms var(--motion-ease);
+}
+.handoff-link:hover {
+	color: var(--foreground);
+	text-decoration: underline;
+	text-underline-offset: 3px;
+}
+.handoff-link:focus-visible {
+	outline: 0;
+	box-shadow: var(--focus-ring);
+}

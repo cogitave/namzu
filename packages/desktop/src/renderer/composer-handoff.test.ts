@@ -53,3 +53,21 @@ it('reuses the approval card’s own ring, band and buttons, so it needs no numb
 	expect(css).not.toMatch(/#[0-9a-f]{3,8}\b/i)
 	expect(css).not.toMatch(/\d+px\s+solid/)
 })
+
+it('for a page in the Browser pane, offers a button that shows the tab, and no terminal command', () => {
+	const html = renderToStaticMarkup(
+		createElement(ComposerHandoff, {
+			handoff: { ...handoff, window: 'pane' },
+			onContinue: () => undefined,
+			onStop: () => undefined,
+			onShowTab: () => undefined,
+		}),
+	)
+	expect(html).toContain('Sign in to github.com in the Browser pane, then choose Continue.')
+	expect(html).toMatch(/data-action="show-tab"[^>]*>Show the tab/)
+	expect(html).toMatch(/data-action="continue"[^>]*>Continue/)
+	expect(html).toMatch(/data-action="stop"[^>]*>Stop/)
+	expect(html).not.toContain('namzu browser login')
+	// The other cards do not get the button.
+	expect(draw()).not.toContain('show-tab')
+})
