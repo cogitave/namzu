@@ -1542,7 +1542,7 @@ describe('the agents cockpit', () => {
 			expect([...stoppedChildren].sort()).toEqual(['wf-a', 'wf-c'])
 		})
 
-		it('opens the workflow on its phases with enter and returns to the row with escape', async () => {
+		it('opens the workflow on its phases with enter and returns to the message box with escape', async () => {
 			activity.set([
 				flow('wf-a', { startedAt: Date.now() - 9_000 }),
 				flow('wf-c', { startedAt: Date.now() - 8_000 }),
@@ -1563,9 +1563,11 @@ describe('the agents cockpit', () => {
 			screen.press('\x1b')
 			await waitUntil(
 				screen,
-				() => /^ *❯ ◯ Release audit/mu.test(screen.viewport().join('\n')),
-				'escape did not return to the workflow row',
+				() => screen.viewport().join('\n').includes('Type a message'),
+				'escape did not give the message box back',
 			)
+			// The keyboard is the message box's, not the row's.
+			expect(screen.viewport().join('\n')).not.toMatch(/^ *❯ ◯ Release audit/mu)
 		})
 
 		it('draws the detail in place of the message box and the status line, and gives them back on escape', async () => {
@@ -1651,15 +1653,16 @@ describe('the agents cockpit', () => {
 				() => / Phases /u.test(screen.viewport().join('\n')),
 				'left did not go back',
 			)
-			// Left at the top closes the view and gives the row its keys back.
+			// Left at the top closes the view and gives the message box its keys back.
 			screen.press('\x1b[D')
 			await waitUntil(
 				screen,
-				() => /^ *❯ ◯ Release audit/mu.test(screen.viewport().join('\n')),
+				() => screen.viewport().join('\n').includes('Type a message'),
 				'left at the top did not close',
 			)
 			expect(screen.viewport().join('\n')).not.toMatch(/ Phases /u)
 			// Space closes it from anywhere.
+			await focusWorkflow(screen, 1)
 			screen.press('\r')
 			await waitUntil(screen, () => / Phases /u.test(screen.viewport().join('\n')), 'not reopened')
 			screen.press(' ')
@@ -2864,10 +2867,10 @@ describe('agent explorer projection', () => {
 					selectedId={research.viewId}
 					focus="phases"
 					terminalRows={28}
-					terminalColumns={120}
+					terminalColumns={60}
 				/>
 			</Box>,
-			{ cols: 120, rows: 28 },
+			{ cols: 60, rows: 28 },
 		)
 		mounted = screen
 		const frame = screen.viewport().join('\n')

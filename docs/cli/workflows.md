@@ -295,12 +295,13 @@ the detail, a frameless dialog (side by side from 64 columns, one list at a time
 
 1. **Phases**: the number (turning `✔` or `✘`), the title, and `done/total`.
    Phases the script declared in `meta.phases` are listed from the start in the
-   declared order; one nothing has started in is dim, with no count. Esc goes
-   back to the row. `x` stops the whole run: queued agents never start, running
+   declared order; one nothing has started in is dim, with no count. Esc closes
+   the view and the message box has the keyboard again. `x` stops the whole run: queued agents never start, running
    ones are cancelled.
    A phase whose agents were all skipped shows `✘`, not the tick: the tick is
    for a phase where something finished. The phase's detail text (from
-   `meta.phases`) sits right under its title in the right-hand pane. The last
+   `meta.phases`) shows under its row on narrow terminals only; side by side the
+   agents column starts right under its title. The last
    `log()` line the script wrote shows under the header, the two before it dim
    (three lines from 30 terminal rows, one from 24, none below 24); the rail
    row never shows them.

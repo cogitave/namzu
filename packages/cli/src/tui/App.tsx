@@ -18240,8 +18240,10 @@ function AppBody({
 								setAgentSurface({ ...agentView, focus: 'phases' })
 								return
 							}
+							// Closing hands the keyboard back to the message box, as the
+							// view replaced it while open.
 							setAgentSurface(null)
-							setRailFocus(agentView.railReturn)
+							setRailFocus(null)
 							return
 						}
 						if (agentView.focus === 'agents' && hasPhaseLevel) {
@@ -18262,7 +18264,7 @@ function AppBody({
 						} else if (agentView.focus !== 'workflows') {
 							if (agentView.railReturn !== undefined) {
 								setAgentSurface(null)
-								setRailFocus(agentView.railReturn)
+								setRailFocus(null)
 							} else if (workflows.length > 1) {
 								setAgentSurface({ ...agentView, focus: 'workflows' })
 							} else {

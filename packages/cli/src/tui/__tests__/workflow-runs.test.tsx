@@ -402,13 +402,15 @@ describe('the detail view of a run', () => {
 		)
 	})
 
-	it('puts a phase detail under its title, before its agents, and leaves a space after the pointer', async () => {
+	it('starts the agents column right under its title, with no phase detail row, and leaves a space after the pointer', async () => {
 		const text = await detail('phases', 2, 'wfq:wrun00001:3')
 		const rows = text.split('\n')
-		const detailRow = rows.findIndex((r) => r.includes('safe fixes only'))
+		expect(text).not.toContain('safe fixes only')
+		const title = rows.findIndex((r) => r.includes('Fix · 1 agent'))
 		const agentRow = rows.findIndex((r) => r.includes('agent:3'))
-		expect(detailRow).toBeGreaterThan(0)
-		expect(detailRow).toBeLessThan(agentRow)
+		expect(title).toBeGreaterThanOrEqual(0)
+		// The title row, then the rule-free first agent row: nothing between them.
+		expect(agentRow).toBe(title + 1)
 		const agents = await detail('agents', 2, 'wfq:wrun00001:3')
 		expect(agents).toMatch(/│❯ [◌●✔✘] /u)
 	})

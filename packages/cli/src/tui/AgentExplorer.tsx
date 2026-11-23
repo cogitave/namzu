@@ -1727,7 +1727,7 @@ export function WorkflowDetail({
 				{'─'.repeat(columns)}
 			</Text>
 			<Box paddingX={1}>
-				<Text color={theme.text.primary} bold wrap="truncate-end">
+				<Text color={theme.accent.assistant} bold wrap="truncate-end">
 					{title}
 				</Text>
 			</Box>
@@ -1758,7 +1758,7 @@ export function WorkflowDetail({
 	)
 	const footer = (
 		<Box paddingX={1}>
-			<Text color={theme.text.muted} wrap="truncate-end">
+			<Text color={theme.text.muted} dimColor italic wrap="truncate-end">
 				{hint}
 			</Text>
 		</Box>
@@ -1875,16 +1875,9 @@ export function WorkflowDetail({
 		)
 	}
 
-	// Side by side. The detail text the phase declared fills the right pane's
-	// free rows once its agents are listed.
-	const detailLines =
-		level === 1 && phase?.detail
-			? wrapPhaseDetailLines(phase.detail, rightInner - 2).slice(0, PHASE_DETAIL_LINE_BUDGET)
-			: []
-	const showDetail =
-		detailLines.length > 0 && detailLines.length + 1 + agentWindow.items.length <= pageSize
-	// The phase's detail sits under its title, ahead of the agents, then a blank row.
-	const detailRows = showDetail ? detailLines.length + 1 : 0
+	// Side by side. The agents column starts right under its title; the phase's
+	// detail text is not drawn here (the description line above carries the purpose).
+	const detailRows = 0
 	const border = theme.border.default
 	const leftTitle = ' Phases '
 	const rightTitle = ` ${truncateChoiceText(`${agentsTitle}${failedTail}`, Math.max(1, rightInner - 4))} `
@@ -1922,7 +1915,6 @@ export function WorkflowDetail({
 					Math.max(0, ...agentWindow.items.map((value) => stringWidth(agentDetailLabel(value)))),
 					Math.floor(rightInner * 0.45),
 				)
-				const detailRow = showDetail && row < detailLines.length ? row : -1
 				return (
 					<Box key={item?.id ?? `row-${row}`} paddingX={1}>
 						<Text color={border}>│</Text>
@@ -1997,11 +1989,6 @@ export function WorkflowDetail({
 										</Text>
 									</Box>
 								</>
-							) : detailRow >= 0 && detailLines[detailRow] !== undefined ? (
-								<Text color={theme.text.muted} wrap="truncate-end">
-									{'    '}
-									{detailLines[detailRow]}
-								</Text>
 							) : row === detailRows && emptyNote ? (
 								<Text color={theme.text.muted} dimColor wrap="truncate-end">
 									{'  '}
