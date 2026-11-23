@@ -113,7 +113,7 @@ export const LspTool = defineTool({
 		// Checked before anything is spawned. A turn that was stopped must not
 		// pay for starting a language server, and the server must not be asked a
 		// question whose answer nobody will read.
-		if (context.abortSignal.aborted) {
+		if (context.abortSignal?.aborted) {
 			return interruptedResult(
 				input.operation,
 				'The turn was stopped before the language server was asked.',

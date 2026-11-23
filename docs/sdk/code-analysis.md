@@ -112,13 +112,14 @@ A qualified name that the index declares (`Svc.init`) asks for a method. The ans
 
 The tool prints a page compactly: paths relative to the root and printed once per file, a function as `Svc.init#12 L10-40` (name, id, line range; kind and path only on the single-function answers), and the argument count of a call, with `[text-only]`, `[call/apply/bind]` and `[tagged template]` where they apply. Fifty `find_literal` hits on a 2,434-file bundle went from 20,246 characters (about 5.6k tokens) to 3,568 (about 1k), and 200 hits from 79,752 to 15,999. The structured `data` the tool returns beside the text still carries absolute paths and every field. The text format of this tool changed with it (the compact form replaced the earlier one-line-per-hit listing with absolute paths). When the turn has more than one root, a first line says which one the relative paths are relative to (`paths are relative to /work/app`).
 
-## The three answers
+## The answers
 
-As with `CodeNavigationResult`, a query ends in one of three cases and they are not interchangeable:
+As with `CodeNavigationResult`, a query ends in one of these cases and they are not interchangeable:
 
 - `ok` with an empty page: "I looked and there are none". It is the answer a deletion depends on.
 - `unsupported`: this provider cannot do that. The tool points at `grep` and says the fallback is textual.
 - `failed`: something broke. The tool says the answer is unknown rather than empty.
+- `interrupted` (`CodeNavigationResult` only): the caller's signal aborted the request — the turn was stopped — before the server answered. The tool says the call was interrupted and that the answer is unknown rather than empty, without presenting a broken server, so the next move is to ask again. Aborting one call does not retire the transport.
 
 ## Paths
 

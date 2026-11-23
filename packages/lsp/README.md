@@ -61,6 +61,23 @@ const tools = toolset('lsp', getCodeNavigationTools(codeNavigation))
 await codeNavigation.dispose()
 ```
 
+## Cancellation
+
+Every call takes the turn's signal as an optional last argument:
+`references(file, line, character, { signal })`, and the same for
+`definition`, `hover`, and `symbols(query, scope, { signal })`. Aborting it
+drops that request, sends `$/cancelRequest` so the server can stop working on
+it, and answers `{ kind: 'interrupted' }` — never `failed`, and never an
+empty list. The server is not treated as broken, so the next call still uses
+it; a call made after the turn is already stopped returns `interrupted`
+without spawning a server at all. The handshake is shared between callers, so
+one caller's abort stops that caller waiting and leaves the start to finish
+under its own startup timeout.
+
+A server that never completes `initialize` fails with `{ kind: 'failed' }`
+naming the binary and the timeout, rather than answering navigation queries
+with an empty result.
+
 ## Documentation
 
 - [Namzu docs](https://github.com/cogitave/namzu/tree/main/docs)

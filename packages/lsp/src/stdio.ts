@@ -299,16 +299,18 @@ export class StdioCodeNavigationProvider implements CodeNavigationProvider {
 	 * an abort that outlives its caller is not an unhandled rejection.
 	 */
 	private async ready(options?: CodeNavigationRequestOptions): Promise<void> {
-		const starting = this.start()
 		const signal = options?.signal
-		if (!signal) return await starting
-
-		starting.catch(() => {})
-		if (signal.aborted) {
+		// Checked BEFORE the start is begun: a stopped turn must not spawn a
+		// language server it has no question left to ask.
+		if (signal?.aborted) {
 			throw interrupted(
 				`The call was cancelled before the language server "${this.options.command}" was asked.`,
 			)
 		}
+		const starting = this.start()
+		if (!signal) return await starting
+
+		starting.catch(() => {})
 		await new Promise<void>((resolve, reject) => {
 			const onAbort = () =>
 				reject(
@@ -448,7 +450,13 @@ export class StdioCodeNavigationProvider implements CodeNavigationProvider {
 					}
 				: undefined
 			if (signal && onAbort) signal.addEventListener('abort', onAbort, { once: true })
-			this.pending.set(id, { resolve, reject, timer, ...(signal ? { signal } : {}), ...(onAbort ? { onAbort } : {}) })
+			this.pending.set(id, {
+				resolve,
+				reject,
+				timer,
+				...(signal ? { signal } : {}),
+				...(onAbort ? { onAbort } : {}),
+			})
 			try {
 				this.write({ jsonrpc: '2.0', id, method, params })
 			} catch (err) {

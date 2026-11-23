@@ -121,9 +121,7 @@ export class RoutingCodeNavigationProvider implements CodeNavigationProvider {
 		}
 
 		const answers = await Promise.all(
-			routes.map(async (route) =>
-				await this.providerFor(route).symbols(query, undefined, options),
-			),
+			routes.map(async (route) => await this.providerFor(route).symbols(query, undefined, options)),
 		)
 		const found = answers.flatMap((a) => (a.kind === 'symbols' ? a.symbols : []))
 		if (found.length > 0) return { kind: 'symbols', symbols: found }
