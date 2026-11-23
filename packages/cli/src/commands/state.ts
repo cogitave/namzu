@@ -20,6 +20,7 @@ import {
 import { type NamzuStateReport, inspectNamzuState } from '../integrations/state/report.js'
 import { homePath } from '../tui/person-terms.js'
 import { terminalDisplayText } from '../tui/terminal-display.js'
+import { STATE_ACTIONS } from './actions/small.js'
 import type { CommandDef } from './types.js'
 
 const HELP = `namzu state — inspect local Namzu state, and move what an earlier Namzu left in a project
@@ -77,6 +78,7 @@ export function createStateCommand(deps: StateCommandDeps): CommandDef {
 		description: 'Inspect local Namzu state, or move what an earlier Namzu left in a project',
 		passThrough: true,
 		help: HELP,
+		actions: STATE_ACTIONS,
 		handler: async ({ ctx, rawArgs }) => {
 			if (rawArgs[0] === 'move-legacy') {
 				ctx.formatter.error({ message: 'This command is now `namzu state move legacy`.' })

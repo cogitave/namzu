@@ -7,6 +7,7 @@ import {
 } from '../integrations/plugins/validate.js'
 import { createFormatter } from '../output/index.js'
 import { terminalDisplayText } from '../tui/terminal-display.js'
+import { PLUGIN_ACTIONS } from './actions/small.js'
 import type { CommandDef } from './types.js'
 
 /**
@@ -131,6 +132,7 @@ export const pluginCommand: CommandDef = {
 	description: 'Check a plugin folder without running anything from it',
 	passThrough: true,
 	help: HELP,
+	actions: PLUGIN_ACTIONS,
 	handler: async ({ ctx, rawArgs }) => {
 		const args = parseArgs(rawArgs)
 		if (args.error) {

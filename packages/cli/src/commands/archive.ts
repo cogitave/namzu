@@ -11,6 +11,7 @@ import {
 	unarchiveConversation,
 } from '../integrations/sessions/store.js'
 import { terminalDisplayText } from '../tui/terminal-display.js'
+import { ARCHIVE_ACTIONS } from './actions/small.js'
 import type { CommandDef } from './types.js'
 
 const HELP = `namzu archive — inspect and restore archived conversations in this folder
@@ -28,6 +29,7 @@ export const archiveCommand: CommandDef = {
 	description: 'List or restore archived conversations in this project',
 	passThrough: true,
 	help: HELP,
+	actions: ARCHIVE_ACTIONS,
 	handler: async ({ ctx, rawArgs }) => {
 		const [verb = 'list', ...operands] = rawArgs
 		const pageSpecified =

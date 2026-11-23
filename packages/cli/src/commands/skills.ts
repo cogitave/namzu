@@ -5,6 +5,7 @@ import { type SkillAuditReport, auditFileSkills } from '../skills/audit.js'
 import { discoverSkillRoster, skillTierLabel } from '../skills/store.js'
 import type { SkillInfo } from '../skills/store.js'
 import { terminalDisplayText } from '../tui/terminal-display.js'
+import { SKILLS_ACTIONS } from './actions/small.js'
 import { resolveWorkingDirectory } from './exec-flags.js'
 import { printSkillsJson } from './host-queries.js'
 import type { CommandDef } from './types.js'
@@ -68,6 +69,7 @@ export const skillsCommand: CommandDef = {
 	description: 'List skills available to a working directory',
 	passThrough: true,
 	help: HELP,
+	actions: SKILLS_ACTIONS,
 	handler: async ({ ctx: bootstrapCtx, rawArgs: allArgs }) => {
 		if (allArgs[0] !== 'list') {
 			const given = allArgs[0] === undefined || allArgs[0].startsWith('-') ? undefined : allArgs[0]

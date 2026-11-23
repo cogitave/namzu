@@ -1,5 +1,6 @@
 import type { Command } from 'commander'
 
+import { renderActionIndex, resolveActionHelp } from './action-help.js'
 import { type LazyCommandDef, isLazyCommand } from './lazy.js'
 import type { CommandContext, CommandDef } from './types.js'
 
@@ -48,7 +49,13 @@ export function registerCommandOrLazy(
 				// each one is what stops the fourth from doing it too.
 				const real = await resolve()
 				if (real.help !== undefined && rawArgs.some((a) => a === '--help' || a === '-h')) {
-					opts.getContext().formatter.print({ text: real.help })
+					const actions = real.actions
+					const text =
+						actions === undefined
+							? real.help
+							: (resolveActionHelp(real.name, actions, rawArgs) ??
+								`${real.help.trimEnd()}\n\n${renderActionIndex(real.name, actions)}`)
+					opts.getContext().formatter.print({ text })
 					opts.setExitCode(0)
 					return
 				}

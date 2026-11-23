@@ -25,6 +25,7 @@ import { validateFolder, validatePackage } from '../integrations/extensions/vali
 import { namzuHomePath } from '../integrations/state/home.js'
 import { terminalDisplayText } from '../tui/terminal-display.js'
 import { CLI_VERSION } from '../version.js'
+import { EXTENSION_ACTIONS } from './actions/extension.js'
 import type { CommandDef } from './types.js'
 
 const HELP = [
@@ -848,6 +849,7 @@ export const extensionCommand: CommandDef = {
 	description: 'Add, read and control extensions: signed programs that list what they ask for',
 	passThrough: true,
 	help: HELP,
+	actions: EXTENSION_ACTIONS,
 	handler: async ({ rawArgs }) => {
 		const kind = rawArgs[0] === 'run' ? 'run' : 'cli'
 		const background = createBackgroundDeps()

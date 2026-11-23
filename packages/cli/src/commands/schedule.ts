@@ -7,6 +7,7 @@
 import { EXIT_USAGE } from '../exit-codes.js'
 import { applyTarget } from '../schedule/service/target.js'
 import { withTerminationHandling } from '../termination.js'
+import { SCHEDULE_ACTIONS } from './actions/schedule.js'
 import type { CommandDef } from './types.js'
 
 export const SCHEDULE_HELP = [
@@ -97,6 +98,7 @@ export const scheduleCommand: CommandDef = {
 	description: 'Scheduled jobs that run while namzu is closed, and the service that runs them',
 	passThrough: true,
 	help: SCHEDULE_HELP,
+	actions: SCHEDULE_ACTIONS,
 	handler: withTerminationHandling(async ({ ctx, rawArgs }, termination) => {
 		const [verb, ...rest] = rawArgs
 		const add = () => import('../schedule/commands/add.js')

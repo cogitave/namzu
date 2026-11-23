@@ -11,6 +11,7 @@ import {
 	listPals,
 	updatePal,
 } from '../pals/store.js'
+import { PAL_ACTIONS } from './actions/pal.js'
 import type { CommandDef } from './types.js'
 
 export const PAL_HELP = [
@@ -98,6 +99,7 @@ export function createPalCommand(resumeCommand?: readonly [string, ...string[]])
 		description: 'Create and operate persistent Pals with their own local virtual computers',
 		passThrough: true,
 		help: PAL_HELP,
+		actions: PAL_ACTIONS,
 		handler: async ({ ctx, rawArgs }) => {
 			try {
 				const [verb, ...rest] = rawArgs
