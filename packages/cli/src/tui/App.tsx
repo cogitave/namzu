@@ -15810,6 +15810,9 @@ function AppBody({
 								'⎿',
 							)
 						}
+						// The grid is built after an await; a reply that streams meanwhile
+						// writes rows with later ids, so the grid goes in ahead of them.
+						const anchorId = idRef.current
 						void (async () => {
 							const view = await buildContextRow({
 								usage,
@@ -15830,15 +15833,21 @@ function AppBody({
 								pushMessage('system', view, false, '⎿')
 								return
 							}
-							setMessages((previous) => [
-								...previous,
-								{
-									id: nextId(),
-									role: 'system',
-									content: view.text,
-									contextView: view,
-								},
-							])
+							const row = {
+								id: nextId(),
+								role: 'system' as const,
+								content: view.text,
+								contextView: view,
+							}
+							setMessages((previous) => {
+								const later = previous.findIndex((message) => {
+									const n = /^m(\d+)$/.exec(message.id)
+									return n !== null && Number(n[1]) > anchorId
+								})
+								return later < 0
+									? [...previous, row]
+									: [...previous.slice(0, later), row, ...previous.slice(later)]
+							})
 						})()
 						return
 					}
