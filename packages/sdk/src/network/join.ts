@@ -40,6 +40,10 @@ export function formatJoinCode(code: string): string {
 export const JOIN_EXPIRY_MS = 10 * 60 * 1000
 export const MAX_PENDING_JOINS = 8
 export const JOIN_ADDRESS_WINDOW_MS = 60 * 1000
+/** After a person denied the ask, this machine does not ask that network again on its own for this long. */
+export const JOIN_BACKOFF_DENIED_MS = 60 * 60 * 1000
+/** After the ask expired unanswered or was refused: shorter, because nobody said no. */
+export const JOIN_BACKOFF_OTHER_MS = 10 * 60 * 1000
 
 export interface PendingJoin {
 	readonly requestId: string
@@ -74,10 +78,12 @@ export class JoinTable {
 	/** A request that arrived on this machine. Refused when the address asked too recently or the table is full. */
 	addLocal(
 		input: Omit<PendingJoin, 'local' | 'expiresAt' | 'createdAt'>,
+		options: { readonly replacing?: boolean } = {},
 	): { ok: true; entry: PendingJoin } | { ok: false; reason: 'rate' | 'full' } {
 		const now = this.options.clock.now()
 		const last = this.lastByAddress.get(input.sourceAddr)
-		if (last !== undefined && now - last < JOIN_ADDRESS_WINDOW_MS)
+		// A machine that already has a request waiting replaces it; that is one request, not a second.
+		if (!options.replacing && last !== undefined && now - last < JOIN_ADDRESS_WINDOW_MS)
 			return { ok: false, reason: 'rate' }
 		if (this.localCount() >= MAX_PENDING_JOINS) return { ok: false, reason: 'full' }
 		this.lastByAddress.set(input.sourceAddr, now)
@@ -119,6 +125,11 @@ export class JoinTable {
 		let n = 0
 		for (const e of this.entries.values()) if (e.local) n++
 		return n
+	}
+
+	/** The request waiting from this machine, if any: a machine has at most one. */
+	findByJoiner(joinerMachineId: string): PendingJoin | undefined {
+		return this.list().find((e) => e.joinerMachineId === joinerMachineId)
 	}
 
 	get(requestId: string): PendingJoin | undefined {

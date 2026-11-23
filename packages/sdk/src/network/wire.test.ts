@@ -22,7 +22,7 @@ const deliver = {
 
 describe('wire schemas', () => {
 	it('allows exactly two operations before membership', () => {
-		expect([...PREAUTH_OPS].sort()).toEqual(['join_request', 'ping_net'])
+		expect([...PREAUTH_OPS].sort()).toEqual(['join_cancel', 'join_request', 'ping_net'])
 	})
 
 	it('refuses unknown fields, unknown ops and a sender that claims to be a person', () => {

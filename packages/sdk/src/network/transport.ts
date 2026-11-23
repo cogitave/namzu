@@ -4,7 +4,7 @@
  * Both sides present their machine certificate (`x509.ts`), request the
  * other's, and then pin: the SPKI of the certificate the peer actually used is
  * hashed to a machine id and checked against membership. A connection from a
- * key that is not a member may send exactly `ping_net` and `join_request`, in
+ * key that is not a member may send exactly `ping_net`, `join_request` and `join_cancel`, in
  * a 4 KiB line, within two seconds; anything else closes the socket and is
  * audited. Membership is re-checked on every request, so a removal closes
  * even a long-lived connection.

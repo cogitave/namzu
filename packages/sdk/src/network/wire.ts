@@ -114,6 +114,13 @@ export const JoinRequestSchema = z
 	.strict()
 export type JoinRequest = z.infer<typeof JoinRequestSchema>
 
+/**
+ * The joiner withdraws its waiting request (the person cancelled). Sent on a connection of its own, because
+ * a request that merely loses its connection stays waiting: another terminal of the same machine asks again.
+ * It names no request: the machine's certificate says whose request goes.
+ */
+export const JoinCancelRequestSchema = z.object({ ...head('join_cancel') }).strict()
+
 export const HelloRequestSchema = z
 	.object({
 		...head('hello'),
@@ -229,6 +236,7 @@ export type NetNoticeRequest = z.infer<typeof NetNoticeRequestSchema>
 export const NetRequestSchema = z.discriminatedUnion('op', [
 	PingNetRequestSchema,
 	JoinRequestSchema,
+	JoinCancelRequestSchema,
 	HelloRequestSchema,
 	MembersSyncRequestSchema,
 	JoinPendingRequestSchema,
@@ -242,7 +250,11 @@ export type NetRequest = z.infer<typeof NetRequestSchema>
 export type NetOp = NetRequest['op']
 
 /** The only operations a machine that is not a member may use. */
-export const PREAUTH_OPS: ReadonlySet<NetOp> = new Set<NetOp>(['ping_net', 'join_request'])
+export const PREAUTH_OPS: ReadonlySet<NetOp> = new Set<NetOp>([
+	'ping_net',
+	'join_request',
+	'join_cancel',
+])
 
 export const DeliverReplySchema = z
 	.object({ status: z.enum(['queued', 'held', 'refused']), reason: z.string().max(200).optional() })

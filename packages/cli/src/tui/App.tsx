@@ -3587,6 +3587,8 @@ function AppBody({
 	// the active session id used by query() — mutated in place on /resume so new
 	// turns attribute to the resumed conversation.
 	const sessionsRef = useRef<CliSessions | null>(null)
+	/** Machines waiting for an Allow to join the Namzu network, for the footer mark. */
+	const [joinRequestCount, setJoinRequestCount] = useState(0)
 	const scopeRef = useRef<SessionScope | null>(null)
 	// The highest image or document number the conversation on screen has used:
 	// a new attachment is numbered after it, so a number names one attachment for
@@ -17260,6 +17262,10 @@ function AppBody({
 			settings: networkSettings(ctxRef.current.network),
 			interactive: ctxRef.current.runNetwork === true && stdout.isTTY === true,
 			notify: (text) => pushSystem('notice', text),
+			// A machine asking to join is a footer mark and one passing line, never a transcript row.
+			notice: (key, text) =>
+				addNotice({ key, text, tone: 'warn', priority: 'high', timeoutMs: 8_000 }),
+			onJoinRequests: (count) => setJoinRequestCount(count),
 			ownRef: () => peersRef.current?.ref,
 		})
 		networkRef.current = network
@@ -17328,7 +17334,7 @@ function AppBody({
 				appLifetime.signal.removeEventListener('abort', onClose)
 				if (!disposed) pushSystem('error', explainFailure(error, 'Peer messaging unavailable.'))
 			})
-	}, [phase, appLifetime.signal, pushMessage, pushSystem, stdout.isTTY])
+	}, [phase, appLifetime.signal, pushMessage, pushSystem, addNotice, stdout.isTTY])
 
 	// A rename or a generated title reaches the session's record, so the sidebar and the
 	// other sessions call it by its new name.
@@ -19911,6 +19917,7 @@ function AppBody({
 							restingHint={ctx.statusLine === undefined}
 							shellCount={showComposerSurface && !childSurfaceOpen ? runningShellCount : 0}
 							monitorCount={showComposerSurface && !childSurfaceOpen ? runningMonitorCount : 0}
+							joinRequests={joinRequestCount}
 							pr={prStatus}
 							hyperlinks={hyperlinks}
 							// `←` is offered only where it does something: no workspaces screen to open, and a reply

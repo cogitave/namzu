@@ -56,6 +56,13 @@ export interface NetworkRuntimeOptions {
 	readonly interactive: boolean
 	/** A one-line notice for the person: a join request, a machine joined, held mail, how a message ended. */
 	readonly notify: (text: string) => void
+	/**
+	 * A quiet, passing notice for the footer (not a transcript row): one for each machine that asks to join,
+	 * once per session of this terminal. Without it the same sentence goes through `notify`.
+	 */
+	readonly notice?: (key: string, text: string) => void
+	/** How many machines wait for an Allow, whenever that number changes (and once at the first look). */
+	readonly onJoinRequests?: (count: number) => void
 	/** The ref of the session this terminal runs, once it has one. */
 	readonly ownRef?: () => string | undefined
 	// Seams for tests; production passes none of them.
@@ -181,6 +188,9 @@ export function createNetworkRuntime(options: NetworkRuntimeOptions): NetworkRun
 	let previous: NetworkSummary | undefined
 	let previousMachines: ReadonlyMap<string, string> | undefined
 	const seenOutcomes = new Set<string>()
+	/** Machines this terminal already said something about: a machine that asks again is the same news. */
+	const announcedJoiners = new Set<string>()
+	let reportedJoinCount: number | undefined
 	const pid = options.pid ?? process.pid
 
 	const current = (): NetworkControl => controller ?? client
@@ -306,12 +316,22 @@ export function createNetworkRuntime(options: NetworkRuntimeOptions): NetworkRun
 		}
 		const before = previous
 		previous = now
-		const joinsBefore = new Set(before?.joinRequests.map((j) => j.requestId))
-		for (const join of now.joinRequests)
-			if (!joinsBefore.has(join.requestId))
-				options.notify(
-					`${join.name} wants to join your Namzu network (code ${join.code}, from ${join.sourceAddr}). /peers to allow or deny.`,
-				)
+		// Join requests are one footer mark (how many wait) and, for each machine, one passing line the first
+		// time it asks: never a transcript row per request, however often the machine asks again.
+		const waiting = now.joinRequests.length
+		if (waiting !== reportedJoinCount) {
+			reportedJoinCount = waiting
+			options.onJoinRequests?.(waiting)
+		}
+		for (const join of now.joinRequests) {
+			const who = join.machineId ?? `${join.name}@${join.sourceAddr}`
+			if (announcedJoiners.has(who)) continue
+			announcedJoiners.add(who)
+			const text = `${join.name} wants to join your Namzu network. /peers to allow or deny.`
+			if (options.notice) options.notice(`network-join:${who}`, text)
+			else options.notify(text)
+		}
+		if (announcedJoiners.size > 256) announcedJoiners.clear()
 		const ref = options.ownRef?.()
 		const autoBefore = new Set(before?.autoJoined.map((j) => `${j.machineId}:${j.at}`))
 		for (const joined of now.autoJoined)

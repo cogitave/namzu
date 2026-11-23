@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, readdirSync, statSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, readdirSync, statSync, unlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import type { NetworkInterfaceInfo } from 'node:os'
 import { join } from 'node:path'
@@ -8,7 +8,12 @@ import { createMemoryAuditSink } from './audit.js'
 import { type ManualClock, createManualClock } from './clock.js'
 import { type NetworkDiscovery, createDiscoveryHub, createFakeDiscovery } from './discovery.js'
 import { generateMachineKey } from './identity.js'
-import { JOIN_ADDRESS_WINDOW_MS } from './join.js'
+import {
+	JOIN_ADDRESS_WINDOW_MS,
+	JOIN_BACKOFF_DENIED_MS,
+	JOIN_BACKOFF_OTHER_MS,
+	JOIN_EXPIRY_MS,
+} from './join.js'
 import { HOLD_EXPIRY_MS } from './mail-policy.js'
 import type { LocalSession } from './roster.js'
 import {
@@ -963,5 +968,173 @@ describe('trusted networks', () => {
 		const text = readFileSync(file, 'utf8')
 		expect(JSON.parse(text).networks[0]).toMatchObject({ id: HOME_NET, name: 'Network 1' })
 		if (process.platform !== 'win32') expect(statSync(file).mode & 0o777).toBe(0o600)
+	})
+})
+
+describe('one machine asks once, however many terminals it has', () => {
+	type Waiting = Extract<NetworkEvent, { type: 'join-waiting' }>
+	type Requested = Extract<NetworkEvent, { type: 'join-request' }>
+	const attemptFile = (home: string) => join(home, 'network', 'join-attempt.json')
+
+	/** The leader of a network, and the machine that asks it: `terminal()` is another process of that machine. */
+	async function setup() {
+		const world = newWorld()
+		const leader = machine('studio', world)
+		await found(leader, world.clock)
+		world.clock.advance(JOIN_ADDRESS_WINDOW_MS)
+		const first = machine('desk', world)
+		// Later terminals hear the network from a fake lookup, so a long jump of the clock cannot age its
+		// announcement out of the shared one.
+		const terminal = () => {
+			const fake = createFakeDiscovery()
+			const m = machine('desk', world, [], fake, { home: first.home })
+			const announce = () =>
+				fake.emitFound({
+					netId: leader.svc.status().netId as string,
+					host: '127.0.0.1',
+					port: leader.addr().port,
+				})
+			return Object.assign(m, { announce })
+		}
+		return { world, leader, first, terminal }
+	}
+	async function ask(m: Machine & { announce?: () => void }, world: ReturnType<typeof newWorld>) {
+		await m.svc.start()
+		m.announce?.()
+		world.clock.advance(5000)
+		return (await m.until((e) => e.type === 'join-waiting')) as Waiting
+	}
+
+	it('a terminal that takes over from one that closed asks again and meets the same request and code', async () => {
+		const { world, leader, first, terminal } = await setup()
+		const waiting = await ask(first, world)
+		const asked = (await leader.until((e) => e.type === 'join-request')) as Requested
+		await first.svc.close()
+		leader.fresh()
+		const mark = leader.events.length
+		// A minute has not passed since the first ask: the member would refuse a second request from this address.
+		const second = terminal()
+		const again = await ask(second, world)
+		expect(again.code).toBe(waiting.code)
+		expect(leader.svc.pendingJoins()).toHaveLength(1)
+		expect(leader.svc.pendingJoins()[0]?.requestId).toBe(asked.request.requestId)
+		expect(leader.events.slice(mark).filter((e) => e.type === 'join-request')).toHaveLength(0)
+		// The one Allow reaches the terminal that waits now.
+		await leader.svc.allow(asked.request.code)
+		await second.until((e) => e.type === 'joined')
+	})
+
+	it('two terminals of one machine asking at once leave one request, and the later one holds the answer', async () => {
+		const { world, leader, first, terminal } = await setup()
+		const a = await ask(first, world)
+		await leader.until((e) => e.type === 'join-request')
+		const second = terminal()
+		const b = await ask(second, world)
+		expect(b.code).toBe(a.code)
+		expect(leader.svc.pendingJoins()).toHaveLength(1)
+		await leader.svc.allow(a.shownCode)
+		await second.until((e) => e.type === 'joined')
+	})
+
+	it('a different ask from the same machine replaces the waiting one instead of adding a second', async () => {
+		const { world, leader, first, terminal } = await setup()
+		const waiting = await ask(first, world)
+		const asked = (await leader.until((e) => e.type === 'join-request')) as Requested
+		await first.svc.close()
+		// The machine lost its record of the ask: a new nonce, so a new code.
+		unlinkSync(attemptFile(first.home))
+		const settled = leader.until(
+			(e) => e.type === 'join-settled' && e.requestId === asked.request.requestId,
+		)
+		const again = await ask(terminal(), world)
+		await settled
+		expect(again.code).not.toBe(waiting.code)
+		expect(leader.svc.pendingJoins()).toHaveLength(1)
+		expect(leader.svc.pendingJoins()[0]?.code).toBe(again.code)
+	})
+
+	it('after a refusal it does not ask that network again on its own, and a person can', async () => {
+		const { world, leader, first, terminal } = await setup()
+		await ask(first, world)
+		const asked = (await leader.until((e) => e.type === 'join-request')) as Requested
+		await leader.svc.deny(asked.request.code)
+		await first.until((e) => e.type === 'join-ended')
+		await first.svc.close()
+		leader.fresh()
+		const mark = leader.events.length
+		world.clock.advance(JOIN_BACKOFF_DENIED_MS - 10_000)
+		const second = terminal()
+		await second.svc.start()
+		second.announce()
+		world.clock.advance(5000)
+		await second.until(
+			(e) => e.type === 'state' && e.reason?.includes('will not ask again') === true,
+		)
+		expect(second.events.some((e) => e.type === 'join-waiting')).toBe(false)
+		expect(leader.svc.pendingJoins()).toEqual([])
+		expect(leader.events.slice(mark).some((e) => e.type === 'join-request')).toBe(false)
+		// A person typing the address asks now, whatever happened before.
+		void second.svc.join(leader.addr()).catch(() => undefined)
+		await leader.until((e) => e.type === 'join-request')
+		await second.svc.close()
+		// Once the wait is over the next terminal asks on its own again.
+		world.clock.advance(JOIN_BACKOFF_DENIED_MS)
+		leader.fresh()
+		const third = terminal()
+		await ask(third, world)
+		await leader.until((e) => e.type === 'join-request')
+	})
+
+	it('an ask nobody answered waits a shorter time before the next one', async () => {
+		const { world, leader, first, terminal } = await setup()
+		await ask(first, world)
+		await leader.until((e) => e.type === 'join-request')
+		world.clock.advance(JOIN_EXPIRY_MS)
+		await first.until((e) => e.type === 'join-ended')
+		expect(first.events.find((e) => e.type === 'join-ended')).toMatchObject({ result: 'expired' })
+		await first.svc.close()
+		leader.fresh()
+		world.clock.advance(JOIN_BACKOFF_OTHER_MS - 10_000)
+		const early = terminal()
+		await early.svc.start()
+		early.announce()
+		world.clock.advance(5000)
+		await early.until(
+			(e) => e.type === 'state' && e.reason?.includes('will not ask again') === true,
+		)
+		expect(early.events.some((e) => e.type === 'join-waiting')).toBe(false)
+		await early.svc.close()
+		world.clock.advance(JOIN_BACKOFF_OTHER_MS)
+		await ask(terminal(), world)
+		await leader.until((e) => e.type === 'join-request')
+	})
+
+	it('once let in, the machine is remembered: a terminal that opens later asks nothing', async () => {
+		const { world, leader, first, terminal } = await setup()
+		await ask(first, world)
+		const asked = (await leader.until((e) => e.type === 'join-request')) as Requested
+		await leader.svc.allow(asked.request.code)
+		await first.until((e) => e.type === 'joined')
+		expect(existsSync(attemptFile(first.home))).toBe(false)
+		await first.svc.close()
+		leader.fresh()
+		const mark = leader.events.length
+		world.clock.advance(JOIN_ADDRESS_WINDOW_MS)
+		const later = terminal()
+		await later.svc.start()
+		world.clock.advance(5000)
+		expect(later.svc.status().state).toBe('ready')
+		expect(later.svc.members()).toHaveLength(2)
+		expect(leader.events.slice(mark).some((e) => e.type === 'join-request')).toBe(false)
+	})
+
+	it('a person who cancels withdraws the request from the other machine', async () => {
+		const { world, leader, first } = await setup()
+		await ask(first, world)
+		await leader.until((e) => e.type === 'join-request')
+		expect(first.svc.cancelJoin()).toBe(true)
+		await leader.until((e) => e.type === 'join-settled')
+		expect(leader.svc.pendingJoins()).toEqual([])
+		expect(existsSync(attemptFile(first.home))).toBe(false)
 	})
 })

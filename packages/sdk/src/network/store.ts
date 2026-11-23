@@ -3,7 +3,8 @@
  *
  * ```
  * machine.json  machine.key.pem  machine.cert.pem  network.json
- * members.json  peers.json  session-roles.json  trusted-networks.json  leader.lock  audit.jsonl
+ * members.json  peers.json  session-roles.json  trusted-networks.json  join-attempt.json
+ * leader.lock  audit.jsonl
  * ```
  *
  * The directory is 0700 and every file 0600, written atomically. Reads are
@@ -116,6 +117,25 @@ export const TrustedNetworksFileSchema = z
 	.strict()
 export type TrustedNetworksFile = z.infer<typeof TrustedNetworksFileSchema>
 
+/**
+ * The one request this machine has out to join a network, shared by every terminal of the machine: the
+ * nonce a repeat of the ask reuses (so the other machine shows the same code), and how the ask ended, so
+ * nobody asks again at once.
+ */
+export const JoinAttemptFileSchema = z
+	.object({
+		v: z.literal(1),
+		/** The network asked (its id when known, else `host:port`). */
+		target: z.string().min(1).max(300),
+		nonce: z.string().min(1).max(64),
+		startedAt: z.number().int().nonnegative(),
+		/** Set once the other side answered or the ask ran out; absent while it waits. */
+		result: z.enum(['denied', 'expired', 'refused']).optional(),
+		endedAt: z.number().int().nonnegative().optional(),
+	})
+	.strict()
+export type JoinAttemptFile = z.infer<typeof JoinAttemptFileSchema>
+
 export const LeaderLockSchema = z
 	.object({
 		pid: z.number().int().positive(),
@@ -159,6 +179,9 @@ export interface NetworkStore {
 	writeSessionRoles(value: SessionRolesFile): Promise<void>
 	readTrustedNetworks(): Promise<ReadResult<TrustedNetworksFile>>
 	writeTrustedNetworks(value: TrustedNetworksFile): Promise<void>
+	readJoinAttempt(): Promise<ReadResult<JoinAttemptFile>>
+	writeJoinAttempt(value: JoinAttemptFile): Promise<void>
+	clearJoinAttempt(): Promise<void>
 	/** Forget the network and the identity (a removed machine starts over). The audit log stays. */
 	reset(): Promise<void>
 }
@@ -244,6 +267,9 @@ export function createNetworkStore(options: NetworkStoreOptions): NetworkStore {
 		readTrustedNetworks: () => readJson('trusted-networks.json', TrustedNetworksFileSchema),
 		writeTrustedNetworks: (v) =>
 			writeJson('trusted-networks.json', TrustedNetworksFileSchema.parse(v)),
+		readJoinAttempt: () => readJson('join-attempt.json', JoinAttemptFileSchema),
+		writeJoinAttempt: (v) => writeJson('join-attempt.json', JoinAttemptFileSchema.parse(v)),
+		clearJoinAttempt: () => rm(file('join-attempt.json'), { force: true }),
 		async reset() {
 			for (const name of [
 				'machine.json',
@@ -253,6 +279,7 @@ export function createNetworkStore(options: NetworkStoreOptions): NetworkStore {
 				'members.json',
 				'peers.json',
 				'session-roles.json',
+				'join-attempt.json',
 			]) {
 				await rm(file(name), { force: true })
 			}

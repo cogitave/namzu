@@ -86,6 +86,8 @@ export interface StatusBarProps {
 	 * quiet moments.
 	 */
 	readonly restingHint?: boolean
+	/** Machines waiting for an Allow to join the Namzu network; 0 or omitted hides the mark. */
+	readonly joinRequests?: number
 	/** Background shells that are running now; 0 or omitted hides the pill. */
 	readonly shellCount?: number
 	/** Monitors that are watching now; counted apart from shells in the same pill. */
@@ -203,6 +205,13 @@ export function monitorPill(count: number): string | null {
 	return count > 0 ? `${count} ${count === 1 ? 'monitor' : 'monitors'}` : null
 }
 
+/** `1 join request · /peers`: machines waiting for an Allow, one mark however often each asks. */
+export function joinRequestPill(count: number): string | null {
+	return count > 0
+		? `${count > 99 ? '99+' : count} join ${count === 1 ? 'request' : 'requests'} · /peers`
+		: null
+}
+
 export function StatusBar({
 	provider,
 	model,
@@ -221,6 +230,7 @@ export function StatusBar({
 	restingHint = true,
 	shellCount = 0,
 	monitorCount = 0,
+	joinRequests = 0,
 	pr,
 	hyperlinks = false,
 	agentCount = 0,
@@ -268,6 +278,7 @@ export function StatusBar({
 	const nothingElse =
 		!activeMode &&
 		shellCount + monitorCount === 0 &&
+		joinRequests === 0 &&
 		!hasPr &&
 		agentCount === 0 &&
 		workflowCount === 0 &&
@@ -305,6 +316,7 @@ export function StatusBar({
 				? CYCLE_SUFFIX
 				: null,
 		interrupt: working && !hint && !dialogOpen ? INTERRUPT_HINT : null,
+		joins: joinRequestPill(joinRequests),
 		shells: shellPill(shellCount),
 		monitors: monitorPill(monitorCount),
 		agents: runningText(agentCount, workflowCount),
@@ -337,6 +349,13 @@ export function StatusBar({
 			<Text key="mode" underline={lit('mode')}>
 				<Text color={activeMode ? activeMode.color : theme.text.muted}>{layout.mode}</Text>
 				{layout.cycleSuffix ? <Text color={theme.text.muted}>{layout.cycleSuffix}</Text> : null}
+			</Text>,
+		)
+	}
+	if (layout.joins) {
+		parts.push(
+			<Text key="joins" color={theme.status.warn}>
+				{layout.joins}
 			</Text>,
 		)
 	}
@@ -424,6 +443,7 @@ export function StatusBar({
 	const leftTexts: [string, string | null][] = [
 		['vim', layout.vim ?? null],
 		['mode', layout.mode ? `${layout.mode}${layout.cycleSuffix ?? ''}` : null],
+		['joins', layout.joins],
 		[
 			'pr',
 			layout.pr ? `${layout.pr.prefix ? `${layout.pr.prefix} ` : ''}${layout.pr.label}` : null,
@@ -529,6 +549,7 @@ export interface StatusLineLayout {
 	readonly mode: string | null
 	readonly cycleSuffix: string | null
 	readonly interrupt: string | null
+	readonly joins: string | null
 	readonly shells: string | null
 	readonly monitors: string | null
 	readonly pr: { readonly prefix: string | null; readonly label: string } | null
@@ -578,6 +599,8 @@ export function fitStatusLine(input: {
 	readonly modeLabel: string
 	readonly cycleSuffix?: string | null
 	readonly interrupt?: string | null
+	/** `1 join request · /peers`: a machine waits for an Allow; it outlasts everything but the mode. */
+	readonly joins?: string | null
 	readonly shells?: string | null
 	readonly monitors?: string | null
 	readonly agents?: string | null
@@ -616,6 +639,7 @@ export function fitStatusLine(input: {
 	let mode: string | null = input.modeLabel.length > 0 ? input.modeLabel : null
 	let cycleSuffix: string | null = input.cycleSuffix ?? null
 	let interrupt: string | null = input.interrupt ?? null
+	let joins: string | null = input.joins ?? null
 	let shells: string | null = input.shells ?? null
 	let monitors: string | null = input.monitors ?? null
 	let agents: string | null = input.agents ?? null
@@ -635,6 +659,7 @@ export function fitStatusLine(input: {
 		[
 			vim,
 			mode ? `${mode}${cycleSuffix ?? ''}` : null,
+			joins,
 			pr ? `${pr.prefix ? `${pr.prefix} ` : ''}${pr.label}` : null,
 			shells,
 			monitors,
@@ -673,6 +698,8 @@ export function fitStatusLine(input: {
 	if (over()) pr = null
 	// The quiet reminder is only a reminder: cut in half it reads as "shift…cycle".
 	if (over() && (mode === QUIET_MODE_HINT || mode === QUIET_SANDBOX_HINT)) mode = null
+	// A machine waiting for an Allow is the one thing here that is time-bound: it goes after the rest.
+	if (over()) joins = null
 	if (over() && mode) {
 		const whole: string = mode
 		mode = null
@@ -692,6 +719,7 @@ export function fitStatusLine(input: {
 		mode,
 		cycleSuffix: mode ? cycleSuffix : null,
 		interrupt,
+		joins,
 		shells,
 		monitors,
 		pr,
