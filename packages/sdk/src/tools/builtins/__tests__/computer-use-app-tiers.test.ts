@@ -117,6 +117,12 @@ describe('appTier', () => {
 		['calc', 'full'],
 		['gnome-calculator', 'full'],
 		['codec-tool', 'full'],
+		['Navigator', 'view'],
+		['jetbrains-idea', 'click'],
+		['studio', 'full'],
+		['zen', 'full'],
+		['arc', 'full'],
+		['nova', 'full'],
 		['', 'full'],
 	])('classes %s as %s', (app, tier) => {
 		expect(appTier(app)).toBe(tier)
@@ -221,5 +227,46 @@ describe('computer_use app tiers', () => {
 			'Prefer a connected tool or a command line to the screen when one does the job.',
 		)
 		expect(description).toContain('act on a page with the browser tool')
+	})
+})
+
+describe('computer_use app tiers, fresh placement and scroll keys', () => {
+	it('reads a fresh window list before placing a display call with no window', async () => {
+		const { host } = makeHost('notepad')
+		const win = windowOf('notepad')
+		let current = win
+		host.listWindows = async () => [current]
+		const tool = createComputerUseTool(host, { settleMs: 0 })
+		await run(tool, { type: 'list_windows' })
+		current = windowOf('chrome')
+		const refused = await run(tool, { type: 'mouse_click', at: { x: 10, y: 10 }, button: 'left' })
+		expect(refused.success).toBe(false)
+		expect(refused.error).toContain('only looks at')
+	})
+
+	it('allows page-moving keys in a browser and refuses others', async () => {
+		const { host } = makeHost('chrome')
+		const tool = createComputerUseTool(host, { settleMs: 0 })
+		await run(tool, { type: 'screenshot', window_id: '0x1' })
+		const scroll = await run(tool, { type: 'key', keys: 'PAGE_DOWN' })
+		expect(scroll.error ?? '').not.toContain('only looks at')
+		const other = await run(tool, { type: 'key', keys: 'CTRL+L' })
+		expect(other.success).toBe(false)
+		expect(other.error).toContain('only looks at')
+	})
+
+	it('does not advise keys when window pixel scrolling is unavailable', async () => {
+		const { host } = makeHost('notepad')
+		Object.assign(host, { capabilities: { ...host.capabilities, windowScroll: false } })
+		const tool = createComputerUseTool(host, { settleMs: 0 })
+		await run(tool, { type: 'screenshot', window_id: '0x1' })
+		const res = await run(tool, {
+			type: 'scroll',
+			at: { x: 5, y: 5 },
+			direction: 'down',
+			amount: 3,
+		})
+		expect(res.success).toBe(false)
+		expect(res.error ?? '').not.toContain('PAGE_DOWN')
 	})
 })

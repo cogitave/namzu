@@ -863,9 +863,9 @@ describe('computer_use typing with a terminal in front', () => {
 		})
 		expect(result.success).toBe(true)
 		expect(typed).toEqual(['Merhaba dünya ığüşöç', '<ALT+F4>', '<TAB>'])
-		// Once before the text; the key after typing needs no new read, the
+		// Once to place the call, once before the text; the key after typing needs no new read, the
 		// key after a key does.
-		expect(lists()).toBe(2)
+		expect(lists()).toBe(3)
 	})
 })
 

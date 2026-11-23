@@ -536,7 +536,7 @@ const TERMINAL_APPS =
  * through the browser tool.
  */
 const BROWSER_APPS =
-	/^(chrome|google-chrome(-stable|-beta|-unstable)?|chromium(-browser)?|msedge|microsoft-edge(-stable|-beta|-dev)?|firefox(-esr|-bin)?|brave(-browser)?|opera|vivaldi(-stable)?|arc|safari|librewolf|waterfox|zen|tor browser|iexplore|duckduckgo|yandex|thorium)$/i
+	/^(chrome|google-chrome(-stable|-beta|-unstable)?|chromium(-browser)?|msedge|microsoft-edge(-stable|-beta|-dev)?|firefox(-esr|-bin)?|brave(-browser)?|opera|vivaldi(-stable)?|arc-browser|safari|librewolf|waterfox|zen-browser|navigator|tor browser|iexplore|duckduckgo|yandex-?browser|thorium)$/i
 
 /**
  * Editors and development environments, by process name. Like a terminal,
@@ -544,7 +544,7 @@ const BROWSER_APPS =
  * shell and the edit tools do that work without a screen.
  */
 const IDE_APPS =
-	/^(code(-insiders|-oss)?|cursor|windsurf|zed|devenv|idea(64)?|pycharm(64)?|webstorm(64)?|goland(64)?|clion(64)?|rider(64)?|phpstorm(64)?|rubymine(64)?|datagrip(64)?|studio(64)?|android-studio|sublime_text|subl|atom|eclipse|netbeans(64)?|xcode|nova|vscodium|codium|kate|gedit|vim|gvim|nvim-qt|emacs|lapce|fleet)$/i
+	/^(code(-insiders|-oss)?|cursor|windsurf|zed|devenv|idea(64)?|pycharm(64)?|webstorm(64)?|goland(64)?|clion(64)?|rider(64)?|phpstorm(64)?|rubymine(64)?|datagrip(64)?|studio64|android-studio|jetbrains-[a-z-]+|sublime_text|subl|atom-editor|eclipse|netbeans(64)?|xcode|nova-editor|vscodium|codium|kate|gedit|vim|gvim|nvim-qt|emacs|lapce|jetbrains-fleet)$/i
 
 /** How far the tool works in an application: only looks, looks and clicks, or everything. */
 export type AppTier = 'view' | 'click' | 'full'
@@ -558,6 +558,15 @@ export function appTier(app: string): AppTier {
 	if (BROWSER_APPS.test(name)) return 'view'
 	if (TERMINAL_APPS.test(name) || IDE_APPS.test(name)) return 'click'
 	return 'full'
+}
+
+/** Keys that only move a page: allowed in a view-only application. */
+const SCROLL_KEYS = /^(page_?up|page_?down|home|end|arrow_?(up|down|left|right)|up|down|space)$/i
+
+function onlyScrollKeys(keys: unknown): boolean {
+	if (typeof keys !== 'string') return false
+	const parts = keys.split(/[\s+]+/).filter(Boolean)
+	return parts.length > 0 && parts.every((part) => SCROLL_KEYS.test(part))
 }
 
 /** Actions that type: refused in a click-only application. */
@@ -1894,7 +1903,7 @@ export function createComputerUseTool(
 					)
 				if (frame.window && caps.windowScroll === false)
 					throw new StepFailure(
-						'window pixel scrolling is unavailable on this host; use foreground PAGE_DOWN or ARROW_DOWN in this window, or take a deliberate display screenshot before display scrolling',
+						'window pixel scrolling is unavailable on this host; take a deliberate display screenshot before display scrolling, or use the browser tool for a page',
 					)
 				const at = mapPoint(frame, item.at, 'at')
 				return step(() =>
@@ -3162,8 +3171,32 @@ export function createComputerUseTool(
 	 * cannot place is left to the checks that follow, and a terminal's typing is refused by them.
 	 * The person's denied list is checked first and stands on top of this.
 	 */
-	const appTierRefusal = (input: ActionInput): string | undefined => {
+	const appTierRefusal = async (
+		input: ActionInput,
+		context: ToolContext,
+	): Promise<string | undefined> => {
 		if (isReadOnlyInput(input)) return undefined
+		// A call with no window of its own is placed by the focused window or by bounds: read a fresh list.
+		const loose0: unknown = input
+		const shot0 =
+			isRecord(loose0) && typeof loose0.screenshot_id === 'string'
+				? loose0.screenshot_id
+				: undefined
+		const unbound = (batchActions(input) ?? [input]).some((item) => {
+			if (!isRecord(item) || boundWindowId(item) !== undefined) return false
+			if (!TYPING_ACTIONS.has(String(item.type)) && !POINTING_ACTIONS.has(String(item.type)))
+				return false
+			const id = typeof item.screenshot_id === 'string' ? item.screenshot_id : shot0
+			const frame = id ? frames.get(id) : frames.latest()
+			return !frame?.window
+		})
+		if (unbound && typeof host.listWindows === 'function') {
+			try {
+				rememberWindows(await host.listWindows(context.abortSignal))
+			} catch {
+				// The checks that follow read the front window before typing.
+			}
+		}
 		const loose: unknown = input
 		const shotId =
 			isRecord(loose) && typeof loose.screenshot_id === 'string' ? loose.screenshot_id : undefined
@@ -3180,6 +3213,7 @@ export function createComputerUseTool(
 			for (const app of placed) {
 				const tier = appTier(app)
 				const name = applicationName(app)
+				if (tier === 'view' && type === 'key' && onlyScrollKeys(item.keys)) continue
 				if (tier === 'view')
 					return `computer_use only looks at ${name}, a browser: it does not click, type or press keys there. Use the browser tool to act on a page; take a screenshot to see what the window shows. Nothing was done.`
 				if (tier === 'click' && !TERMINAL_APPS.test(app) && (TYPING_ACTIONS.has(type) || setsValue))
@@ -3273,7 +3307,7 @@ export function createComputerUseTool(
 		async execute(input, context): Promise<ToolResult> {
 			const keptOut = await deniedAppRefusal(input, context)
 			if (keptOut) return { success: false, output: '', error: keptOut }
-			const tiered = appTierRefusal(input)
+			const tiered = await appTierRefusal(input, context)
 			if (tiered) return { success: false, output: '', error: tiered }
 			const shotId = 'screenshot_id' in input ? input.screenshot_id : undefined
 			const before = shotId ? frames.get(shotId) : frames.latest()

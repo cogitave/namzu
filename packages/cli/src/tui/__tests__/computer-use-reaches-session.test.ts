@@ -283,6 +283,7 @@ describe('computer use session reachability', () => {
 		expect(querySystemPrompt).toContain('separate Namzu-managed browser profile')
 		expect(querySystemPrompt).toContain('look at it only')
 		expect(querySystemPrompt).toContain('Act on pages through the browser tool')
+		expect(querySystemPrompt).toContain('offer to do it in the Namzu browser profile')
 
 		querySystemPrompt = ''
 		desktop.failInitialize = true

@@ -389,13 +389,14 @@ How far the tool works in a window depends on the kind of application, by
 
 | Kind | Examples | The tool may |
 | --- | --- | --- |
-| Browser | `chrome`, `msedge`, `firefox`, `brave`, `safari`, `chromium` | look only: screenshots, zoom, tree reads, scroll, `focus_window`. A click, drag, `ui_act`, `ui_do`, `type_text` or `key` is refused with *only looks at <app>, a browser … Use the browser tool to act on a page*. |
+| Browser | `chrome`, `msedge`, `firefox`, `brave`, `safari`, `chromium` | look only: screenshots, zoom, tree reads, scroll, `focus_window`. A click, drag, `ui_act`, `ui_do`, `type_text` or a `key` that is not a page-moving key (`PAGE_UP`, `PAGE_DOWN`, `HOME`, `END`, arrows, `SPACE`) is refused with *only looks at <app>, a browser … Use the browser tool to act on a page*. |
 | Terminal or editor | `WindowsTerminal`, `konsole`, `Code`, `idea64`, `devenv`, `sublime_text` | look and click. `type_text`, `key` and a `set_value` are refused with a pointer to the shell tool (a command) or the edit tools (a file). |
 | Anything else | `notepad`, `gnome-calculator` | everything the host offers. |
 
-The kind is read from what the tool already knows (the window a screenshot was
-taken of, the last window list); it reads nothing from the host for the check,
-and a call it cannot place goes on to the checks below. For a display
+The names are a best-effort match on the reported process name or window class,
+not a registry. The kind is read from the window a screenshot was taken of; a
+call with no window of its own reads a fresh window list first, and a call it
+cannot place goes on to the checks below. For a display
 screenshot, typing and keys read the window in front first, as for terminals.
 `deniedApps` stays the person's own list on top: it is checked first, so a
 listed browser says it is off limits, and an application the table allows is
