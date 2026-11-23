@@ -65,8 +65,11 @@ export interface PaneChannel {
 	 * suggested. The host tells the model.
 	 */
 	onDownloadRefused?(listener: (name: string) => void): () => void
-	/** The link to the app is gone (its process exited). Returns the unsubscribe function. */
-	onClose?(listener: (reason?: string) => void): () => void
+	/**
+	 * The link to the app is gone (its process exited). Returns the unsubscribe function. Required:
+	 * it is the only thing that ends a command still waiting on a relay that went away.
+	 */
+	onClose(listener: (reason?: string) => void): () => void
 	/** Detach from every tab. The tabs stay open: they are the person's. */
 	close(): Promise<void>
 }

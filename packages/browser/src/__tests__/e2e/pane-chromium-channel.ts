@@ -12,6 +12,9 @@ import { createPaneProvider } from '../../pane-provider.js'
  * one flat session per page, child sessions (iframes, workers) named by the
  * session id Chromium gives them. It stands where an app's per-tab debugger
  * stands, so the pane transport talks real protocol with none of the app.
+ *
+ * Under an isolated HOME the browser cache is not found: set PLAYWRIGHT_BROWSERS_PATH to the
+ * directory that holds `chromium-*`, or the start fails with "Chromium could not start".
  */
 export interface ChromiumPane extends PaneChannel {
 	/** A page the "app" opened on its own, as the pane does for a popup. */
@@ -20,6 +23,8 @@ export interface ChromiumPane extends PaneChannel {
 	removeTab(tabId: string): Promise<void>
 	/** Every command sent, `tab method`, for assertions on what crossed. */
 	readonly sent: string[]
+	/** The app went away: every `onClose` listener fires. */
+	drop(reason?: string): void
 	/** Stop the browser. */
 	shutdown(): Promise<void>
 }
@@ -80,6 +85,10 @@ export async function startChromiumPane(options: ChromiumPaneOptions = {}): Prom
 			const found = /DevTools listening on (ws:\/\/\S+)/.exec(text)
 			if (found?.[1]) resolve(found[1])
 		})
+		// A missing executable (no browser cache under an isolated HOME) fails here, at once.
+		child.once('error', (error) =>
+			reject(new Error(`Chromium could not start (${binary.executable}): ${error.message}`)),
+		)
 		child.once('exit', () => reject(new Error(`Chromium exited early:\n${text}`)))
 	})
 	const socket = new WebSocket(endpoint)
@@ -103,6 +112,7 @@ export async function startChromiumPane(options: ChromiumPaneOptions = {}): Prom
 	const sessionOfTab = new Map<string, string>() // tabId -> page session
 	const tabOfSession = new Map<string, string>() // page or child session -> tabId
 	const attaching = new Map<string, Promise<string>>()
+	const closeListeners = new Set<(reason?: string) => void>()
 	const sent: string[] = []
 
 	const send = (method: string, params: object = {}, sessionId?: string): Promise<unknown> =>
@@ -248,6 +258,13 @@ export async function startChromiumPane(options: ChromiumPaneOptions = {}): Prom
 		onDownloadRefused(listener) {
 			downloadListeners.add(listener)
 			return () => downloadListeners.delete(listener)
+		},
+		onClose(listener) {
+			closeListeners.add(listener)
+			return () => closeListeners.delete(listener)
+		},
+		drop(reason) {
+			for (const listener of closeListeners) listener(reason)
 		},
 		...(options.allowOpenTab === false ? {} : { openTab: (url?: string) => open(url) }),
 		async closeTab(tabId) {

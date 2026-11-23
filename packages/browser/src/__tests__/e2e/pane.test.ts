@@ -66,6 +66,22 @@ describe.skipIf(!E2E)('PlaywrightBrowserHost on a pane channel', { timeout: 60_0
 		}
 	})
 
+	it('does not name a terminal login command for a pane tab', async () => {
+		const pane = await startChromiumPane({ initialTabs: 1 })
+		const host = new PlaywrightBrowserHost({
+			provider: createPaneProvider(pane),
+			sites: { [server.allowed]: 'act', '*': 'ask' },
+		})
+		try {
+			const first = await host.observe({ action: 'navigate', url: `${server.allowed}/login.html` })
+			expect(first.message).toContain('You cannot type one')
+			expect(first.message).not.toContain('namzu browser login')
+		} finally {
+			await host.dispose()
+			await pane.shutdown()
+		}
+	})
+
 	it('asks the pane for a tab when it has none', async () => {
 		const pane = await startChromiumPane({ initialTabs: 0 })
 		const host = hostOn(pane)

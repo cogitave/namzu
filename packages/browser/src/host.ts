@@ -745,7 +745,10 @@ export class PlaywrightBrowserHost implements BrowserHost {
 		return typeof option === 'function' ? option() === true : option === true
 	}
 
-	private loginCommandFor(url: string): string {
+	private loginCommandFor(url: string): string | undefined {
+		// A provider's tabs have no profile to sign in to from a terminal: name a command only
+		// when the embedder supplied one for them.
+		if (this.provider && !this.options.loginCommand) return undefined
 		const target = withoutQuery(url)
 		return this.options.loginCommand
 			? this.options.loginCommand(this.profile, target)
@@ -757,9 +760,10 @@ export class PlaywrightBrowserHost implements BrowserHost {
 		tab: Tab,
 	): BrowserHumanRequiredError {
 		const url = tab.page.url()
+		const loginCommand = this.loginCommandFor(url)
 		return new BrowserHumanRequiredError(reason, originOf(url), {
 			profile: this.profile,
-			loginCommand: this.loginCommandFor(url),
+			...(loginCommand !== undefined ? { loginCommand } : {}),
 		})
 	}
 

@@ -5,26 +5,42 @@ import { createPaneTransport, refuseOutsideThePane } from '../pane-transport.js'
 /** A channel with scripted tabs. No browser: the transport's own logic only. */
 function fakeChannel(
 	tabs: readonly string[],
-	options: { openTab?: boolean; failFor?: readonly string[] } = {},
+	options: {
+		openTab?: boolean
+		failFor?: readonly string[]
+		syncThrowFor?: readonly string[]
+		hang?: boolean
+	} = {},
 ) {
 	const calls: { tabId: string; method: string; params?: object; sessionId?: string }[] = []
 	const events = new Set<(e: PaneEvent) => void>()
 	const added = new Set<(t: PaneTabRef) => void>()
 	const closed = new Set<(id: string) => void>()
+	const closeListeners = new Set<(reason?: string) => void>()
+	const syncThrow = new Set(options.syncThrowFor)
 	const open = new Set(tabs)
 	let opened = 0
+	const run = async (tabId: string, method: string, params?: object, sessionId?: string) => {
+		calls.push({ tabId, method, params, sessionId })
+		if (options.failFor?.includes(tabId)) throw new Error('debugger is held')
+		if (method === 'Target.getTargetInfo') {
+			return {
+				targetInfo: { targetId: `frame-${tabId}`, url: `http://x/${tabId}`, title: tabId },
+			}
+		}
+		if (method === 'Browser.getVersion') throw new Error('not on a page session')
+		return { ran: method }
+	}
 	const channel: PaneChannel = {
 		listTabs: async () => [...open].map((tabId) => ({ tabId })),
-		cdp: async (tabId, method, params, sessionId) => {
-			calls.push({ tabId, method, params, sessionId })
-			if (options.failFor?.includes(tabId)) throw new Error('debugger is held')
-			if (method === 'Target.getTargetInfo') {
-				return {
-					targetInfo: { targetId: `frame-${tabId}`, url: `http://x/${tabId}`, title: tabId },
-				}
-			}
-			if (method === 'Browser.getVersion') throw new Error('not on a page session')
-			return { ran: method }
+		cdp: (tabId, method, params, sessionId) => {
+			if (syncThrow.has(tabId)) throw new Error('relay handle closed')
+			if (options.hang && method === 'Runtime.evaluate') return new Promise<never>(() => undefined)
+			return run(tabId, method, params, sessionId)
+		},
+		onClose: (l) => {
+			closeListeners.add(l)
+			return () => closeListeners.delete(l)
 		},
 		onEvent: (l) => {
 			events.add(l)
@@ -53,12 +69,16 @@ function fakeChannel(
 	return {
 		channel,
 		calls,
+		syncThrow,
 		emitEvent: (e: PaneEvent) => {
 			for (const l of events) l(e)
 		},
 		addTab: (tabId: string) => {
 			open.add(tabId)
 			for (const l of added) l({ tabId })
+		},
+		drop: (reason?: string) => {
+			for (const l of closeListeners) l(reason)
 		},
 		closeTab: (tabId: string) => {
 			open.delete(tabId)
@@ -237,6 +257,73 @@ describe('createPaneTransport', () => {
 		fake.emitEvent({ tabId: 'a', method: 'Page.loadEventFired', params: {} })
 		await Promise.resolve()
 		expect(w.received.length).toBe(before)
+	})
+})
+
+describe('a link that fails', () => {
+	const attach = (w: ReturnType<typeof wire>) =>
+		w.request('Target.setAutoAttach', { autoAttach: true, flatten: true })
+	const sessionOf = (w: ReturnType<typeof wire>) =>
+		String(
+			(
+				w.received.find((m) => m.method === 'Target.attachedToTarget')?.params as {
+					sessionId: string
+				}
+			).sessionId,
+		)
+
+	it('reports the close to Playwright when the app goes away with a command still waiting', async () => {
+		const fake = fakeChannel(['a'], { hang: true })
+		const transport = createPaneTransport(fake.channel)
+		const w = wire(transport)
+		await attach(w)
+		let closedWith: unknown = 'not called'
+		transport.onclose = (reason) => {
+			closedWith = reason
+		}
+		void w.request('Runtime.evaluate', { expression: '1' }, sessionOf(w))
+		await Promise.resolve()
+		fake.drop('the app exited')
+		expect(closedWith).toBe('the app exited')
+	})
+
+	it('detaches a tab that closes with a command waiting on it', async () => {
+		const fake = fakeChannel(['a'], { hang: true })
+		const w = wire(createPaneTransport(fake.channel))
+		await attach(w)
+		void w.request('Runtime.evaluate', { expression: '1' }, sessionOf(w))
+		fake.closeTab('a')
+		await Promise.resolve()
+		await Promise.resolve()
+		expect(w.received.filter((m) => m.method === 'Target.detachedFromTarget')).toHaveLength(1)
+	})
+
+	it('registers a tab again after a channel that threw synchronously', async () => {
+		const fake = fakeChannel([], { syncThrowFor: ['b'] })
+		const w = wire(createPaneTransport(fake.channel))
+		await attach(w)
+		fake.addTab('b')
+		await w.request('Target.getTargets')
+		expect(((await w.request('Target.getTargets')).result?.targetInfos as unknown[]).length).toBe(0)
+		fake.syncThrow.delete('b')
+		fake.addTab('b')
+		await w.request('Target.getTargets')
+		expect(((await w.request('Target.getTargets')).result?.targetInfos as unknown[]).length).toBe(1)
+	})
+
+	it('forgets a child session once it detaches', async () => {
+		const fake = fakeChannel(['a'])
+		const w = wire(createPaneTransport(fake.channel))
+		await attach(w)
+		fake.emitEvent({ tabId: 'a', method: 'Page.frameNavigated', params: {}, sessionId: 'child1' })
+		expect((await w.request('Runtime.enable', {}, 'child1')).error).toBeUndefined()
+		fake.emitEvent({
+			tabId: 'a',
+			method: 'Target.detachedFromTarget',
+			params: { sessionId: 'child1' },
+		})
+		const after = await w.request('Runtime.enable', {}, 'child1')
+		expect(after.error?.message).toBe('unknown session')
 	})
 })
 

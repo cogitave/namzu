@@ -163,6 +163,8 @@ export function createPaneTransport(
 		const pending = registering.get(tabId)
 		if (pending) return pending
 		const promise = (async () => {
+			// Let the map entry be set before the body can settle, however the channel fails.
+			await Promise.resolve()
 			try {
 				const reply = (await channel.cdp(tabId, 'Target.getTargetInfo')) as {
 					targetInfo: { targetId: string; url?: string; title?: string }
@@ -214,7 +216,11 @@ export function createPaneTransport(
 	const onEvent = (event: PaneEvent): void => {
 		const t = targets.get(event.tabId)
 		if (!t?.announced) return
-		if (event.sessionId) owner.set(event.sessionId, t)
+		if (event.method === 'Target.detachedFromTarget') {
+			// A child that detached is gone: a command naming it fails at once as unknown.
+			const child = (event.params as { sessionId?: string } | undefined)?.sessionId
+			if (child !== undefined && child !== t.sid) owner.delete(child)
+		} else if (event.sessionId) owner.set(event.sessionId, t)
 		emit({
 			method: event.method,
 			params: event.params as Record<string, unknown>,
@@ -226,7 +232,7 @@ export function createPaneTransport(
 		channel.onEvent(onEvent),
 		channel.onTabAdded((tab) => void register(tab.tabId, tab.paused === true)),
 		channel.onTabClosed(forget),
-		channel.onClose?.((reason) => {
+		channel.onClose((reason) => {
 			if (closed) return
 			closed = true
 			unsubscribeAll()
