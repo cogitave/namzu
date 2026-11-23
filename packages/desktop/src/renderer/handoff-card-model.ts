@@ -74,3 +74,12 @@ export function describeHandoff(handoff: DesktopTurnHandoff): HandoffCard {
 			: {}),
 	}
 }
+
+/** The agent tab a handoff points at: the one it names, else the first agent tab. */
+export function pickAgentTab<T extends { id: string; owner: string }>(
+	tabs: readonly T[],
+	tabId?: string,
+): T | undefined {
+	const agentTabs = tabs.filter((tab) => tab.owner === 'agent')
+	return agentTabs.find((tab) => tab.id === tabId) ?? agentTabs[0]
+}

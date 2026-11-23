@@ -143,6 +143,7 @@ import {
 	lostConnectionText,
 	providerName,
 } from './friendly-errors.js'
+import { pickAgentTab } from './handoff-card-model.js'
 import { type EngineSurface, type EngineSurfaceControl, engineLabel } from './harness-picker.js'
 import {
 	ArchiveIcon,
@@ -1337,9 +1338,8 @@ export function App({
 		openPaneRef.current('browser')
 	}, [browserState, sessionId])
 	// Shows the tab Namzu is using, for a card that asks the person to do something in it.
-	const showAgentTab = useCallback(() => {
-		const tab =
-			browserActRef.current && browserStateRef.current?.tabs.find((t) => t.owner === 'agent')
+	const showAgentTab = useCallback((tabId?: string) => {
+		const tab = browserActRef.current && pickAgentTab(browserStateRef.current?.tabs ?? [], tabId)
 		if (!tab) return
 		browserActRef.current?.({ kind: 'select', tabId: tab.id })
 		openPaneRef.current('browser')
@@ -8341,7 +8341,11 @@ export function App({
 									return delivered
 								}}
 								handoff={thread.handoff}
-								onShowHandoffTab={thread.handoff?.window === 'pane' ? showAgentTab : undefined}
+								onShowHandoffTab={
+									thread.handoff?.window === 'pane'
+										? () => showAgentTab(thread.handoff?.tabId)
+										: undefined
+								}
 								onContinueHandoff={
 									api.retryTurn && thread.handoff
 										? async () => {

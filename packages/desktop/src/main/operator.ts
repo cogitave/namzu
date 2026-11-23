@@ -477,7 +477,15 @@ function readMcpServers(value: unknown): McpServersView | null {
 	return { servers: rows, ...(failed ? { error: failed } : {}) }
 }
 
-const HANDOFF_TEXT_KEYS = ['reason', 'tool', 'cause', 'origin', 'profile', 'loginCommand'] as const
+const HANDOFF_TEXT_KEYS = [
+	'reason',
+	'tool',
+	'cause',
+	'origin',
+	'profile',
+	'loginCommand',
+	'tabId',
+] as const
 /** A handoff the host sent: every field a bounded string, so the card never draws a surprise. */
 function validHandoff(value: unknown): value is DesktopTurnHandoff {
 	if (!value || typeof value !== 'object' || Array.isArray(value)) return false

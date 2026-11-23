@@ -46,9 +46,9 @@ import {
  */
 
 const MAX_TABS = MAX_BROWSER_TABS
-/** The size an agent's tab has while it is not on screen, so its page still lays out like a window. */
 /** How long an agent's tab still reads as working after its last call, so a run of calls shows as one. */
 export const WORKING_LINGER_MS = 600
+/** The size an agent's tab has while it is not on screen, so its page still lays out like a window. */
 const HIDDEN_SIZE = { x: 0, y: 0, width: 1280, height: 800 }
 
 type View = WebContentsView
