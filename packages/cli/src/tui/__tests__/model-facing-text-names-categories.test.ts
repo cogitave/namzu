@@ -55,6 +55,10 @@ vi.mock('@namzu/computer-use', () => ({
 }))
 
 vi.mock('@namzu/browser', () => ({
+	// The session asks the package for a pane provider; no pane is offered here, so it is never called.
+	createPaneProvider: () => {
+		throw new Error('no pane in this test')
+	},
 	PlaywrightBrowserHost: class {
 		readonly id = 'test-browser'
 		readonly profile: string
