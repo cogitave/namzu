@@ -151,6 +151,14 @@ export function WindowTitlebar({
 				>
 					<ArrowRightIcon aria-hidden="true" />
 				</Button>
+				{chrome.testProfile !== undefined && (
+					<span
+						className="window-titlebar-test-profile"
+						title={`This Namzu runs on its own profile (${chrome.testProfile}), apart from your own.`}
+					>
+						test: {chrome.testProfile}
+					</span>
+				)}
 			</nav>
 		</header>
 	)

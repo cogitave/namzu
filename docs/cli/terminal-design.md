@@ -1441,7 +1441,10 @@ On release the text is copied (`tui.copyOnSelect: false` keeps it selected and
 makes `ctrl+c` copy it instead, as in `namzu workspaces`). While text is selected,
 `ctrl+c` belongs to the selection and never interrupts the reply: it copies a
 selection not yet copied, and lets go of one already copied on release, so the
-next `ctrl+c` is the interrupt. The copy is the
+next `ctrl+c` is the interrupt. `ctrl+shift+c`, the copy chord many terminals use, does
+the same copy and is never the interrupt (with nothing selected it does nothing); it is read
+when the terminal sends it as the kitty form or as xterm's `modifyOtherKeys` form, and a
+terminal that sends it as a plain `ctrl+c` byte gives `ctrl+c`. The copy is the
 plain text of the rows: no styling, no gutter glyph, no hanging indent. Rows
 that one line was wrapped over are joined back into that line, with the space
 the wrap broke at or with nothing where it cut a word; separate lines and

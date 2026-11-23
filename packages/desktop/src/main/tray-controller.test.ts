@@ -49,6 +49,15 @@ describe('the tray', () => {
 		expect(host.quit).toHaveBeenCalledTimes(1)
 	})
 
+	it('reads Namzu in the tooltip, and the test profile when it has one', async () => {
+		const plain = setup()
+		await plain.controller.sync(true, 'System tray')
+		expect(plain.trays[0]?.setToolTip).toHaveBeenCalledWith('Namzu')
+		const test = setup({ title: 'Namzu (test: userdata)' })
+		await test.controller.sync(true, 'System tray')
+		expect(test.trays[0]?.setToolTip).toHaveBeenCalledWith('Namzu (test: userdata)')
+	})
+
 	it('draws one icon however often it is asked, and removes it when switched off', async () => {
 		const { trays, controller } = setup()
 		await controller.sync(true, 'System tray')
