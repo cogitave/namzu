@@ -971,7 +971,6 @@ export const AUTO_MODE_STOPPED_HEADLESS_NOTICE =
 
 export const execCommand: CommandDef = {
 	name: 'exec',
-	aliases: ['e'],
 	description: 'Run a single prompt headlessly: print the reply, or stream events with --json',
 	passThrough: true,
 	help: [
@@ -981,7 +980,7 @@ export const execCommand: CommandDef = {
 		'       namzu exec --json [--session <id>] <prompt...>',
 		'',
 		'Run a single prompt headlessly. Everything that is not an option is the',
-		'prompt. `namzu e` is the same command.',
+		'prompt.',
 		'',
 		'By default the reply is printed on stdout and status lines go to stderr.',
 		'Piped input is used too, not discarded: with no prompt argument it IS',
@@ -1053,7 +1052,7 @@ export const execCommand: CommandDef = {
 		'here once and accept the prompt to trust it permanently, or pass --trust',
 		'to accept it for one turn. --trust does not remember; that is the point.',
 		'',
-		'--yolo does NOT imply --trust: one is about which tools may run inside a',
+		'--dangerously-skip-permissions does NOT imply --trust: one is about which tools may run inside a',
 		'folder, the other about the folder.',
 		'',
 		'By default tools run without asking, because there is nobody to ask, and',

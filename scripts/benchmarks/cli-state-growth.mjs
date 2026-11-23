@@ -247,7 +247,7 @@ for (let t = 0; t < turns; t++) {
 		"--model",
 		"claude-sonnet-4-5",
 		"--trust",
-		"--yolo",
+		"--dangerously-skip-permissions",
 		`Turn ${t + 1}: read the data files.`,
 	]);
 	if (process.env.NAMZU_BENCH_VERBOSE)

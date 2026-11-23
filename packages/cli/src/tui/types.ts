@@ -200,7 +200,7 @@ export interface TuiContext {
 	 * standalone CLI always supplies it; the command says when an embed did not.
 	 */
 	readonly configDebug?: ConfigDebugSnapshot
-	/** Initial TUI mode is bypass (--dangerously-skip-permissions / --yolo); /permissions may narrow it. */
+	/** Initial TUI mode is bypass (--dangerously-skip-permissions / --dangerously-skip-permissions); /permissions may narrow it. */
 	readonly skipPermissions?: boolean
 	/** --allow-dangerously-skip-permissions: Shift+Tab may reach bypass without starting in it. */
 	readonly allowDangerouslySkipPermissions?: boolean

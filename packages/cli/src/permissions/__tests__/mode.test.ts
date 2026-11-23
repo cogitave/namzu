@@ -85,7 +85,7 @@ describe('a mode decides only what no rule decided', () => {
 
 	it('a denied call never reaches the mode at all', async () => {
 		// THE precedence test. `deny` is settled by the gate, so no mode — not
-		// even the one spelled --yolo — is ever consulted about it. If this ever
+		// even the one spelled --dangerously-skip-permissions — is ever consulted about it. If this ever
 		// fails, a flag has become able to lift a prohibition someone wrote down.
 		const decision = gate({ bash: 'deny' }).evaluate({
 			toolName: 'bash',

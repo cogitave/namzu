@@ -122,7 +122,7 @@ under `d`. A script whose `meta` cannot be read is still shown, with the reason.
 | Situation | What happens |
 |---|---|
 | `prompt`, `accept-edits` or `auto` mode with a person at the terminal | the review above |
-| `bypass` mode (`--yolo`, `--dangerously-skip-permissions`, "bypass permissions on") | it starts without asking, like any other call |
+| `bypass` mode (`--dangerously-skip-permissions`, "bypass permissions on") | it starts without asking, like any other call |
 | `plan` or `strict` mode | refused by the mode, as any change is |
 | no one to ask (`exec`, `exec --json`) and not `bypass` | refused, in words the model can pass on, naming `--permission-mode bypass` |
 
@@ -357,7 +357,7 @@ gives the model the one message above, lets it take a reporting turn, and only
 then closes the session. The text printed (or the final `done`) is the report
 turn's. The `Tokens:` line on stderr (and `budget` in `exec --json`) is what the whole command spent: the first turn plus the reporting turn for `own`, and for `including descendants` also the workflow's agents, which are counted on the run and not on the turn. A first turn that failed or paused is not waited on. Nobody is there to
 review the script, so a headless run may start a workflow only in `bypass` mode
-(`--yolo`, `--dangerously-skip-permissions`) or the unattended default; in `prompt`,
+(`--dangerously-skip-permissions`) or the unattended default; in `prompt`,
 `accept-edits`, `auto`, `strict` and `plan` the model is told why it was refused.
 
 ## `/workflows`

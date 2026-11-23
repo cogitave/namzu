@@ -73,7 +73,7 @@ describe('namzu resume with launch flags', () => {
 		return launchTui.mock.calls[0]?.[0] as TuiContext
 	}
 
-	it.each([['--dangerously-skip-permissions'], ['--yolo']])(
+	it.each([['--dangerously-skip-permissions']])(
 		'%s after resume starts in bypass, after the same confirmation as before it',
 		async (flag) => {
 			expect(await invoke('resume', flag, ID)).toBe(0)
@@ -86,7 +86,7 @@ describe('namzu resume with launch flags', () => {
 	)
 
 	it('takes the flag before the id or after it', async () => {
-		expect(await invoke('resume', ID, '--yolo')).toBe(0)
+		expect(await invoke('resume', ID, '--dangerously-skip-permissions')).toBe(0)
 		expect(launched().skipPermissions).toBe(true)
 		expect(launched().initialConversationId).toBe(ID)
 	})
@@ -172,7 +172,7 @@ describe('namzu resume with launch flags', () => {
 	})
 
 	it('without an id the picker opens and the flags still apply', async () => {
-		expect(await invoke('resume', '--yolo')).toBe(0)
+		expect(await invoke('resume', '--dangerously-skip-permissions')).toBe(0)
 		const ctx = launched()
 		expect(ctx.skipPermissions).toBe(true)
 		expect(ctx.initialConversationId).toBeUndefined()
@@ -203,7 +203,7 @@ describe('namzu resume with launch flags', () => {
 		expect(await invoke('resume', '--help')).toBe(0)
 		for (const flag of [
 			'--dangerously-skip-permissions',
-			'--yolo',
+			'--dangerously-skip-permissions',
 			'--allow-dangerously-skip-permissions',
 			'--permission-mode <mode>',
 			'--model <id>',
@@ -248,14 +248,14 @@ describe('the root forms keep working', () => {
 		expect([0, 64]).toContain(code)
 	})
 
-	it.each([[['--resume=missing-id', '--yolo']], [['-r', 'missing-id', '--yolo']]])(
-		'%j is accepted by the parser',
-		async (args) => {
-			const stderr = vi.mocked(process.stderr.write)
-			const code = await invoke(...args)
-			expect([0, 64]).toContain(code)
-			const said = stderr.mock.calls.map((call) => String(call[0])).join('')
-			expect(said).not.toMatch(/unknown option/i)
-		},
-	)
+	it.each([
+		[['--resume=missing-id', '--dangerously-skip-permissions']],
+		[['-r', 'missing-id', '--dangerously-skip-permissions']],
+	])('%j is accepted by the parser', async (args) => {
+		const stderr = vi.mocked(process.stderr.write)
+		const code = await invoke(...args)
+		expect([0, 64]).toContain(code)
+		const said = stderr.mock.calls.map((call) => String(call[0])).join('')
+		expect(said).not.toMatch(/unknown option/i)
+	})
 })

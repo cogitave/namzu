@@ -87,7 +87,7 @@ export interface LaunchPlan {
  * The terminal's starting mode from the command line and the configuration.
  *
  * A `--permission-mode` names the mode outright and wins over the aliases. The
- * aliases (`--yolo`, `--dangerously-skip-permissions`) mean bypass. With
+ * flag (`--dangerously-skip-permissions`) means bypass. With
  * neither, the configured `permissions.defaultMode` applies, and a default that
  * the settings switched off falls back to `prompt` rather than refusing to
  * start: nobody typed it on this launch.

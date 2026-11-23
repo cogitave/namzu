@@ -12329,7 +12329,7 @@ function AppBody({
 			const turnLimits = resolveTurnGuards(ctxRef.current.limits, turnLimitsOverrideRef.current)
 			// Always carry the guarded callback. `auto` and `strict` decide before
 			// calling it in makeResumeHandler; retaining it is what lets a session
-			// launched with --yolo later return to prompt mode truthfully.
+			// launched with --dangerously-skip-permissions later return to prompt mode truthfully.
 			//
 			// A background agent this turn launched outlives it and keeps asking
 			// through this same callback, so a turn that has merely ended (or been
@@ -20386,7 +20386,7 @@ function pluginActionPicker(owner: AgentSession, name: string): ChoicePickerStat
 
 /** Why bypass cannot be entered, in the words a person can act on. */
 const BYPASS_UNAVAILABLE_NOTICE =
-	'Bypass mode is not available in this session. Start Namzu with --allow-dangerously-skip-permissions (or --yolo), or set permissions.allowBypassMode to true in your own config file, to use it, unless permissions.disableBypassMode is set.'
+	'Bypass mode is not available in this session. Start Namzu with --allow-dangerously-skip-permissions, or set permissions.allowBypassMode to true in your own config file, to use it, unless permissions.disableBypassMode is set.'
 const AUTO_UNAVAILABLE_NOTICE = 'Auto mode is not available in this session.'
 /** Said when the turn ended because auto mode kept getting no verdict. */
 export const AUTO_MODE_STOPPED_NOTICE =

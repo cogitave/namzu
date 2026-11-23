@@ -217,7 +217,7 @@ async function execSession(
 			BIN,
 			'exec',
 			'--trust',
-			'--yolo',
+			'--dangerously-skip-permissions',
 			'--provider',
 			'anthropic',
 			'--model',

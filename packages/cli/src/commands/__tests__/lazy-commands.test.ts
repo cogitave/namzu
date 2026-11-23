@@ -167,12 +167,10 @@ describe('the command manifest', () => {
 
 			expect({
 				name: lazy.name,
-				aliases: lazy.aliases,
 				description: lazy.description,
 				passThrough: lazy.passThrough,
 			}).toEqual({
 				name: real.name,
-				aliases: real.aliases,
 				description: real.description,
 				passThrough: real.passThrough,
 			})

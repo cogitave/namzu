@@ -8787,7 +8787,7 @@ function mintScope(projectId: ProjectId, sessionId?: SessionId): SessionScope {
 // Pre-execution safety gate: the dangerous-command floor reads what a shell
 // line RUNS. What cannot be undone (`rm -rf /`, the home folder or a top-level
 // directory, mkfs, a raw write to a device, a fork bomb, a world-writable root)
-// is refused in every mode, --yolo included. What is a person's call (sudo,
+// is refused in every mode, --dangerously-skip-permissions included. What is a person's call (sudo,
 // su -, ssh user@host, eval, a download piped into a shell) is a question in
 // the modes that ask, and runs in bypass and auto like any other ask. Read-only
 // tools that reach nothing outside are auto-allowed (a network tool is asked

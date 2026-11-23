@@ -20,7 +20,7 @@ user config file (`$NAMZU_HOME/config.yaml`). It does not list settings itself: 
 namzu config list [--section <name>] [--json]
 namzu config get <key> [--json]
 namzu config set <key> <value> [--yes]
-namzu config unset <key> [--yes]        (also: reset)
+namzu config unset <key> [--yes]
 ```
 
 - `list` prints every setting on one line: key, plain label, the value in the user file (or `default`),

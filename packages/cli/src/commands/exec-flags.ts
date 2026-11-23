@@ -75,7 +75,7 @@ export interface ExecFlags {
 	cwd: string | null
 	/** How calls no `[permissions]` rule decided are resolved: one of the `--permission-mode` words. */
 	permissionMode: string | null
-	/** --yolo / --dangerously-skip-permissions was given. */
+	/** --dangerously-skip-permissions was given. */
 	skipPermissions: boolean
 	/**
 	 * `--trust`: the operator accepts this working directory, for this turn.
@@ -83,7 +83,7 @@ export interface ExecFlags {
 	 * Separate from `skipPermissions` on purpose, and the two must never imply
 	 * each other. Skipping permissions is a statement about which tool calls may
 	 * run inside a folder; trust is a statement about the folder. Someone who
-	 * passes `--yolo` in their own repository has asserted nothing whatever
+	 * passes `--dangerously-skip-permissions` in their own repository has asserted nothing whatever
 	 * about a stranger's, and letting an existing flag satisfy a new gate is the
 	 * definition of a gate satisfied by accident.
 	 */
@@ -517,7 +517,7 @@ export function parseExecFlags(rawArgs: readonly string[]): ExecFlags {
 		// cannot reopen a `deny`, an `ask` rule or the dangerous-pattern floor,
 		// and a catastrophic removal still needs a person, so with nobody to ask
 		// that one is refused.
-		if (a === '--yolo' || a === '--dangerously-skip-permissions') {
+		if (a === '--dangerously-skip-permissions') {
 			out.skipPermissions = true
 			continue
 		}

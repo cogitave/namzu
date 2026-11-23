@@ -89,7 +89,7 @@ function collectFlagValue(value: string, previous: string[] | undefined): string
  * The launch options of the interactive session, declared once and added to
  * both the root command and `resume`, so the two cannot drift apart. Commander
  * only recognises a root option before the subcommand name (positional options
- * are on), so `namzu resume --yolo <id>` needs `resume` to declare them too.
+ * are on), so `namzu resume --dangerously-skip-permissions <id>` needs `resume` to declare them too.
  * The options that choose a conversation (`--continue`, `--resume`,
  * `--from-pr`) and `--message` stay on the root alone.
  */
@@ -103,7 +103,6 @@ function addLaunchOptions(command: Command): Command {
 			'--dangerously-skip-permissions',
 			'Start in bypass mode: run tools without asking, except for what always needs a person. Only use in a sandbox or a folder you fully trust.',
 		)
-		.option('--yolo', 'Alias of --dangerously-skip-permissions.')
 		.option(
 			'--allow-dangerously-skip-permissions',
 			'Let Shift+Tab reach bypass mode, without starting in it.',
@@ -151,7 +150,7 @@ function addLaunchOptions(command: Command): Command {
 		.addOption(
 			new Option(
 				'--permission-mode <mode>',
-				'Permission mode for this launch only; wins over --yolo. auto lets a second model check each call; bypass runs without asking. /permissions changes it from inside.',
+				'Permission mode for this launch only; wins over --dangerously-skip-permissions. auto lets a second model check each call; bypass runs without asking. /permissions changes it from inside.',
 			).choices(PERMISSION_MODE_NAMES),
 		)
 		.option(
@@ -195,10 +194,16 @@ function addLaunchOptions(command: Command): Command {
 const EX_USAGE = 64
 
 /**
- * Commands that were removed, and what replaced each. Typing one gets
- * one line naming the replacement.
+ * Spellings that were removed, and what replaced each: a command (`run`), a
+ * command and its action (`config reset`) or a flag (`--yolo`). Typing one
+ * gets one line naming the replacement and exit 64; the old behaviour never
+ * runs.
  */
 const REMOVED_COMMANDS: Readonly<Record<string, string>> = {
+	spaces: '`namzu spaces` is now `namzu workspaces`.',
+	e: '`namzu e` is now `namzu exec`.',
+	'config reset': '`namzu config reset` is now `namzu config unset`.',
+	'--yolo': '`--yolo` is now `--dangerously-skip-permissions`.',
 	run: '`namzu run` was replaced by `namzu exec "<prompt>"`, which takes the same options.',
 	'run-stream':
 		'`namzu run-stream` was replaced by `namzu exec --json "<prompt>"`, which emits the same events.',
@@ -241,6 +246,10 @@ interface ResolvedCommandContext extends CommandContext {
 
 export async function runCli(opts: RunCliOptions): Promise<number> {
 	let exitCode = 0
+	// The command line after `namzu help ...` is rewritten; what asks for help is read from it.
+	let helpArgv: readonly string[] = opts.argv
+	// `NAMZU_HOME` as it was, when a help request set it aside (see below).
+	let setAsideHome: { readonly value: string } | undefined
 	const setExitCode = (code: number): void => {
 		exitCode = code
 	}
@@ -418,7 +427,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 					},
 				)
 			}
-			if (opensSessions(action.name())) {
+			if (opensSessions(action.name()) && !asksForHelp(helpArgv)) {
 				beginCatalogueRefresh(getBootstrapContext().config)
 			}
 		})
@@ -682,7 +691,6 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 		if (process.stdout.isTTY) {
 			const launchOpts = program.opts<{
 				dangerouslySkipPermissions?: boolean
-				yolo?: boolean
 				allowDangerouslySkipPermissions?: boolean
 				outputSchema?: string
 				addDir?: string[]
@@ -779,7 +787,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 				setExitCode(EX_USAGE)
 				return
 			}
-			const skipPermissions = Boolean(launchOpts.dangerouslySkipPermissions || launchOpts.yolo)
+			const skipPermissions = Boolean(launchOpts.dangerouslySkipPermissions)
 			// What the command line and the configuration let this launch start in.
 			// A mode that stops asking is refused here, in plain words, before
 			// anything is built: a flag the settings or the root guard forbid is an
@@ -1090,6 +1098,14 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 		await launchInteractiveTui(conversationId)
 	})
 
+	// Listed so `namzu --help` says it exists. `runCli` turns `namzu help ...` into
+	// `namzu ... --help` before commander parses, so this never runs an action.
+	program
+		.command('help')
+		.description('Show help for a command: namzu help <command> [action...]')
+		.argument('[command]')
+		.argument('[action...]')
+
 	// Default behavior when `namzu` is invoked with no subcommand: launch
 	// the TUI (M3). When stdout is not a TTY (tests, pipes, CI), print a
 	// one-line marker instead so the binary stays scriptable and our test
@@ -1099,19 +1115,33 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 	})
 
 	try {
+		// `namzu help [command] [action...]` prints what `namzu <command> [action...]
+		// --help` prints. Rewritten before commander parses, so the command's own
+		// help path answers and the two cannot differ. A name that is not a command
+		// loses the word `help` and gets the usual error for an unknown command.
+		const argv = rewriteHelpCommand(program, opts.argv)
+		helpArgv = argv
+		// Help never reads or writes the Namzu home, so a `NAMZU_HOME` that names a
+		// folder which does not exist (yet) must not stop it: the home is checked
+		// when a context is built, and a context is built before a command prints
+		// its help. Set aside for this call and put back in the `finally`.
+		if (asksForHelp(argv) && process.env.NAMZU_HOME !== undefined) {
+			setAsideHome = { value: process.env.NAMZU_HOME }
+			// biome-ignore lint/performance/noDelete: assigning undefined to process.env stores the text "undefined"
+			delete process.env.NAMZU_HOME
+		}
 		// Checked before commander parses, because commander answers `--help`
 		// before it looks at the operands: `namzu run --help` would otherwise
 		// print the root help and exit 0 without naming what replaced `run`.
-		const removed = firstRootOperand(program, opts.argv.slice(2))
-		const hint = removed !== undefined ? REMOVED_COMMANDS[removed] : undefined
-		if (removed !== undefined && hint !== undefined) {
-			// One line, naming the replacement: the old name is not a command any more.
+		const hint = removedSpellingHint(program, argv.slice(2))
+		if (hint !== undefined) {
+			// One line, naming the replacement: the old spelling is not a command any more.
 			program.error(hint, {
 				exitCode: EX_USAGE,
 				code: 'commander.unknownCommand',
 			})
 		}
-		await program.parseAsync(opts.argv as string[], { from: 'node' })
+		await program.parseAsync(argv as string[], { from: 'node' })
 		return exitCode
 	} catch (err) {
 		if (err instanceof CommanderError) {
@@ -1148,18 +1178,19 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 		process.stderr.write(reportCrash(err))
 		return EXIT_INTERNAL_ERROR
 	} finally {
+		if (setAsideHome !== undefined) process.env.NAMZU_HOME = setAsideHome.value
 		catalogueRefresh?.cancel()
 		await (await otlpExport)?.shutdown()
 	}
 }
 
 /**
- * The first operand the root command would see in `args`, read the way
- * commander reads it: root options and their values are skipped, `-h` and
+ * Where the first operand the root command would see sits in `args`, read the
+ * way commander reads it: root options and their values are skipped, `-h` and
  * `--help` are flags, and an unknown option or `--` ends the search, because
  * after either commander stops treating what follows as a command name.
  */
-function firstRootOperand(program: Command, args: readonly string[]): string | undefined {
+function firstRootOperandIndex(program: Command, args: readonly string[]): number | undefined {
 	const takesValue = (flag: string): boolean | undefined => {
 		if (flag === '-h' || flag === '--help') return false
 		const option = program.options.find((o) => o.long === flag || o.short === flag)
@@ -1182,9 +1213,60 @@ function firstRootOperand(program: Command, args: readonly string[]): string | u
 			if (value && arg.length === 2) i++
 			continue
 		}
-		return arg
+		return i
 	}
 	return undefined
+}
+
+/** The commands whose launch flags once included `--yolo`. */
+const YOLO_COMMANDS: ReadonlySet<string> = new Set(['resume', 'exec', 'drain'])
+
+/**
+ * The one line to print when `args` use a retired spelling, or undefined. The
+ * flag is looked for before `--`, on the commands that took it; a command and
+ * its action are matched as typed, side by side.
+ */
+function removedSpellingHint(program: Command, args: readonly string[]): string | undefined {
+	const end = args.indexOf('--')
+	const head = end === -1 ? args : args.slice(0, end)
+	const sawYolo = head.some((a) => a === '--yolo' || a.startsWith('--yolo='))
+	const visible = sawYolo ? head.filter((a) => a !== '--yolo' && !a.startsWith('--yolo=')) : head
+	const at = firstRootOperandIndex(program, visible)
+	const name = at === undefined ? undefined : visible[at]
+	if (name !== undefined) {
+		const byName = REMOVED_COMMANDS[name]
+		if (byName !== undefined) return byName
+		const action = visible[(at as number) + 1]
+		const byAction = action === undefined ? undefined : REMOVED_COMMANDS[`${name} ${action}`]
+		if (byAction !== undefined) return byAction
+	}
+	if (sawYolo && (name === undefined || YOLO_COMMANDS.has(name))) return REMOVED_COMMANDS['--yolo']
+	return undefined
+}
+
+/**
+ * `namzu help [command] [action...]` becomes `namzu [command] [action...]
+ * --help`; a first word that names no command is kept without `--help`, so
+ * the error is the one that word would get on its own.
+ */
+function rewriteHelpCommand(program: Command, argv: readonly string[]): readonly string[] {
+	const args = argv.slice(2)
+	const at = firstRootOperandIndex(program, args)
+	if (at === undefined || args[at] !== 'help') return argv
+	const before = args.slice(0, at)
+	const rest = args.slice(at + 1).filter((a) => a !== '--help' && a !== '-h')
+	const target = rest[0]
+	const known = target !== undefined && program.commands.some((c) => c.name() === target)
+	const tail = target === undefined || known ? [...rest, '--help'] : rest
+	return [...argv.slice(0, 2), ...before, ...tail]
+}
+
+/** Whether the command line asks for help, which never needs the Namzu home. */
+function asksForHelp(argv: readonly string[]): boolean {
+	const args = argv.slice(2)
+	const end = args.indexOf('--')
+	const head = end === -1 ? args : args.slice(0, end)
+	return head.includes('--help') || head.includes('-h')
 }
 
 function mapCommanderError(err: CommanderError): number {

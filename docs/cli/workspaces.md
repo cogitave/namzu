@@ -212,7 +212,7 @@ tui:
 
 The value is `ctrl+` and a letter, or `ctrl+space`. `ctrl+c`, `ctrl+d` and `ctrl+z` are refused because the session needs them, as are the keys that are Tab, Enter, Backspace and Escape. A refused value names `tui.workspacesPrefix` in the error.
 
-`tui.spacesPrefix`, the name from before the rename, is deprecated: it is still read when `tui.workspacesPrefix` is absent, and is removed in the next major release. The same goes for the command name `namzu spaces`, which still starts this screen, and for the private environment variables the host sets for its sessions (`NAMZU_SPACE_SLOT`, `NAMZU_SPACE_HOST_PID`), which a session still accepts next to `NAMZU_WORKSPACE_SLOT` and `NAMZU_WORKSPACE_HOST_PID`.
+`tui.spacesPrefix`, the name from before the rename, is deprecated: it is still read when `tui.workspacesPrefix` is absent, and is removed in the next major release. A session still accepts the older private environment variables the host sets (`NAMZU_SPACE_SLOT`, `NAMZU_SPACE_HOST_PID`) next to `NAMZU_WORKSPACE_SLOT` and `NAMZU_WORKSPACE_HOST_PID`. The command name `namzu spaces` is retired: it prints `namzu workspaces` and exits 64.
 
 ## When a session stops
 

@@ -124,7 +124,7 @@ Type a request and press Enter. While a turn is running, you can keep typing:
 - **Enter** sends a message that steers the running turn at its next safe point.
 - **Tab** queues a message to run after the current turn.
 - **Esc** interrupts the running turn. **Ctrl+C** exits.
-- **Shift+Tab** cycles the permission mode between asking before changes, accepting edits, and plan (read-only), then to bypass (run everything without asking) when the session was launched with `--yolo`, `--dangerously-skip-permissions` or `--allow-dangerously-skip-permissions`, and to auto (a second model checks each call you would be asked about). See [Permission modes](../../docs/cli/permission-modes.md).
+- **Shift+Tab** cycles the permission mode between asking before changes, accepting edits, and plan (read-only), then to bypass (run everything without asking) when the session was launched with `--dangerously-skip-permissions` or `--allow-dangerously-skip-permissions`, and to auto (a second model checks each call you would be asked about). See [Permission modes](../../docs/cli/permission-modes.md).
 - **Ctrl+T** shows or hides the task checklist. **Ctrl+O** expands a tool's output, and opens a viewer for long output.
 - **Ctrl+V** and **Alt+V** attach a clipboard image to the prompt.
 - **Alt+W** drops, restores or arms the composer trigger nearest the cursor.
@@ -185,7 +185,7 @@ namzu exec --json "refactor the parser" > events.ndjson
 namzu exec --output-schema answer.schema.json "rate this diff from 1 to 5"
 ```
 
-- `namzu exec` (alias `namzu e`) prints the final answer on stdout. Logs go to stderr, so stdout stays clean for the next command.
+- `namzu exec` prints the final answer on stdout. Logs go to stderr, so stdout stays clean for the next command.
 - `--json` writes one JSON event per line as the turn runs, so a script can react before the turn ends. The event kinds are in [namzu exec --json](https://github.com/cogitave/namzu/blob/main/docs/cli/exec-json.md).
 - `--output-schema <file>` makes the final answer match a JSON Schema you provide. Pass it after `exec`.
 - `--format json` (or `yaml`) on the root command switches the output of `namzu state` and `namzu exec` to that format. `--verbose` and `--quiet` also go before the command.

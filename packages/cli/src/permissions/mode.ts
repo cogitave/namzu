@@ -147,7 +147,7 @@ export function nextCycleMode(
 /**
  * Whether bypass may be entered in this session.
  *
- * A flag that names it (`--yolo`, `--dangerously-skip-permissions`,
+ * A flag that names it (`--dangerously-skip-permissions`,
  * `--allow-dangerously-skip-permissions`, `--permission-mode bypass`) or the
  * operator's own `permissions.defaultMode: bypass` or `permissions.allowBypassMode: true` opens the door; the
  * `permissions.disableBypassMode` setting shuts it for good. The loader has
@@ -209,7 +209,7 @@ export function unknownPermissionModeMessage(flag: string): string {
  * The mode for a turn, from the flag, the bypass alias, and whether anyone is
  * there to answer.
  *
- * `--yolo` and `--dangerously-skip-permissions` mean `bypass`. A rule that
+ * `--dangerously-skip-permissions` means `bypass`. A rule that
  * denies, a rule that asks, the dangerous-pattern floor and the few things no
  * mode may approve in advance still hold; everything else runs without a
  * question, including a path outside the folder and a program the line does
