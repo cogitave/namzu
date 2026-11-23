@@ -279,8 +279,10 @@ describe('computer use session reachability', () => {
 			// drain into the mocked query boundary
 		}
 		expect(queryToolNames).toEqual(expect.arrayContaining(['browser', 'computer_use']))
-		expect(querySystemPrompt).toContain('already open desktop browser window')
+		expect(querySystemPrompt).toContain('desktop browser window that is already open')
 		expect(querySystemPrompt).toContain('separate Namzu-managed browser profile')
+		expect(querySystemPrompt).toContain('look at it only')
+		expect(querySystemPrompt).toContain('Act on pages through the browser tool')
 
 		querySystemPrompt = ''
 		desktop.failInitialize = true
@@ -290,7 +292,7 @@ describe('computer use session reachability', () => {
 		])) {
 			// drain into the mocked query boundary
 		}
-		expect(querySystemPrompt).not.toContain('already open desktop browser window')
+		expect(querySystemPrompt).not.toContain('desktop browser window that is already open')
 
 		querySystemPrompt = ''
 		desktop.failInitialize = false
@@ -302,7 +304,7 @@ describe('computer use session reachability', () => {
 		])) {
 			// drain into the mocked query boundary
 		}
-		expect(querySystemPrompt).not.toContain('already open desktop browser window')
+		expect(querySystemPrompt).not.toContain('desktop browser window that is already open')
 
 		querySystemPrompt = ''
 		desktop.failInitialize = false
@@ -313,7 +315,7 @@ describe('computer use session reachability', () => {
 		])) {
 			// drain into the mocked query boundary
 		}
-		expect(querySystemPrompt).not.toContain('already open desktop browser window')
+		expect(querySystemPrompt).not.toContain('desktop browser window that is already open')
 
 		querySystemPrompt = ''
 		const browserOnly = await createSession(false, 'anthropic', true)
@@ -322,7 +324,7 @@ describe('computer use session reachability', () => {
 		])) {
 			// drain into the mocked query boundary
 		}
-		expect(querySystemPrompt).not.toContain('already open desktop browser window')
+		expect(querySystemPrompt).not.toContain('desktop browser window that is already open')
 	})
 	it('mounts the initialized host into the registry used by a real send and owns its cleanup', async () => {
 		const session = await createSession(true)
