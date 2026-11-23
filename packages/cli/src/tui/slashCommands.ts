@@ -1832,6 +1832,8 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	{
 		name: 'context',
 		modelRun: 'run',
+		// Pure information, read from state a reply only replaces when it ends.
+		immediate: true,
 		help: { usage: ['/context [details]'] },
 		description: 'Show where the context goes, as a grid.',
 		action: (ctx, args) => {

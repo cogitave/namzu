@@ -7932,6 +7932,7 @@ function AppBody({
 						? peerMailLabel(prompt.mail)
 						: (prompt.recallText ?? prompt.text),
 		attachmentCount: prompt.kind === 'human' ? prompt.attachments?.length : undefined,
+		...(prompt.kind === 'human' && prompt.command ? { command: true } : {}),
 	}))
 	const pendingInputVisible =
 		phase === 'ready' &&
@@ -15798,6 +15799,19 @@ function AppBody({
 					}
 					case 'context': {
 						pushMessage('system', dispatch.trim(), false, '›', undefined, tokenColor('accent.user'))
+						// Typed while a reply runs, the numbers are the last finished reply's:
+						// usage, compaction and the model history settle when a reply ends.
+						if (state !== 'idle' || abortRef.current !== null || hasUnsettledTurn()) {
+							pushMessage(
+								'system',
+								'Numbers are as of the last finished reply; the running reply is not counted yet.',
+								false,
+								'⎿',
+							)
+						}
+						// The grid is built after an await; a reply that streams meanwhile
+						// writes rows with later ids, so the grid goes in ahead of them.
+						const anchorId = idRef.current
 						void (async () => {
 							const view = await buildContextRow({
 								usage,
@@ -15818,15 +15832,21 @@ function AppBody({
 								pushMessage('system', view, false, '⎿')
 								return
 							}
-							setMessages((previous) => [
-								...previous,
-								{
-									id: nextId(),
-									role: 'system',
-									content: view.text,
-									contextView: view,
-								},
-							])
+							const row = {
+								id: nextId(),
+								role: 'system' as const,
+								content: view.text,
+								contextView: view,
+							}
+							setMessages((previous) => {
+								const later = previous.findIndex((message) => {
+									const n = /^m(\d+)$/.exec(message.id)
+									return n !== null && Number(n[1]) > anchorId
+								})
+								return later < 0
+									? [...previous, row]
+									: [...previous.slice(0, later), row, ...previous.slice(later)]
+							})
 						})()
 						return
 					}

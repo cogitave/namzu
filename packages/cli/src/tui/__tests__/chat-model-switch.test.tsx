@@ -278,7 +278,7 @@ it('settles a reserved switch on the conversation it was asked in before a waiti
 	// there yet.
 	await until(
 		screen,
-		() => screen.viewport().join('\n').includes('/new · after this reply'),
+		() => screen.viewport().join('\n').includes('/new · Queued, runs after this reply'),
 		'The command was not shown as waiting',
 	)
 	expect(screen.viewport().join('\n')).not.toContain('Started a fresh conversation')

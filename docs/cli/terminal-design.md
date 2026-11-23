@@ -230,7 +230,8 @@ so above the input frame), not inside the frame: pending rows, then the send-now
 hint, then `Working (…)`, then the input. Each is `❯ <text>` in the grey of a
 message not yet read, one row per message in the order it will be used. A
 Tab-queued row ends with a dim `· after this reply`, so it reads apart from a
-steer. Once a message is sent it is an ordinary `❯ <text>` row, whether it was
+steer; a slash command waiting for the reply ends `· Queued, runs after this reply`
+(`· Queued` when narrow). Once a message is sent it is an ordinary `❯ <text>` row, whether it was
 typed while a reply ran or not: it carries no `sent while working` label, and a
 conversation restored later draws it the same way. (An `N files attached` note
 under a message stays.) Under the last row a dim `ctrl+x ctrl+s to send now` appears while a
