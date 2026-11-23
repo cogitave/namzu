@@ -355,6 +355,8 @@ describe('computer use session reachability', () => {
 				'update_memory',
 				'wait_for_task',
 				'web_fetch',
+				// Hands a finished file to the person; deferred behind the tool search.
+				'present_file',
 				// The built-in skills are loaded through it.
 				'skill',
 				// The Pal tools are mounted but not sent: this owner has no Pals

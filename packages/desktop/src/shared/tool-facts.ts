@@ -123,6 +123,19 @@ export function publicFacts(value: unknown): ToolFacts | undefined {
 				hunksTruncated: flag(value.hunksTruncated),
 			})
 		}
+		case 'shared': {
+			if (!Array.isArray(value.files) || value.files.length === 0 || value.files.length > 50)
+				return undefined
+			const files: { path: string; bytes?: number }[] = []
+			for (const file of value.files) {
+				if (!record(file)) return undefined
+				const path = text(file.path)
+				if (path === undefined) return undefined
+				const bytes = count(file.bytes)
+				files.push(bytes === undefined ? { path } : { path, bytes })
+			}
+			return compact<ToolFacts>({ kind: 'shared', files, caption: text(value.caption) })
+		}
 		case 'failure': {
 			const reason = FAILURE_REASONS.find((candidate) => candidate === value.reason)
 			if (reason === undefined) return undefined

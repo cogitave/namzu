@@ -3811,6 +3811,11 @@ export class Operator {
 		const written: string[] = []
 		for (const tool of Object.values(session.projection.tools)) {
 			if (tool.status !== 'completed') continue
+			// A file the agent handed over is the one thing outside the folder the window may read.
+			if (tool.facts?.kind === 'shared') {
+				for (const file of tool.facts.files) if (isAbsolute(file.path)) written.push(file.path)
+				continue
+			}
 			const path =
 				tool.facts?.kind === 'write' || tool.facts?.kind === 'edit'
 					? tool.facts.path

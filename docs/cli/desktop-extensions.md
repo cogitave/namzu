@@ -63,7 +63,8 @@ Settings' own. From the top:
   Settings: one sentence at the top ("This is what Activity Tracker records on this computer, and how
   long it keeps it."), a compact summary for each kind of data (a plain title, what it records, then a list of
   **For example**, **Retention** and **Records**, and **Show recent records** while the extension is on;
-  the recent table goes away when it is turned off), then
+  each label is at the left and its value at the right edge, as in every other settings row, and the
+  button sits at the right; the recent table goes away when it is turned off), then
   **Never recorded**, then **Where it is kept**. No field name and no raw row appear until the person asks for
   the recent records; an extension that collects nothing says only that it records nothing. A kind
   kept with `retentionDays: "keep"` says "Kept until your organisation deletes it."
