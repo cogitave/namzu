@@ -1436,7 +1436,10 @@ its text while the view scrolls and while output arrives below it; a resize,
 which wraps the rows again, lets go of it.
 
 On release the text is copied (`tui.copyOnSelect: false` keeps it selected and
-makes `ctrl+c` copy it instead, as in `namzu workspaces`). The copy is the
+makes `ctrl+c` copy it instead, as in `namzu workspaces`). While text is selected,
+`ctrl+c` belongs to the selection and never interrupts the reply: it copies a
+selection not yet copied, and lets go of one already copied on release, so the
+next `ctrl+c` is the interrupt. The copy is the
 plain text of the rows: no styling, no gutter glyph, no hanging indent. Rows
 that one line was wrapped over are joined back into that line, with the space
 the wrap broke at or with nothing where it cut a word; separate lines and

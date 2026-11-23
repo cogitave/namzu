@@ -295,6 +295,22 @@ it('leaves the copy to the key when selections are not copied on release', async
 	expect(h.copies).toEqual(['some'])
 })
 
+it('takes ctrl+c for a selection already copied on release, so it is not an interrupt', async () => {
+	const h = await mount([reply('a', 'some text here')])
+	const y = rowOf(h.screen, 'some text') + 1
+	h.pointer('press', TEXT_LEFT, y)
+	h.pointer('drag', TEXT_LEFT + 3, y)
+	h.pointer('release', TEXT_LEFT + 3, y)
+	await h.screen.waitForRender()
+	expect(h.copies).toEqual(['some'])
+	expect(h.control.current?.takeCopy()).toBe(true)
+	await h.screen.waitForRender()
+	expect(invertedOn(h.screen, y - 1)).toBe('')
+	// Nothing is selected now: the next ctrl+c is the interrupt's.
+	expect(h.control.current?.takeCopy()).toBe(false)
+	expect(h.copies).toEqual(['some'])
+})
+
 function numbered(): TranscriptMessage[] {
 	return Array.from({ length: 40 }, (_, i) =>
 		reply(
