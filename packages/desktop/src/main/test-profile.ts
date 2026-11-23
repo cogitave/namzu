@@ -6,7 +6,8 @@ import { basename, resolve } from 'node:path'
  * An instance started with its own `--user-data-dir` (a test copy, a second profile) keeps its own
  * sessions and its own tray icon. Marking it keeps it from being taken for the person's Namzu: the
  * window title and the tray tooltip read `Namzu (test: <folder>)`. The flag naming the folder the
- * normal profile already uses is not a test profile.
+ * normal profile already uses is not a test profile. Only that flag marks a profile: nothing in
+ * the app switches its own folder, so a path set another way would not be marked.
  */
 export function testProfileName(input: {
 	argv: readonly string[]

@@ -15,6 +15,10 @@ describe('normalizeKeypadKeys', () => {
 		expect(normalizeKeypadKeys(`${ESC}[27;2;13~`)).toBe(`${ESC}[27;2;13~`)
 	})
 
+	it('leaves a ctrl key that is not a letter (ctrl+enter) as it came', () => {
+		expect(normalizeKeypadKeys(`${ESC}[27;5;13~`)).toBe(`${ESC}[27;5;13~`)
+	})
+
 	it('turns every keypad character into the character the main key types', () => {
 		const expected = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9']
 		expected.forEach((digit, index) => {

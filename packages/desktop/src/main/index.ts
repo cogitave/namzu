@@ -993,10 +993,18 @@ const trayController = new TrayController({
 				// A test profile's icon carries a small dot, so it is not taken for the person's own.
 				const picture = nativeImage.createFromBuffer(rep.png)
 				const { width, height } = picture.getSize()
-				if (width === rep.size && height === rep.size)
+				if (width === rep.size && height === rep.size) {
 					buffer = nativeImage
 						.createFromBitmap(paintTestMark(picture.toBitmap(), rep.size), { width, height })
 						.toPNG()
+				} else {
+					diagnostics.record('ipc_failed', {
+						operation: 'tray',
+						error: new Error(
+							`tray icon is ${width}x${height}, not ${rep.size}x${rep.size}: test mark skipped`,
+						),
+					})
+				}
 			}
 			image.addRepresentation({
 				scaleFactor: rep.scaleFactor,
