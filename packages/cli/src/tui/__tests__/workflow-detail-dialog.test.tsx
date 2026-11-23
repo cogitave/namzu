@@ -89,14 +89,14 @@ describe('at 140 columns', () => {
 		expect(header).toBeGreaterThan(0)
 		expect(screen[header - 1]).toMatch(/^─+$/u)
 		expect(screen[header + 1]).toMatch(/2\/3 agents · \d+(?:[dhm] \d+)*[dhms]?\s*$/u)
-		expect(text).toMatch(/╭ Phases ─+┬ Read · 2 agents · 2 done ─+╮/u)
+		expect(text).toMatch(/╭ Phases ─+┬ Read · 2 agents ─+╮/u)
 		expect(text).toMatch(
 			/│ ❯ ✔ Read\s+2\/2 │ {2}✔ label a1\s+general-purpose · gpt-x · wrote 4\.2k · sent 31\.4k \(28\.0k cached\)\s+23s │/u,
 		)
 		expect(text).toMatch(/│\s+2 Summarize\s+0\/1 │/u)
 		expect(text).toMatch(/╰─+┴─+╯/u)
 		expect(screen.at(-1)?.trim()).toBe('')
-		expect(text).toContain('↑↓ select · enter open · x stop workflow · esc back · space close')
+		expect(text).toContain('↑↓ select · x stop workflow · esc back')
 		expect(text).not.toContain('enter view')
 	})
 
@@ -104,9 +104,9 @@ describe('at 140 columns', () => {
 		const screen = await open('agents', 140, 45)
 		const text = screen.join('\n')
 		expect(text).toMatch(/│\s+✔ Read\s+2\/2 │❯ ✔ label a1/u)
-		expect(text).toContain('↑↓ select · enter view · esc back · space close')
+		expect(text).toContain('↑↓ agent · enter view · esc back')
 		const running = (await open('agents', 140, 45, 'a3')).join('\n')
-		expect(running).toContain('↑↓ select · enter view · x stop · esc back · space close')
+		expect(running).toContain('↑↓ agent · enter view · x stop · esc back')
 	})
 
 	it('spells out what was sent and cached only where there is room', async () => {
@@ -192,7 +192,7 @@ describe('below 64 columns', () => {
 		const list = (await open('agents', 50, 30)).join('\n')
 		expect(list).toContain('Read · 2 agents')
 		expect(list).toMatch(/❯ ✔\s+label a1/u)
-		expect(list).toContain('↑↓ select · enter view')
+		expect(list).toContain('↑↓ agent · enter view')
 	})
 
 	it('is the stacked form at 63 and the box at 64 columns', async () => {
