@@ -1326,12 +1326,14 @@ export class ToolExecutor {
 
 	/** Evaluate the turn's operator policy against one already-prepared value. */
 	evaluatePreparedAuthorization(toolName: string, input: unknown) {
+		const workingDirectory = this.effectiveWorkingDirectoryFor(toolName)
 		return this.config.authorizationGate?.evaluate({
 			toolName,
 			toolInput: input,
 			toolDef: this.config.tools.get(toolName),
 			commandDialect: this.commandDialect(toolName),
 			toolSource: this.toolSource(toolName),
+			...(workingDirectory !== undefined ? { workingDirectory } : {}),
 		})
 	}
 
@@ -1347,6 +1349,22 @@ export class ToolExecutor {
 				sandboxed: this.sandboxed,
 			}) ?? 'sh'
 		)
+	}
+
+	/**
+	 * The effective working directory a shell tool's line will run in this turn,
+	 * for the gate to read a removal against. This is the directory the line
+	 * actually starts in, which a previous `bash` call may have changed with a
+	 * `cd`; the turn's own working directory is not the same answer then. Only
+	 * a `bash` call is answered, the same one whose directory `escalationOf`
+	 * reads, so no other tool is judged against a folder its line may not run in.
+	 */
+	effectiveWorkingDirectoryFor(toolName: string): string | undefined {
+		const tool = this.config.tools.get(toolName)
+		if (tool?.execute !== BashTool.execute) return undefined
+		return effectiveBashWorkingDirectory(this.config.sessionId, this.config.workingDirectory, {
+			sandboxed: this.sandboxed,
+		})
 	}
 
 	/**
@@ -2337,12 +2355,16 @@ export class ToolExecutor {
 				: { success: true, output: preparedCall.message }
 		}
 
+		const nestedWorkingDirectory = this.effectiveWorkingDirectoryFor(name)
 		const gateResult = this.config.authorizationGate?.evaluate({
 			toolName: name,
 			toolInput: preparedInput,
 			toolDef: this.config.tools.get(name),
 			commandDialect: this.commandDialect(name),
 			toolSource: this.toolSource(name),
+			...(nestedWorkingDirectory !== undefined
+				? { workingDirectory: nestedWorkingDirectory }
+				: {}),
 		})
 		// A tool that declares `requiresApproval` for this input needs a person's
 		// yes for every call, and no rule outranks that. An operator review cannot

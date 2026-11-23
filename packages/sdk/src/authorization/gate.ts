@@ -32,6 +32,13 @@ export interface ToolCallContext {
 	 * omitted, it is read the same as a host-defined tool.
 	 */
 	readonly toolSource?: ToolSourceRef
+	/**
+	 * The effective working directory the call's command line will run in, when
+	 * the caller knows it (`effectiveBashWorkingDirectory`). The dangerous
+	 * floor then reads a recursive removal of that folder, or of one above it,
+	 * as a question instead of letting it through.
+	 */
+	readonly workingDirectory?: string
 }
 
 /**
@@ -61,6 +68,9 @@ export function describeRule(rule: AuthorizationRule, call?: AuthorizationPredic
 			const finding = dangerousFindingFor(call.toolDef, call.toolInput, {
 				commandDialect: call.commandDialect,
 				strict: rule.strict === true,
+				...(call.workingDirectory !== undefined
+					? { workingDirectory: call.workingDirectory }
+					: {}),
 			})
 			return finding === undefined
 				? 'this command is one the dangerous-command floor refuses or asks about'
@@ -271,6 +281,9 @@ export class AuthorizationGate {
 				{
 					...(ctx.commandDialect !== undefined ? { commandDialect: ctx.commandDialect } : {}),
 					...(ctx.toolSource !== undefined ? { toolSource: ctx.toolSource } : {}),
+					...(ctx.workingDirectory !== undefined
+						? { workingDirectory: ctx.workingDirectory }
+						: {}),
 				},
 			)
 
@@ -286,6 +299,9 @@ export class AuthorizationGate {
 									toolDef: ctx.toolDef,
 									// What `evaluateRule` told `decide`.
 									commandDialect: ctx.commandDialect ?? 'sh',
+									...(ctx.workingDirectory !== undefined
+										? { workingDirectory: ctx.workingDirectory }
+										: {}),
 								})
 							: describeRule(rule),
 				}

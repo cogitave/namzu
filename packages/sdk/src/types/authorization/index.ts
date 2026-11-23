@@ -155,6 +155,12 @@ export interface AuthorizationPredicateCall {
 	 * is the reading that holds whichever shell runs it.
 	 */
 	readonly commandDialect: ShellDialect
+	/**
+	 * The effective working directory the call will run in, when the caller
+	 * knows it (`ToolCallContext.workingDirectory`). A reason for a removal of
+	 * that folder or a parent says so only when it was given.
+	 */
+	readonly workingDirectory?: string
 }
 
 /** The code behind an `AuthorizationRule` of type `predicate`. */
