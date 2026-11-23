@@ -263,7 +263,7 @@ The JSON answer, the exit codes and the options above follow the JSON hook contr
   - **Tool names** (`tool_name`, `NAMZU_TOOL_NAME`, `matcher`) are Namzu's own, in lower case, with one exception: the command line's sub-agent tool is named `Agent`. A script that tests `tool_name == "Bash"` never matches an entry of ours: test `bash`, or give the entry `toolNames: written` (see [Tool names](#tool-names)); an entry read from the common shape already receives `Bash`. The SDK defines these tools (the list is checked against the source by `shell-hook-docs-tool-names.test.ts`, so it cannot drift); a tool server's tools are `mcp__<server>__<tool>`:
 
     <!-- tool-names:start -->
-    - Files and shell: `bash`, `edit`, `glob`, `grep`, `job`, `ls`, `read`, `verify_outputs`, `view_image`, `wait_for_job`, `write`
+    - Files and shell: `bash`, `edit`, `glob`, `grep`, `job`, `ls`, `present_file`, `read`, `verify_outputs`, `view_image`, `wait_for_job`, `write`
     - Code and analysis: `code_analysis`, `lsp`, `run_code`, `structured_output`
     - Web, browser and computer: `browser`, `browser_act`, `computer_use`, `monitor`, `web_fetch`, `web_search`
     - Skills and tool search: `search_tools`, `skill`
