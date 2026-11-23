@@ -434,6 +434,32 @@ export function transportFor(
 	return 'it declares neither a command nor a url'
 }
 
+/**
+ * What is wrong with one server entry, by the checks a session applies when it starts the
+ * server, or undefined when it is sound. Nothing is connected and no `${VAR}` is looked up, so
+ * an entry can be checked before the variable it names is set.
+ */
+export function mcpServerSpecProblem(spec: unknown): string | undefined {
+	const shape = serverSpecProblem(spec)
+	if (shape) return shape
+	const entry = spec as McpServerSpec
+	const hasCommand = typeof entry.command === 'string' && entry.command.trim().length > 0
+	const hasUrl = typeof entry.url === 'string' && entry.url.trim().length > 0
+	if (hasCommand && hasUrl) return 'it declares both a command and a url, pick one'
+	if (!hasCommand && !hasUrl) return 'it declares neither a command nor a url'
+	const connect = connectDeadlineFor(entry)
+	if (typeof connect === 'string') return connect
+	const request = requestTimeoutFor(entry)
+	if (typeof request === 'string') return request
+	const progress = progressDeadlineFor(entry, request)
+	if (typeof progress === 'string') return progress
+	const era = eraProbeTimeoutFor(entry)
+	if (typeof era === 'string') return era
+	const toolset = toolsetOptionsFor(entry, 'check')
+	if (typeof toolset === 'string') return toolset
+	return undefined
+}
+
 /** One refresh per credential file; unrelated MCP requests remain concurrent. */
 const mcpOAuthRefreshes = new Map<string, Promise<void>>()
 

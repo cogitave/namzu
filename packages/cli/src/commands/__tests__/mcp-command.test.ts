@@ -45,7 +45,7 @@ it('adds command and HTTP servers, redacts secrets, and removes only the named u
 		'add',
 		'files',
 		'--env',
-		'FILE_TOKEN',
+		'FILE_TOKEN=${FILE_TOKEN}',
 		'--',
 		'node',
 		'server.js',
@@ -59,7 +59,7 @@ it('adds command and HTTP servers, redacts secrets, and removes only the named u
 		'--url',
 		'https://example.test/secret-path-do-not-print/mcp?token=do-not-print',
 		'--header',
-		'Authorization=Bearer ${SEARCH_TOKEN}',
+		'Authorization: Bearer ${SEARCH_TOKEN}',
 	)
 	expect(url.code).toBe(0)
 	const file = join(home, 'config.yaml')
@@ -68,7 +68,7 @@ it('adds command and HTTP servers, redacts secrets, and removes only the named u
 		files: {
 			command: 'node',
 			args: ['server.js', '--secret', 'do-not-print'],
-			inheritEnv: ['FILE_TOKEN'],
+			env: { FILE_TOKEN: '${FILE_TOKEN}' },
 		},
 		search: {
 			url: 'https://example.test/secret-path-do-not-print/mcp?token=do-not-print',
@@ -142,7 +142,7 @@ it('preserves unrelated YAML and refuses a literal secret, a duplicate, and brok
 			'--url',
 			'https://example.test/mcp',
 			'--header',
-			'Authorization=literal-secret',
+			'Authorization: literal-secret',
 		),
 	).toBe(64)
 	expect(readFileSync(join(home, 'config.yaml'), 'utf8')).toBe('# keep this\nquiet: true\n')
@@ -154,7 +154,7 @@ it('preserves unrelated YAML and refuses a literal secret, a duplicate, and brok
 			'--url',
 			'http://example.test/mcp',
 			'--header',
-			'Authorization=${SECRET_TOKEN}',
+			'Authorization: ${SECRET_TOKEN}',
 		),
 	).toBe(64)
 	expect(await invoke('add', 'insecure', '--url', 'http://example.test/mcp?token=secret')).toBe(64)
