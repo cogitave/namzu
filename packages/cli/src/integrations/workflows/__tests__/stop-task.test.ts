@@ -157,7 +157,8 @@ describe('the texts that tell the model it may stop work', () => {
 			'A background agent keeps running after the call returns: say so in one sentence.',
 		)
 		expect(text).toContain('stop_task to end one you started that no longer serves the task')
-		expect(text).toContain(STOP_WORK_GUIDANCE)
+		// The full wording lives in the stop_task description only.
+		expect(text).not.toContain(STOP_WORK_GUIDANCE)
 		expect(text).not.toContain('cancel_agent')
 	})
 
@@ -168,9 +169,9 @@ describe('the texts that tell the model it may stop work', () => {
 		)
 	})
 
-	it('the workflow description makes the model the owner of ending a run', () => {
+	it('the workflow description points at stop_task for ending a run', () => {
 		expect(WORKFLOW_TOOL_DESCRIPTION).toContain(
-			'A run you started is yours to end: if it no longer serves the task (the person changed course, a result already in hand answers the question, or an earlier stage failed so the rest is pointless), call stop_task with its run id and say in one sentence what you stopped and why. Do not stop a run that is only slow.',
+			'stop_task with the run id ends a run that no longer serves the task, not one that is only slow; what its agents already finished is kept, so resumeFromRunId continues it later.',
 		)
 	})
 

@@ -70,6 +70,7 @@ describe('a run cut short by the program', () => {
 		expect(notice?.text).toContain('1 agent had finished')
 		expect(notice?.text).toContain(`resumeFromRunId: "${runId}"`)
 		expect(notice?.text).toContain('rather than redoing its work by hand')
+		expect(notice?.text).toContain('search_tools')
 
 		// Until a turn has handed it over, it is offered again; afterwards, never.
 		expect(
@@ -168,6 +169,10 @@ describe('guidance for "continue"', () => {
 	it('is in the workflow and stop_task descriptions the model reads', () => {
 		expect(WORKFLOW_TOOL_DESCRIPTION).toContain(CONTINUE_RUN_GUIDANCE)
 		expect(STOP_TASK_DESCRIPTION).toContain(CONTINUE_RUN_GUIDANCE)
+		// Resuming is an exception to the opt-in rule, and the tool may be deferred.
+		expect(WORKFLOW_TOOL_DESCRIPTION).toContain(
+			'asked to continue or resume a run of this conversation',
+		)
 		expect(CONTINUE_RUN_GUIDANCE).toContain('resumeFromRunId')
 		expect(CONTINUE_RUN_GUIDANCE).toContain(
 			'instead of redoing its work by hand or starting a fresh run',

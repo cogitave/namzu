@@ -70,7 +70,11 @@ member `resolveAutoCompactLimit(model, signal)`, asked once per turn with the
 same bounds.
 
 The runtime uses the provider's compaction limit as the trigger, as
-`min(limit, 90% of the window)`, unless the host set `triggerThreshold`,
+`min(limit, 90% of the usable window)`; the provider already held its limit to
+90% of the resolved window, so with the default 95 percent the trigger sits at
+most 85.5% of the resolved window. A row that sends no limit gives 90% of the
+resolved window, which on a small window falls later than the derived rule
+below would put it. This applies unless the host set `triggerThreshold`,
 `autoCompactWindowTokens` or `contextWindowTokens` (what the host set wins).
 Without a provider limit the rule below applies unchanged.
 

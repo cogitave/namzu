@@ -124,7 +124,7 @@ export function readWorkStatus(facts: Omit<OutstandingFacts, 'now'>, now: number
 		// A run this process no longer holds is not a run that never existed.
 		...(runId !== undefined && described.workflows.length === 0
 			? {
-					runNote: `This session holds no run ${runId} now (it was started by an earlier process or conversation, or it was removed). Nothing is running under that id. If it was a run of this conversation, workflow with resumeFromRunId ${runId} continues it: agents whose prompt and options are unchanged return their saved results.`,
+					runNote: `This session holds no run ${runId} now (it was started by an earlier process or conversation, or it was removed). Nothing is running under that id. If it was a run of this conversation, workflow with resumeFromRunId ${runId} continues it (load workflow with search_tools first if it is not in your tool list): agents whose prompt and options are unchanged return their saved results.`,
 				}
 			: {}),
 	}

@@ -155,7 +155,7 @@ export function interruptedNotice(
 	const text = [
 		`Background workflow ${JSON.stringify(view.name)} (run ${view.runId}) was cut short: ${why}. Nobody asked to stop it.`,
 		`${counts.done} agent${counts.done === 1 ? '' : 's'} had finished and saved their results; ${counts.total - counts.done} had not.`,
-		`If the person asks to continue, resume it rather than redoing its work by hand or starting a new run: call ${resumeCallText(view.scriptPath, view.runId)}; agents whose prompt and options are unchanged return their saved results without running again. Say in one line that you are resuming run ${view.runId}.`,
+		`If the person asks to continue, resume it rather than redoing its work by hand or starting a new run (load workflow with search_tools first if it is not in your tool list): call ${resumeCallText(view.scriptPath, view.runId)}; agents whose prompt and options are unchanged return their saved results without running again. Say in one line that you are resuming run ${view.runId}.`,
 	].join('\n')
 	return {
 		text,

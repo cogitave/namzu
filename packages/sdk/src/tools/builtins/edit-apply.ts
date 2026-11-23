@@ -1,5 +1,6 @@
 import {
 	describeIndent,
+	indentedMatchStarts,
 	reconcileNewString,
 	resolveIndentedMatch,
 	resolveOldString,
@@ -311,6 +312,14 @@ function notFoundError(content: string, oldString: string, fullExcerpt = true): 
 	const head =
 		'old_string/oldStr not found in file. Make sure the string matches exactly, including whitespace and indentation.'
 	const near = nearLine(content, oldString)
+	const starts = indentedMatchStarts(content, oldString)
+	if (starts.length > 1) {
+		const where = starts
+			.slice(0, 5)
+			.map((at) => at + 1)
+			.join(', ')
+		return `${head} Its lines appear in ${starts.length} places once indentation is ignored (starting at lines ${where}), so none was chosen; include more surrounding lines, or copy the indentation of the one you mean exactly.`
+	}
 	if (near === undefined) {
 		return `${head} Read the lines you mean to change again and copy them as they are.`
 	}

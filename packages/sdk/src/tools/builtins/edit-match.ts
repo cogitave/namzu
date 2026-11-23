@@ -317,6 +317,36 @@ function lineKey(line: string): string {
 }
 
 /**
+ * Where, 0-based, the lines of `oldString` appear in `content` once leading
+ * and trailing whitespace is ignored. More than one entry means the text
+ * names several places and needs more context.
+ */
+export function indentedMatchStarts(content: string, oldString: string): number[] {
+	const wanted = oldString.split('\n')
+	const endsWithNewline = wanted.length > 1 && wanted[wanted.length - 1] === ''
+	if (endsWithNewline) wanted.pop()
+	if (wanted.every(isBlank)) return []
+	const wantedKeys = wanted.map(lineKey)
+	const lines = content.split('\n')
+	const keys = lines.map(lineKey)
+	const first = wantedKeys.findIndex((key) => key !== '')
+	const starts: number[] = []
+	for (let at = 0; at + wanted.length <= lines.length; at++) {
+		// biome-ignore lint/style/noNonNullAssertion: index < length
+		if (keys[at + first]! !== wantedKeys[first]!) continue
+		let same = true
+		for (let i = 0; i < wanted.length; i++) {
+			if (keys[at + i] !== wantedKeys[i]) {
+				same = false
+				break
+			}
+		}
+		if (same) starts.push(at)
+	}
+	return starts
+}
+
+/**
  * Find `oldString` in `content` by comparing lines with their leading and
  * trailing whitespace ignored, for the case where the model copied the right
  * lines with the wrong indentation (the usual cause: one level short, because
@@ -340,33 +370,13 @@ export function resolveIndentedMatch(
 	oldString: string,
 	newString: string,
 ): IndentedMatch | null {
+	const starts = indentedMatchStarts(content, oldString)
+	if (starts.length !== 1) return null
+	const found = starts[0] as number
 	const wanted = oldString.split('\n')
 	const endsWithNewline = wanted.length > 1 && wanted[wanted.length - 1] === ''
 	if (endsWithNewline) wanted.pop()
-	if (wanted.every(isBlank)) return null
-	// A leading blank line has no content to anchor on and a trailing one is
-	// whitespace the model added; neither is part of what is compared.
-	const wantedKeys = wanted.map(lineKey)
-
 	const lines = content.split('\n')
-	const keys = lines.map(lineKey)
-	const first = wantedKeys.findIndex((key) => key !== '')
-	let found = -1
-	for (let at = 0; at + wanted.length <= lines.length; at++) {
-		// biome-ignore lint/style/noNonNullAssertion: index < length
-		if (keys[at + first]! !== wantedKeys[first]!) continue
-		let same = true
-		for (let i = 0; i < wanted.length; i++) {
-			if (keys[at + i] !== wantedKeys[i]) {
-				same = false
-				break
-			}
-		}
-		if (!same) continue
-		if (found !== -1) return null
-		found = at
-	}
-	if (found === -1) return null
 
 	// Trailing whitespace on a matched line is compared away but the replaced
 	// span keeps it nowhere: new_string has none, so applying would silently

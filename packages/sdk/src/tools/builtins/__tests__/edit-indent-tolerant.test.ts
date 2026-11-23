@@ -195,3 +195,13 @@ describe('a batch error stays bounded', () => {
 		expect(result.error.match(/The file's lines/g)).toHaveLength(3)
 	})
 })
+
+describe('an old_string that matches several places only by indentation', () => {
+	it('is reported as ambiguous, with the lines, not as absent', () => {
+		const result = run('  a\n  b\nfoo\n    a\n    b\n', 'a\nb\n', 'x\n')
+		expect(result.success).toBe(false)
+		if (result.success) return
+		expect(result.error).toContain('2 places')
+		expect(result.error).toContain('lines 1, 4')
+	})
+})
