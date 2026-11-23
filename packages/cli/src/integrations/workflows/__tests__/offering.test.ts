@@ -70,6 +70,9 @@ describe('the opt-in rule the model reads', () => {
 		expect(WORKFLOW_TOOL_DESCRIPTION).toContain(
 			'When hypermode is on, that is a standing opt-in for every substantive task',
 		)
+		expect(WORKFLOW_TOOL_DESCRIPTION).toContain(
+			'except that on an unclear request you ask one question first',
+		)
 		expect(WORKFLOW_TOOL_DESCRIPTION).toContain('saved workflow')
 	})
 

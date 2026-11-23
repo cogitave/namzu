@@ -22,8 +22,11 @@ function inside(root: string, target: string): boolean {
 export interface OutputAccess {
 	/** The conversation's work folder, as the host recorded it. */
 	root: string
-	/** Absolute paths the conversation's receipts name. */
-	written: readonly string[]
+	/**
+	 * Absolute paths the conversation's receipts name. An entry may carry the real path the file
+	 * had when it was handed over; a path that now leads anywhere else is not that file.
+	 */
+	written: readonly (string | { path: string; real: string })[]
 }
 
 export interface ResolvedOutput {
@@ -53,9 +56,12 @@ export async function resolveOutput(access: OutputAccess, path: unknown): Promis
 		if (hidden) throw outside()
 		return { absolute: real, inFolder: folderPath.split(sep).join('/') }
 	}
-	for (const candidate of access.written) {
+	for (const entry of access.written) {
+		const candidate = typeof entry === 'string' ? entry : entry.path
 		try {
-			if (caseFold(await realpath(candidate)) === caseFold(real)) return { absolute: real }
+			const now = caseFold(await realpath(candidate))
+			if (typeof entry !== 'string' && now !== caseFold(entry.real)) continue
+			if (now === caseFold(real)) return { absolute: real }
 		} catch {
 			// A receipt for a file that is gone names nothing.
 		}

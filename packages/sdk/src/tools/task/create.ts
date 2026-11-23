@@ -13,7 +13,7 @@ export function buildTaskCreateTool(
 	return defineTool({
 		name: 'task_create',
 		description:
-			'Create a task to track a unit of planned work. Use this to break down complex work into trackable steps before starting. Each task has a subject (imperative: "Fix auth bug") and optionally an activeForm (present continuous: "Fixing auth bug") for progress display. Returns the new task\'s id.',
+			'Create a task to track a unit of planned work. Use this to break down complex work into trackable steps before starting. Each task has a subject (imperative: "Fix auth bug") and optionally an activeForm (present continuous: "Fixing auth bug") for progress display. Call task_list first so you do not add a duplicate. Returns the new task\'s id.',
 		inputSchema: z.object({
 			subject: z.string().describe('Brief title in imperative form ("Fix auth middleware")'),
 			description: z.string().optional().describe('Detailed description of the work'),
@@ -37,7 +37,7 @@ export function buildTaskCreateTool(
 		destructive: false,
 		concurrencySafe: true,
 		// Tasks are made to be moved through their statuses as the work goes.
-		loadsWith: ['task_update'],
+		loadsWith: ['task_update', 'task_list'],
 		presentCall: presentTaskCreateCall,
 		presentResult: presentTaskCreateResult,
 		async execute({ subject, description, activeForm, owner, blockedBy, metadata }) {

@@ -1,5 +1,6 @@
 import { EXIT_FAIL, EXIT_OK, EXIT_USAGE } from '../exit-codes.js'
 import { discoverProviders } from '../integrations/providers/discover.js'
+import { AUTH_ACTIONS } from './actions/auth.js'
 import { authStatusRows, renderAuthStatus } from './auth-status.js'
 import { loginCommand, logoutCommand } from './login.js'
 import type { CommandDef } from './types.js'
@@ -57,6 +58,7 @@ export function createAuthCommand(deps: AuthCommandDeps): CommandDef {
 		description: 'Sign in or out of a provider, and see which credentials are stored',
 		passThrough: true,
 		help: HELP,
+		actions: AUTH_ACTIONS,
 		handler: async ({ ctx, rawArgs }) => {
 			const [action, ...rest] = rawArgs
 			if (action === 'login') return loginCommand.handler({ ctx, rawArgs: rest })

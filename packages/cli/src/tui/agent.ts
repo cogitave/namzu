@@ -121,6 +121,7 @@ import {
 	type PluginSessionSource,
 	type PrepareStep,
 	type PrepareStepChain,
+	PresentFileTool,
 	type ProjectId,
 	type ProjectInstructionContext,
 	type PromoteMemory,
@@ -2638,7 +2639,7 @@ export function deferExceptToolset(ts: Toolset, eager: readonly string[]): reado
 }
 
 const NAMZU_BROWSER_DESKTOP_ROUTING =
-	'When the user means an already open desktop browser window (their own, not the Namzu-managed profile), use computer_use list_windows and screenshot {window_id} to inspect that window. The browser tools control a separate Namzu-managed browser profile; use them for browsing in that profile.'
+	'When the user means a desktop browser window that is already open (their own, not the Namzu-managed profile), look at it only: use computer_use list_windows and screenshot {window_id}. Act on pages through the browser tool, which controls a separate Namzu-managed browser profile. If the task needs acting in their own window, say you can only look at it and offer to do it in the Namzu browser profile.'
 
 /**
  * The base toolsets every session (and, unwrapped, every sub-agent) starts
@@ -2697,7 +2698,7 @@ function foregroundOnlyBash(tool: ToolDefinition): ToolDefinition {
 }
 
 function builtinTools(backgroundJobs: boolean): ToolDefinition[] {
-	return getBuiltinTools().flatMap((source) => {
+	return [...getBuiltinTools(), PresentFileTool].flatMap((source) => {
 		if (EXCLUDED_BUILTINS.has(source.name)) return []
 		const tool = ['bash', 'write', 'edit'].includes(source.name)
 			? { ...source, executionBarrier: true }

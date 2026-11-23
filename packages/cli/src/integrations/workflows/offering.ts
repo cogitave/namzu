@@ -3,8 +3,9 @@
  * the model reads, and who may start a run.
  *
  * A workflow is a lot of work started on one decision, so the model is told
- * when it may call the tool; the tool itself is listed on every turn of a host
- * that can run one (the model is gated by wording, not by the list).
+ * when it may call the tool; a host that can run one always lists it, as a
+ * name to load in a default turn and as a ready tool under hypermode (the
+ * model is gated by wording, not by the list).
  * The opt-in is the operator's keyword (`hypermode`, shown as a tag and
  * dropped with Alt+W), hypermode being on, or their own words. Pure.
  */
@@ -22,7 +23,7 @@ export const WORKFLOW_BACKGROUND_NOTE = 'Running in the background · follow it 
 
 /** The tool's description, as the model reads it. */
 export const WORKFLOW_TOOL_DESCRIPTION = [
-	'Run a workflow: a short JavaScript program you write once that starts many subagents, in order and in parallel, and returns one value. It runs in the background: this call returns once the first agent is requested, and one message arrives when the run ends. A script that fails before it requests any agent is an error of this call, and one that finishes without any returns its result here. Call it only after an explicit opt-in: the operator\'s message included the keyword "hypermode" or "workflow" (a note confirms it), hypermode is on for the session (a note confirms it), the operator asked for a workflow or multi-agent orchestration in their own words, they named a saved workflow to run, or the person asked to continue or resume a run of this conversation (resumeFromRunId). For any other task, even one that would clearly benefit from parallelism, do not call it; for a single subagent or a small fan-out, use the Agent tool. When hypermode is on, that is a standing opt-in for every substantive task, and you work alone only on a conversational or trivial turn.',
+	'Run a workflow: a short JavaScript program you write once that starts many subagents, in order and in parallel, and returns one value. It runs in the background: this call returns once the first agent is requested, and one message arrives when the run ends. A script that fails before it requests any agent is an error of this call, and one that finishes without any returns its result here. Call it only after an explicit opt-in: the operator\'s message included the keyword "hypermode" or "workflow" (a note confirms it), hypermode is on for the session (a note confirms it), the operator asked for a workflow or multi-agent orchestration in their own words, they named a saved workflow to run, or the person asked to continue or resume a run of this conversation (resumeFromRunId). For any other task, even one that would clearly benefit from parallelism, do not call it; for a single subagent or a small fan-out, use the Agent tool. When hypermode is on, that is a standing opt-in for every substantive task, except that on an unclear request you ask one question first, and you work alone only on a conversational or trivial turn.',
 	'',
 	'The script is confined: no files, no network, no commands, no timers, no imports. Its only power is agent(), which starts a subagent with the same tools, permissions, sandbox and budget the Agent tool gives. A prompt you pass is data for that subagent and cannot widen what it may do.',
 	'',

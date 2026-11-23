@@ -1,5 +1,6 @@
 import type { Command } from 'commander'
 
+import { renderActionIndex, resolveActionHelp } from './action-help.js'
 import { type LazyCommandDef, isLazyCommand } from './lazy.js'
 import type { CommandContext, CommandDef } from './types.js'
 
@@ -47,8 +48,18 @@ export function registerCommandOrLazy(
 				// Three commands did this. Handling it here rather than in
 				// each one is what stops the fourth from doing it too.
 				const real = await resolve()
-				if (real.help !== undefined && rawArgs.some((a) => a === '--help' || a === '-h')) {
-					opts.getContext().formatter.print({ text: real.help })
+				// Words after a literal `--` belong to a command being
+				// registered (`mcp add x -- npx server --help`), not to us.
+				const dash = rawArgs.indexOf('--')
+				const head = dash === -1 ? rawArgs : rawArgs.slice(0, dash)
+				if (real.help !== undefined && head.some((a) => a === '--help' || a === '-h')) {
+					const actions = real.actions
+					const text =
+						actions === undefined
+							? real.help
+							: (resolveActionHelp(real.name, actions, rawArgs) ??
+								`${real.help.trimEnd()}\n\n${renderActionIndex(real.name, actions)}`)
+					opts.getContext().formatter.print({ text })
 					opts.setExitCode(0)
 					return
 				}

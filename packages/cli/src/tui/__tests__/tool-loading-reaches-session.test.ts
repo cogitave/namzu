@@ -223,7 +223,7 @@ describe('explicit tool loading reaches the real session and query', () => {
 				]),
 			)
 			expect(names(requests[0])).not.toContain('search_tools')
-			expect(names(requests[0])).toHaveLength(25)
+			expect(names(requests[0])).toHaveLength(26)
 			expect(JSON.stringify(requests[0].messages)).not.toContain('Before using a tool listed under')
 		} finally {
 			await session.close()
@@ -265,7 +265,7 @@ describe('explicit tool loading reaches the real session and query', () => {
 			)
 			expect(names(requests[0])).toContain('monitor')
 			expect(names(requests[0])).not.toContain('search_tools')
-			expect(names(requests[0])).toHaveLength(26)
+			expect(names(requests[0])).toHaveLength(27)
 			expect(JSON.stringify(requests[0].messages)).not.toContain('Before using a tool listed under')
 		} finally {
 			await session.close()
@@ -355,15 +355,16 @@ describe('explicit tool loading reaches the real session and query', () => {
 				// revealed (plan.md v3 §2), and that history persists across sends
 				// of the same session — so once turn 0 reveals `task_create`, turn
 				// 1's own first request already carries it active, unlike turn 0's.
-				// `task_update` loads with it, in the same search.
+				// `task_update` and `task_list` load with it, in the same search.
 				expect(names(first)).toEqual(
 					(turn === 0
 						? [...core, 'search_tools']
-						: [...core, 'search_tools', 'task_create', 'task_update']
+						: [...core, 'search_tools', 'task_create', 'task_list', 'task_update']
 					).sort(),
 				)
 				expect(names(second)).toContain('task_create')
 				expect(names(second)).toContain('task_update')
+				expect(names(second)).toContain('task_list')
 				if (third) {
 					expect(names(third)).toContain('task_create')
 					expect(JSON.stringify(third.messages)).toContain('Task created:')

@@ -350,3 +350,22 @@ describe('a command that answered with its exit status', () => {
 		expect(tidy.shell?.status).toBeUndefined()
 	})
 })
+
+describe('the headline of a file handed to the person', () => {
+	it('names one file and says where it is', () => {
+		expect(
+			factsHeadline({ kind: 'shared', files: [{ path: '/tmp/out/report.pdf', bytes: 10 }] }),
+		).toBe('Shared report.pdf · /tmp/out/report.pdf')
+	})
+	it('names several files and counts them', () => {
+		expect(
+			factsHeadline({
+				kind: 'shared',
+				files: [{ path: '/tmp/a.png' }, { path: '/tmp/b.csv' }],
+			}),
+		).toBe('Shared 2 files · a.png, b.csv')
+	})
+	it('says nothing for an empty list', () => {
+		expect(factsHeadline({ kind: 'shared', files: [] })).toBeUndefined()
+	})
+})

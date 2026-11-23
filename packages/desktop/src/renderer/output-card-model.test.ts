@@ -66,6 +66,54 @@ describe('the kind line', () => {
 	})
 })
 
+function shared(
+	thread: ThreadState,
+	id: string,
+	files: { path: string; bytes?: number }[],
+	caption?: string,
+) {
+	return send(thread, {
+		kind: 'tool_call',
+		toolCallId: id,
+		title: 'present_file',
+		status: 'completed',
+		view: { kind: 'generic', label: 'Share' },
+		facts: { kind: 'shared', files, ...(caption ? { caption } : {}) },
+	} as AcpSessionUpdate)
+}
+
+describe('the cards for a file the agent handed over', () => {
+	it('makes a card with no document skill, with its size, caption and a folder action', () => {
+		const thread = shared(
+			start(emptyThread()),
+			's1',
+			[{ path: '/tmp/out/report.pdf', bytes: 3 * 1024 }],
+			'The quarterly report',
+		)
+		const cards = cardsOf(thread)
+		expect(cards).toHaveLength(1)
+		expect(cards[0]).toMatchObject({
+			name: 'report.pdf',
+			state: 'done',
+			stateWord: 'Shared',
+			kindLine: 'Document · PDF · 3 KB',
+			canShowInFolder: true,
+			canSave: true,
+			caption: 'The quarterly report',
+		})
+	})
+	it('lists each file once, and marks one that is gone', () => {
+		let thread = shared(start(emptyThread()), 's1', [
+			{ path: '/tmp/a.png' },
+			{ path: '/tmp/a.png' },
+		])
+		thread = shared(thread, 's2', [{ path: '/tmp/b.csv' }])
+		const cards = cardsOf(thread, new Map([['/tmp/b.csv', { path: '/tmp/b.csv', missing: true }]]))
+		expect(cards.map((card) => card.name)).toEqual(['a.png', 'b.csv'])
+		expect(cards[1]).toMatchObject({ state: 'gone', stateWord: 'Missing', canShowInFolder: false })
+	})
+})
+
 describe('the cards for a reply', () => {
 	it('makes a card for a document the document skill wrote, and for nothing else', () => {
 		let thread = withSkill(start(emptyThread()))
@@ -85,6 +133,7 @@ describe('the cards for a reply', () => {
 			canCopy: true,
 			canOpenInBrowser: false,
 			canSave: true,
+			canShowInFolder: false,
 		})
 	})
 	it('makes no card for ordinary files, Markdown written with the file tools included', () => {
@@ -214,6 +263,7 @@ describe('the group', () => {
 		canOpenWithSystem: true,
 		canCopy: false,
 		canSave: true,
+		canShowInFolder: false,
 	})
 	it('labels the group and names it only when it is longer than the cards shown', () => {
 		expect(outputGroupView([card('a.md')], false)).toMatchObject({

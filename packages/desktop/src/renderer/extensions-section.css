@@ -194,10 +194,15 @@
 }
 .extension-collected-summary dl > div {
 	display: grid;
-	grid-template-columns: minmax(6em, 1fr) minmax(0, 4fr);
+	grid-template-columns: minmax(6em, 1fr) minmax(0, 3fr);
 	gap: 12px;
 }
 .extension-collected-summary dd {
 	color: var(--muted-foreground);
 	overflow-wrap: anywhere;
+	/* The value sits at the row's right edge, as it does in every other settings row. */
+	text-align: right;
+}
+.extension-collected-summary > button {
+	justify-self: end;
 }

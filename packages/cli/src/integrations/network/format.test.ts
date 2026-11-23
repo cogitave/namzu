@@ -165,14 +165,15 @@ describe('the /peers screen', () => {
 			columns: 100,
 		})
 
-	it('draws the machines, what is held and who asks to join, in that order', () => {
+	it('draws who asks to join first, then the machines and what is held', () => {
 		const text = full()
 		expect(text.indexOf('Your Namzu network · on · 2 machines')).toBe(0)
+		expect(text.indexOf('Join requests (1)')).toBeGreaterThan(0)
+		expect(text.indexOf('Join requests (1)')).toBeLessThan(text.indexOf('studio-air'))
 		expect(text).toContain('studio-air · this machine · online')
 		expect(text).toContain('calm-heron (this terminal)')
 		expect(text).toContain('desk-linux · online')
 		expect(text.indexOf('Held (1)')).toBeGreaterThan(text.indexOf('desk-linux'))
-		expect(text.indexOf('Join requests (1)')).toBeGreaterThan(text.indexOf('Held (1)'))
 		expect(text).toContain('desk-mini wants to join your Namzu network')
 		expect(text).toContain('code 482 913')
 		expect(text.replace(/\s+/g, ' ')).toContain('3 min left')
@@ -311,10 +312,10 @@ describe('the /peers screen', () => {
 	it('offers one row per decision: allow and deny for each held message and each request', () => {
 		const actions = peersActions(summary({ joinRequests: [join], held: [remoteHeld] }), [])
 		expect(actions.map((a) => a.kind)).toEqual([
-			'allow-held-remote',
-			'deny-held-remote',
 			'allow-join',
 			'deny-join',
+			'allow-held-remote',
+			'deny-held-remote',
 		])
 	})
 

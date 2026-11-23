@@ -14,6 +14,7 @@ import {
 } from '../config/setting-cli.js'
 import { userConfigPath } from '../config/user-config.js'
 import { EXIT_FAIL, EXIT_USAGE } from '../exit-codes.js'
+import { CONFIG_ACTIONS } from './actions/small.js'
 import type { CommandDef } from './types.js'
 
 /** A usage mistake exits 64 as in the other commands; a refused or failed change exits 1. */
@@ -133,6 +134,7 @@ export const configCommand: CommandDef = {
 	description: 'List, read and change the settings Desktop shows, in your user config file',
 	passThrough: true,
 	help: HELP,
+	actions: CONFIG_ACTIONS,
 	handler: async ({ rawArgs }) => {
 		const flags = parseConfigArgs(rawArgs)
 		const usage = (message: string): number => {

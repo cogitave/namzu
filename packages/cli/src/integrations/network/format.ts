@@ -227,6 +227,19 @@ export function renderPeersScreen(input: ScreenInput): string {
 		`Your Namzu network · ${on ? 'on' : (summary.reason ?? summary.state)} · ${summary.members} machine${summary.members === 1 ? '' : 's'}`,
 	)
 	lines.push('')
+	// What waits for an answer comes first: a machine asking to join is the one thing here that is time-bound.
+	if (summary.joinRequests.length > 0) {
+		lines.push(`Join requests (${summary.joinRequests.length})`)
+		for (const join of summary.joinRequests) {
+			lines.push(`  ${join.name} wants to join your Namzu network`)
+			lines.push(
+				`    code ${join.code}   from ${join.sourceAddr}   expires in ${minutesLeft(join.expiresAt, now)}`,
+			)
+			if (join.trustOffer)
+				lines.push('    This network is not trusted yet: new machines on it would ask again.')
+		}
+		lines.push('')
+	}
 	if (!roster || roster.machines.length === 0) {
 		lines.push('Nothing to show yet.')
 	} else if (roster.machines.length === 1 && on) {
@@ -252,18 +265,6 @@ export function renderPeersScreen(input: ScreenInput): string {
 				`  from ${held.machineName} / ${held.fromSessionName} · ${held.reason} · ${minutesLeft(held.expiresAt, now)} left`,
 			)
 			lines.push(`    ${quote(held.text, Math.max(20, input.columns - 8))}`)
-		}
-	}
-	if (summary.joinRequests.length > 0) {
-		lines.push('')
-		lines.push(`Join requests (${summary.joinRequests.length})`)
-		for (const join of summary.joinRequests) {
-			lines.push(`  ${join.name} wants to join your Namzu network`)
-			lines.push(
-				`    code ${join.code}   from ${join.sourceAddr}   expires in ${minutesLeft(join.expiresAt, now)}`,
-			)
-			if (join.trustOffer)
-				lines.push('    This network is not trusted yet: new machines on it would ask again.')
 		}
 	}
 	if (summary.trustedNetworks.length > 0) {
@@ -335,6 +336,12 @@ export function peersActions(
 	heldLocal: readonly HeldLocalView[],
 ): PeersAction[] {
 	const actions: PeersAction[] = []
+	for (const request of summary.joinRequests) {
+		actions.push({ kind: 'allow-join', request })
+		if (request.trustOffer)
+			actions.push({ kind: 'allow-join-trust', request, name: request.trustOffer.suggestedName })
+		actions.push({ kind: 'deny-join', request })
+	}
 	if (summary.joining) actions.push({ kind: 'cancel-join', joining: summary.joining })
 	if (summary.state === 'ambiguous')
 		for (const network of summary.nearby) actions.push({ kind: 'join-nearby', network })
@@ -343,12 +350,6 @@ export function peersActions(
 	}
 	for (const mail of summary.held) {
 		actions.push({ kind: 'allow-held-remote', mail }, { kind: 'deny-held-remote', mail })
-	}
-	for (const request of summary.joinRequests) {
-		actions.push({ kind: 'allow-join', request })
-		if (request.trustOffer)
-			actions.push({ kind: 'allow-join-trust', request, name: request.trustOffer.suggestedName })
-		actions.push({ kind: 'deny-join', request })
 	}
 	for (const network of summary.trustedNetworks) actions.push({ kind: 'untrust-network', network })
 	return actions

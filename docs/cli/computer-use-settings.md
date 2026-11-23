@@ -74,6 +74,10 @@ call in a listed app before the tool refuses it. On a computer whose host cannot
 would land in (a pixel-only display), a non-empty list stops the acting calls altogether, because the
 tool cannot check them.
 
+The tool also keeps to a tier per kind of app regardless of this list: browser windows are looked at only,
+terminals and editors are clicked but not typed into
+([Application tiers](../sdk/computer-actions.md#application-tiers)). The list is the person's own override on top.
+
 ## Settings
 
 A name must be written as the app is named in its window list; capital letters and a closing `.exe` do

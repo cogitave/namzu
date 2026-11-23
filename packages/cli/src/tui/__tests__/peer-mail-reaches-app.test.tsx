@@ -3,7 +3,7 @@
 import { InMemoryTaskStore, type Message, generateSessionId } from '@namzu/sdk'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
-import type { NetworkRuntime } from '../../integrations/network/runtime.js'
+import type { NetworkRuntime, NetworkRuntimeOptions } from '../../integrations/network/runtime.js'
 import type { NetworkSummary } from '../../integrations/network/types.js'
 import type { LivePeersOptions, PeerMail } from '../../integrations/peers/runtime.js'
 import type { Preferences } from '../../integrations/providers/index.js'
@@ -33,6 +33,8 @@ let roleText: string | undefined
 /** What each request of the fixture turn carried as request-only host context. */
 const hostContexts: string[][] = []
 /** What the network fixture says; `undefined` leaves the network off, as in every terminal that is not a person's. */
+/** What the terminal asked the network runtime to do for it (its callbacks), as the real runtime would call them. */
+let networkOptions: NetworkRuntimeOptions | undefined
 let networkOn: { summary: NetworkSummary; roster: unknown } | undefined
 let peerOpened = deferred<void>()
 let turnStarted = deferred<void>()
@@ -94,7 +96,8 @@ vi.mock('../../integrations/peers/runtime.js', async (importOriginal) => {
 })
 
 vi.mock('../../integrations/network/runtime.js', () => ({
-	createNetworkRuntime: (): Partial<NetworkRuntime> => {
+	createNetworkRuntime: (options: NetworkRuntimeOptions): Partial<NetworkRuntime> => {
+		networkOptions = options
 		const on = networkOn
 		const record =
 			(name: string, result: unknown) =>
@@ -269,6 +272,7 @@ beforeEach(() => {
 	roleText = undefined
 	hostContexts.length = 0
 	networkOn = undefined
+	networkOptions = undefined
 	peerOpened = deferred<void>()
 	turnStarted = deferred<void>()
 	turnFinished = deferred<void>()
@@ -548,6 +552,42 @@ it('draws the roster of every machine, and offers Allow and Deny for a request t
 			'the Allow was not applied',
 		)
 		expect(networkCalls).toContainEqual(['allow', 'r1'])
+	} finally {
+		await screen.unmount()
+	}
+})
+
+it('shows a machine asking to join as one footer mark and one passing line, and writes no transcript row', async () => {
+	networkOn = { summary: networkSummary, roster: networkRoster }
+	const screen = await renderToScreen(<App ctx={interactiveCtx} />, { cols: 120, rows: 40 })
+	try {
+		await peerOpened.promise
+		await waitUntil(screen, () => peerOptions?.ready() === true, 'App did not open its peer host')
+		const options = networkOptions
+		if (!options?.notice || !options.onJoinRequests)
+			throw new Error('the terminal wired no join mark')
+		// What the runtime does for one machine that asks, however often: a count, and one line the first time.
+		options.onJoinRequests(1)
+		options.notice(
+			'network-join:m1',
+			'DESKTOP-5AAUTN6 wants to join your Namzu network. /peers to allow or deny.',
+		)
+		await waitUntil(
+			screen,
+			() => screen.viewport().join('\n').includes('1 join request · /peers'),
+			'the footer did not show the waiting request',
+		)
+		const footer = screen.viewport().join('\n')
+		expect(footer).toContain('DESKTOP-5AAUTN6 wants to join your Namzu network')
+		// The line is in the footer's notice slot; a transcript row would start with the notice dot.
+		const rows = screen.scrollback().filter((line) => line.includes('wants to join'))
+		expect(rows.filter((line) => line.trimStart().startsWith('●'))).toEqual([])
+		options.onJoinRequests(0)
+		await waitUntil(
+			screen,
+			() => !screen.viewport().join('\n').includes('join request'),
+			'the footer kept the mark after the request was answered',
+		)
 	} finally {
 		await screen.unmount()
 	}

@@ -29,7 +29,8 @@ unless that test reaches it.
    background run). The kernel records the turn's checks and reads the exit
    status; a hidden status is recorded as inconclusive. If the output is long,
    read it afterwards from where it was printed; do not trim it on the way.
-6. **Report one verdict, with evidence.**
+6. **Look for old wording.** When the change altered what the program does or says, search `docs/` and the README for the old wording and update it in the same change.
+7. **Report one verdict, with evidence.**
    - **It works.** What you ran and what you saw.
    - **It does not.** What you saw instead, and where it differs.
    - **It could not be exercised.** Exactly why (no credentials, no display,

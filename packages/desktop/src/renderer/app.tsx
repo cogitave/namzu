@@ -1372,10 +1372,17 @@ export function App({
 	// A document a card or a link names opens in the Files pane, which reads Markdown as a page.
 	const openOutputBeside = useCallback(
 		(path: string) => {
-			updatePanelTabs((state) => openFileTab(state, path))
+			// The Files pane names files from the project folder; a handed-over file arrives absolute.
+			const root = project?.path.replace(/\\/g, '/').replace(/\/+$/, '')
+			const unified = path.replace(/\\/g, '/')
+			const inside =
+				root && unified.toLowerCase().startsWith(`${root.toLowerCase()}/`)
+					? unified.slice(root.length + 1)
+					: path
+			updatePanelTabs((state) => openFileTab(state, inside))
 			openPaneRef.current('files')
 		},
-		[updatePanelTabs],
+		[updatePanelTabs, project?.path],
 	)
 	// A page or a picture opens in the Browser pane; a document or code opens in Files.
 	const openOutput = useCallback(
@@ -1393,12 +1400,13 @@ export function App({
 				? {
 						api,
 						sessionId,
+						projectPath: project?.path,
 						made: madeOutputs,
 						onOpen: openOutputBeside,
 						onNotice: announce,
 					}
 				: undefined,
-		[outputsEnabled, api, sessionId, madeOutputs, openOutputBeside, announce],
+		[outputsEnabled, api, sessionId, project?.path, madeOutputs, openOutputBeside, announce],
 	)
 	// The versions of each output already known, so only a write made after this is news.
 	const outputsSeen = useRef(new Map<string, Map<string, number>>())

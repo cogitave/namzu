@@ -167,6 +167,7 @@ export {
 export type { RunCodeToolOptions } from './tools/builtins/run-code.js'
 export { LsTool } from './tools/builtins/ls.js'
 export { SearchToolsTool } from './tools/builtins/search-tools.js'
+export { PresentFileTool } from './tools/builtins/present-file.js'
 export { VerifyOutputsTool } from './tools/builtins/verify-outputs.js'
 export {
 	ViewImageTool,

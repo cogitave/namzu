@@ -39,7 +39,13 @@ export function formatJoinCode(code: string): string {
 
 export const JOIN_EXPIRY_MS = 10 * 60 * 1000
 export const MAX_PENDING_JOINS = 8
+/** A request whose connection is gone is kept this long for another terminal of the machine to take over. */
+export const JOIN_ORPHAN_MS = 60 * 1000
 export const JOIN_ADDRESS_WINDOW_MS = 60 * 1000
+/** After a person denied the ask, this machine does not ask that network again on its own for this long. */
+export const JOIN_BACKOFF_DENIED_MS = 60 * 60 * 1000
+/** After the ask expired unanswered or was refused: shorter, because nobody said no. */
+export const JOIN_BACKOFF_OTHER_MS = 10 * 60 * 1000
 
 export interface PendingJoin {
 	readonly requestId: string
@@ -70,6 +76,12 @@ export class JoinTable {
 	private readonly decided = new Map<string, 'allow' | 'deny' | 'expired'>()
 	private readonly lastByAddress = new Map<string, number>()
 	constructor(private readonly options: JoinTableOptions) {}
+
+	/** Whether this address asked less than a minute ago. */
+	tooSoon(sourceAddr: string): boolean {
+		const last = this.lastByAddress.get(sourceAddr)
+		return last !== undefined && this.options.clock.now() - last < JOIN_ADDRESS_WINDOW_MS
+	}
 
 	/** A request that arrived on this machine. Refused when the address asked too recently or the table is full. */
 	addLocal(
@@ -119,6 +131,11 @@ export class JoinTable {
 		let n = 0
 		for (const e of this.entries.values()) if (e.local) n++
 		return n
+	}
+
+	/** The request waiting from this machine, if any: a machine has at most one. */
+	findByJoiner(joinerMachineId: string): PendingJoin | undefined {
+		return this.list().find((e) => e.joinerMachineId === joinerMachineId)
 	}
 
 	get(requestId: string): PendingJoin | undefined {

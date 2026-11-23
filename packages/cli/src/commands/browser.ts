@@ -4,6 +4,7 @@
  */
 
 import { BROWSER_HELP } from '../browser/commands.js'
+import { BROWSER_ACTIONS } from './actions/browser.js'
 import type { CommandDef } from './types.js'
 
 export const browserCommand: CommandDef = {
@@ -11,6 +12,7 @@ export const browserCommand: CommandDef = {
 	description: 'Browser profiles for the browser tools: sign in, list, status, install, remove',
 	passThrough: true,
 	help: BROWSER_HELP,
+	actions: BROWSER_ACTIONS,
 	handler: async ({ ctx, rawArgs }) => {
 		const { browserCommand: run } = await import('../browser/commands.js')
 		return run(ctx, rawArgs)

@@ -43,6 +43,12 @@ export interface OutputCard {
 	canOpenWithSystem: boolean
 	canCopy: boolean
 	canSave: boolean
+	/** The file's folder opens in the system's file manager: a file handed over always can. */
+	canShowInFolder: boolean
+	/** The agent handed this file over with `present_file`. */
+	shared?: true
+	/** The one line the agent gave with a shared file. */
+	caption?: string
 }
 
 /** Cards beyond this many are folded behind "Show N more". */
@@ -126,7 +132,57 @@ function doneCard(
 		canOpenWithSystem: !gone && mayOpenWithSystem(path),
 		canCopy: !gone && isTextOutput(path),
 		canSave: !gone,
+		canShowInFolder: false,
 	}
+}
+
+/** A card for a file the agent handed over with `present_file`. */
+function sharedCard(
+	turn: number,
+	file: { path: string; bytes?: number },
+	caption: string | undefined,
+	detail: SessionOutputDetail | undefined,
+): OutputCard {
+	const gone = detail?.missing === true
+	const size = detail?.size ?? file.bytes
+	return {
+		key: `${turn}:shared:${file.path}`,
+		path: file.path,
+		name: baseName(file.path),
+		kind: outputCardKind(file.path),
+		state: gone ? 'gone' : 'done',
+		kindLine: gone ? 'No longer in the folder' : cardKindLine(file.path, size),
+		stateWord: gone ? 'Missing' : 'Shared',
+		canOpen: !gone,
+		canOpenInBrowser: !gone && /\.html?$/i.test(file.path),
+		canOpenWithSystem: !gone && mayOpenWithSystem(file.path),
+		canCopy: !gone && isTextOutput(file.path),
+		canSave: !gone,
+		canShowInFolder: !gone,
+		shared: true,
+		...(caption ? { caption } : {}),
+	}
+}
+
+/** The files the agent handed over in one reply, in the order it handed them. */
+export function sharedFilesOf(
+	thread: Pick<ThreadState, 'timeline' | 'tools'>,
+	turn: number,
+): { path: string; bytes?: number; caption?: string }[] {
+	const out: { path: string; bytes?: number; caption?: string }[] = []
+	for (const entry of thread.timeline) {
+		if (entry.kind !== 'tool' || entry.turn !== turn) continue
+		const tool = thread.tools[entry.id]
+		if (!tool || tool.status !== 'completed' || tool.facts?.kind !== 'shared') continue
+		let first = true
+		for (const file of tool.facts.files) {
+			if (out.some((seen) => seen.path === file.path)) continue
+			// The caption speaks for the whole call, so only its first card carries it.
+			out.push({ ...file, ...(first && tool.facts.caption ? { caption: tool.facts.caption } : {}) })
+			first = false
+		}
+	}
+	return out
 }
 
 function pendingCard(
@@ -154,6 +210,7 @@ function pendingCard(
 		canOpenWithSystem: false,
 		canCopy: false,
 		canSave: false,
+		canShowInFolder: false,
 	}
 }
 
@@ -173,9 +230,14 @@ export function turnOutputCards(
 	const turnId = thread.turns[turn]?.turnId
 	if (turnId && thread.undo?.[turnId]?.status === 'undone') return []
 	const documentTurn = documentTurnOf(thread, turn)
-	if (!documentTurn) return []
 	const cards: OutputCard[] = []
 	const seen = new Set<string>()
+	// What the agent handed over comes first and stands on its own: it needs no document skill.
+	for (const file of sharedFilesOf(thread, turn)) {
+		seen.add(file.path)
+		cards.push(sharedCard(turn, file, file.caption, details.get(file.path)))
+	}
+	if (!documentTurn) return cards
 	for (const file of changes?.files ?? []) {
 		if (!file.path || file.path === 'File' || seen.has(file.path)) continue
 		if (!isDocumentFile(file.path, documentTurn)) continue

@@ -11,6 +11,7 @@ import {
 import { projectFilesDeclaringWorktreeCreate } from '../integrations/worktrees/untrusted-hook.js'
 import { decideHeadlessTrust } from '../permissions/headless-trust.js'
 import { terminalDisplayText } from '../tui/terminal-display.js'
+import { WORKTREE_ACTIONS } from './actions/small.js'
 import type { CommandDef } from './types.js'
 
 const HELP = `namzu worktree — separate checkouts with separate conversation histories
@@ -35,6 +36,7 @@ export function createWorktreeCommand(
 		description: 'Create, fork, list and resume managed Git worktrees',
 		passThrough: true,
 		help: HELP,
+		actions: WORKTREE_ACTIONS,
 		handler: async ({ ctx, rawArgs }) => {
 			const [verb = 'list', ...operands] = rawArgs
 			if (

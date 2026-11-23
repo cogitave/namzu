@@ -5,6 +5,8 @@ export interface JoinRequestView {
 	readonly requestId: string
 	/** What the joining machine calls itself. */
 	readonly name: string
+	/** The joining machine's id, so one machine that asks again is one request, not several. */
+	readonly machineId?: string
 	/** The short code both screens show, `482 913`. */
 	readonly code: string
 	readonly sourceAddr: string

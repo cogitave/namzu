@@ -10,7 +10,7 @@ import {
 	createFakeDiscovery,
 	createManualClock,
 } from '@namzu/sdk'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 import { type LivePeers, openLivePeers, peerMailMessage } from '../peers/runtime.js'
 import { type NetworkRuntime, createNetworkRuntime } from './runtime.js'
@@ -42,6 +42,9 @@ interface Box {
 	readonly home: string
 	readonly rt: NetworkRuntime
 	readonly notices: string[]
+	/** Passing footer notices (key and text), and every count of waiting join requests the terminal was told. */
+	readonly quiet: Array<{ key: string; text: string }>
+	readonly waiting: number[]
 	readonly events: NetworkEvent[]
 	readonly session: LivePeers
 	readonly setMode: (mode: string) => void
@@ -71,6 +74,8 @@ async function box(
 	const cwd = join(root, name)
 	mkdirSync(cwd, { recursive: true })
 	const notices: string[] = []
+	const quiet: Array<{ key: string; text: string }> = []
+	const waiting: number[] = []
 	const events: NetworkEvent[] = []
 	const waiters: Array<{
 		match: (e: NetworkEvent) => boolean
@@ -91,6 +96,8 @@ async function box(
 		networkIdentity: async () => settings.identity?.(),
 		interactive: true,
 		notify: (text) => notices.push(text),
+		notice: (key, text) => quiet.push({ key, text }),
+		onJoinRequests: (count) => waiting.push(count),
 		ownRef: () => own.ref,
 		clock: world.clock,
 		interfaces: loopback,
@@ -133,6 +140,8 @@ async function box(
 		home,
 		rt,
 		notices,
+		quiet,
+		waiting,
 		events,
 		session,
 		setMode: (next) => {
@@ -191,8 +200,13 @@ describe('a machine that starts with no network', () => {
 		await asked.younger.until((e) => e.type === 'join-waiting')
 		await asked.older.rt.refresh()
 		await asked.younger.rt.refresh()
-		const line = asked.older.notices.find((n) => n.includes('wants to join your Namzu network'))
-		expect(line).toMatch(/\(code \d{3} \d{3}, from 127\.0\.0\.1\)\. \/peers to allow or deny\./)
+		// A passing footer line and a count, never a transcript row.
+		expect(asked.older.notices.some((n) => n.includes('wants to join'))).toBe(false)
+		expect(asked.older.quiet).toHaveLength(1)
+		expect(asked.older.quiet[0]?.text).toMatch(
+			/ wants to join your Namzu network\. \/peers to allow or deny\./,
+		)
+		expect(asked.older.waiting.at(-1)).toBe(1)
 		const waiting = asked.younger.notices.find((n) => n.includes('to let this machine join'))
 		expect(waiting).toMatch(/code \d{3} \d{3}\)\. .*\/peers cancel to withdraw/)
 		const summary = await asked.older.rt.control.summary()
@@ -255,6 +269,65 @@ describe('a machine that starts with no network', () => {
 		])
 		expect((await a.rt.control.summary()).joinRequests).toEqual([])
 		expect((await c.rt.control.summary()).joinRequests).toEqual([])
+	})
+})
+
+describe('a machine with several terminals asks once', () => {
+	const world = () => ({ hub: createDiscoveryHub(), clock: createManualClock() })
+
+	it('terminals that take over from one another leave one request, one footer mark and one passing line', async () => {
+		const w = world()
+		const a = await box(w, 'studio-air', 'conductor')
+		const founded = a.until((e) => e.type === 'founded')
+		w.clock.advance(BROWSE_WINDOW_MS)
+		await founded
+		const b = await box(w, 'desk-linux', 'builder')
+		const asked = a.until((e) => e.type === 'join-request')
+		w.clock.advance(BROWSE_WINDOW_MS)
+		await asked
+		const first = (await a.rt.control.summary()).joinRequests[0]
+		expect(first).toBeDefined()
+		await a.rt.refresh()
+		// Three more terminals of that machine open and close in turn, each leading for a while.
+		const seen: string[] = []
+		let current: NetworkRuntime = b.rt
+		for (let n = 1; n <= 3; n++) {
+			await current.close()
+			const next = createNetworkRuntime({
+				home: b.home,
+				version: 'fixture',
+				env: {},
+				settings: { enabled: 'auto', acceptMail: 'members', autoAdmit: 'trusted-networks' },
+				networkIdentity: async () => undefined,
+				interactive: true,
+				notify: () => {},
+				clock: w.clock,
+				interfaces: loopback,
+				allowLoopback: true,
+				discovery: () => w.hub.create(),
+				listenPort: 0,
+				pid: process.pid + n,
+				isAlive: () => true,
+			})
+			current = next
+			runtimes.push(next)
+			await next.refresh()
+			w.clock.advance(BROWSE_WINDOW_MS)
+			await vi.waitFor(async () => expect((await next.control.summary()).joining).toBeDefined())
+			const summary = await a.rt.refresh()
+			seen.push(summary?.joinRequests.map((j) => `${j.requestId}:${j.code}`).join(',') ?? '')
+		}
+		expect(new Set(seen).size).toBe(1)
+		expect(seen[0]).toBe(`${first?.requestId}:${first?.code}`)
+		expect(a.quiet).toHaveLength(1)
+		expect(a.notices.filter((n) => n.includes('wants to join'))).toEqual([])
+		// One mark, however often it asked.
+		expect(a.waiting.filter((n) => n > 0)).toEqual([1])
+		// The one Allow still reaches the terminal that holds the ask now.
+		await a.rt.control.allow(first?.requestId as string)
+		await a.rt.refresh()
+		expect(a.waiting.at(-1)).toBe(0)
+		await vi.waitFor(async () => expect((await current.control.summary()).members).toBe(2))
 	})
 })
 

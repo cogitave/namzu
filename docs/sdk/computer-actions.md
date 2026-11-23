@@ -159,13 +159,13 @@ there is no whole-display image to place the other windows on. The same
 applies to UI-tree `@(x, y)` annotations until a display screenshot is taken.
 
 Window-scoped `type_text` and `key` target the captured PID/HWND; the tool
-refuses terminal windows. To type in a browser field, first click its point
-from the window screenshot, then send text. The driver cannot safely bind a
+refuses terminal windows, editors and browsers ([Application tiers](#application-tiers)).
+The driver cannot safely bind a
 single foreground focus-and-type action to that window, so these actions do
-not accept an `at` point. Text and keys default to background delivery. For
-Chromium text or modifier shortcuts such as `CTRL+L`, set
-`delivery_mode: "foreground"` on a window screenshot; the Windows driver
-rechecks the PID/HWND and may briefly bring that exact window to the front to
+not accept an `at` point. Text and keys default to background delivery. In an
+application that takes them, `delivery_mode: "foreground"` on a window
+screenshot makes the Windows driver
+recheck the PID/HWND and briefly bring that exact window to the front to
 send the input. `delivery_mode` on a display screenshot is refused. A
 background keyboard action that the driver refuses has not sent the input;
 use a fresh window screenshot before a foreground retry. `mouse_move` and
@@ -202,8 +202,8 @@ so scoped pixel scrolling works in the background and `windowScroll` is `true`.
 The point of `at` is sent to the driver only when the scroll runs in the
 foreground, where it picks a nested scrolling surface; in the background the
 whole window scrolls. `amount` is in ticks, split into calls of at most 50. On
-a browser page, `key {keys:"PAGE_DOWN", delivery_mode:"foreground"}` or arrow keys
-remain an option when keyboard focus is appropriate. `focus_window` followed
+a browser page the tool only looks (see [Application tiers](#application-tiers)).
+`focus_window` followed
 by automatic capture returns pixels for that window on a host with window capture.
 
 ## A window's controls
@@ -380,6 +380,33 @@ menu matches display names in the system language and turns an unmatched
 "Calculator" into Start and opened Bing in the operator's Edge). With
 `uiTree`, the first screenshot's text points at `list_windows`, `ui_snapshot`
 and `ui_act`.
+
+## Application tiers
+
+How far the tool works in a window depends on the kind of application, by
+`WindowInfo.app` (case, a path and a trailing `.exe` ignored). The table is in
+`computer-use.ts` (`appTier`).
+
+| Kind | Examples | The tool may |
+| --- | --- | --- |
+| Browser | `chrome`, `msedge`, `firefox`, `brave`, `safari`, `chromium` | look only: screenshots, zoom, tree reads, scroll, `focus_window`. A click, drag, `ui_act`, `ui_do`, `type_text` or a `key` that is not a page-moving key (`PAGE_UP`, `PAGE_DOWN`, `HOME`, `END`, arrows, `SPACE`) is refused with *only looks at <app>, a browser … Use the browser tool to act on a page*. |
+| Terminal or editor | `WindowsTerminal`, `konsole`, `Code`, `idea64`, `devenv`, `sublime_text` | look and click. `type_text`, `key` and a `set_value` are refused with a pointer to the shell tool (a command) or the edit tools (a file). |
+| Anything else | `notepad`, `gnome-calculator` | everything the host offers. |
+
+The names are a best-effort match on the reported process name or window class,
+not a registry. The kind is read from the window a screenshot was taken of; a
+call with no window of its own reads a fresh window list first, and a call it
+cannot place goes on to the checks below. For a display
+screenshot, typing and keys read the window in front first, as for terminals.
+`deniedApps` stays the person's own list on top: it is checked first, so a
+listed browser says it is off limits, and an application the table allows is
+still refused when listed.
+
+The description also tells the model to look at the screen before stating an
+application's state, never to click links with computer use, and to prefer a
+connected tool or a command line to the screen when one does the job. The
+terminal session's system prompt says a desktop browser window that is already
+open is looked at only and pages are acted on through the browser tool.
 
 ## Nothing is typed into a terminal
 
