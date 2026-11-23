@@ -39,6 +39,22 @@ describe('the memory nudge', () => {
 		expect(nudge).toContain('save_memory')
 	})
 
+	it('counts a not-found line and a plain exit 127 as the same failure', () => {
+		const history = [
+			createUserMessage('go'),
+			...failed('a', 'Command exited with code 127'),
+			...failed('b', 'bash: foo: command not found'),
+		]
+		expect(memoryNudge(history)).toHaveLength(1)
+		expect(
+			memoryNudge([
+				createUserMessage('go'),
+				...failed('a', 'bash: foo: command not found'),
+				...failed('b', 'bash: bar: command not found'),
+			]),
+		).toHaveLength(1)
+	})
+
 	it('does not count two different failures', () => {
 		const history = [
 			createUserMessage('go'),

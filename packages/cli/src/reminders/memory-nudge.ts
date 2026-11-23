@@ -6,8 +6,8 @@ import { frameReminder, isOperatorTurn, reminderKindOf } from './frame.js'
  * The memory nudge: a quiet reminder that a short lesson about this machine or
  * project is worth saving with the memory tool. It speaks in two cases only:
  *
- * - the same kind of command failure came back twice (the same exit status, or
- *   the same program not found) since the last nudge or memory save;
+ * - the same kind of command failure came back twice (the same exit status; a
+ *   program not found counts as exit 127) since the last nudge or memory save;
  * - right after a compaction, once, because what was learned about the
  *   environment is exactly what a summary tends to lose.
  *
@@ -39,8 +39,10 @@ export function failureSignature(message: Message): string | undefined {
 	const text = textOf(message)
 	const code = /exited with code (\d+)/i.exec(text)?.[1]
 	if (code !== undefined) return `exit ${code}`
-	const missing = /(?:^|\n|: )([\w./+-]+): (?:command )?not found/i.exec(text)?.[1]
-	if (missing !== undefined) return `exit 127 ${missing}`
+	// A "not found" line is the shell's exit 127, so it counts with a plain exit 127: the
+	// tool's error carries the status, the output carries the program name, and a pair
+	// split across the two is still the same failure.
+	if (/(?:^|\n|: )[\w./+-]+: (?:command )?not found/i.test(text)) return 'exit 127'
 	return undefined
 }
 

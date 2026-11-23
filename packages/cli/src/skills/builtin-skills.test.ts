@@ -239,3 +239,10 @@ describe('the built-in skills', () => {
 		expect(problems).toEqual([])
 	})
 })
+
+describe('the document skill description', () => {
+	it('sends a research or analysis request back to the reply', () => {
+		const text = readFileSync(join(SKILLS, 'document', 'SKILL.md'), 'utf8')
+		expect(text).toContain('a research or analysis request is answered in the reply')
+	})
+})
