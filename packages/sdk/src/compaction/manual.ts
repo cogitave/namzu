@@ -30,7 +30,7 @@ import {
 	summarizeWithModel,
 } from './model-summary.js'
 import { planCompaction } from './plan.js'
-import { recordRestorable, renderRestoredContext } from './restore.js'
+import { carriedWorkingCommands, recordRestorable, renderRestoredContext } from './restore.js'
 import { findRetainedIndices } from './retention.js'
 import { buildCompactionMessage, collectRevealedTools, isCompactionMessage } from './summary.js'
 import { estimateMessagesTokens } from './token-estimate.js'
@@ -269,6 +269,14 @@ function populateWorkingState(
 	// Skills an earlier pass put back (an entry, or a summary's restored
 	// section) are not tool results, so they are read from the messages whole.
 	manager.adoptSkillBodies(adoptableSkills(messages))
+	for (const message of messages) {
+		if (
+			message.role === 'system' &&
+			typeof message.content === 'string' &&
+			isCompactionMessage(message.content)
+		)
+			manager.adoptWorkingCommands(carriedWorkingCommands(message.content))
+	}
 	const toolNames = new Map<string, string>()
 	const toolInputs = new Map<string, unknown>()
 

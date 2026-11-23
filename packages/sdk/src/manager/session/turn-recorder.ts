@@ -266,6 +266,8 @@ export class TurnRecorder {
 	#turnSystemPrompt: string | undefined
 	/** Set by {@link resume}: the next reconciliation re-bases the fold on the restored context. */
 	#rebasePending = false
+	/** The summary the log already folds to, read when the recorder opened. */
+	#foldSummary: readonly Message[] = []
 	/**
 	 * The message ids of the log's fold when the turn resumed, oldest first;
 	 * `undefined` when the fold holds a message with no record of its own (a
@@ -730,7 +732,10 @@ export class TurnRecorder {
 				this.#turn.forkedFrom = options.session.forkedFrom
 			}
 			this.#phase = 'open'
-			return await readFoldedHistory(this.log)
+			const history = await readFoldedHistory(this.log)
+			// What the fold already holds as its summary: the entries with no id.
+			this.#foldSummary = history.filter((entry) => !entry.messageId).map((entry) => entry.message)
+			return history
 		} catch (error) {
 			await this.release()
 			throw error
@@ -1210,7 +1215,25 @@ export class TurnRecorder {
 			this.#view.push({ message })
 			return
 		}
+		if (options.restored && this.#phase === 'open' && this.#isHeldSummary(message)) {
+			// The log's fold already ends this summary in its own record. Writing it
+			// again at the turn's start would copy a large text for nothing.
+			this.#view.push({ message })
+			return
+		}
 		this.#syncMessages()
+	}
+
+	/**
+	 * A restored message with no id that is the summary the log already folds to,
+	 * pushed before any recorded message (the place the fold puts it).
+	 */
+	#isHeldSummary(message: Message): boolean {
+		if (this.#foldSummary.length === 0) return false
+		if (this.#view.some((entry) => !entry.transient && entry.id !== undefined)) return false
+		return this.#foldSummary.some(
+			(held) => held.role === message.role && isDeepStrictEqual(held.content, message.content),
+		)
 	}
 
 	/** Replace the context without replacing the turn; recorded as one `compaction`. */

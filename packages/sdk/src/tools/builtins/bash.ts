@@ -9,6 +9,7 @@ import { cancelCauseOf } from '../../types/session/cancel-cause.js'
 import type { ToolFacts } from '../../types/tool/presentation.js'
 import { subscribeToAbort } from '../../utils/abort.js'
 import { readPositiveIntEnv } from '../../utils/env.js'
+import { withNodeOnPath } from '../../utils/node-on-path.js'
 import {
 	type CommandShell,
 	WINDOWS_BASH_GUIDANCE,
@@ -31,7 +32,7 @@ import {
 	recordDirectory,
 	withCwdCapture,
 } from './bash-cwd.js'
-import { judgeExit } from './exit-semantics.js'
+import { commandNotFoundHint, judgeExit } from './exit-semantics.js'
 import { jsonStringEscapes } from './json-string-hint.js'
 import { creditShellReads } from './shell-read-credit.js'
 import { leadingLongSleep, longSleepRefusal } from './sleep-guard.js'
@@ -812,6 +813,7 @@ const BashToolBase = defineTool({
 					? `[${clipped.join(' and ')} was truncated by the sandbox output cap. The omitted output is unavailable in this result. Use a saved artifact or a read-only observation; do not repeat a state-changing action to recover its output.]`
 					: '',
 				result.attribution ? `[${result.attribution.message}]` : '',
+				commandNotFoundHint(result.exitCode, result.stderr) ?? '',
 			]
 				.filter(Boolean)
 				.join('\n\n')
@@ -909,7 +911,7 @@ const BashToolBase = defineTool({
 					{
 						cwd: startDirectory,
 						timeout: input.timeout,
-						env: { ...inherited.env, ...context.env },
+						env: withNodeOnPath({ ...inherited.env, ...context.env }),
 						maxBuffer: DEFAULT_BASH_MAX_BUFFER_BYTES,
 						signal: context.abortSignal,
 						onOutput,
@@ -1024,6 +1026,7 @@ const BashToolBase = defineTool({
 				clipped.length > 0
 					? `[${clipped.join(' and ')} ${clipped.length === 1 ? 'was' : 'were'} truncated by the host output cap. The omitted output is unavailable in this result.]`
 					: '',
+				commandNotFoundHint(exitCode, failure.stderr ?? '') ?? '',
 			]
 				.filter(Boolean)
 				.join('\n\n')

@@ -196,3 +196,26 @@ export function judgeExit(command: string, exitCode: number): ExitJudgement {
 	const note = questionNote(parsed.segments[parsed.segments.length - 1] as string)
 	return note === undefined ? PLAIN_FAILURE : { isError: false, note }
 }
+
+const RUNTIME_PROGRAMS = ['node', 'npm', 'npx', 'pnpm', 'python', 'python3', 'cargo', 'rustc']
+
+/**
+ * A short next step for a command the shell could not find (exit 127).
+ *
+ * Only a runtime the model is likely to want again is named; any other missing
+ * command keeps the plain failure. The hint points at one lookup and at keeping
+ * the working command, so the next attempts do not probe the machine again.
+ */
+export function commandNotFoundHint(
+	exitCode: number | undefined,
+	stderr: string,
+): string | undefined {
+	if (exitCode !== 127) return undefined
+	for (const program of RUNTIME_PROGRAMS) {
+		const found = new RegExp(`(?:^|[\\s:])${program}: (?:command )?not found`, 'm')
+		if (found.test(stderr)) {
+			return `[${program} is not on this shell's PATH. Look it up once (command -v ${program}, or the tool's usual install folder) and call it by that full path. On WSL a Windows install is ${program}.exe and takes Windows paths (wslpath -w). Keep the command that works and reuse it.]`
+		}
+	}
+	return undefined
+}

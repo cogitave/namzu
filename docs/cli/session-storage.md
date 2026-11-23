@@ -242,6 +242,8 @@ record says so. Each line carries the hash of the one before it, so an edited
 or truncated log is detected rather than misread. The index, the checkpoints
 and the meta files are all checked against the log or rebuilt from it.
 
+A turn that starts on a conversation whose context was compacted restores the summary the log already folds to. It is held as it is and not written again: the log has one `compaction` record for it, not one more at the start of every later turn. A summary the log does not hold is still recorded.
+
 `namzu history` and the resume picker show a conversation as the fold of its
 log: the latest compaction's summary, the messages after it, and every
 replacement applied. An answer rewritten by a guardrail or review is shown

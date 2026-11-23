@@ -15,6 +15,10 @@ export const MAX_RESTORABLE_SKILLS = 8
 export const MAX_RESTORABLE_FILES = 12
 /** Characters of one skill or file kept for restoring (a little over the 5,000 tokens a restore shows, so the cut is visible). */
 export const MAX_RESTORABLE_CHARS = 24_000
+/** Working commands kept for a compaction to put back. */
+export const MAX_WORKING_COMMANDS = 8
+/** Characters kept of one working command. */
+export const MAX_WORKING_COMMAND_CHARS = 240
 
 /** Pins kept at most; the oldest is dropped past this, and the drop is counted. */
 export const MAX_PINS = 40
@@ -156,6 +160,30 @@ export class WorkingStateManager {
 		if (index >= 0) restorable.files.splice(index, 1)
 		restorable.files.push({ path: key, text: text.slice(0, MAX_RESTORABLE_CHARS) })
 		while (restorable.files.length > MAX_RESTORABLE_FILES) restorable.files.shift()
+	}
+
+	/** Remember a command that worked (a test run, a build, a runtime call) so a compaction keeps its form. */
+	recordWorkingCommand(command: string): void {
+		const key = command.replace(/\s+/g, ' ').trim().slice(0, MAX_WORKING_COMMAND_CHARS)
+		if (key.length === 0) return
+		const restorable = this.restorableState()
+		const commands = restorable.commands ?? []
+		const index = commands.indexOf(key)
+		if (index >= 0) commands.splice(index, 1)
+		commands.push(key)
+		while (commands.length > MAX_WORKING_COMMANDS) commands.shift()
+		restorable.commands = commands
+	}
+
+	/** Take in commands an earlier summary carried; they count as older than any recorded here. */
+	adoptWorkingCommands(commands: readonly string[]): void {
+		const held = this.state.restorable?.commands ?? []
+		const missing = commands.filter((command) => command.length > 0 && !held.includes(command))
+		if (missing.length === 0) return
+		const restorable = this.restorableState()
+		const next = [...missing, ...held]
+		while (next.length > MAX_WORKING_COMMANDS) next.shift()
+		restorable.commands = next
 	}
 
 	/** A file that was changed after it was read no longer has a body worth restoring. */

@@ -107,6 +107,10 @@ A pass that only clears old tool results can cut a skill's instructions too. Whe
 
 Running background work is not restored: the CLI already tells the model what is still going, rebuilt from the job registry on every request (`integrations/outstanding/note.ts`), so it is present after a compaction and a copy in the summary would only go stale.
 
+A skill is put back without its worked examples: a section headed `Example...` (a sample report, a sample call) is cut, a line says so, and the steps and the rules around it stay. The model can load the skill again to read all of it.
+
+Commands that worked come back too, under `### Working commands` in the same section: the newest eight shell commands that ran successfully and invoke a runner (`node`, `npm`, `npx`, `pnpm`, `yarn`, `bun`, `deno`, `python`, `pytest`, `cargo`, `rustc`, `go`, `make`, `dotnet`, `mvn`, `gradle`, `wslpath`, `powershell.exe`, `cmd.exe`), each cut at 240 characters and listed once. They are read back from an earlier summary, so they survive a resumed session and the next compaction. A summary written by the summary model is asked for the same thing in its "Exact details" section: how tests, builds and runtimes are run on this machine, and the form that failed and why.
+
 The caps shrink on a small window: files may take at most a tenth of it and skills a twentieth, so a 100,000-token window restores about 10,000 and 5,000 tokens. A body that does not fit is cut and says so. What was restored survives a resumed session and the next compaction, and the goal note is rebuilt at each compaction rather than copied forward, so it is never older than the pass that wrote it. A summary made by a pass between turns (`/compact`) is kept as it was by a later automatic one, so the two can each hold a goal note; each says "as of" its own time, and the newer one is the one to trust. The model is told a file may have changed since it was read. `/compact` and `/compact <what to keep>` restore the same things.
 
 # The `compaction` key
@@ -275,6 +279,8 @@ same SDK resolver that launches commands, including `NAMZU_BASH_SHELL`
 overrides and the platform fallback; it is not the login `$SHELL`. For a
 sandbox, the context distinguishes the host from the guest launcher: bash
 when available in the guest, otherwise `/bin/sh`.
+
+When the user's PATH has no `node`, the environment block says so and names the directory of the runtime's own node binary, which shell commands get at the end of their PATH (see [The bash tool](../sdk/bash-tool.md#node-on-the-shells-path)). It says nothing when `node` already resolves.
 
 Read-only Git probes compare the worktree's administration directory with its
 common repository directory. When they differ, the date/branch reminder also
