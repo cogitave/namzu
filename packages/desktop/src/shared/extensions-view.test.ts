@@ -53,8 +53,8 @@ describe('the administrator lock in what is read', () => {
 			[]
 		expect(other?.management).toBeUndefined()
 	})
-	it('keeps the unlock method away from an extension page: only Namzu screens call it', () => {
-		expect(EXTENSION_BRIDGE_METHODS).not.toContain('namzu/extensions/unlock')
+	it('lets Namzu Settings send the administrator unlock request', () => {
+		expect(EXTENSION_BRIDGE_METHODS).toContain('namzu/extensions/unlock')
 	})
 })
 

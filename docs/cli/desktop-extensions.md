@@ -61,8 +61,9 @@ Settings' own. From the top:
   (not a dialog, and nothing per day): it is meant for the company reading it, newest first, with
   filters and search, and the person can open it too. **What is collected** opens a read-only page of
   Settings: one sentence at the top ("This is what Activity Tracker records on this computer, and how
-  long it keeps it."), a group for each kind of data (a plain title, what it records, an example in
-  plain words, how long it is kept, how many records there are, and **Show recent records**), then
+  long it keeps it."), a compact summary for each kind of data (a plain title, what it records, then a list of
+  **For example**, **Retention** and **Records**, and **Show recent records** while the extension is on;
+  the recent table goes away when it is turned off), then
   **Never recorded**, then **Where it is kept**. No field name and no raw row appear until the person asks for
   the recent records; an extension that collects nothing says only that it records nothing. A kind
   kept with `retentionDays: "keep"` says "Kept until your organisation deletes it."
@@ -99,8 +100,8 @@ The page turns on only when the engine lists every method of the group `extensio
 notification `namzu/extensions/state` (`{ id, state, indicator, since }`) on every change, which keeps the list and the extension's screen current. A
 refusal the person can read is answered as `{ error: { code, check, message } }`. A secret is
 never returned, only whether one is stored and its last four characters. The main process
-lets the page call everything except `add`, and `add` only with the file chosen in the dialog.
-An extension's own page can call none of `add` and `unlock`. A method that the lock guards takes the
+lets Namzu's Extensions settings call everything except `add`, and `add` only with the file chosen
+in the dialog. An extension's own page can call none of the `namzu/*` methods, including `add` and `unlock`. A method that the lock guards takes the
 password as `admin`; it is never stored or sent back.
 
 ## The Start when I sign in switch and the licence group

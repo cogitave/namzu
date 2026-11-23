@@ -27,10 +27,8 @@ import './extensions-section.css'
 const keptValue = (days: number | 'keep'): string => keptWords(days).replace(/[.]$/, '')
 
 /**
- * What is collected, as a page of Settings: the same rows as everywhere else, read only. A short sentence,
- * one group for each kind of data (its plain title, what is recorded, an example, how long it is kept, how
- * many records there are), then what is never recorded and where it is kept. No field name and no raw
- * row until the person asks for the recent records.
+ * A read-only disclosure: one summary for each kind of data, then what is never recorded and where
+ * it is kept. Recent records are fetched only when the person asks.
  */
 export function CollectedPage({
 	api,
@@ -124,34 +122,38 @@ export function CollectedView({
 			{d?.dataKinds.map((k) => (
 				<section key={k.id} data-kind={k.id}>
 					<h2 className="settings-section-title">{kindTitle(k)}</h2>
-					{!titleSaysAll(k) && (
-						<Row
-							id={`collected-${k.id}-what`}
-							label="What it records"
-							description={k.description}
-						/>
-					)}
-					{k.example && (
-						<Row id={`collected-${k.id}-example`} label="For example">
-							<span className="settings-value extension-value">{k.example}</span>
-						</Row>
-					)}
-					<Row id={`collected-${k.id}-kept`} label="How long it is kept">
-						<span className="settings-value extension-value">{keptValue(k.retentionDays)}</span>
-					</Row>
-					<Row id={`collected-${k.id}-count`} label="Records">
-						<span className="settings-value extension-value">
-							{row.running ? recordCountWords(counts?.get(k.id)) : 'Counted while it is on'}
-						</span>
-					</Row>
-					{row.running && (
-						<Row id={`collected-${k.id}-recent`} label="Recent records">
-							<Button variant="outline" size="sm" onClick={() => onShowRecent(k.id)}>
+					<div className="extension-collected-summary">
+						{!titleSaysAll(k) && <p>{k.description}</p>}
+						<dl>
+							{k.example && (
+								<div>
+									<dt>For example</dt>
+									<dd>{k.example}</dd>
+								</div>
+							)}
+							<div>
+								<dt>Retention</dt>
+								<dd>{keptValue(k.retentionDays)}</dd>
+							</div>
+							<div>
+								<dt>Records</dt>
+								<dd>
+									{row.running ? recordCountWords(counts?.get(k.id)) : 'Counted while it is on'}
+								</dd>
+							</div>
+						</dl>
+						{row.running && (
+							<Button
+								variant="outline"
+								size="sm"
+								aria-label={`Show recent records: ${kindTitle(k)}`}
+								onClick={() => onShowRecent(k.id)}
+							>
 								Show recent records
 							</Button>
-						</Row>
-					)}
-					{recent?.kind === k.id && recent.table && (
+						)}
+					</div>
+					{row.running && recent?.kind === k.id && recent.table && (
 						<div className="extension-rows">
 							<div className="extension-rows-scroll">
 								<table>

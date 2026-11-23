@@ -124,19 +124,30 @@ export function AdminDialog({
 	const go = async () => {
 		setBusy(true)
 		setFailure(undefined)
-		const r = await ask(api, method, {
-			id: row.id,
-			admin: first,
-			...(action === 'background-off' ? { on: false } : {}),
-		})
-		await refreshExtensions(api)
-		setBusy(false)
-		if (!r.ok) {
+		try {
+			const r = await ask(api, method, {
+				id: row.id,
+				admin: first,
+				...(action === 'background-off' ? { on: false } : {}),
+			})
+			// Refresh on every attempt, so a lock state changed elsewhere shows up after a refusal.
+			await refreshExtensions(api)
+			if (!r.ok) {
+				setFailure(r.failure)
+				return
+			}
+			if (r.value === null) {
+				setFailure('This version of Namzu could not perform the operation.')
+				return
+			}
+			onClose()
+		} catch {
+			setFailure('Namzu could not complete the operation. Try again.')
+		} finally {
 			setFirst('')
 			setAgain('')
-			return setFailure(r.failure)
+			setBusy(false)
 		}
-		onClose()
 	}
 	return (
 		<Dialog.Root open onOpenChange={(open) => !open && !busy && onClose()}>
