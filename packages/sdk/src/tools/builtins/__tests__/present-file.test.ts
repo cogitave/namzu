@@ -51,6 +51,8 @@ describe('present_file', () => {
 		expect(facts.files).toHaveLength(1)
 		expect(facts.files[0]?.path.endsWith('report.md')).toBe(true)
 		expect(facts.files[0]?.bytes).toBe(5)
+		// Where the path led when it was checked, so a host can tell if a link was re-pointed.
+		expect(facts.files[0]?.real?.endsWith('report.md')).toBe(true)
 		expect(facts.caption).toBe('The report')
 		// The same facts survive the admission a saved record goes through.
 		expect(admitToolFacts(JSON.parse(JSON.stringify(facts)))).toEqual(facts)

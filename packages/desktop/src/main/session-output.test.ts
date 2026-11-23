@@ -1,4 +1,14 @@
-import { copyFile, mkdir, mkdtemp, readFile, stat, symlink, writeFile } from 'node:fs/promises'
+import {
+	copyFile,
+	mkdir,
+	mkdtemp,
+	readFile,
+	realpath,
+	stat,
+	symlink,
+	unlink,
+	writeFile,
+} from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeEach, describe, expect, it } from 'vitest'
@@ -97,6 +107,20 @@ describe('what a card shows and where a copy goes', () => {
 			{ path: 'gone.md', missing: true },
 		])
 		await expect(describeOutputs(access, 'plan.md', deps)).rejects.toThrow()
+	})
+	it('refuses a handed-over file whose link was re-pointed after the hand-over', async () => {
+		const first = join(elsewhere, 'first.md')
+		await writeFile(first, 'first')
+		const link = join(elsewhere, 'handed.md')
+		await symlink(first, link)
+		const access = { root: folder, written: [{ path: link, real: await realpath(first) }] }
+		expect((await resolveOutput(access, link)).absolute).toBe(await realpath(first))
+		await unlink(link)
+		await symlink(join(elsewhere, 'secret.txt'), link)
+		await expect(resolveOutput(access, link)).rejects.toThrow(/not one this conversation wrote/)
+		await expect(resolveOutput(access, join(elsewhere, 'secret.txt'))).rejects.toThrow(
+			/not one this conversation wrote/,
+		)
 	})
 	it('copies where the dialog says, and nowhere when it is closed', async () => {
 		const access = { root: folder, written: [] }

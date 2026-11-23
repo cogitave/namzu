@@ -66,6 +66,14 @@ test("a file handed over from a scratch folder shows as a card with its actions"
 		await openProject(world);
 		const w = world;
 		await w.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().forEach((win) => win.setSize(1280, 820)));
+		await w.app.evaluate(({ shell }) => {
+			globalThis.__opened = [];
+			shell.openPath = async (path) => {
+				globalThis.__opened.push(["open", path]);
+				return "";
+			};
+			shell.showItemInFolder = (path) => globalThis.__opened.push(["folder", path]);
+		});
 		await send(w, "hand me the files");
 		await expect(w.page.getByText("Both files are ready for you.")).toBeVisible({ timeout: T });
 		await expect(w.page.getByRole("button", { name: "Stop reply" })).toHaveCount(0, { timeout: T });
@@ -77,6 +85,15 @@ test("a file handed over from a scratch folder shows as a card with its actions"
 		await expect(w.page.getByText("The report and the numbers behind it").first()).toBeVisible();
 		await expect(cards.nth(0).getByRole("button", { name: "Show quarterly-report.md in its folder" })).toBeVisible();
 		await expect(cards.nth(0).getByRole("button", { name: "Save a copy of quarterly-report.md" })).toBeVisible();
+		// Show in folder and Open go through the host, for the file outside the project.
+		await cards.nth(0).hover();
+		await w.page.waitForTimeout(600);
+		await cards.nth(0).getByRole("button", { name: "Show quarterly-report.md in its folder" }).click();
+		await cards.nth(0).getByRole("button", { name: "Open quarterly-report.md with the app for this kind of file" }).click();
+		await expect.poll(() => w.app.evaluate(() => globalThis.__opened.length), { timeout: T }).toBe(2);
+		const opened = await w.app.evaluate(() => globalThis.__opened);
+		assert.deepEqual(opened.map((entry) => entry[0]).sort(), ["folder", "open"]);
+		for (const entry of opened) assert.match(entry[1], /scratch[\\/]quarterly-report\.md$/);
 		await cards.nth(0).hover();
 		// Only the picture waits for the fade of the finished turn's status row; no assertion depends on it.
 		await w.page.waitForTimeout(1500);

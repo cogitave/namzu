@@ -125,3 +125,33 @@ describe('file rules read as paths', () => {
 		expect(decide({ read: { '.env': 'deny' } }, 'read', 'src/plain', context).decision).toBe('deny')
 	})
 })
+
+describe('a rule on read also covers present_file', () => {
+	function decideMany(permissions: PermissionsConfig, paths: string[]) {
+		const { rules } = compilePermissions(permissions, undefined, { cwd: CWD, home: HOME })
+		const gate = new AuthorizationGate(
+			{
+				enabled: true,
+				rules: [...rules],
+				allowReadOnlyTools: false,
+				denyDangerousPatterns: false,
+				logDecisions: false,
+			},
+			NOOP_LOGGER,
+		)
+		return gate.evaluate({ toolName: 'present_file', toolInput: { paths }, toolDef: undefined })
+	}
+
+	it('refuses the call when any listed file is denied for reading', () => {
+		const table: PermissionsConfig = { read: { './.env': 'deny' } }
+		expect(decideMany(table, ['report.md', '.env']).decision).toBe('deny')
+		expect(decideMany(table, ['./.env']).decision).toBe('deny')
+		expect(decideMany(table, ['report.md']).decision).toBe('review')
+	})
+
+	it('allows only when every listed file is allowed', () => {
+		const table: PermissionsConfig = { read: { 'docs/**': 'allow' } }
+		expect(decideMany(table, ['docs/a.md', 'docs/b/c.md']).decision).toBe('allow')
+		expect(decideMany(table, ['docs/a.md', 'secret.txt']).decision).toBe('review')
+	})
+})

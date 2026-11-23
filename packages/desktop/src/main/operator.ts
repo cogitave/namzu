@@ -3808,12 +3808,15 @@ export class Operator {
 		const session = this.session(sessionId)
 		if (session.view.palId) throw new Error('A Pal conversation has no preview.')
 		const project = this.project(session.view.projectId)
-		const written: string[] = []
+		const written: (string | { path: string; real: string })[] = []
 		for (const tool of Object.values(session.projection.tools)) {
 			if (tool.status !== 'completed') continue
 			// A file the agent handed over is the one thing outside the folder the window may read.
 			if (tool.facts?.kind === 'shared') {
-				for (const file of tool.facts.files) if (isAbsolute(file.path)) written.push(file.path)
+				for (const file of tool.facts.files) {
+					if (!isAbsolute(file.path)) continue
+					written.push(file.real ? { path: file.path, real: file.real } : file.path)
+				}
 				continue
 			}
 			const path =

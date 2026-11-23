@@ -187,13 +187,18 @@ export function admitToolFacts(value: unknown): ToolFacts | undefined {
 		case 'shared': {
 			if (!Array.isArray(value.files) || value.files.length === 0 || value.files.length > 50)
 				return undefined
-			const files: { path: string; bytes?: number }[] = []
+			const files: { path: string; real?: string; bytes?: number }[] = []
 			for (const file of value.files) {
 				if (!isRecord(file)) return undefined
 				const path = text(file.path)
 				if (path === undefined) return undefined
 				const bytes = count(file.bytes)
-				files.push(bytes === undefined ? { path } : { path, bytes })
+				const real = text(file.real)
+				files.push({
+					path,
+					...(real === undefined ? {} : { real }),
+					...(bytes === undefined ? {} : { bytes }),
+				})
 			}
 			return pick<ToolFacts>({ kind: 'shared', files, caption: text(value.caption) })
 		}

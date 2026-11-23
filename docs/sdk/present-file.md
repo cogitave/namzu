@@ -38,9 +38,11 @@ Each path goes through the same resolver the file tools use (`resolveWithinAnyRe
 
 The good paths are shared and the refused ones are listed under *Not shared*. If nothing can be shared the call fails with every reason. Nothing is copied and no bytes go back to the model.
 
+A rule written under `read` in the permission rules (`read(.env)` and the like) covers `present_file` too, so a file the person denied for reading cannot be handed over: the call is refused if any listed path is named by a deny, and an allow applies only when every listed path is allowed.
+
 ## What it reports
 
-The result carries `facts: { kind: 'shared', files: [{ path, bytes }], caption? }` (`ToolFacts` in `types/tool/presentation.ts`; admitted from a saved conversation by `admitToolFacts`, and by the desktop app's own copy of that rule). The path is the one the person knows (links not followed). The same list is in `data`.
+The result carries `facts: { kind: 'shared', files: [{ path, real?, bytes }], caption? }` (`ToolFacts` in `types/tool/presentation.ts`; admitted from a saved conversation by `admitToolFacts`, and by the desktop app's own copy of that rule). The path is the one the person knows (links not followed); `real` is where it led when the call checked it, and a host that opens the file later compares it again and refuses a file whose link now leads elsewhere. The same list is in `data`.
 
 ## How it is shown
 

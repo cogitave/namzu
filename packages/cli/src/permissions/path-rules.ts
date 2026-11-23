@@ -36,10 +36,11 @@ export interface PathRuleContext {
  * The tools a path rule written under a name decides, by the tool's own
  * `pathArgument` (`path`). A rule on `read` also covers the search and listing
  * tools, and a rule on `edit` also covers `write`, so a refusal of a file for
- * one cannot be walked around with its sibling.
+ * one cannot be walked around with its sibling. `present_file` names its files
+ * in a `paths` list; a refusal of any one of them refuses the call.
  */
 const PATH_RULE_TOOLS: Readonly<Record<string, readonly string[]>> = {
-	read: ['read', 'grep', 'glob', 'ls'],
+	read: ['read', 'grep', 'glob', 'ls', 'present_file'],
 	edit: ['edit', 'write'],
 	write: ['write'],
 	grep: ['grep'],
@@ -57,6 +58,7 @@ export function pathRuleTools(tool: string): readonly string[] {
 }
 
 const PATH_ARGUMENT = 'path'
+const PATHS_ARGUMENT = 'paths'
 const WINDOWS = process.platform === 'win32'
 
 function slashed(value: string): string {
@@ -164,17 +166,33 @@ export function pathRule(
 	const verdict = (toolName: string, input: unknown) => {
 		if (!names.includes(toolName)) return undefined
 		if (typeof input !== 'object' || input === null) return undefined
-		const written = (input as Record<string, unknown>)[PATH_ARGUMENT]
-		const value =
-			(written === undefined || written === '') && ['grep', 'glob', 'ls'].includes(toolName)
-				? '.'
-				: written
-		if (typeof value !== 'string' || value === '') return undefined
+		const record = input as Record<string, unknown>
+		let values: unknown[]
+		if (toolName === 'present_file') {
+			const listed = record[PATHS_ARGUMENT]
+			if (!Array.isArray(listed) || listed.length === 0) return undefined
+			values = listed
+		} else {
+			const written = record[PATH_ARGUMENT]
+			values = [
+				(written === undefined || written === '') && ['grep', 'glob', 'ls'].includes(toolName)
+					? '.'
+					: written,
+			]
+		}
+		if (values.some((value) => typeof value !== 'string' || value === '')) return undefined
 		const globs = globsOf(pattern, ruleBase)
-		const candidates = candidatesOf(value, base)
 		const named = (path: string) => globs.some((glob) => covers(glob, path))
-		const hit = decision === 'allow' ? candidates.every(named) : candidates.some(named)
-		return hit ? candidates[0] : undefined
+		const hits: string[] = []
+		const misses: string[] = []
+		for (const value of values as string[]) {
+			const candidates = candidatesOf(value, base)
+			const hit = decision === 'allow' ? candidates.every(named) : candidates.some(named)
+			;(hit ? hits : misses).push(candidates[0] as string)
+		}
+		// A deny or an ask applies if any file is named; an allow only if all are.
+		const applies = decision === 'allow' ? misses.length === 0 : hits.length > 0
+		return applies ? hits[0] : undefined
 	}
 	const verb =
 		decision === 'deny' ? 'denied' : decision === 'review' ? 'sent for review' : 'allowed'

@@ -24,6 +24,8 @@ const inputSchema = z.object({
 
 export interface PresentedFile {
 	readonly path: string
+	/** The file the path led to when it was checked, links followed. */
+	readonly real: string
 	readonly bytes: number
 }
 
@@ -56,8 +58,9 @@ async function check(
 	} catch {
 		return { refused: `${requested}: the file cannot be read.` }
 	}
-	// The path the person would know (before links are followed); the host checks it again.
-	return { file: { path: resolve(roots[0] as string, requested), bytes: info.size } }
+	// The path the person would know (before links are followed), and where it led now: the host
+	// shows the first and refuses the file if the second changes.
+	return { file: { path: resolve(roots[0] as string, requested), real, bytes: info.size } }
 }
 
 /**
