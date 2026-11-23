@@ -1202,8 +1202,9 @@ export interface SendOptions {
 	 * reminder kept in the conversation, to use the `workflow` tool for
 	 * substantive work: in full the first time, sparsely every few messages, and
 	 * once when it ends (`hypermodeReminders`); a resumed conversation reads
-	 * what was already said from its own history. It changes no effort, no tool list and no
-	 * permission; it creates no roster and starts no delegation by itself.
+	 * what was already said from its own history. It changes no effort and no
+	 * permission, and it loads the agent and workflow tools into the request instead of
+	 * leaving them to a search; it creates no roster and starts no delegation by itself.
 	 */
 	readonly hypermode?: boolean
 	/**
@@ -2533,6 +2534,9 @@ export const EAGER_TOOLS_WHEN_DEFERRED = [
 	'bash',
 	'job',
 	'wait_for_job',
+	// Reading a page is the first step of most web work; a search first would hide
+	// it behind a catalogue line cut short.
+	'web_fetch',
 	// The delegation tool.
 	AGENT_LAUNCH_TOOL,
 	'ask_user_question',
@@ -2552,6 +2556,28 @@ export const EAGER_TOOLS_WHEN_DEFERRED = [
 	'search_tools',
 ] as const
 export { DEFERRED_TOOL_GUIDANCE }
+
+/**
+ * The tools a turn reaches for when it delegates: they ride the request, not a
+ * search, while hypermode is on or an agent or workflow run is still going.
+ */
+// `task_create` and `task_update` are left out on purpose: they keep a plan list,
+// they do not delegate, so a turn without delegated work never needs them loaded.
+export const DELEGATION_TOOLS_WHEN_BUSY = [
+	'wait_for_task',
+	'agent_task_list',
+	'send_message',
+	'cancel_agent',
+] as const
+
+/** True when this turn is, or is about to be, working with delegated work. */
+export function delegationIsBusy(state: {
+	readonly hypermode: boolean
+	readonly liveAgents: number
+	readonly runningWorkflows: number
+}): boolean {
+	return state.hypermode || state.liveAgents > 0 || state.runningWorkflows > 0
+}
 
 /**
  * The names that ride every request of a session: {@link EAGER_TOOLS_WHEN_DEFERRED},
@@ -2589,7 +2615,7 @@ const anyDeferred = (toolsets: readonly Toolset[]): boolean =>
  * halves keep `ts`'s own `source` (via `filtered`), so `sourceOf` still
  * resolves the same way regardless of which half actually served a name.
  */
-function deferExceptToolset(ts: Toolset, eager: readonly string[]): readonly Toolset[] {
+export function deferExceptToolset(ts: Toolset, eager: readonly string[]): readonly Toolset[] {
 	const eagerNames = new Set(eager)
 	return [
 		filtered(ts, (tool) => eagerNames.has(tool.name)),
@@ -5634,16 +5660,21 @@ export async function createAgentSession(
 	// active for the rest of the session, including after `namzu resume`,
 	// instead of being lost on the very next send.
 	const eagerToolNames = eagerToolsFor({ planApproval: options.planApproval && !options.ephemeral })
-	const sessionToolsets: readonly Toolset[] = toolsets.flatMap((ts) => {
-		const wrapped =
-			withheldTools.size > 0 || options.onlyTools !== undefined
-				? filtered(
-						ts,
-						(tool) => !withheldTools.has(tool.name) && toolOnOffer(options.onlyTools, tool.name),
-					)
-				: ts
-		return toolLoadingDeferred ? deferExceptToolset(wrapped, eagerToolNames) : [wrapped]
-	})
+	const sessionToolsetsWith = (eager: readonly string[]): readonly Toolset[] =>
+		toolsets.flatMap((ts) => {
+			const wrapped =
+				withheldTools.size > 0 || options.onlyTools !== undefined
+					? filtered(
+							ts,
+							(tool) => !withheldTools.has(tool.name) && toolOnOffer(options.onlyTools, tool.name),
+						)
+					: ts
+			return toolLoadingDeferred ? deferExceptToolset(wrapped, eager) : [wrapped]
+		})
+	const sessionToolsets: readonly Toolset[] = sessionToolsetsWith(eagerToolNames)
+	// The same toolsets with the agent and workflow tools loaded, for a turn that
+	// is running or about to run delegated work. Built only when first needed.
+	let busySessionToolsets: readonly Toolset[] | undefined
 	// The memory section is written only for a session that holds the tool
 	// it teaches: a run that withholds `save_memory` would be told to use it.
 	// The answer is fixed at boot, so the prompt prefix stays byte-stable.
@@ -7368,6 +7399,27 @@ export async function createAgentSession(
 					liveManager()
 					let runToolsets: readonly Toolset[] = sessionToolsets
 					let runManager: ToolManager = manager
+					// A turn that works with delegated work holds its task tools already loaded,
+					// so it never spends a search to read a status or wait for a result.
+					const delegationBusy = delegationIsBusy({
+						hypermode: opts?.hypermode === true,
+						liveAgents: subagentRuntime?.liveChildSessionIds().size ?? 0,
+						runningWorkflows: (workflowHost?.registry.running() ?? []).filter(
+							(run) => workflowOwners.get(run.runId) === scope.sessionId,
+						).length,
+					})
+					if (delegationBusy && toolLoadingDeferred) {
+						busySessionToolsets ??= sessionToolsetsWith([
+							...eagerToolNames,
+							...DELEGATION_TOOLS_WHEN_BUSY,
+						])
+						runToolsets = busySessionToolsets
+						runManager = new ToolManager({
+							toolsets: runToolsets,
+							...(screensConfig !== undefined ? { resultGuardrails: screensConfig } : {}),
+							messages: () => [],
+						})
+					}
 					lastSendInteractive = opts?.onPermission !== undefined
 					const turnScope = { ...scope }
 					// The plan file, when this session has a plan mode: the one write
@@ -7589,7 +7641,9 @@ export async function createAgentSession(
 							// workflow: a deferring session lists it and loads it on request.
 							runToolsets = [
 								...runToolsets,
-								toolLoadingDeferred ? deferred(workflowToolset) : workflowToolset,
+								toolLoadingDeferred && !delegationBusy
+									? deferred(workflowToolset)
+									: workflowToolset,
 							]
 							if (runManager !== manager) runManager.dispose()
 							runManager = new ToolManager({
