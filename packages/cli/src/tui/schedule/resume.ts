@@ -243,7 +243,7 @@ export function scheduledResumeMismatch(
 		!environment.providers.includes(job.model.provider)
 	) {
 		reasons.push(
-			`the job runs on ${job.model.provider}${job.model.model ? `/${job.model.model}` : ''} and this conversation has no credential for ${job.model.provider} (sign in with \`namzu login\`, or set its API key)`,
+			`the job runs on ${job.model.provider}${job.model.model ? `/${job.model.model}` : ''} and this conversation has no credential for ${job.model.provider} (sign in with \`namzu auth login\`, or set its API key)`,
 		)
 	}
 	return reasons

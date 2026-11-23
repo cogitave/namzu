@@ -1,3 +1,5 @@
+import { resolve } from 'node:path'
+
 import { loadConfig, pendingProjectMcpServers } from '../config/load.js'
 import { userConfigPath } from '../config/user-config.js'
 import { EXIT_BAD_CONFIG, EXIT_FAIL, EXIT_OK, EXIT_UNTRUSTED, EXIT_USAGE } from '../exit-codes.js'
@@ -7,14 +9,22 @@ import {
 	startNewMcpApprovals,
 } from '../integrations/mcp/project-approval.js'
 import {
+	addProjectMcpServer,
+	projectMcpServerNames,
+	removeProjectMcpServer,
+} from '../integrations/mcp/project-file.js'
+import {
 	type McpServerSpec,
 	connectDeadlineFor,
 	connectMcpServers,
+	mcpServerSpecProblem,
 	transportFor,
 } from '../integrations/mcp/servers.js'
 import {
+	MCP_NAME_RULE,
 	addUserMcpServer,
 	isUserMcpName,
+	mcpAddressProblem,
 	readUserMcpServers,
 	removeUserMcpServer,
 	summarizeUserMcpServer,
@@ -26,32 +36,58 @@ import { loginMcpServer } from './mcp-oauth-login.js'
 import type { CommandContext, CommandDef } from './types.js'
 
 const HELP = [
-	'Usage: namzu mcp <list|get|add|remove|approve|test|login|logout> [arguments]',
+	'Usage: namzu mcp <list|get|add|remove|approve|test|login|logout|serve> [arguments]',
 	'',
-	'Manage tool servers in your user config (~/.namzu/config.yaml).',
-	'Project and managed config can override these entries.',
+	'Manage tool servers in your user config (~/.namzu/config.yaml) or in this',
+	"project's .mcp.json. Project and managed config can override user entries.",
 	'',
 	'  namzu mcp list',
 	'  namzu mcp get <name>',
-	"  namzu mcp add <name> --url <http-url> [--header 'NAME=Bearer \u0024{ENV_VAR}']",
-	'  namzu mcp add <name> [--env ENV_VAR] -- <command> [arguments...]',
-	'  namzu mcp remove <name>',
+	"  namzu mcp add <name> --url <http-url> [-H 'NAME: Bearer \u0024{ENV_VAR}']",
+	"  namzu mcp add -t http <name> <http-url> [-H 'NAME: Bearer \u0024{ENV_VAR}']",
+	'  namzu mcp add <name> [-e NAME=value]... -- <command> [arguments...]',
+	'  namzu mcp add json <name> <json>    Add from one JSON object, the shape of one .mcp.json entry',
+	'  namzu mcp remove <name> [-s user|project]',
+	'      -s, --scope user|project   where to write (default user); a project server waits for',
+	'                                 namzu mcp approve before it starts',
+	'      -t, --transport stdio|http  what kind of server (default stdio)',
+	'      -e, --env NAME=value       environment for a command server; repeat. Use NAME=\u0024{OTHER} to',
+	'                                 read the value from your environment when the server starts',
+	'      -H, --header "NAME: value" header for an HTTP server; repeat. The value must be',
+	'                                 \u0024{ENV_VAR} or Bearer \u0024{ENV_VAR}; literal secrets are refused',
 	"  namzu mcp approve [name...] [--new-list]    Start this project's .mcp.json servers (all when no name);",
 	'      --new-list starts a new approvals list when ~/.namzu/mcp-approvals.json cannot be read',
 	'      (the old one is kept in ~/.namzu/backups/)',
 	'  namzu mcp test <name> [--trust]    Check the effective server and its tools',
 	'  namzu mcp login <name> [--no-browser] [--timeout <seconds>]',
 	'  namzu mcp logout <name>',
+	'  namzu mcp serve [--permission-mode <mode>] [--allowed-tools <list>] [--disallowed-tools <list>]',
+	'                  [--add-dir <path>] [--trust]',
+	"      Serve Namzu's file and shell tools to another program over stdin and stdout.",
+	'      Your permission rules apply to every call. A call that would need your approval is',
+	'      refused (nobody can be asked), and the refusal names the rule to add.',
+	'',
+	'In `add json <name> <json>`, json is the JSON form when exactly two arguments follow it and',
+	'the second is a JSON object; otherwise "json" is an ordinary server name.',
 	'',
 	'Use --format json for structured output. Values of headers, environment',
 	'variables and command arguments are hidden in list/get/test output.',
 ].join('\n')
 
+type McpScope = 'user' | 'project'
+
 type McpAction =
 	| { readonly kind: 'list' }
-	| { readonly kind: 'get' | 'remove'; readonly name: string }
+	| { readonly kind: 'get'; readonly name: string }
+	| { readonly kind: 'remove'; readonly name: string; readonly scope: McpScope }
+	| { readonly kind: 'serve'; readonly args: readonly string[] }
 	| { readonly kind: 'test'; readonly name: string; readonly trust: boolean }
-	| { readonly kind: 'add'; readonly name: string; readonly spec: McpServerSpec }
+	| {
+			readonly kind: 'add'
+			readonly name: string
+			readonly spec: McpServerSpec
+			readonly scope: McpScope
+	  }
 	| {
 			readonly kind: 'login'
 			readonly name: string
@@ -136,8 +172,23 @@ export const mcpCommand: CommandDef = {
 	handler: async ({ ctx, rawArgs }) => {
 		const action = parseMcpAction(rawArgs)
 		if (action.kind === 'error') {
+			// A retired spelling is the bare line naming the new form, as for a retired command.
+			if (action.message === RETIRED_ENV || action.message === RETIRED_HEADER) {
+				process.stderr.write(`${action.message}\n`)
+				return EXIT_USAGE
+			}
 			ctx.formatter.error({ message: action.message })
 			return EXIT_USAGE
+		}
+		if (action.kind === 'serve') {
+			const { runMcpServe } = await import('./mcp-serve.js')
+			return runMcpServe({
+				args: action.args,
+				ctx,
+				input: process.stdin,
+				output: process.stdout,
+				cwd: process.cwd(),
+			})
 		}
 		if (action.kind === 'approve') return approveProjectServers(action.names, action.newList, ctx)
 		if (action.kind === 'test') {
@@ -196,6 +247,9 @@ export const mcpCommand: CommandDef = {
 				})
 				return EXIT_FAIL
 			}
+		}
+		if ((action.kind === 'add' || action.kind === 'remove') && action.scope === 'project') {
+			return changeProjectFile(action, ctx)
 		}
 		try {
 			const entries = readUserMcpServers()
@@ -272,6 +326,50 @@ export const mcpCommand: CommandDef = {
 			return EXIT_BAD_CONFIG
 		}
 	},
+}
+
+/** `add` and `remove` with `--scope project`: the project's own `.mcp.json`, in this folder. */
+function changeProjectFile(
+	action: Extract<McpAction, { kind: 'add' }> | Extract<McpAction, { kind: 'remove' }>,
+	ctx: CommandContext,
+): number {
+	const cwd = resolve(process.cwd())
+	try {
+		if (action.kind === 'remove') {
+			if (!removeProjectMcpServer(cwd, action.name)) {
+				ctx.formatter.error({
+					message: `No tool server named "${oneLine(action.name)}" in .mcp.json.`,
+				})
+				return EXIT_USAGE
+			}
+			ctx.formatter.print({
+				file: '.mcp.json',
+				name: action.name,
+				text: `Removed tool server ${oneLine(action.name)} from .mcp.json.`,
+			})
+			return EXIT_OK
+		}
+		if (projectMcpServerNames(cwd).includes(action.name)) {
+			ctx.formatter.error({
+				message: `Tool server "${oneLine(action.name)}" already exists in .mcp.json.`,
+			})
+			return EXIT_USAGE
+		}
+		const file = addProjectMcpServer(cwd, action.name, action.spec)
+		const server = summarizeUserMcpServer({ name: action.name, spec: action.spec })
+		ctx.formatter.print({
+			file,
+			server,
+			approval: 'waiting',
+			text: `Added tool server ${oneLine(action.name)} to ${oneLine(file)}. It does not start until you run: namzu mcp approve ${oneLine(action.name)}`,
+		})
+		return EXIT_OK
+	} catch (error) {
+		ctx.formatter.error({
+			message: error instanceof Error ? oneLine(error.message) : 'Could not change .mcp.json.',
+		})
+		return EXIT_BAD_CONFIG
+	}
 }
 
 /** Probe only the named effective server; a test must not start its siblings. */
@@ -452,8 +550,107 @@ function canSignInToMcpUrl(raw: string | undefined): boolean {
 	}
 }
 
+/** Why an old spelling is gone, in one line naming the new form. */
+const RETIRED_ENV = '`--env NAME` is now `--env NAME=${NAME}`.'
+const RETIRED_HEADER = "`--header NAME=VALUE` is now `--header 'NAME: VALUE'`."
+
+const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/
+const HEADER_NAME = /^[A-Za-z0-9-]+$/
+const HEADER_REFERENCE = /^(?:Bearer )?\$\{[A-Za-z_][A-Za-z0-9_]*\}$/
+const LITERAL_SECRET =
+	'--header needs a value of the form ${ENV_VAR} or Bearer ${ENV_VAR}; literal secrets are refused so they are not written to a file.'
+
+/** The scope word, or the sentence saying which words there are. */
+function scopeOf(value: string | undefined): McpScope | { readonly error: string } {
+	if (value === 'user' || value === 'project') return value
+	return { error: '--scope must be user or project.' }
+}
+
+/** A JSON object written as one argument, or undefined when the argument is anything else. */
+function jsonObjectOf(text: string | undefined): Record<string, unknown> | undefined {
+	if (text === undefined) return undefined
+	try {
+		const parsed: unknown = JSON.parse(text)
+		return parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)
+			? (parsed as Record<string, unknown>)
+			: undefined
+	} catch {
+		return undefined
+	}
+}
+
+/** The arguments of `add` with any `--scope` pair taken out, and the scope they named. */
+function takeScope(
+	args: readonly string[],
+): { readonly rest: readonly string[]; readonly scope: McpScope } | { readonly error: string } {
+	const rest: string[] = []
+	let scope: McpScope = 'user'
+	for (let index = 0; index < args.length; index++) {
+		const arg = args[index] as string
+		if (arg === '--') {
+			rest.push(...args.slice(index))
+			break
+		}
+		if (arg === '-s' || arg === '--scope') {
+			const found = scopeOf(args[++index])
+			if (typeof found !== 'string') return found
+			scope = found
+			continue
+		}
+		rest.push(arg)
+	}
+	return { rest, scope }
+}
+
+/** What is wrong with a header value written for `--header` or inside a JSON entry. */
+function headerValueProblem(headers: Record<string, unknown>): string | undefined {
+	for (const [name, value] of Object.entries(headers)) {
+		if (!HEADER_NAME.test(name) || typeof value !== 'string' || !HEADER_REFERENCE.test(value)) {
+			return LITERAL_SECRET
+		}
+	}
+	return undefined
+}
+
+/** The checks `add` has always made on an address and its headers, in one place. */
+function remoteProblem(url: string, headers: Record<string, unknown>): string | undefined {
+	const address = mcpAddressProblem(url)
+	if (address) return address
+	if (Object.keys(headers).length > 0) {
+		const parsed = new URL(url)
+		const remoteInsecure =
+			parsed.protocol === 'http:' && !['localhost', '127.0.0.1', '[::1]'].includes(parsed.hostname)
+		if (remoteInsecure) return 'Credential headers require HTTPS or a loopback endpoint.'
+	}
+	return undefined
+}
+
+/** `add json <name> <json>`: one entry, checked the way a session checks it when it starts the server. */
+function parseAddJson(name: string, entry: Record<string, unknown>, scope: McpScope): McpAction {
+	if (!isUserMcpName(name)) return { kind: 'error', message: MCP_NAME_RULE }
+	const { type, ...spec } = entry
+	if (type === 'sse') {
+		return {
+			kind: 'error',
+			message: 'Servers that need Server-Sent Events are not supported. Use an http server.',
+		}
+	}
+	if (type !== undefined && type !== 'stdio' && type !== 'http' && type !== 'streamable-http') {
+		return { kind: 'error', message: '"type" must be stdio or http.' }
+	}
+	const problem = mcpServerSpecProblem(spec)
+	if (problem) return { kind: 'error', message: `The server entry is not valid: ${problem}.` }
+	if (typeof spec.url === 'string') {
+		const headers = (spec.headers ?? {}) as Record<string, unknown>
+		const bad = headerValueProblem(headers) ?? remoteProblem(spec.url, headers)
+		if (bad) return { kind: 'error', message: bad }
+	}
+	return { kind: 'add', name, spec: spec as McpServerSpec, scope }
+}
+
 function parseMcpAction(args: readonly string[]): McpAction {
 	const [verb, name] = args
+	if (verb === 'serve') return { kind: 'serve', args: args.slice(1) }
 	if (verb === 'approve') {
 		const rest = args.slice(1)
 		const newList = rest.includes('--new-list')
@@ -489,8 +686,13 @@ function parseMcpAction(args: readonly string[]): McpAction {
 		}
 		return { kind: 'login', name, noBrowser, timeoutMs }
 	}
-	if ((verb === 'get' || verb === 'remove') && args.length === 2 && name !== undefined) {
-		return { kind: verb, name }
+	if (verb === 'get' && args.length === 2 && name !== undefined) return { kind: 'get', name }
+	if (verb === 'remove') {
+		const taken = takeScope(args.slice(1))
+		if ('error' in taken) return { kind: 'error', message: taken.error }
+		if (taken.rest.length === 1 && taken.rest[0] !== undefined && !taken.rest[0].startsWith('-')) {
+			return { kind: 'remove', name: taken.rest[0], scope: taken.scope }
+		}
 	}
 	if (
 		verb === 'test' &&
@@ -499,21 +701,40 @@ function parseMcpAction(args: readonly string[]): McpAction {
 	) {
 		return { kind: 'test', name, trust: args[2] === '--trust' }
 	}
-	if (verb !== 'add' || !name || !isUserMcpName(name)) {
+	if (verb !== 'add') {
 		return {
 			kind: 'error',
 			message:
-				'Usage: namzu mcp <list|get|add|remove|test|login|logout>; new server names must start with a letter and use only letters, digits, _ or -.',
+				'Usage: namzu mcp <list|get|add|remove|test|login|logout|serve>; new server names must start with a letter and use only letters, digits, _ or -.',
 		}
 	}
+	return parseMcpAdd(args.slice(1))
+}
+
+function parseMcpAdd(args: readonly string[]): McpAction {
+	const taken = takeScope(args)
+	if ('error' in taken) return { kind: 'error', message: taken.error }
+	const { scope } = taken
+	// `add json <name> <json>`: the JSON form only when exactly two arguments follow `json` and the
+	// second is a JSON object. Anything else keeps "json" as an ordinary server name.
+	if (taken.rest.length === 3 && taken.rest[0] === 'json') {
+		const entry = jsonObjectOf(taken.rest[2])
+		if (entry !== undefined) return parseAddJson(taken.rest[1] as string, entry, scope)
+	}
+	let name: string | undefined
 	let url: string | undefined
-	const inheritEnv: string[] = []
+	let transport: 'stdio' | 'http' | undefined
+	const env: Record<string, string> = {}
 	const headers: Record<string, string> = {}
-	let command: readonly string[] | undefined
-	for (let index = 2; index < args.length; index++) {
-		const arg = args[index]
+	let tail: readonly string[] | undefined
+	for (let index = 0; index < args.length; index++) {
+		const arg = args[index] as string
+		if (arg === '-s' || arg === '--scope') {
+			index++
+			continue
+		}
 		if (arg === '--') {
-			command = args.slice(index + 1)
+			tail = args.slice(index + 1)
 			break
 		}
 		if (arg === '--url') {
@@ -521,42 +742,83 @@ function parseMcpAction(args: readonly string[]): McpAction {
 			if (!url) return { kind: 'error', message: '--url requires an HTTP URL.' }
 			continue
 		}
-		if (arg === '--env') {
-			const variable = args[++index]
-			if (!variable || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(variable)) {
-				return { kind: 'error', message: '--env requires an environment variable name.' }
-			}
-			inheritEnv.push(variable)
-			continue
-		}
-		if (arg === '--header') {
-			const header = args[++index]
-			const split = header?.indexOf('=') ?? -1
-			if (
-				!header ||
-				split <= 0 ||
-				!/^[A-Za-z0-9-]+$/.test(header.slice(0, split)) ||
-				!/^(?:Bearer )?\$\{[A-Za-z_][A-Za-z0-9_]*\}$/.test(header.slice(split + 1))
-			) {
+		if (arg === '-t' || arg === '--transport') {
+			const value = args[++index]
+			if (value === 'sse') {
 				return {
 					kind: 'error',
-					message:
-						'--header requires NAME=\u0024{ENV_VAR} or NAME=Bearer \u0024{ENV_VAR}; literal secrets are refused.',
+					message: 'Servers that need Server-Sent Events are not supported. Use --transport http.',
 				}
 			}
-			headers[header.slice(0, split)] = header.slice(split + 1)
+			if (value !== 'stdio' && value !== 'http') {
+				return { kind: 'error', message: '--transport must be stdio or http.' }
+			}
+			transport = value
 			continue
 		}
-		if (arg && !arg.startsWith('-')) {
-			command = args.slice(index)
-			break
+		if (arg === '-e' || arg === '--env') {
+			const entry = args[++index]
+			const split = entry?.indexOf('=') ?? -1
+			if (entry !== undefined && split === -1 && ENV_NAME.test(entry)) {
+				return { kind: 'error', message: RETIRED_ENV }
+			}
+			if (!entry || split <= 0 || !ENV_NAME.test(entry.slice(0, split))) {
+				return { kind: 'error', message: '--env requires NAME=value.' }
+			}
+			env[entry.slice(0, split)] = entry.slice(split + 1)
+			continue
 		}
-		return { kind: 'error', message: `Unknown mcp add option: ${oneLine(arg ?? '')}` }
+		if (arg === '-H' || arg === '--header') {
+			const header = args[++index]
+			if (header !== undefined && /^[A-Za-z0-9-]+=/.test(header)) {
+				return { kind: 'error', message: RETIRED_HEADER }
+			}
+			const split = header?.indexOf(':') ?? -1
+			if (!header || split <= 0) {
+				return {
+					kind: 'error',
+					message: "--header requires 'NAME: ${ENV_VAR}' or 'NAME: Bearer ${ENV_VAR}'.",
+				}
+			}
+			const headerName = header.slice(0, split).trim()
+			const value = header.slice(split + 1).trim()
+			if (!HEADER_NAME.test(headerName) || !HEADER_REFERENCE.test(value)) {
+				return { kind: 'error', message: LITERAL_SECRET }
+			}
+			headers[headerName] = value
+			continue
+		}
+		if (arg.startsWith('-')) {
+			return { kind: 'error', message: `Unknown mcp add option: ${oneLine(arg)}` }
+		}
+		if (name === undefined) {
+			name = arg
+			continue
+		}
+		// With `-t http` before it, the word after the name is the address and flags may follow it.
+		if (transport === 'http' && url === undefined) {
+			url = arg
+			continue
+		}
+		// Otherwise it starts the command, and everything after it belongs to the command.
+		tail = args.slice(index)
+		break
 	}
-	if (url && command) return { kind: 'error', message: 'Choose --url or a command, not both.' }
+	if (!name || !isUserMcpName(name)) {
+		return {
+			kind: 'error',
+			message:
+				'Usage: namzu mcp add <name> (--url <http-url> | -- <command> [arguments...]); new server names must start with a letter and use only letters, digits, _ or -.',
+		}
+	}
+	if (url && tail) return { kind: 'error', message: 'Choose --url or a command, not both.' }
 	if (url) {
-		if (inheritEnv.length > 0)
+		if (transport === 'stdio') {
+			return { kind: 'error', message: '--url is for an http server, not --transport stdio.' }
+		}
+		if (Object.keys(env).length > 0) {
 			return { kind: 'error', message: '--env applies only to a command server.' }
+		}
 		let parsed: URL
 		try {
 			parsed = new URL(url)
@@ -577,19 +839,27 @@ function parseMcpAction(args: readonly string[]): McpAction {
 		if (Object.keys(headers).length > 0 && remoteInsecure) {
 			return { kind: 'error', message: 'Credential headers require HTTPS or a loopback endpoint.' }
 		}
-		return { kind: 'add', name, spec: { url, ...(Object.keys(headers).length ? { headers } : {}) } }
+		return {
+			kind: 'add',
+			name,
+			scope,
+			spec: { url, ...(Object.keys(headers).length ? { headers } : {}) },
+		}
 	}
 	if (Object.keys(headers).length > 0)
 		return { kind: 'error', message: '--header applies only to an HTTP server.' }
-	if (!command?.[0])
-		return { kind: 'error', message: 'Provide --url or -- <command> [arguments...].' }
+	if (transport === 'http') {
+		return { kind: 'error', message: 'An http server needs an address: add <name> <http-url>.' }
+	}
+	if (!tail?.[0]) return { kind: 'error', message: 'Provide --url or -- <command> [arguments...].' }
 	return {
 		kind: 'add',
 		name,
+		scope,
 		spec: {
-			command: command[0],
-			...(command.length > 1 ? { args: command.slice(1) } : {}),
-			...(inheritEnv.length > 0 ? { inheritEnv } : {}),
+			command: tail[0],
+			...(tail.length > 1 ? { args: tail.slice(1) } : {}),
+			...(Object.keys(env).length > 0 ? { env } : {}),
 		},
 	}
 }

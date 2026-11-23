@@ -17,6 +17,7 @@ import { REASONING_EFFORT_LEVELS } from './commands/effort-levels.js'
 import {
 	acpCommand,
 	archiveCommand,
+	authCommand,
 	browserCommand,
 	computerCommand,
 	configCommand,
@@ -33,8 +34,6 @@ import {
 	hooksCommand,
 	learnCommand,
 	learningCommand,
-	loginCommand,
-	logoutCommand,
 	mcpCommand,
 	peersCommand,
 	pluginCommand,
@@ -44,7 +43,7 @@ import {
 	serveCommand,
 	skillsCommand,
 	stateCommand,
-	upgradeCommand,
+	updateCommand,
 	watchCommand,
 	workspacesCommand,
 } from './commands/manifest.js'
@@ -247,6 +246,9 @@ const REMOVED_COMMANDS: Readonly<Record<string, string>> = {
 		'`namzu run-stream` was replaced by `namzu exec --json "<prompt>"`, which emits the same events.',
 	'skills-json': 'This command is now `namzu skills list --json`.',
 	'providers-json': 'This command is now `namzu providers list --json`.',
+	upgrade: '`namzu upgrade` is now `namzu update`.',
+	login: '`namzu login` is now `namzu auth login`.',
+	logout: '`namzu logout` is now `namzu auth logout`.',
 }
 
 /**
@@ -729,8 +731,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 		execCommand,
 		learnCommand,
 		learningCommand,
-		loginCommand,
-		logoutCommand,
+		authCommand,
 		mcpCommand,
 		drainCommand,
 		evalCommand,
@@ -742,7 +743,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 		skillsCommand,
 		workspacesCommand,
 		providersCommand,
-		upgradeCommand,
+		updateCommand,
 		serveCommand,
 		stateCommand,
 		scheduleCommand,
@@ -770,7 +771,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 								def === configCommand ||
 								def === extensionCommand ||
 								def === pluginCommand ||
-								def === upgradeCommand ||
+								def === updateCommand ||
 								def === scheduleCommand ||
 								def === browserCommand ||
 								def === githubCommand

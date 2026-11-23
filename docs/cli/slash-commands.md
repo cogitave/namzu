@@ -561,7 +561,7 @@ require an external CLI for its own Codex/Claude sign-in or anonymous Zen models
 The setup screen probes `--version` with bounded subprocesses and displays only
 credential source kinds, never credentials. When no Claude credential is found,
 it says "Not signed in for Namzu" (Claude Desktop's sign-in does not always give
-Namzu a reusable session) and points to `namzu login claude`. `i` proposes the exact npm global
+Namzu a reusable session) and points to `namzu auth login claude`. `i` proposes the exact npm global
 install command for a missing CLI. The question starts on Cancel and takes no letter
 as an answer, so a sentence typed into this screen by mistake cannot install
 anything: running it takes an arrow to Install and then Enter.

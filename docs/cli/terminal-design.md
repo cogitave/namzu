@@ -2246,7 +2246,7 @@ Ink's component layout or require a browser terminal in the CLI.
 
 ## Upgrade activity
 
-`namzu upgrade` animates a green fill through the existing wordmark while npm
+`namzu update` animates a green fill through the existing wordmark while npm
 installs the selected version. This is an activity loop, not a percentage.
 The wordmark remains fully green only after the installed version is read back
 and matches the requested version. Failures clear the animation and show npm

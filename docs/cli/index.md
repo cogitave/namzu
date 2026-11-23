@@ -8,7 +8,7 @@
 * [Local authenticated Pal channel adapters](pal-channels.md) - Private local fixture verification, shared SDK inboxes and native recorded reply/review-action routing.
 
 * [Sending spans and metrics to a collector](telemetry-export.md) - opt in with NAMZU_ENABLE_TELEMETRY or telemetry.otlp and the CLI sends spans and metrics to an OpenTelemetry collector.
-* [Updates](updates.md) - Background updates in the terminal: which installs update themselves, the safety steps, the `updates` keys and environment variables, and `namzu upgrade`.
+* [Updates](updates.md) - Background updates in the terminal: which installs update themselves, the safety steps, the `updates` keys and environment variables, and `namzu update`.
 * [Installing and reopening Namzu](installation.md) - Correct shell commands, installer diagnostics and portable conversation resume handoffs.
 * [Code analysis in the terminal](code-analysis.md) - The `code_analysis` tool: cited, paged lookups of a string, its function, source and callers; where its index lives, what it costs, and the `codeAnalysis` key that turns it off.
 * [Auto model routing](auto-model-routing.md) - `model: auto` and the `routing` block: per-task fast, default or big model, sized by the decision model, failing open to `routing.default`.
@@ -45,6 +45,8 @@ The operator application.
 * [Messages between live terminals](peer-messaging.md) - Discover independent terminals in the same project and send attributed context at safe request boundaries, from a terminal or with `namzu peers`.
 * [Your Namzu network](namzu-network.md) - See your other machines and their sessions, message them, give them roles, and let a new machine join with one Allow.
 * [Accounts in the terminal](accounts.md) - `/auth` and `--account`: choose the account a conversation uses, add a Codex sign-in or labelled API key, and what happens when an account runs out of allowance.
+* [namzu auth](auth.md) - `namzu auth login`, `logout` and `status`: sign in or out, and list stored or detected credentials as usable or expired, never printing a secret.
+* [namzu state purge](state-purge.md) - Delete what Namzu keeps in its home for one project or all of them: what is listed, how it asks, and what it refuses.
 * [Provider credentials and private state](credentials.md) - Existing subscription profiles, credential discovery, the provider list and its credential entry, and Windows and POSIX storage privacy checks.
 * [Native conversation engines](native-engines.md) - Installed native execution, engine catalogues, exact durable continuation, live reviews and confirmed shutdown.
 

@@ -279,7 +279,7 @@ describe('installing, or telling', () => {
 		const h = harness({ policy: policy({ install: false, decidedBy: 'ci' }) })
 		await h.updater.runCycle()
 		expect(h.installs).toEqual([])
-		expect(h.events).toEqual([{ type: 'available', latest: '2.0.0', command: 'namzu upgrade' }])
+		expect(h.events).toEqual([{ type: 'available', latest: '2.0.0', command: 'namzu update' }])
 	})
 
 	it('tells the person the exact command, and does not try, where the folder is not writable', async () => {
@@ -439,7 +439,7 @@ describe('when installing fails', () => {
 		).toBe("Update available, can't install here. See namzu doctor")
 	})
 
-	it('keeps the last failed attempt where `namzu upgrade --check` reads it', async () => {
+	it('keeps the last failed attempt where `namzu update --check` reads it', async () => {
 		const h = harness({}, undefined, 'npm error something odd')
 		await h.updater.runCycle()
 		await tick(SHARED_THROTTLE_MS)

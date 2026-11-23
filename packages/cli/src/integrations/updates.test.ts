@@ -97,7 +97,7 @@ describe('latestNamzuVersion', () => {
 			name: 'namzu',
 			current: '14.2.1',
 			latest: '14.3.0',
-			how: 'namzu upgrade',
+			how: 'namzu update',
 		})
 	})
 })

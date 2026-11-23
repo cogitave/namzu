@@ -14,7 +14,22 @@ An external tool server is declared under `mcpServers` in `namzu.config.json`, o
 
 ## Manage your own servers from the CLI
 
-`namzu mcp list` and `namzu mcp get <name>` show servers saved in `~/.namzu/config.yaml`. `namzu mcp add <name> --url <url>` saves an HTTP server; `namzu mcp add <name> -- <command> [arguments...]` saves a local command. `namzu mcp remove <name>` removes only that user entry. The command preserves unrelated YAML settings and refuses to replace an existing server. New names start with a letter and use letters, digits, underscores or hyphens, up to 64 characters. `get` and `remove` also accept an exact existing name outside that rule, such as `github.com`.
+`namzu mcp list` and `namzu mcp get <name>` show servers saved in `~/.namzu/config.yaml`. `namzu mcp add` saves a server, `namzu mcp remove <name>` removes only that entry, and both take `-s, --scope user|project` (default `user`). The command preserves unrelated YAML settings and refuses to replace an existing server. New names start with a letter and use letters, digits, underscores or hyphens, up to 64 characters. `get` and `remove` also accept an exact existing name outside that rule, such as `github.com`.
+
+| Form | Saves |
+|---|---|
+| `namzu mcp add <name> --url <url>` | an HTTP server |
+| `namzu mcp add -t http <name> <url>` | the same, with the address after the name |
+| `namzu mcp add <name> -- <command> [arguments...]` | a local command (`-t stdio` is the default) |
+| `namzu mcp add json <name> '<json>'` | whatever one `mcpServers` entry says |
+
+Flags: `-s, --scope user|project`; `-t, --transport stdio|http` (`sse` is refused: servers that need Server-Sent Events are not supported); `-e, --env NAME=value` for a command server, repeated (`NAME=${OTHER}` reads the value from your environment when the server starts, and a value written literally is saved in the file as written); `-H, --header 'NAME: value'` for an HTTP server, repeated.
+
+**Scope.** `user` writes `~/.namzu/config.yaml`. `project` writes `.mcp.json` in the current folder, keeping every other key in that file. A server written there does not start until you run `namzu mcp approve <name>`, exactly like one a teammate committed, and the command says so. `remove -s project` takes an entry out of `.mcp.json`.
+
+**`add json`.** The JSON is one object with the shape of one entry in the config file: `command`, `args`, `env`, `inheritEnv`, `cwd` for a local command, or `url` and `headers` for an HTTP server, plus the optional timeouts and `allow`/`deny` lists. A `type` key of `stdio` or `http` is read and not saved. The entry is checked with the checks a session applies when it starts the server (one of command and url, field types, timeout ranges), and with the same rules as the flags: no credentials in the address, header values only as `${ENV_VAR}` or `Bearer ${ENV_VAR}`, credentials and URL queries only over HTTPS or to this computer. Nothing is saved when a check fails. `json` is the JSON form only when exactly two arguments follow it and the second is a JSON object; otherwise it is an ordinary server name, so `namzu mcp add json node server.js` saves a server called `json`.
+
+`--env NAME` (without a value) and `--header NAME=VALUE` are retired: they print `` `--env NAME` is now `--env NAME=${NAME}` `` or `` `--header NAME=VALUE` is now `--header 'NAME: VALUE'` `` and exit 64 without saving anything.
 
 ### Sign in to an HTTP server
 
@@ -24,11 +39,28 @@ Namzu checks the callback's one-time state before exchanging its code, and the M
 
 Ordinary tool calls attach or refresh a previously saved credential without opening a browser. If a new browser authorization is needed, the server fails with a reason directing you to `namzu mcp login <name>`; an HTTP 401 or 403 does not trigger a legacy protocol handshake. A configured `Authorization` header takes precedence over any saved OAuth credential. Keep `~/.namzu` private: the OAuth files contain reusable secrets. Changing a server URL does not transfer its old credential; sign in again for the new URL.
 
-A stdio server is always started with `NAMZU_STARTED_BY_SESSION=1` in its environment, whatever `env` says, so a program it runs cannot pass for a person at a terminal (`namzu send` refuses it). For a local command, repeat `--env VARIABLE` before `--` to pass only that named variable to the server. For HTTP, repeat `--header 'Authorization=Bearer ${VARIABLE}'` or `--header 'X-API-Key=${VARIABLE}'` to read a header value from the operator's environment when the server connects; quote it so the shell passes the reference to Namzu. Literal header values are refused by this command so secrets do not get written into the config file. Credentialed headers and URL queries require HTTPS, except for a loopback endpoint. URL queries are still saved as written in `config.yaml`; every user-config write replaces that file with owner-only permissions, including when it previously had broader permissions. `list` and `get` show only an HTTP server's origin, omitting its path, query and fragment because tokenized endpoint paths may contain secrets. They also hide header values, environment values and command arguments; `--format json` gives the same redacted fields as structured output.
+A stdio server is always started with `NAMZU_STARTED_BY_SESSION=1` in its environment, whatever `env` says, so a program it runs cannot pass for a person at a terminal (`namzu send` refuses it). For a local command, repeat `--env NAME='${NAME}'` before `--` to hand the server that variable under its own name (or write `inheritEnv` through `add json`). For HTTP, repeat `--header 'Authorization: Bearer ${VARIABLE}'` or `--header 'X-API-Key: ${VARIABLE}'` to read a header value from the operator's environment when the server connects; quote it so the shell passes the reference to Namzu. Literal header values are refused by this command so secrets do not get written into the config file. Credentialed headers and URL queries require HTTPS, except for a loopback endpoint. URL queries are still saved as written in `config.yaml`; every user-config write replaces that file with owner-only permissions, including when it previously had broader permissions. `list` and `get` show only an HTTP server's origin, omitting its path, query and fragment because tokenized endpoint paths may contain secrets. They also hide header values, environment values and command arguments; `--format json` gives the same redacted fields as structured output.
 
-`list`, `get`, `add`, and `remove` manage the **user** file. A project's `namzu.config.json`, selected profile or managed config can override that file under the normal config precedence. `login` and `logout` use the effective entry but do not edit any config file.
+`list` and `get` read the **user** file; `add` and `remove` change the user file or, with `--scope project`, `.mcp.json`. A project's `namzu.config.json`, selected profile or managed config can override that file under the normal config precedence. `login` and `logout` use the effective entry but do not edit any config file.
 
 Tool names used to start `mcp_<name>_<tool>`. At startup the CLI logs one warning for each configured permission rule still using that form, with the old rule in `namzu.permission.tool_name`. Headless JSON mode emits this warning as a structured stderr log record. Update it to the corresponding `mcp__<name>__<tool>` name; the old rule will not match the new tool.
+
+### Serve Namzu's tools to another program
+
+`namzu mcp serve` runs Namzu's built-in tools (`read`, `write`, `edit`, `glob`, `grep` and `bash`) as a tool server on standard input and output, so another program that speaks MCP can use them: it sends `initialize`, `tools/list` and `tools/call`, one JSON message per line. Nothing but protocol goes to standard output. The working directory is the folder the command runs in, which must be trusted (`--trust` accepts it for this run only). Tools that need a running conversation (`job`, `wait_for_job`, `verify_outputs`) are not served.
+
+Your permission rules apply to every call, as they do in a conversation: layers from the user, project, local and managed files, and the dangerous-command floor.
+
+- A `deny` rule always wins. A tool a rule refuses by name is not listed.
+- A call a rule allows (or that only reads) runs.
+- A call that would need your approval is **refused**, because there is nobody on this channel to ask. The reply is an error result that names the rule to add, for example `--allowed-tools "bash(git status *)"` or `permissions.write = "allow"`.
+- A rule that says `ask` is refused the same way in every mode.
+
+The launch flags are the ones the other launches take: `--allowed-tools <list>` and `--disallowed-tools <list>` add allow and deny rules for this run (a deny still wins), `--add-dir <path>` lets the file tools reach another folder (repeatable), and `--permission-mode <mode>` decides what is left. With no mode, nothing that needs approval runs. `accept-edits` approves `edit` and `write`; `bypass` approves every call no rule asked about; `plan` runs only tools that read; `auto` and `strict` approve nothing here (there is no classifier model on this channel). A mode never reopens a `deny`.
+
+```sh
+namzu mcp serve --allowed-tools "read glob grep bash(git status *)"
+```
 
 ### Test the effective server
 

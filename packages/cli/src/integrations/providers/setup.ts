@@ -218,7 +218,7 @@ export async function probeHarnesses(
 						: source
 							? describeAccess(source)
 							: harness.id === 'claude'
-								? 'Not signed in for Namzu · run namzu login claude'
+								? 'Not signed in for Namzu · run namzu auth login claude'
 								: 'Not connected · sign in or add an API key',
 			}
 		}),

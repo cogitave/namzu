@@ -5,7 +5,7 @@ import { dirname, join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { removeTempDir } from '../__fixtures__/temp-dir.js'
-import { runNpmUpgrade } from '../commands/upgrade.js'
+import { runNpmUpdate } from '../commands/update.js'
 import * as npmInvocation from './npm-invocation.js'
 import { runSetupCommand } from './providers/setup.js'
 
@@ -91,7 +91,7 @@ describe('npm invocation on native Windows', () => {
 			args: [npmCli, ...args],
 		})
 		let output = ''
-		const code = await runNpmUpgrade({
+		const code = await runNpmUpdate({
 			executable: 'npm.cmd',
 			args,
 			prefix: root,

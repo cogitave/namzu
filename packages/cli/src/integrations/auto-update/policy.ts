@@ -14,7 +14,7 @@ export interface UpdatePolicy {
 	/** Install it without being asked. Implies `check`. */
 	readonly install: boolean
 	readonly channel: UpdateChannel
-	/** What decided `install`, for `namzu upgrade --check` and the docs. */
+	/** What decided `install`, for `namzu update --check` and the docs. */
 	readonly decidedBy: 'environment' | 'config' | 'ci' | 'default'
 }
 

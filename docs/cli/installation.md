@@ -54,7 +54,7 @@ namzu.cmd doctor
 Command Prompt does not supply the POSIX `sh` used by `install.sh`.
 npm writes a `namzu.ps1` wrapper beside `namzu.cmd`, and PowerShell prefers the
 `.ps1`, which the default execution policy refuses ("running scripts is
-disabled"). The PowerShell installer and `namzu upgrade` therefore remove that
+disabled"). The PowerShell installer and `namzu update` therefore remove that
 one file (only when it sits beside `namzu.cmd` and names `@namzu/cli`), so a
 bare `namzu` runs `namzu.cmd` under any policy. Use `namzu.cmd` in Command
 Prompt, and for `npm` in PowerShell use `npm.cmd`.
@@ -93,7 +93,7 @@ credentials; installation itself does not sign in to a provider or start the
 The terminal checks for a newer version in the background and installs it when
 Namzu owns the install folder (an npm or pnpm global install it can write to),
 otherwise it shows the exact command. See [Updates](updates.md) for what is
-updated, the safety steps and the `updates` settings; `namzu upgrade` does the
+updated, the safety steps and the `updates` settings; `namzu update` does the
 same once, on request.
 
 ## Reopen the same conversation

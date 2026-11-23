@@ -167,7 +167,7 @@ Namzu in your terminal is a coding agent for the project you are working in. It 
 ### Choose a model
 
 - **Reuse a sign-in you already have.** Existing provider sessions on your machine are found, so you do not paste a key. [Credentials](docs/cli/credentials.md)
-- **Sign in from inside Namzu.** Start a sign-in from the model picker, or run `namzu login`. [Credentials](docs/cli/credentials.md)
+- **Sign in from inside Namzu.** Start a sign-in from the model picker, or run `namzu auth login`. [Credentials](docs/cli/credentials.md)
 - **Use an API key.** Set the provider's key in your environment, for example `OPENROUTER_API_KEY`.
 - **Run local models with no key.** Local models are reached through `@namzu/ollama`. [Model catalogue](docs/cli/model-catalogue.md)
 

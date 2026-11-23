@@ -59,7 +59,7 @@ export interface SubscriptionLogin {
 	completeWithPastedCode(input: string): Promise<LoginOutcome>
 	/**
 	 * Keep this attempt (verifier, state, redirect) in an owner-only file for ten
-	 * minutes so a later `namzu login claude --code` can finish it. Returns the path.
+	 * minutes so a later `namzu auth login claude --code` can finish it. Returns the path.
 	 */
 	savePending?(): string
 	/** Withdraw the attempt. Safe to call twice, and safe to call after success. */
@@ -162,7 +162,7 @@ export async function completePendingSubscriptionLogin(
 		return {
 			ok: false,
 			reason:
-				'There is no sign-in waiting for a code. Run `namzu login claude` to get a new address.',
+				'There is no sign-in waiting for a code. Run `namzu auth login claude` to get a new address.',
 		}
 	}
 	if (read.kind === 'expired') {
@@ -170,7 +170,7 @@ export async function completePendingSubscriptionLogin(
 		return {
 			ok: false,
 			reason:
-				'The waiting sign-in expired (they last 10 minutes). Run `namzu login claude` to get a new address.',
+				'The waiting sign-in expired (they last 10 minutes). Run `namzu auth login claude` to get a new address.',
 		}
 	}
 	const parsed = parsePastedInput(input)
@@ -186,7 +186,7 @@ export async function completePendingSubscriptionLogin(
 		return {
 			ok: false,
 			reason:
-				'The code did not come back with the value namzu sent, so it cannot be matched to the waiting sign-in. Nothing was stored. Run `namzu login claude` to start again.',
+				'The code did not come back with the value namzu sent, so it cannot be matched to the waiting sign-in. Nothing was stored. Run `namzu auth login claude` to start again.',
 		}
 	}
 	try {

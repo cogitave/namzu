@@ -159,7 +159,7 @@ describe('runCli', () => {
 		// could type, which is the defect. Deleting the line in `cli.ts` that
 		// registers it must fail HERE.
 		expect(stdout).toMatch(/^\s+drain\b/m)
-		expect(stdout).toMatch(/^\s+upgrade\b/m)
+		expect(stdout).toMatch(/^\s+update\b/m)
 		// `tools` was asserted here until the peer-daemon removal deleted the
 		// command. The assertion kept passing, because "tools" also occurs in
 		// the --dangerously-skip-permissions description ("Run tools without
@@ -220,6 +220,24 @@ describe('runCli', () => {
 		expect(await invoke([name])).toBe(64)
 		expect(flat(stderr)).toContain(`This command is now \`${now}\`.`)
 		expect(stderr.trim().split('\n')).toHaveLength(1)
+	})
+
+	it.each([
+		[['upgrade'], '`namzu upgrade` is now `namzu update`.'],
+		[['upgrade', '--check'], '`namzu upgrade` is now `namzu update`.'],
+		[['login', 'claude'], '`namzu login` is now `namzu auth login`.'],
+		[['logout'], '`namzu logout` is now `namzu auth logout`.'],
+	])('the retired %j prints one line naming its replacement and exits 64', async (args, line) => {
+		expect(await invoke(args)).toBe(64)
+		expect(flat(stderr)).toContain(line)
+		expect(stderr.trim().split('\n')).toHaveLength(1)
+	})
+
+	it('lists update and auth, and none of the retired names', async () => {
+		expect(await invoke(['--help'])).toBe(0)
+		expect(stdout).toMatch(/^\s+update\b/m)
+		expect(stdout).toMatch(/^\s+auth\b/m)
+		expect(stdout).not.toMatch(/^\s+(upgrade|login|logout)\b/m)
 	})
 
 	it('lists exec and help without aliases, and none of the removed commands', async () => {

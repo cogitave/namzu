@@ -169,7 +169,7 @@ export function removeProviderKey(id: unknown, home?: string): ProviderId {
 	return provider
 }
 
-/** What `/logout` and `namzu logout` call a saved key; `anthropic-key` because `anthropic` is the subscription. */
+/** What `/logout` and `namzu auth logout` call a saved key; `anthropic-key` because `anthropic` is the subscription. */
 export type ApiKeyLogoutTarget = `key:${ProviderId}`
 
 /** The provider whose saved API key a logout word names, or `null`. Gemini keeps its own word. */

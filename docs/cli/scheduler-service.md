@@ -213,7 +213,7 @@ enables them again.
 ## Upgrades
 
 The daemon checks the installed CLI on every tick. After `npm i -g @namzu/cli`
-or `namzu upgrade` it stops starting runs, waits for the runs it started, and
+or `namzu update` it stops starting runs, waits for the runs it started, and
 exits 0; the supervisor starts the new code. While it waits it does not evaluate
 schedules either, so an occurrence that comes due during the wait is left to the
 daemon that takes over: it runs late, or is recorded as missed under the job's

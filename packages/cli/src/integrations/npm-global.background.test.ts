@@ -13,7 +13,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
-import { runNpmUpgrade } from './npm-global.js'
+import { runNpmUpdate } from './npm-global.js'
 
 let dir: string
 beforeEach(() => {
@@ -61,8 +61,8 @@ describe('a background install', () => {
 		writeFileSync(installer, INSTALLER)
 		writeFileSync(
 			parent,
-			`import { runNpmUpgrade } from ${JSON.stringify(join(here, 'npm-global.ts'))}
-void runNpmUpgrade({
+			`import { runNpmUpdate } from ${JSON.stringify(join(here, 'npm-global.ts'))}
+void runNpmUpdate({
 	executable: process.execPath,
 	args: [${JSON.stringify(installer)}, ${JSON.stringify(go)}, ${JSON.stringify(done)}],
 	prefix: ${JSON.stringify(dir)},
@@ -98,7 +98,7 @@ void runNpmUpgrade({
 			"process.stdout.write('a'.repeat(40000)); process.stderr.write('last words'); process.exit(3)",
 		)
 		let seen = ''
-		const code = await runNpmUpgrade({
+		const code = await runNpmUpdate({
 			executable: process.execPath,
 			args: [script],
 			prefix: dir,
@@ -119,7 +119,7 @@ void runNpmUpgrade({
 		const script = join(dir, 'quiet.mjs')
 		writeFileSync(script, 'process.stdout.write("fresh")')
 		let seen = ''
-		await runNpmUpgrade({
+		await runNpmUpdate({
 			executable: process.execPath,
 			args: [script],
 			prefix: dir,
@@ -135,7 +135,7 @@ void runNpmUpgrade({
 	it('writes nothing to the terminal it was started from', async () => {
 		const script = join(dir, 'talk.mjs')
 		writeFileSync(script, 'console.log("noise")')
-		const code = await runNpmUpgrade({
+		const code = await runNpmUpdate({
 			executable: process.execPath,
 			args: [script],
 			prefix: dir,

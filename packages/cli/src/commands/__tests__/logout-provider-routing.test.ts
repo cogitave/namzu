@@ -83,7 +83,7 @@ beforeEach(() => {
 	credentials.clears.length = 0
 })
 
-describe('namzu logout provider routing', () => {
+describe('namzu auth logout provider routing', () => {
 	it('says a sign-in read from Desktop was not removed, and does not call it removed', async () => {
 		credentials.shared = true
 		const { ctx, lines } = context()
@@ -169,6 +169,6 @@ describe('namzu logout provider routing', () => {
 
 		expect(code).toBe(EXIT_USAGE)
 		expect(credentials).toMatchObject({ primary: true, codex: true, googleKey: true, clears: [] })
-		expect(lines.join('\n')).toContain('namzu logout [claude|codex|gemini|<provider>|all]')
+		expect(lines.join('\n')).toContain('namzu auth logout [claude|codex|gemini|<provider>|all]')
 	})
 })
