@@ -38,7 +38,7 @@ const detected: DetectedProvider[] = [
 	},
 ]
 // What a session sends before anything is loaded: the file and shell tools,
-// the skill tool, the delegation tool and discovery.
+// the skill tool, the delegation tools and discovery.
 const core = [
 	'bash',
 	'edit',
@@ -51,16 +51,18 @@ const core = [
 	// Eager so the built-in skills are one call away.
 	'skill',
 	'Agent',
+	// A session that can launch an agent loads the task tools at boot, so a turn that
+	// launches its first agent can wait for it without a search.
+	'wait_for_task',
+	'agent_task_list',
+	'send_message',
+	'cancel_agent',
+	// Reading a page is the first step of most web work, so it rides every request
+	// where web fetch is on (these sessions turn it on).
+	'web_fetch',
 ]
 // Deferred by default: named in the catalogue, loaded through search_tools.
-const deferredByDefault = [
-	'web_search',
-	'web_fetch',
-	'save_memory',
-	'task_create',
-	'task_list',
-	'monitor',
-]
+const deferredByDefault = ['web_search', 'save_memory', 'task_create', 'task_list', 'monitor']
 const save = {
 	title: 'Fixture fact',
 	summary: 'Exact evidence',
@@ -310,7 +312,10 @@ describe('explicit tool loading reaches the real session and query', () => {
 				// No network capability is configured for this send.
 			}
 			expect(requests).toHaveLength(1)
-			expect(names(requests[0])).toEqual([...core, 'search_tools'].sort())
+			// With web fetch off, the one web tool that rides every request is not mounted.
+			expect(names(requests[0])).toEqual(
+				[...core.filter((name) => name !== 'web_fetch'), 'search_tools'].sort(),
+			)
 		} finally {
 			await session.close()
 		}

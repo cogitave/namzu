@@ -119,6 +119,7 @@ vi.mock('../../integrations/subagents/runtime.js', () => ({
 		gatewayForTurn: async () => ({}) as never,
 		completionInboxForTurn: async () => new (await import('@namzu/sdk')).CompletionInbox(),
 		releaseTurn: async () => {},
+		liveChildSessionIds: () => new Set<string>(),
 		agentTool: {
 			name: operations.subagentToolName,
 			description: 'stub',

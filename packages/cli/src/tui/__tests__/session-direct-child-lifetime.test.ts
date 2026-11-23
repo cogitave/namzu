@@ -87,6 +87,7 @@ vi.mock('../../integrations/subagents/runtime.js', () => ({
 				bridge.released.push(turnId)
 				bridge.onRelease?.(turnId)
 			},
+			liveChildSessionIds: () => new Set<string>(),
 			messageChild: (viewId: string, message: string, turnId: TurnId) => {
 				if (!bridge.admit) throw new Error('The fixture has no admission handler.')
 				return bridge.admit(viewId, message, turnId)
