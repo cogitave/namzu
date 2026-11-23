@@ -4028,6 +4028,42 @@ Known limits: a page that holds the keyboard does not pass the app's chords (Ctr
 until focus returns to the app, and a symbolic link inside the work folder that points outside it is followed
 for subresources (a navigation is checked against the real path).
 
+### Agent tabs and the relay
+
+The agent can work in a tab of this pane instead of a browser of its own. This is the Desktop side of that: the tabs and the one door the agent reaches them through. The engine's own half (choosing the pane, falling back to its own browser, the sign-in card) is not described here. Today the agent's browser still runs in a separate window (see "Is the browser visible?" above); nothing in the engine calls the relay yet.
+
+**Tabs.** A tab has an owner, the person or the agent (`BrowserTabView.owner`). The agent's tabs are made by the host (`BrowserPaneHost.openAgentTab`), count against their own cap of 4 per conversation (`MAX_AGENT_BROWSER_TABS`) and leave the person's 8 alone. The person's *open this page* request never takes an agent tab, and the agent never gets a tab the person opened. A popup of an agent's page opens another agent tab (up to the cap), not a person's.
+
+**Partition.** An agent's tabs live in a partition of their own, so the person's sign-ins are out of the agent's reach: `persist:namzu-agent` when **Keep cookies** keeps sign-ins across restarts, one shared partition until the app closes, or one per conversation (`agentPartitionOf`). Turning **Keep cookies** off *across restarts* clears both `persist:` partitions, and any change of the setting lets go of the agent's tabs, since an open page cannot change partition.
+
+**Hidden, not removed.** A page that is not in the window cannot be captured, so an agent's tab is put in the window when it is made and only hidden (`setVisible(false)`, at a normal window size) when the pane is closed or another tab is on screen; it is never removed or moved off screen while it exists. Background throttling is off for it, so a page nobody is looking at keeps running. A tab with no address holds `about:blank`, since a view with no page has nothing for a debugger to talk to. The first screenshot of a tab that was never on screen takes about four seconds (Chromium waits for a frame); later ones are fast.
+
+**Take-over.** `BrowserPaneHost.setControl` (and `AgentPaneRelay.takeOver` / `handBack`) switch a tab between `agent` and `person` (`BrowserTabView.control`). While it is `person` every call to that tab is refused with `human-in-control`; the engine hears the change as a `state` event.
+
+**The relay** (`src/main/agent-pane-relay.ts`, instance `agentPaneRelay` in `src/main/index.ts`) is the only place a debugger is attached to a page. It uses the page's in-process `webContents.debugger`; no remote-debugging port or `/json` address exists anywhere in the app. Its interface, for the engine connection to call:
+
+| Call | Does |
+|---|---|
+| `open({ conversationId, rules })` | opens (or reuses) the conversation's agent tab, attaches the debugger, returns `{ tabId, targetInfo }`. `rules` is `{ allow?, deny? }`, host patterns such as `example.com` or `*.example.com`, enforced here as a second layer under the engine's own. |
+| `cdp({ conversationId, tabId, method, params, sessionId? })` | one protocol call to the tab, or to a child session the page announced. |
+| `close({ conversationId, tabId? })` | detaches and closes one agent tab, or all of the conversation's. |
+| `onEvent(listener)` | `cdp` (a page event), `tab-added` (a popup, with `openerTabId` and `targetInfo`), `tab-closed`, `detached`, `state` (`agent` or `person`). |
+| `releaseAll(reason, closeTabs)`, `conversationEnded(id)` | the engine restarted, the setting changed, or the conversation ended. |
+
+What it enforces, in this order, on every call (tested in `agent-pane-relay.test.ts`; the real thing against a real page in `e2e/agent-pane-relay.test.mjs`):
+
+1. **Ownership.** The tab must be an agent tab of that conversation, and a `sessionId` must be a child session that tab announced. A tab of another conversation, a person's tab and an invented id all fail the same way (`not-found`). The engine never names a `webContents`.
+2. **Take-over.** A tab the person holds answers `human-in-control`.
+3. **An allowlist of methods** (`method-refused`): the page, runtime, DOM, emulation, log and accessibility domains a driver needs, the input methods that act on a page (keys, mouse, touch, text, gestures, drag), the network's request lifecycle, request interception and the child-session subset of Target. Refused inside that: cookies in any form, storage, IndexedDB, the cache, downloads (`setDownloadBehavior`), the user-agent override, loading a URL by itself (`Network.loadNetworkResource`), body streams, `Browser.*` except `getVersion`, `Target.createTarget` and the rest of Target, `Debugger`, `Tracing`, `SystemInfo`, `Security`, `IO`, and reading a file by its path (`DOM.getFileInfo`; `DOM.setFileInputFiles` and the `files` of `Input.dispatchDragEvent` only for files inside the work folder; an input method not listed is refused).
+4. **The address policy** (`address-refused`). `Page.navigate`, and a request continued to another address, pass the same rules as an address the person types (http and https; `file:` only inside the conversation's work folder, dots resolved) plus the site rules from `open`. The address sent on is the resolved one. A programmatic navigation does not always raise `will-navigate`, so the relay checks it itself; the session's request filter (files outside the work folder, and the site rules for pages and frames) stays underneath as a backstop.
+5. **Size** (`too-large`): 1 MiB for a request, 4 MiB for a result. A screenshot over the limit is scaled down and re-encoded (a PNG stays a PNG); any other oversize answer is refused. At most 64 calls wait at once per conversation, and a call the page never answers ends with `timeout` (30 s for a screenshot, 60 s otherwise).
+
+Events the page raises are filtered to the domains the driver uses; network body events (`dataReceived`), socket frames and the `*ExtraInfo` events are dropped, and `Cookie` and `Set-Cookie` headers are removed from the rest: in network events (the request, the response and the response a redirect answered with) and in the interception events (`Fetch.*`, both the header map and the `[{name, value}]` list). A page's HttpOnly cookie therefore never reaches the agent.
+
+`rules` are read strictly. Rules not given leave the conversation's rules as they were; rules given replace them; a malformed set, an entry over 253 characters or more than 512 entries fails the open with `method-refused` rather than being cut short. An empty `allow` allows every site, so "no site" is `deny: ['*']`.
+
+It never records a call's parameters, which can hold what a person typed. A second client attached to the page (a developer tool, say) makes `open` fail with `debugger-busy` and removes the tab it could not drive. The debugger is let go when the tab closes (by the person or the engine), when the conversation ends, when the window closes, when **Keep cookies** changes, and on `releaseAll` for an engine restart. A tab belongs to the window that made it; moving a conversation to another window does not move its agent tabs yet.
+
 ## The top-bar menu, the composer and the reply rows
 
 - **"…" in the conversation's top bar** is the View options card (see [the pane grid](#the-pane-grid)). *Side chat*
