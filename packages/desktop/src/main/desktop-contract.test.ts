@@ -217,7 +217,9 @@ describe('the app against the desktop contract inventory', () => {
 	it('runs the short commands with the verbs and flags the inventory lists', () => {
 		const text = source('pal-computer-setup.ts')
 		const verbs = new Set<string>()
-		for (const match of text.matchAll(/'computer',\s*'([a-z-]+)'/gu)) verbs.add(match[1] as string)
+		// A verb of two words (`stop idle`) is passed as two arguments.
+		for (const match of text.matchAll(/'computer',\s*'([a-z-]+)'(?:,\s*'(idle)')?/gu))
+			verbs.add(match[2] === undefined ? (match[1] as string) : `${match[1]} ${match[2]}`)
 		const flags = new Set<string>()
 		for (const match of text.matchAll(/'(--[a-z-]+)'/gu)) flags.add(match[1] as string)
 		expect(sorted(verbs)).toEqual(sorted(inventory.flags.shortCommands.verbs))

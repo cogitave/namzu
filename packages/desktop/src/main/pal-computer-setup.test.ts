@@ -441,7 +441,7 @@ describe('PalComputerSetupService', () => {
 		})
 		const { service } = make(cli)
 		expect(await service.stopIdle()).toBe('busy')
-		expect(calls[0]).toEqual(['computer', 'stop-idle', '--json'])
+		expect(calls[0]).toEqual(['computer', 'stop', 'idle', '--json'])
 		const silent = make({ run: async () => ({ exitCode: 1 }) })
 		expect(await silent.service.stopIdle()).toBe('failed')
 	})
@@ -601,7 +601,7 @@ describe('createComputerCli', () => {
 			spawnProcess as never,
 		)
 		const lines: ComputerLine[] = []
-		const done = cli.run(['computer', 'stop-idle', '--json'], (line) => lines.push(line))
+		const done = cli.run(['computer', 'stop', 'idle', '--json'], (line) => lines.push(line))
 		child.stdout.emit('data', '{"version":1,"outc')
 		child.stdout.emit('data', 'ome":"stopped"}\n')
 		child.emit('close', 0)
@@ -609,7 +609,7 @@ describe('createComputerCli', () => {
 		expect(lines).toEqual([{ kind: 'stop-idle', outcome: 'stopped' }])
 		expect(spawnProcess).toHaveBeenCalledWith(
 			'electron',
-			['--use-system-ca', 'cli.js', 'computer', 'stop-idle', '--json'],
+			['--use-system-ca', 'cli.js', 'computer', 'stop', 'idle', '--json'],
 			expect.objectContaining({ env: { A: '1' }, windowsHide: true }),
 		)
 	})
@@ -623,7 +623,7 @@ describe('createComputerCli', () => {
 			const done = createComputerCli(
 				{ program: 'x', prefix: [], env: {} },
 				spawnProcess as never,
-			).run(['computer', 'stop-idle', '--json'], () => {}, { timeoutMs: 5000 })
+			).run(['computer', 'stop', 'idle', '--json'], () => {}, { timeoutMs: 5000 })
 			await vi.advanceTimersByTimeAsync(4999)
 			expect(kill).not.toHaveBeenCalled()
 			await vi.advanceTimersByTimeAsync(1)
