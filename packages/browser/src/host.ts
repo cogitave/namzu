@@ -44,6 +44,7 @@ import {
 	type BrowserContextProvider,
 	type ExternalConnection,
 	LocalProvider,
+	type OpenedBrowserContext,
 	WindowsCdpProvider,
 	firstLine,
 	quoteShort,
@@ -155,6 +156,14 @@ export interface PlaywrightBrowserHostOptions {
 	 * Windows browser). A Desktop pane passes a {@link PaneProvider}, which drives the app's own tab.
 	 */
 	readonly provider?: BrowserContextProvider
+	/**
+	 * A provider to try before the plan's own browser, with the plan as the way back. A Desktop
+	 * app passes a {@link PaneProvider} here: if its pane cannot be driven (the app has no window,
+	 * another tool holds the page), the host says so in one line and opens its own browser as it
+	 * would have without it. Unlike `provider`, the plan stays real, so a machine with no browser
+	 * of its own can still use the pane and only fails when both are out.
+	 */
+	readonly preferredProvider?: BrowserContextProvider
 }
 
 interface Tab {
@@ -300,6 +309,8 @@ export class PlaywrightBrowserHost implements BrowserHost {
 	private readonly sessionId: string
 	private readonly pager: SnapshotPager
 	private readonly provider: BrowserContextProvider | undefined
+	private preferredProvider: BrowserContextProvider | undefined
+	private viaPreferred = false
 
 	private context: BrowserContext | undefined
 	private connection: ExternalConnection | undefined
@@ -333,6 +344,7 @@ export class PlaywrightBrowserHost implements BrowserHost {
 				},
 			)
 		this.provider = options.provider
+		this.preferredProvider = options.provider ? undefined : options.preferredProvider
 		this.plan = options.provider
 			? // The provider decides where the browser is; the plan only describes it.
 				{
@@ -357,10 +369,26 @@ export class PlaywrightBrowserHost implements BrowserHost {
 			screenshot: true,
 			upload: true,
 			snapshotMaxChars: pageChars,
-			...(this.plan.unavailableReason !== undefined
+			// With a preferred provider the plan's browser is only the way back: a machine that has
+			// none can still use the pane, and the refusal comes when both are out.
+			...(this.plan.unavailableReason !== undefined && !this.preferredProvider
 				? { unavailableReason: this.plan.unavailableReason }
 				: {}),
 		}
+	}
+
+	/**
+	 * Where the browser runs: `pane` when it drives an app's own tabs, `own` for a browser this
+	 * host opened, and `unknown` before the first call that needs one.
+	 */
+	get where(): 'pane' | 'own' | 'unknown' {
+		if (!this.context) return 'unknown'
+		return this.viaPreferred || this.provider?.id === 'pane' ? 'pane' : 'own'
+	}
+
+	/** The host was given a pane to try first and has not started yet. */
+	get prefersPane(): boolean {
+		return this.preferredProvider !== undefined && !this.context
 	}
 
 	/** Warnings from engine detection, for the operator. */
@@ -389,13 +417,28 @@ export class PlaywrightBrowserHost implements BrowserHost {
 
 	private async launch(): Promise<BrowserContext> {
 		const plan = this.plan
-		if (!this.provider && plan.unavailableReason !== undefined)
-			throw new BrowserUnavailableError(plan.unavailableReason)
-		const opened = await this.contextProvider(plan).open({
-			note: (text) => {
+		const services = {
+			note: (text: string) => {
 				this.notes.push(text)
 			},
-		})
+		}
+		let opened: OpenedBrowserContext | undefined
+		this.viaPreferred = false
+		if (!this.provider && this.preferredProvider) {
+			try {
+				opened = await this.preferredProvider.open(services)
+				this.viaPreferred = true
+			} catch (error) {
+				this.notes.push(
+					`The Browser pane could not be used (${firstLine(error)}), so Namzu opened its own browser.`,
+				)
+			}
+		}
+		if (!opened) {
+			if (!this.provider && plan.unavailableReason !== undefined)
+				throw new BrowserUnavailableError(plan.unavailableReason)
+			opened = await this.contextProvider(plan).open(services)
+		}
 		const context = opened.context
 		this.lease = opened.lease
 		this.connection = opened.connection
@@ -748,7 +791,7 @@ export class PlaywrightBrowserHost implements BrowserHost {
 	private loginCommandFor(url: string): string | undefined {
 		// A provider's tabs have no profile to sign in to from a terminal: name a command only
 		// when the embedder supplied one for them.
-		if (this.provider && !this.options.loginCommand) return undefined
+		if ((this.provider || this.viaPreferred) && !this.options.loginCommand) return undefined
 		const target = withoutQuery(url)
 		return this.options.loginCommand
 			? this.options.loginCommand(this.profile, target)

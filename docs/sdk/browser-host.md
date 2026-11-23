@@ -47,6 +47,7 @@ The constructor launches nothing and touches no file. The first `observe` or `ac
 | `loginCommand` | `namzu browser login <profile> <url>` | The command a handoff names. |
 | `windowsLaunchTimeoutMs` | 60 000 | Windows engine: how long starting the browser and connecting to it may take. |
 | `provider` | the one the plan names | Where the browser context comes from; see [A desktop app's browser pane](#a-desktop-apps-browser-pane). |
+| `preferredProvider` | none | A provider to try first, with the plan's browser as the way back; see [A desktop app's browser pane](#a-desktop-apps-browser-pane). |
 
 `host.warnings` repeats detection's warnings; `host.running` says whether the browser is up.
 
@@ -137,6 +138,8 @@ const host = new PlaywrightBrowserHost({
 **Downloads.** The pane never downloads files. The app reports a refusal through `onDownloadRefused` and the host tells the model once, in the same words as for the other engines.
 
 **Letting go.** `dispose()` and `close()` disconnect Playwright and call `channel.close()`; the tabs stay open, they are the person's.
+
+**A pane first, the plan's browser after.** `preferredProvider` is tried before the plan's own browser, which stays as the way back. If its `open` fails (the app has no window, another tool holds the page), the next result carries one line, "The Browser pane could not be used (reason), so Namzu opened its own browser.", and the host opens the plan's browser as it would have without it. With a `preferredProvider` the host does not report the plan's `unavailableReason` before the first call, so a computer with no browser of its own can still use the pane; the refusal comes when both are out. `host.where` is `pane`, `own` or `unknown` (before the first call that needs a browser), and `host.prefersPane` says a pane is waiting to be tried. While the browser runs in the pane the sign-in notice names no terminal login command. The command line's desktop host uses this with a channel that relays to the app over its ACP connection; see [The agent's browser in the pane](../cli/desktop.md#the-agents-browser-in-the-pane).
 
 The suite runs the whole end-to-end host contract on this path: `NAMZU_BROWSER_E2E=1 NAMZU_BROWSER_E2E_PANE=1` runs `host.test.ts` with the context coming from a pane channel backed by a real Chromium's protocol (one browser-level socket, one flat session per page), and `pane.test.ts` covers what is particular to a pane. The transport's own logic is unit-tested over a fake channel.
 
