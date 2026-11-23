@@ -11,11 +11,6 @@ import {
 } from './window-chrome.js'
 
 describe('native window chrome', () => {
-	it('carries the test profile name only when there is one', () => {
-		expect(windowChrome('linux').testProfile).toBeUndefined()
-		expect(windowChrome('linux', 'userdata').testProfile).toBe('userdata')
-	})
-
 	it('draws the window buttons in the sidebar fill, one band with the header, in both themes', () => {
 		const css = readFileSync(new URL('../renderer/theme.css', import.meta.url), 'utf8')
 		const fill = (block: RegExp) => css.match(block)?.[1]?.toLowerCase()

@@ -1891,7 +1891,7 @@ function register(): void {
 			column: typeof value.column === 'number' ? value.column : undefined,
 		})
 	})
-	handle('windowChrome', () => windowChrome(process.platform, testProfile))
+	handle('windowChrome', () => windowChrome(process.platform))
 	handleWindow('setWindowAppearance', ({ window }, appearance: unknown) => {
 		const colors = windowCaptionColors(appearance)
 		if (window.isDestroyed()) return

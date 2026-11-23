@@ -174,19 +174,6 @@ pre {
 	height: 100%;
 	-webkit-app-region: no-drag;
 }
-.window-titlebar-test-profile {
-	max-width: 14rem;
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
-	padding: 1px 8px;
-	border-radius: var(--radius-pill);
-	font-size: var(--text-caption);
-	line-height: var(--leading-caption);
-	/* Fixed warning colours on purpose: the chip must stand out in every theme. */
-	color: #1a1a1a;
-	background: #ff8c00;
-}
 .window-titlebar-button {
 	width: var(--frame-control-size);
 	height: var(--frame-control-size);

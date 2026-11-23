@@ -661,8 +661,6 @@ export type WindowAppearance = 'light' | 'dark'
 export interface WindowChrome {
 	platform: 'darwin' | 'win32' | 'linux' | 'other'
 	height: 36
-	/** The user-data folder name when this instance runs on a test profile; absent on the normal one. */
-	testProfile?: string
 }
 export interface DesktopTurnRetry {
 	turnId: string

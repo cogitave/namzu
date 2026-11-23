@@ -24,12 +24,11 @@ export function drawsMenuButton(platform: string): boolean {
 // test keeps these in step with it, so they read as one band with the header.
 export const WINDOW_CAPTION_FILL = { dark: '#121212', light: '#fbfbfb' } as const
 
-export function windowChrome(platform: string, testProfile?: string): WindowChrome {
+export function windowChrome(platform: string): WindowChrome {
 	return {
 		platform:
 			platform === 'darwin' || platform === 'win32' || platform === 'linux' ? platform : 'other',
 		height: WINDOW_CHROME_HEIGHT,
-		...(testProfile !== undefined ? { testProfile } : {}),
 	}
 }
 
