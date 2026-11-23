@@ -122,6 +122,20 @@ export function agentPartitionOf(scope: BrowserCookieScope, sessionId: string): 
 /** The agent's `persist:` partition, which clearing sign-ins must clear with the person's. */
 export const AGENT_PERSISTENT_PARTITION = 'persist:namzu-agent'
 
+/** The windows that share a session, by session: one request handler serves them all. */
+const hostsOfSession = new WeakMap<object, Set<BrowserPaneHost>>()
+const knownSessions = new Set<WeakRef<object>>()
+function hostsOfSessions(): Set<BrowserPaneHost>[] {
+	const out: Set<BrowserPaneHost>[] = []
+	for (const ref of knownSessions) {
+		const ses = ref.deref()
+		const peers = ses && hostsOfSession.get(ses)
+		if (peers) out.push(peers)
+		else knownSessions.delete(ref)
+	}
+	return out
+}
+
 /** One window's browser pages, kept per conversation. */
 export class BrowserPaneHost {
 	private readonly browsers = new Map<string, Browser>()
@@ -149,14 +163,6 @@ export class BrowserPaneHost {
 		return browser
 	}
 
-	/** The conversation a request came from: a partition can be shared, so the page's own tab says. */
-	private sessionOfContents(webContentsId: number | undefined): string | undefined {
-		if (webContentsId === undefined) return undefined
-		for (const [sessionId, browser] of this.browsers)
-			if (browser.tabs.some((tab) => tab.view.webContents.id === webContentsId)) return sessionId
-		return undefined
-	}
-
 	private tabOfContents(
 		webContentsId: number | undefined,
 	): { sessionId: string; tab: Tab } | undefined {
@@ -166,6 +172,29 @@ export class BrowserPaneHost {
 			if (tab) return { sessionId, tab }
 		}
 		return undefined
+	}
+
+	/**
+	 * Whether a request is cancelled, or undefined when none of this window's tabs asked. A file is
+	 * judged by the work folder of the conversation whose tab asked. The agent's site rules are a
+	 * second layer under the engine's own: a page of an agent's tab may not be taken to a site the
+	 * rules shut, whatever asked for it. Only a page (the main frame or a frame in it) is judged; a
+	 * script or image from another host is not a visit.
+	 */
+	judgeRequest(details: {
+		url: string
+		webContentsId?: number
+		resourceType?: string
+	}): boolean | undefined {
+		const asked = this.tabOfContents(details.webContentsId)
+		if (!asked) return undefined
+		const blocked =
+			details.url.startsWith('file:') && !fileAllowed(details.url, this.rules(asked.sessionId))
+		const shut =
+			asked.tab.owner === 'agent' &&
+			(details.resourceType === 'mainFrame' || details.resourceType === 'subFrame') &&
+			!siteAllowed(details.url, this.browser(asked.sessionId).agentSites)
+		return blocked || shut
 	}
 
 	/** Shuts a partition's doors once: permissions, downloads and files outside the work folder. */
@@ -180,22 +209,25 @@ export class BrowserPaneHost {
 		ses.setPermissionCheckHandler(() => false)
 		ses.setDevicePermissionHandler(() => false)
 		ses.on('will-download', (event) => event.preventDefault())
+		// One handler per session, however many windows share it: Electron keeps only the last handler
+		// set on a session, so each window joins a registry and the one handler asks them all.
+		let peers = hostsOfSession.get(ses)
+		if (peers) {
+			peers.add(this)
+			return partition
+		}
+		peers = new Set([this])
+		hostsOfSession.set(ses, peers)
+		knownSessions.add(new WeakRef(ses))
+		const hosts = peers
 		ses.webRequest.onBeforeRequest((details, callback) => {
-			// A shared partition serves many conversations: a file is judged by the work folder of the
-			// conversation whose tab asked, and a request from no known tab may load no file.
-			const owner = this.sessionOfContents(details.webContentsId)
-			const blocked =
-				details.url.startsWith('file:') &&
-				(owner === undefined || !fileAllowed(details.url, this.rules(owner)))
-			// The agent's site rules are a second layer under the engine's own: a page of an agent's tab
-			// may not be taken to a site the rules shut, whatever asked for it. Only a page (the main
-			// frame or a frame in it) is judged; a script or image from another host is not a visit.
-			const asked = this.tabOfContents(details.webContentsId)
-			const shut =
-				asked?.tab.owner === 'agent' &&
-				(details.resourceType === 'mainFrame' || details.resourceType === 'subFrame') &&
-				!siteAllowed(details.url, this.browser(asked.sessionId).agentSites)
-			callback({ cancel: blocked || shut })
+			let verdict: boolean | undefined
+			for (const host of hosts) {
+				verdict = host.judgeRequest(details)
+				if (verdict !== undefined) break
+			}
+			// A request from no known tab may load no file.
+			callback({ cancel: verdict ?? details.url.startsWith('file:') })
 		})
 		return partition
 	}
@@ -523,7 +555,7 @@ export class BrowserPaneHost {
 
 	/**
 	 * Opens a tab for the agent, or reuses the one it has. `sites` binds every agent tab of the
-	 * conversation from now on. A refused open names why.
+	 * conversation from now on (left alone when not given). A refused open names why.
 	 */
 	openAgentTab(
 		sessionId: string,
@@ -531,7 +563,8 @@ export class BrowserPaneHost {
 	): { ok: true; tab: AgentTabHandle; reused: boolean } | { ok: false; reason: AgentTabRefusal } {
 		if (this.disposed) return { ok: false, reason: 'tab-cap' }
 		const browser = this.browser(sessionId)
-		browser.agentSites = sites
+		// Rules not given keep the ones the conversation has; given rules replace them.
+		if (sites !== undefined) browser.agentSites = sites
 		const have = this.agentTabs(sessionId)
 		const first = have[0]
 		if (first) return { ok: true, tab: first, reused: true }
@@ -666,6 +699,7 @@ export class BrowserPaneHost {
 		if (this.disposed) return
 		this.detach()
 		this.disposed = true
+		for (const peers of hostsOfSessions()) peers.delete(this)
 		for (const [sessionId, browser] of this.browsers)
 			for (const tab of browser.tabs) {
 				if (tab.owner === 'agent') void this.tell({ kind: 'closed', sessionId, tabId: tab.id })

@@ -132,11 +132,25 @@ interface Driven {
 // ---- What may be called -------------------------------------------------------------------------
 
 /** Domains whose methods are all open, bar the exceptions in `REFUSED`. */
-const OPEN_DOMAINS = new Set(['Runtime', 'DOM', 'Input', 'Log', 'Accessibility', 'Emulation'])
+const OPEN_DOMAINS = new Set(['Runtime', 'DOM', 'Log', 'Accessibility', 'Emulation'])
 
 /** Methods open in domains that are otherwise shut. Everything not here or above is refused. */
 const OPEN_METHODS = new Set([
 	'Browser.getVersion',
+	// Input, method by method: a drag can carry files by path, so it is screened (see `screenMethod`).
+	'Input.dispatchKeyEvent',
+	'Input.dispatchMouseEvent',
+	'Input.dispatchTouchEvent',
+	'Input.dispatchDragEvent',
+	'Input.insertText',
+	'Input.imeSetComposition',
+	'Input.emulateTouchFromMouseEvent',
+	'Input.synthesizeScrollGesture',
+	'Input.synthesizePinchGesture',
+	'Input.synthesizeTapGesture',
+	'Input.setIgnoreInputEvents',
+	'Input.setInterceptDrags',
+	'Input.cancelDragging',
 	// The page itself: load, reload, history, scripts that run on each document, pictures, dialogs.
 	'Page.enable',
 	'Page.disable',
@@ -248,6 +262,23 @@ export function screenAddress(
 	return found.url
 }
 
+/** Whether every file named is an absolute path inside the work folder. An empty list names none. */
+function filesInside(files: unknown, rules: AddressRules, required: boolean): boolean {
+	if (files === undefined) return !required
+	if (!Array.isArray(files)) return false
+	if (files.length === 0) return true
+	const root = rules.workFolder
+	return (
+		root !== undefined &&
+		files.every(
+			(file) =>
+				typeof file === 'string' &&
+				isAbsolutePath(file) &&
+				isInside(root, cleanPath(file), rules.caseless),
+		)
+	)
+}
+
 /**
  * Whether a call may go to the page, and with what parameters. Pure: no page, no Electron, so every
  * row of the policy has a test. A call that carries an address is returned with the address the
@@ -283,18 +314,16 @@ export function screenMethod(
 		}
 		case 'DOM.setFileInputFiles': {
 			// A file may be given to a page's file field only from inside the work folder.
-			const files = params?.files
-			const root = context.rules.workFolder
-			const inside =
-				Array.isArray(files) &&
-				root !== undefined &&
-				files.every(
-					(file) =>
-						typeof file === 'string' &&
-						isAbsolutePath(file) &&
-						isInside(root, cleanPath(file), context.rules.caseless),
-				)
-			return inside ? { ok: true, params } : refused('address-refused', WORDS_ADDRESS)
+			return filesInside(params?.files, context.rules, true)
+				? { ok: true, params }
+				: refused('address-refused', WORDS_ADDRESS)
+		}
+		case 'Input.dispatchDragEvent': {
+			// A drop may carry files by path; they are judged like a file field's, and none is fine.
+			const data = asObject(params?.data)
+			return filesInside(data?.files, context.rules, false)
+				? { ok: true, params }
+				: refused('address-refused', WORDS_ADDRESS)
 		}
 		case 'Target.setAutoAttach':
 		case 'Target.getTargetInfo':
@@ -311,20 +340,38 @@ export function screenMethod(
 	}
 }
 
-/** Keeps cookie headers out of an event: the agent reads a page, not the person's cookies. */
+const COOKIE_NAME = /^(set-)?cookie2?$/i
+
+/** A header map ({name: value}) or a header list ([{name, value}]) without the cookie headers. */
+function withoutCookies(headers: unknown): unknown {
+	if (Array.isArray(headers))
+		return headers.filter((entry) => {
+			const name = asObject(entry)?.name
+			return !(typeof name === 'string' && COOKIE_NAME.test(name))
+		})
+	const map = asObject(headers)
+	if (!map) return headers
+	const kept: Record<string, unknown> = {}
+	for (const [name, value] of Object.entries(map)) if (!COOKIE_NAME.test(name)) kept[name] = value
+	return kept
+}
+
+/**
+ * Keeps cookie headers out of a network or interception event: the agent reads a page, not the
+ * person's cookies (a `Set-Cookie` of an HttpOnly cookie included). Covers the request, the
+ * response, the response a redirect answered with, and a paused request's response headers.
+ */
 function scrubHeaders(params: unknown): unknown {
-	if (!params || typeof params !== 'object') return params
-	const copy = { ...(params as Record<string, unknown>) }
-	for (const key of ['request', 'response']) {
-		const part = copy[key]
-		if (!part || typeof part !== 'object') continue
-		const headers = (part as Record<string, unknown>).headers
-		if (!headers || typeof headers !== 'object') continue
-		const kept: Record<string, unknown> = {}
-		for (const [name, value] of Object.entries(headers as Record<string, unknown>))
-			if (!/^(set-)?cookie2?$/i.test(name)) kept[name] = value
-		copy[key] = { ...(part as Record<string, unknown>), headers: kept }
+	const object = asObject(params)
+	if (!object) return params
+	const copy = { ...object }
+	for (const key of ['request', 'response', 'redirectResponse']) {
+		const part = asObject(copy[key])
+		if (part && part.headers !== undefined)
+			copy[key] = { ...part, headers: withoutCookies(part.headers) }
 	}
+	if (copy.responseHeaders !== undefined)
+		copy.responseHeaders = withoutCookies(copy.responseHeaders)
 	return copy
 }
 
@@ -353,16 +400,28 @@ const idText = (value: unknown, label: string): string => {
 	return value
 }
 
-/** Reads the site rules the engine passed: only strings, bounded. */
-function readSites(value: unknown): SiteRules | undefined {
+/**
+ * Reads the site rules the engine passed. Not given (undefined or null) is `undefined`: the rules a
+ * conversation already has stay. A rule that is malformed, too long or past the cap fails the open
+ * rather than being cut short, because a dropped `deny` is a looser policy. Note that an empty
+ * `allow` allows every site; `deny: ['*']` is how "no site" is said.
+ */
+export function readSites(value: unknown): SiteRules | undefined {
+	if (value === undefined || value === null) return undefined
+	const bad = () =>
+		new RelayError('method-refused', 'The site rules are not in a form Namzu reads.')
 	const object = asObject(value)
-	if (!object) return undefined
-	const list = (entry: unknown): string[] | undefined =>
-		Array.isArray(entry)
-			? entry
-					.filter((item): item is string => typeof item === 'string' && item.length <= 253)
-					.slice(0, 512)
-			: undefined
+	if (!object) throw bad()
+	const list = (entry: unknown): string[] | undefined => {
+		if (entry === undefined) return undefined
+		if (
+			!Array.isArray(entry) ||
+			entry.length > 512 ||
+			!entry.every((item) => typeof item === 'string' && item.length > 0 && item.length <= 253)
+		)
+			throw bad()
+		return entry as string[]
+	}
 	const allow = list(object.allow)
 	const deny = list(object.deny)
 	return { ...(allow ? { allow } : {}), ...(deny ? { deny } : {}) }
@@ -662,7 +721,10 @@ export class AgentPaneRelay {
 			conversationId: record.conversationId,
 			tabId: record.tab.id,
 			method,
-			params: method.startsWith('Network.') ? scrubHeaders(params) : params,
+			params:
+				method.startsWith('Network.') || method.startsWith('Fetch.')
+					? scrubHeaders(params)
+					: params,
 			...(sessionId ? { sessionId } : {}),
 		})
 	}

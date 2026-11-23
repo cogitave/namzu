@@ -22,6 +22,12 @@ const here = dirname(fileURLToPath(import.meta.url));
 const PAGES = {
 	"/": `<title>Fixture</title><h1>Fixture page</h1><a id=go href="/popup" target="_blank">Open popup</a>`,
 	"/popup": "<title>Popup page</title><h1>Popup</h1>",
+	"/drop": `<title>Drop</title><div id=z style="width:200px;height:200px">zone</div><script>
+window.dropped = null;
+addEventListener('dragover', (e) => e.preventDefault());
+addEventListener('drop', (e) => { e.preventDefault(); window.dropped = [...e.dataTransfer.files].map((f) => f.name); });
+</script>`,
+	"/cookie": "<title>Cookie</title><p>sets one</p>",
 };
 
 let root;
@@ -38,7 +44,9 @@ before(async () => {
 	writeFileSync(join(root, "secret.txt"), "outside");
 	server = createServer((request, response) => {
 		const body = PAGES[request.url?.split("?")[0] ?? ""];
-		response.writeHead(body ? 200 : 404, { "content-type": "text/html" });
+		const headers = { "content-type": "text/html" };
+		if (request.url?.startsWith("/cookie")) headers["set-cookie"] = "sid=HTTPONLYSECRET; HttpOnly";
+		response.writeHead(body ? 200 : 404, headers);
 		response.end(body ?? "not found");
 	});
 	await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -173,6 +181,36 @@ test("a person's take-over pauses the agent, and a second debugger cannot attach
 		}
 	}, tab);
 	assert.equal(second, "refused");
+});
+
+test("a drop carries files only from the work folder", { timeout: 30000 }, async () => {
+	await go("c1", tab, `${base}/drop`);
+	const drag = (type, files) => cdp("c1", tab, "Input.dispatchDragEvent", { type, x: 50, y: 50, data: { items: [], files } });
+	for (const type of ["dragEnter", "dragOver", "drop"]) {
+		const refused = await drag(type, [join(root, "secret.txt")]);
+		assert.deepEqual([refused.ok, refused.code], [false, "address-refused"], type);
+	}
+	assert.equal(await evaluate("c1", tab, "window.dropped"), null);
+	// Another input method that could take a path does not exist; the ones a driver needs still work.
+	const move = await cdp("c1", tab, "Input.dispatchMouseEvent", { type: "mouseMoved", x: 5, y: 5 });
+	assert.equal(move.ok, true, JSON.stringify(move));
+});
+
+test("no cookie header reaches the agent, even a Set-Cookie seen while a response is paused", { timeout: 30000 }, async () => {
+	for (const method of ["Page.enable", "Network.enable"]) await cdp("c1", tab, method);
+	const on = await cdp("c1", tab, "Fetch.enable", { patterns: [{ urlPattern: "*", requestStage: "Response" }] });
+	assert.equal(on.ok, true, JSON.stringify(on));
+	const from = await eventCount();
+	// The navigation does not answer until the paused response is let go, so it is not awaited here.
+	const started = cdp("c1", tab, "Page.navigate", { url: `${base}/cookie` });
+	const paused = await next({ kind: "cdp", tabId: tab, method: "Fetch.requestPaused" }, from);
+	const resumed = await cdp("c1", tab, "Fetch.continueResponse", { requestId: paused.params.requestId });
+	assert.equal(resumed.ok, true, JSON.stringify(resumed));
+	assert.equal((await started).ok, true);
+	await next({ kind: "cdp", tabId: tab, method: "Page.loadEventFired" }, from);
+	const seen = await app.evaluate((_, n) => JSON.stringify(globalThis.__lab.events.slice(n)), from);
+	assert.doesNotMatch(seen, /HTTPONLYSECRET/);
+	await cdp("c1", tab, "Fetch.disable");
 });
 
 test("closing lets go of every agent tab", { timeout: 30000 }, async () => {

@@ -7,9 +7,10 @@ import {
 	AgentPaneRelay,
 	type DebuggerLike,
 	MAX_RESULT_BYTES,
-	type RelayError,
+	RelayError,
 	type RelayEvent,
 	eventAllowed,
+	readSites,
 	screenAddress,
 	screenMethod,
 } from './agent-pane-relay.js'
@@ -285,6 +286,34 @@ describe('the methods an agent may call', () => {
 		expect(detach('S2')).toBe(false)
 	})
 
+	it('judges the files of a drag like a file field, and offers only the input a driver needs', () => {
+		const drag = (files?: unknown) =>
+			screenMethod('Input.dispatchDragEvent', { type: 'drop', data: { items: [], files } }, ctx)
+		expect(drag(['/work/a/in.txt']).ok).toBe(true)
+		expect(drag([]).ok).toBe(true)
+		expect(drag(undefined).ok).toBe(true)
+		expect(drag(['/work/secret.txt']).ok).toBe(false)
+		expect(drag(['/work/a/../secret.txt']).ok).toBe(false)
+		expect(drag(['relative.txt']).ok).toBe(false)
+		expect(drag('/work/a/in.txt').ok).toBe(false)
+		expect(ok('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 1, y: 1 })).toBe(true)
+		expect(ok('Input.someFutureMethodThatTakesAPath')).toBe(false)
+		expect(ok('Input.dispatchDragEvent', { type: 'drop' })).toBe(true)
+	})
+
+	it('reads site rules strictly: not given keeps, malformed fails, over the cap fails', () => {
+		expect(readSites(undefined)).toBeUndefined()
+		expect(readSites(null)).toBeUndefined()
+		expect(readSites({ deny: ['*'] })).toEqual({ deny: ['*'] })
+		expect(() => readSites('nope')).toThrow(RelayError)
+		expect(() => readSites({ deny: 'x.test' })).toThrow(RelayError)
+		expect(() => readSites({ deny: [1] })).toThrow(RelayError)
+		expect(() => readSites({ deny: ['a'.repeat(254)] })).toThrow(RelayError)
+		expect(() => readSites({ allow: Array.from({ length: 513 }, () => 'a.test') })).toThrow(
+			RelayError,
+		)
+	})
+
 	it('passes only the events a driver uses, and no cookie header', () => {
 		for (const method of [
 			'Page.frameNavigated',
@@ -305,7 +334,54 @@ describe('the methods an agent may call', () => {
 	})
 })
 
+describe('cookie headers in what the page says', () => {
+	const secret = 'sid=HTTPONLYSECRET; HttpOnly'
+	it('are removed from network and interception events, redirects included', async () => {
+		const pane = setup()
+		const { tabId } = await pane.relay.open({ conversationId: 'a' })
+		const dbg = (pane.pages[0] as FakePage).dbg
+		dbg.message('Network.requestWillBeSent', {
+			request: { headers: { Cookie: 'a=1', Accept: '*/*' } },
+			redirectResponse: { headers: { 'Set-Cookie': secret, Location: '/x' } },
+		})
+		dbg.message('Fetch.requestPaused', {
+			request: { headers: { cookie: 'a=1', Accept: '*/*' } },
+			responseHeaders: [
+				{ name: 'Set-Cookie', value: secret },
+				{ name: 'Content-Type', value: 'text/html' },
+			],
+		})
+		const seen = pane.events.filter((event) => event.kind === 'cdp' && event.tabId === tabId)
+		expect(seen).toHaveLength(2)
+		const text = JSON.stringify(seen)
+		expect(text).not.toMatch(/HTTPONLYSECRET|a=1/)
+		expect(text).toContain('Content-Type')
+		expect(text).toContain('Location')
+	})
+})
+
 describe('agent tabs in the pane', () => {
+	it('keeps the site rules a tab has when a later open gives none, and a given set replaces them', () => {
+		const pane = setup()
+		pane.host.openAgentTab('a', { deny: ['*'] })
+		pane.host.openAgentTab('a')
+		expect(pane.host.agentSites('a')).toEqual({ deny: ['*'] })
+		pane.host.openAgentTab('a', { allow: ['x.test'] })
+		expect(pane.host.agentSites('a')).toEqual({ allow: ['x.test'] })
+	})
+
+	it('fails an open whose rules are malformed and leaves the tab and its rules alone', async () => {
+		const pane = setup()
+		await pane.relay.open({ conversationId: 'a', rules: { deny: ['*'] } })
+		const failure = await pane.relay.open({ conversationId: 'a', rules: { deny: 7 } }).then(
+			() => undefined,
+			(error: unknown) => error,
+		)
+		expect(failure).toMatchObject({ code: 'method-refused' })
+		expect(pane.host.agentSites('a')).toEqual({ deny: ['*'] })
+		expect(pane.host.agentTabs('a')).toHaveLength(1)
+	})
+
 	it('count against a cap of their own and leave the person eight', () => {
 		const pane = setup()
 		for (let i = 0; i < MAX_BROWSER_TABS; i++) pane.host.handle('a', { kind: 'new' })
