@@ -86,7 +86,9 @@ export interface PreparedTurn {
 	readonly resilientProvider: LLMProvider
 	readonly serving: { current: ServingMember }
 	readonly providerContextWindow: number | undefined
+	readonly providerAutoCompactLimit: number | undefined
 	readonly modelContextWindows: Map<string, number | undefined>
+	readonly modelAutoCompactLimits: Map<string, number | undefined>
 	readonly approvalPolicy: SessionApprovalPolicy
 	readonly eventTranslator: EventTranslator
 	readonly executeUserInterruptHooks: (terminalError: unknown) => Promise<void>
@@ -224,8 +226,11 @@ export async function resolveProviderContextWindow(
 	signal: AbortSignal | undefined,
 	timeoutMs: number,
 	log: Logger,
+	/** Which of the driver's two optional limit lookups to ask; both share one bounded, swallowed path. */
+	member: 'resolveContextWindow' | 'resolveAutoCompactLimit' = 'resolveContextWindow',
 ): Promise<number | undefined> {
-	if (!provider.resolveContextWindow || !model) return undefined
+	const lookup = provider[member]
+	if (!lookup || !model) return undefined
 	if (signal?.aborted) return undefined
 
 	// The resolver is an optional optimisation that runs before TurnContext
@@ -253,7 +258,7 @@ export async function resolveProviderContextWindow(
 	}, deadlineMs)
 
 	try {
-		const resolution = provider.resolveContextWindow(model, resolverSignal)
+		const resolution = lookup.call(provider, model, resolverSignal)
 		const reported = await Promise.race([resolution, interruption])
 		if (reported === interrupted) {
 			if (deadline.signal.aborted) {
@@ -499,6 +504,17 @@ export async function prepareTurn(params: QueryParams): Promise<PreparedTurn> {
 		)
 		const modelContextWindows = new Map<string, number | undefined>()
 		if (turnConfig.model) modelContextWindows.set(turnConfig.model, providerContextWindow)
+		// The same lookup, for the threshold the driver's own service says compaction starts at.
+		const providerAutoCompactLimit = await resolveProviderContextWindow(
+			resilientProvider,
+			turnConfig.model,
+			params.signal,
+			turnConfig.timeoutMs,
+			log,
+			'resolveAutoCompactLimit',
+		)
+		const modelAutoCompactLimits = new Map<string, number | undefined>()
+		if (turnConfig.model) modelAutoCompactLimits.set(turnConfig.model, providerAutoCompactLimit)
 
 		// The mode this conversation was left in, when the turn config names none.
 		// Read once, before the loop exists, for the same reason the context
@@ -880,7 +896,9 @@ export async function prepareTurn(params: QueryParams): Promise<PreparedTurn> {
 			resilientProvider,
 			serving,
 			providerContextWindow,
+			providerAutoCompactLimit,
 			modelContextWindows,
+			modelAutoCompactLimits,
 			approvalPolicy,
 			eventTranslator,
 			executeUserInterruptHooks,

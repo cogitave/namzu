@@ -382,6 +382,14 @@ export interface BuildViewInput {
 	readonly memoryFiles: SuggestionInput['memoryFiles']
 }
 
+/**
+ * The one plain sentence for a window Namzu had to guess: what the guess is and the one setting
+ * that replaces it. (`NAMZU_AUTO_COMPACT_WINDOW` is not named: it can only lower a window.)
+ */
+export function windowGuessLine(windowTokens: number): string {
+	return `The window for this model is a guess (${formatTokens(windowTokens)} tokens). Set the real one with compaction.contextWindowTokens in your settings.`
+}
+
 /** Assemble the whole view and its plain-text twin. */
 export function buildContextView(input: BuildViewInput): ContextView {
 	const { breakdown } = input
@@ -408,7 +416,7 @@ export function buildContextView(input: BuildViewInput): ContextView {
 						label: 'Auto-compact window: ',
 						value:
 							input.windowSource === 'default'
-								? `${formatTokens(window)} tokens (default for an unrecognized model)`
+								? `${formatTokens(window)} tokens (a guess: this model's window is not known; set compaction.contextWindowTokens)`
 								: `${formatTokens(window)} tokens`,
 					}
 				: undefined

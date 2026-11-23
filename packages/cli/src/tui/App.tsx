@@ -549,6 +549,7 @@ import {
 	estimateHistoryTokens,
 } from './compaction-rows.js'
 import { approvalIsDeliberate } from './consent-timing.js'
+import { windowGuessLine } from './context-grid.js'
 import { CONTEXT_NOTICE_KEY, contextMeter, contextNotice } from './context-meter.js'
 import { buildContextRow, effectiveContextWindow } from './context-usage.js'
 import { assistantTranscriptTexts } from './conversation-history.js'
@@ -8525,6 +8526,7 @@ function AppBody({
 	resumeActiveTurnRef.current = resumeActiveTurn
 	const pushMessageRef = useRef(pushMessage)
 	pushMessageRef.current = pushMessage
+	const windowGuessNotedRef = useRef<Set<string>>(new Set())
 	// biome-ignore lint/correctness/useExhaustiveDependencies: `signInPark` is not read inside; a new pause object is what restarts the watch.
 	useEffect(() => {
 		if (signInWatchTurn === undefined) signInWatchStartRef.current = null
@@ -11268,6 +11270,15 @@ function AppBody({
 					// waits on background agents, and their notices print above it.
 					closeAssistant()
 					st.lastUsage = event
+					// A window Namzu had to guess is said once, in plain words, with the setting that fixes it.
+					if (
+						event.windowSource === 'default' &&
+						event.contextWindowTokens !== undefined &&
+						!windowGuessNotedRef.current.has(replyModelRef.current ?? '')
+					) {
+						windowGuessNotedRef.current.add(replyModelRef.current ?? '')
+						pushMessage('system', windowGuessLine(event.contextWindowTokens))
+					}
 					// What the cache and context look like after this call; the idle
 					// compactor decides from it when the turn is over.
 					idleCompaction.compactor.recordCall(event.cache)

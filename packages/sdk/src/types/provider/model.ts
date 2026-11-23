@@ -37,6 +37,12 @@ export interface ModelInfo {
 	 * back to its own table instead of trusting a zero.
 	 */
 	contextWindow?: number
+	/**
+	 * Tokens at which the provider's service says a conversation should be compacted, already
+	 * held to 90% of `contextWindow` when both are known. Absent means the service stated none
+	 * and Namzu's own trigger rule applies.
+	 */
+	autoCompactTokenLimit?: number
 	/** Same, and absent for the same reason. */
 	maxOutputTokens?: number
 	/**

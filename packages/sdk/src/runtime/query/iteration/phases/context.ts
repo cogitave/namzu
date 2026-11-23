@@ -242,6 +242,10 @@ export interface IterationContext {
 	 * through to the table.
 	 */
 	readonly providerContextWindow?: number
+	/** What the driver's service says compaction starts at, in tokens; asked once at the start of the turn. */
+	readonly providerAutoCompactLimit?: number
+	activeProviderAutoCompactLimit?: number
+	readonly resolveModelAutoCompactLimit?: (model: string) => Promise<number | undefined>
 	/** Selected request model; its window must not reuse another model's metadata. */
 	contextModel?: string
 	activeProviderContextWindow?: number

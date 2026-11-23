@@ -1173,7 +1173,9 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 		resilientProvider,
 		serving,
 		providerContextWindow,
+		providerAutoCompactLimit,
 		modelContextWindows,
+		modelAutoCompactLimits,
 		approvalPolicy,
 		eventTranslator,
 		executeUserInterruptHooks,
@@ -2063,6 +2065,23 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 				? { compactionSummaryRoute: params.compactionSummaryRoute }
 				: {}),
 			...(providerContextWindow !== undefined ? { providerContextWindow } : {}),
+			...(providerAutoCompactLimit !== undefined ? { providerAutoCompactLimit } : {}),
+			resolveModelAutoCompactLimit: async (model) => {
+				if (!modelAutoCompactLimits.has(model)) {
+					modelAutoCompactLimits.set(
+						model,
+						await resolveProviderContextWindow(
+							resilientProvider,
+							model,
+							ctx.abortController.signal,
+							turnConfig.timeoutMs,
+							log,
+							'resolveAutoCompactLimit',
+						),
+					)
+				}
+				return modelAutoCompactLimits.get(model)
+			},
 			resolveModelContextWindow: async (model) => {
 				if (!modelContextWindows.has(model)) {
 					modelContextWindows.set(
