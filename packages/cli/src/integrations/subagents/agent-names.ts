@@ -1,6 +1,6 @@
 /**
  * Names for sub-agents. A name given to `Agent` addresses that agent in
- * `send_message`, `wait_for_task` and `cancel_agent` in place of its task id.
+ * `send_message`, `wait_for_task` and `stop_task` in place of its task id.
  */
 
 /** Letters, digits, underscore and hyphen; starts with a letter or digit; at most 64. */

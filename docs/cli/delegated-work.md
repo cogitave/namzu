@@ -325,7 +325,7 @@ that is still unwinding after a stop answers that it is stopping.
 
 `Agent` takes an optional `name`: letters, digits, underscores and hyphens,
 starting with a letter or digit, at most 64 characters. The name then stands in
-for the task id in `send_message`, `wait_for_task` and `cancel_agent`
+for the task id in `send_message`, `wait_for_task` and `stop_task`
 (`task_id: "reviewer"`), the launch receipt repeats it, `agent_task_list` shows it
 as `name`, and the "Running agents" list of an unknown-task answer prints it in
 brackets. Names match without regard to case, width or spaces. `main`,
@@ -337,7 +337,7 @@ conversation keeps the agent.
 An agent keeps one task id for as long as the conversation knows it. A resumed
 run is a new task inside, but the notification, `agent_task_list`,
 `wait_for_task` and `send_message` all show the id the agent was first known by,
-and that id keeps working for `wait_for_task`, `cancel_agent` and
+and that id keeps working for `wait_for_task`, `stop_task` and
 `send_message`. When two messages meet an agent that is being resumed, the
 second is told in plain words that the agent is already being resumed and to
 wait for its notification before sending another. A saved agent that is still
@@ -394,7 +394,7 @@ The call is not reviewed: it declares itself read-only because it starts,
 changes and stops nothing — no file of its own, no request, no task, and the
 transcript record above is the kernel writing down a call, not this tool
 reaching for anything — and asking the operator to approve being shown a line
-would make the tool unusable. `send_message` and `cancel_agent`, which do
+would make the tool unusable. `send_message` and `stop_task`, which do
 reach into a running child, are reviewed as they were. A successful call adds
 no row to the conversation either: the line it wrote is already on screen, and
 printing the call beneath it would show the same sentence twice, the second
@@ -408,7 +408,7 @@ line to appear above, and a tool whose whole answer is "the operator saw this"
 must not be offered where there is no operator to show it to.
 
 The tool is the parent's alone. It is registered on the parent conversation's
-registry, like `send_message` and `cancel_agent`, and a delegated child's
+registry, like `send_message` and `stop_task`, and a delegated child's
 roster carries none of those — so nothing a child produces can be rendered as
 the parent's own narration. That boundary is the design, not an oversight: a line
 written by a child and shown as if the parent said it would be untrusted text
@@ -527,9 +527,9 @@ A sub-agent has no one to ask: where the working rules say to ask or stop, it
 finishes what is safe, leaves the risky step undone and names the blocker or
 assumption in its final summary, so the parent decides. `wait_for_task` retrieves
 the result without launching duplicate work. `wait_for_task`, `send_message`,
-`cancel_agent` and `agent_task_list` reach every agent of the conversation from
+`stop_task` and `agent_task_list` reach every agent of the conversation from
 any later turn, running or finished: a finished one is returned as it ended
-(`wait_for_task` starts no new wait, `cancel_agent` says it already ended) or,
+(`wait_for_task` starts no new wait, `stop_task` says it already ended) or,
 with `send_message`, resumed; a running one keeps the review channel it was
 launched under. Background work keeps
 the same parent authority, shared tree budget and capacity limit. In the terminal
@@ -730,23 +730,36 @@ CLI delegation has no implicit cumulative token cap when `limits.tokenBudget`
 is omitted. An explicitly finite tree budget still constrains every child, and
 usage remains recorded in unlimited mode. Other execution limits are unchanged.
 
-## Cancelling one agent
+## Stopping delegated work
 
-`cancel_agent` takes the exact `task_id` returned by `Agent` or `agent_task_list`.
-It requests cancellation only for a running or queued task owned by the invoking
-parent session. Other tasks keep their ownership and cancellation signals. A finished
-task returns its existing status without restarting or cancelling anything.
-The receipt says cancellation was requested; use `agent_task_list` or
-`wait_for_task` to confirm the terminal outcome. Task results still reach the
-completion inbox once.
+`stop_task` is the one tool for ending work the model started. It takes `id`, an
+exact `task_id` returned by `Agent` or `agent_task_list` (or the name given to
+`Agent`), or the run id of a workflow (`w` and eight characters, the `run_id`
+`agent_task_list` returns), and an optional short `reason`. It requests a stop
+only for a running or queued task or run owned by the invoking parent session.
+Other tasks keep their ownership and cancellation signals. A task or run that
+already ended answers "already ended" and nothing restarts or stops. Acceptance
+is not proof: the result says to check `agent_task_list` or `wait_for_task`.
 
-Cancellation during an unresolved provider stream can leave unknown token spend.
-The ledger retains the unknown receipt and blocks its owning account and branches
-sharing a finite ancestor budget. Healthy siblings under unlimited ancestors can
-continue. `/cost` reports unresolved receipts and labels totals as measured,
-potentially incomplete usage. Invalid accounting or failed persistence still
-blocks the whole tree. A tool wait after a settled provider receipt does not
-introduce this uncertainty.
+For a workflow run the running agents abort, the queued agents never start, and
+the run's journal is kept, so `workflow` with `resumeFromRunId` reuses what
+finished (see [Workflows](workflows.md#resuming-a-run)). Background shell jobs
+and monitors are ended with the `job` tool, not `stop_task`.
+
+The tool replaces `cancel_agent`. A permission rule, `--allowed-tools` or
+`--disallowed-tools` entry that still names `cancel_agent` applies to
+`stop_task`, and a conversation resumed from before keeps its earlier
+`cancel_agent` calls in its history. `stop_task` is always loaded wherever
+`Agent` or `workflow` can be offered.
+
+The model is told in its own words when to use it: background work it started is
+its to end once it no longer serves the task (the person changed course, a result
+already in hand answers the question, or an earlier stage failed so the rest is
+pointless), not when it is only slow; a task `agent_task_list` labels stalled or
+dead is a candidate; and it says in one sentence what it stopped and why. The
+same guidance sits in the `stop_task`, `Agent` and `workflow` descriptions, the
+workflow launch receipt, the large-run notice, the hypermode reminders and the
+system prompt's "Planning and delegating" section.
 
 ## Saved delegation evidence after resume
 
@@ -793,7 +806,7 @@ without settling a turn (`unresolved`), one you stopped, one that ran in an
 isolated worktree or with a role, one saved by an older version, and one whose
 agent type no longer exists answer "Not sent. Agent … was saved by an earlier run
 but cannot be resumed …", or the stopped text, and send nothing. `wait_for_task`
-and `cancel_agent` take the same UUID once the agent has been resumed.
+and `stop_task` take the same UUID once the agent has been resumed.
 
 `unresolved` means the parent never recorded an end. It does not prove that the
 child is still running, failed, or had no effects: a process that died mid-turn
@@ -849,7 +862,7 @@ child that ran, and leaving it out of the list would say otherwise.
 
 Resume does not restart these children or reconnect their processes, and
 neither does opening one. A replayed child has no task the scheduler still
-knows: `send_message` cannot reach it, `cancel_agent` has nothing to cancel, and
+knows: `send_message` cannot reach it, `stop_task` has nothing to cancel, and
 the screen offers neither.
 
 ### Retention

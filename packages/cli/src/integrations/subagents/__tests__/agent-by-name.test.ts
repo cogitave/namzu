@@ -49,7 +49,7 @@ async function world() {
 }
 
 describe('a name given to Agent', () => {
-	it('addresses the agent in wait_for_task and cancel_agent, and shows in the listing', async () => {
+	it('addresses the agent in wait_for_task and stop_task, and shows in the listing', async () => {
 		const w = await world()
 		try {
 			const receipt = await w.launch('Reviewer')
@@ -76,9 +76,9 @@ describe('a name given to Agent', () => {
 			expect(waited.output).toContain(`task_id: ${entry.task_id}`)
 			expect(waited.output).toContain('RESULT_1')
 
-			const cancelled = await w.runtime.cancelAgentTool.execute({ task_id: 'Reviewer' }, w.context)
+			const cancelled = await w.runtime.stopTaskTool.execute({ id: 'Reviewer' }, w.context)
 			expect(cancelled.output).toBe(
-				`Task ${entry.task_id} already ended: completed. No cancellation sent.`,
+				`Task ${entry.task_id} already ended: completed. Nothing was stopped.`,
 			)
 		} finally {
 			await w.runtime.close()
@@ -173,7 +173,7 @@ it('keeps the same agent name independently addressable in two conversations', a
 			const waited = await runtime.waitForTaskTool.execute({ task_id: 'REVIEWER' }, context)
 			expect(waited.success, waited.error).toBe(true)
 			expect(waited.output).toContain(expected)
-			const cancelled = await runtime.cancelAgentTool.execute({ task_id: 'reviewer' }, context)
+			const cancelled = await runtime.stopTaskTool.execute({ id: 'reviewer' }, context)
 			expect(cancelled.output).toContain('already ended: completed')
 		}
 	} finally {

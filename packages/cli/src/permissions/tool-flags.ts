@@ -10,7 +10,7 @@
  * an allowed entry only settles calls that nothing stricter decided.
  */
 
-import type { PermissionsConfig, ToolPermission } from './rules.js'
+import { type PermissionsConfig, type ToolPermission, currentToolName } from './rules.js'
 
 export interface ToolListProblem {
 	readonly flag: string
@@ -43,7 +43,7 @@ export function splitToolList(value: string): { items: string[]; unbalanced: boo
 
 /** Built-in tool names are lower case; a server's tools (`mcp__a__b`) are exact. */
 export function toolKey(name: string): string {
-	return name.includes('__') ? name : name.toLowerCase()
+	return name.includes('__') ? name : currentToolName(name.toLowerCase())
 }
 
 const toolName = toolKey

@@ -297,7 +297,10 @@ the detail, a frameless dialog (side by side from 64 columns, one list at a time
    Phases the script declared in `meta.phases` are listed from the start in the
    declared order; one nothing has started in is dim, with no count. Esc goes
    back to the row. `x` stops the whole run: queued agents never start, running
-   ones are cancelled.
+   ones are cancelled. The model can stop a run it started the same way with
+   `stop_task` and the run id (see [Stopping delegated work](delegated-work.md#stopping-delegated-work)):
+   the journal is kept, so a later `workflow` call with `resumeFromRunId` reuses
+   the finished agents.
    A phase whose agents were all skipped shows `✘`, not the tick: the tick is
    for a phase where something finished. The phase's detail text (from
    `meta.phases`) sits right under its title in the right-hand pane. The last

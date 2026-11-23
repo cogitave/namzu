@@ -36,7 +36,7 @@ content type or its first bytes `%PDF-`) is answered with one line saying
 `web_fetch` does not read PDFs and what to do instead, not decoded bytes. In a
 session that defers tools, `web_fetch` always rides the request; the agent and
 workflow tools (`wait_for_task`, `agent_task_list`, `send_message`,
-`cancel_agent`, `workflow`) ride it too while hypermode is on or an agent or
+`stop_task`, `workflow`) ride it too while hypermode is on or an agent or
 workflow run is going. A `search_tools` result is never cleared from the
 conversation, so a loaded tool stays loaded.
 The guard's own refusals (a non-web scheme, an address inside the host, a host

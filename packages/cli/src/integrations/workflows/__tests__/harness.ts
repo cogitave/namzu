@@ -83,6 +83,11 @@ export async function workflowHarness(
 	const assigned: boolean[] = []
 	const late: { host?: ReturnType<typeof createWorkflowHost> } = {}
 	const runtime = await createSubagentRuntime({
+		stopWorkflowRun: (_sessionId, runId) => {
+			const run = late.host?.registry.list().find((view) => view.runId === runId)
+			if (!run || !late.host) return 'unknown'
+			return late.host.registry.stop(runId) ? 'stopped' : 'ended'
+		},
 		workStatus: (_sessionId, runId) =>
 			readWorkStatus(
 				{

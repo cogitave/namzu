@@ -250,7 +250,7 @@ describe('largeRunNotice', () => {
 			limit: 10,
 		})
 		expect(text).toBe(
-			'Workflow big-sweep has asked for 14 agents, more than the 10 this session advises. It keeps running; press ↓ then x on its row, or open /workflows, to stop it.',
+			'Workflow big-sweep has asked for 14 agents, more than the 10 this session advises. It keeps running; press ↓ then x on its row, or open /workflows, to stop it. The model may also stop it with stop_task when it no longer serves the task.',
 		)
 	})
 	it('has its own words for a token cause', () => {

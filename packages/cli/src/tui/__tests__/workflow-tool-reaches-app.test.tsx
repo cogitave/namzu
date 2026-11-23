@@ -463,7 +463,7 @@ describe('a run that asks for more agents than the guideline', () => {
 		// The line wraps in a terminal of this width: read it with the breaks closed up.
 		const flat = everything(screen).replace(/\s+/g, ' ')
 		expect(flat).toContain(
-			'Workflow audit has asked for 11 agents, more than the 10 this session advises. It keeps running; press ↓ then x on its row, or open /workflows, to stop it.',
+			'Workflow audit has asked for 11 agents, more than the 10 this session advises. It keeps running; press ↓ then x on its row, or open /workflows, to stop it. The model may also stop it with stop_task when it no longer serves the task.',
 		)
 		// More agents and more renders: still the one notice, and nothing stopped.
 		flows.set([many(14)])

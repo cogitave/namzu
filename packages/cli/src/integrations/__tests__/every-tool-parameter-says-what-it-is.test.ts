@@ -64,7 +64,7 @@ async function roster(): Promise<ToolDefinition[]> {
 			runtime.waitForTaskTool,
 			runtime.agentTaskListTool,
 			runtime.sendMessageTool,
-			runtime.cancelAgentTool,
+			runtime.stopTaskTool,
 			runtime.narrationTool,
 			createWebSearchTool(),
 			buildSwitchModelTool(() => Promise.reject(new Error('not used'))),
