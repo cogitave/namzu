@@ -33,6 +33,7 @@ import type {
 } from 'openai/resources/responses/responses'
 
 import { type FastTier, assertFastModeAccepted, servedSpeed } from './fast-mode.js'
+import { declaredContextWindow, effectiveWindowFraction } from './model-limits.js'
 import type { CodexConfig } from './types.js'
 
 export const CODEX_CAPABILITIES: ProviderCapabilities = {
@@ -524,8 +525,14 @@ const listingByAccount = new Map<
 	{
 		speedTiers: Map<string, readonly FastTier[]>
 		reasoningProfiles: Map<string, SubscriptionReasoningProfile>
+		windows: Map<string, number>
 	}
 >()
+
+/** The most a subscription listing may take before the window is left to the SDK's table. */
+const WINDOW_LISTING_TIMEOUT_MS = 3_000
+/** How long a failed listing is remembered, so a turn does not ask again every time. */
+const WINDOW_LISTING_RETRY_MS = 5 * 60_000
 
 export class CodexProvider implements LLMProvider {
 	readonly id = 'codex'
@@ -537,6 +544,9 @@ export class CodexProvider implements LLMProvider {
 	private reasoningProfiles = new Map<string, SubscriptionReasoningProfile>()
 	/** Per model, the speed tiers the account's listing offers. Absent until a listing has answered. */
 	private speedTiers?: Map<string, readonly FastTier[]>
+	/** Per model, the window the account's listing states. Absent until a listing has answered. */
+	private windows?: Map<string, number>
+	private windowListingRetryAt = 0
 	private readonly listingKey: string
 
 	constructor(config: CodexConfig) {
@@ -561,6 +571,7 @@ export class CodexProvider implements LLMProvider {
 		if (known) {
 			this.speedTiers = known.speedTiers
 			this.reasoningProfiles = known.reasoningProfiles
+			this.windows = known.windows
 		}
 	}
 
@@ -586,6 +597,37 @@ export class CodexProvider implements LLMProvider {
 	speedTiersFor(model: string): readonly FastTier[] | undefined {
 		if (this.speedTiers === undefined) return undefined
 		return this.speedTiers.get(model.toLowerCase()) ?? []
+	}
+
+	/**
+	 * The window the runtime measures compaction against, as the account's model listing states
+	 * it (scaled by the effective-percent the listing sends, when it sends one), or `undefined`
+	 * when the listing states none, which leaves the SDK's table to answer.
+	 *
+	 * The listing is asked once per account and kept. A failure is remembered for a few minutes
+	 * and a listing that hangs is cut short. Neither ever fails a turn; only the caller's own
+	 * abort propagates.
+	 */
+	async resolveContextWindow(model: string, signal?: AbortSignal): Promise<number | undefined> {
+		signal?.throwIfAborted()
+		if (!this.windows) {
+			if (Date.now() < this.windowListingRetryAt) return undefined
+			const controller = new AbortController()
+			const forward = () => controller.abort()
+			signal?.addEventListener('abort', forward, { once: true })
+			const timer = setTimeout(forward, WINDOW_LISTING_TIMEOUT_MS)
+			try {
+				await this.listModels(controller.signal)
+			} catch {
+				signal?.throwIfAborted()
+				this.windowListingRetryAt = Date.now() + WINDOW_LISTING_RETRY_MS
+				return undefined
+			} finally {
+				clearTimeout(timer)
+				signal?.removeEventListener('abort', forward)
+			}
+		}
+		return this.windows?.get(model.toLowerCase())
 	}
 
 	async *chatStream(params: ChatCompletionParams): AsyncIterable<StreamChunk> {
@@ -936,6 +978,7 @@ export class CodexProvider implements LLMProvider {
 		signal?.throwIfAborted()
 		const profiles = new Map<string, SubscriptionReasoningProfile>()
 		const tiersBySlug = new Map<string, readonly FastTier[]>()
+		const windows = new Map<string, number>()
 		const models = (Array.isArray(response.models) ? response.models : []).flatMap(
 			(value): ModelInfo[] => {
 				const item = record(value)
@@ -945,6 +988,12 @@ export class CodexProvider implements LLMProvider {
 				if (profile) profiles.set(item.slug.toLowerCase(), profile)
 				const speedTiers = subscriptionSpeedTiers(item)
 				tiersBySlug.set(item.slug.toLowerCase(), speedTiers)
+				const stated = declaredContextWindow(item)
+				const contextWindow =
+					stated === undefined
+						? undefined
+						: Math.max(1, Math.floor(stated * (effectiveWindowFraction(item) ?? 1)))
+				if (contextWindow !== undefined) windows.set(item.slug.toLowerCase(), contextWindow)
 				return [
 					{
 						id: item.slug,
@@ -954,15 +1003,18 @@ export class CodexProvider implements LLMProvider {
 						...(profile ? { reasoningEffortLevels: profile.levels } : {}),
 						...(profile?.default !== undefined ? { reasoningEffortDefault: profile.default } : {}),
 						speedTiers,
+						...(contextWindow !== undefined ? { contextWindow } : {}),
 					},
 				]
 			},
 		)
 		this.reasoningProfiles = profiles
 		this.speedTiers = tiersBySlug
+		this.windows = windows
 		listingByAccount.set(this.listingKey, {
 			speedTiers: tiersBySlug,
 			reasoningProfiles: profiles,
+			windows,
 		})
 		return models
 	}

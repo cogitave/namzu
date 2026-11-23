@@ -102,3 +102,31 @@ describe('resolveContextWindow', () => {
 		}
 	})
 })
+
+describe('the gpt-6 family', () => {
+	// The rows are UNVERIFIED floors (see the table). What is pinned here is the shape: the family
+	// is recognised, it no longer falls to the 128k guess, and a provider's own number wins.
+	it.each(['gpt-6.2-sol', 'gpt-6.2-astra', 'gpt-6.1-terra', 'gpt-6-luna', 'gpt-6'])(
+		'knows %s from the table',
+		(id) => {
+			const resolved = resolveContextWindow(undefined, id)
+			expect(resolved.source).toBe('model-table')
+			expect(resolved.tokens).toBeGreaterThan(DEFAULT_ASSUMED_CONTEXT_WINDOW)
+		},
+	)
+
+	it('lets the provider value beat the table, up or down', () => {
+		expect(resolveContextWindow(undefined, 'gpt-6.2-sol', 1_050_000)).toEqual({
+			tokens: 1_050_000,
+			source: 'provider',
+		})
+		expect(resolveContextWindow(undefined, 'gpt-6.2-sol', 200_000)).toEqual({
+			tokens: 200_000,
+			source: 'provider',
+		})
+	})
+
+	it('leaves the gpt-5 row alone', () => {
+		expect(lookupContextWindow('gpt-5.6-sol')).toBe(400_000)
+	})
+})

@@ -158,9 +158,7 @@ describe('the legend and header', () => {
 		})
 		expect(view(set, { windowSource: 'config' }).windowNote?.value).toBe('200k tokens')
 		expect(buildLegend(set).at(-1)?.name).toBe('Autocompact buffer')
-		expect(view(set, { windowSource: 'default' }).windowNote?.value).toContain(
-			'default for an unrecognized model',
-		)
+		expect(view(set, { windowSource: 'default' }).windowNote?.value).toContain('a guess')
 	})
 
 	it('shows the prompt cache lifetime only when one was given, in the view and its text', () => {
@@ -338,5 +336,15 @@ describe('advice', () => {
 			memoryFiles: [],
 		})
 		expect(out.map((s) => s.title)).toEqual(['Autocompact is disabled'])
+	})
+})
+
+describe('the guess line', () => {
+	it('names the guess and the one setting that replaces it', async () => {
+		const { windowGuessLine } = await import('../context-grid.js')
+		const line = windowGuessLine(128_000)
+		expect(line).toContain('guess')
+		expect(line).toContain('128k')
+		expect(line).toContain('compaction.contextWindowTokens')
 	})
 })

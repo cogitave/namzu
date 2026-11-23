@@ -42,6 +42,43 @@ matching each result to its call by id. `describeToolCatalogTokens(tools)` sizes
 a rendered tool catalogue tool by tool, and `estimateTextTokens(text)` and `estimateMessagesTokens(messages)` (text, tool calls and their results, pictures and documents) are the
 characters-per-token estimate for a string.
 
+## Where the window comes from
+
+`resolveContextWindow(configured, model, providerReported)` answers in this
+order: the configured `contextWindowTokens`, then the number the driver reports,
+then the table of known model-name prefixes, then a 128,000-token guess. The
+result carries `source` (`config`, `provider`, `model-table` or `default`).
+
+The subscription driver (`CodexProvider`) reports a window from the account's
+model listing: `resolveContextWindow(model, signal)` reads the listing once per
+account (a list that fails or takes over three seconds is skipped for five
+minutes and never fails a turn). A row's window is read from the first of
+`context_window_tokens`, `context_window`, `context_length`, `max_model_len` or
+`max_context_window` that holds a positive integer, and is scaled by
+`effective_context_window_percent` when the row sends one (1 to 100). The same
+number is `ModelInfo.contextWindow` on that listing.
+
+The table has rows for the gpt-6 family (`gpt-6.2`, `gpt-6`) at 258,000 tokens.
+These are **unverified floors**, the low end of what secondary reports give, so
+a model that really holds more compacts a little early rather than failing on a
+rejected prompt. A driver's own number always wins over them. The `gpt-5` row is
+unchanged.
+
+A model that falls to the 128,000 guess is said so once: `/context` reads "a
+guess: this model's window is not known; set compaction.contextWindowTokens",
+and the transcript says it once per session. `NAMZU_AUTO_COMPACT_WINDOW` is not
+the fix: it can only lower a window. To keep a window that was guessed before
+this change (128,000 for a gpt-6 model), set `compaction.contextWindowTokens` to
+`128000`.
+
+When compaction starts, measured with the window fixed at 128,000 and nothing
+configured: the summary trigger at 95,000 tokens (window less 20,000 output
+reserve and 13,000 buffer); the salience strategy the terminal ships also sheds
+stale tool results from half the window (64,000), and only when something can be
+shed. Neither starts at 39,000. The size compared is the provider's prompt
+count (cached tokens are part of it, reasoning is not, deferred tools are not
+sent), so nothing the `/context` breakdown excludes is counted.
+
 ## The summary trigger
 
 `compactionConfig.autoCompactWindowTokens` optionally sets a smaller window for

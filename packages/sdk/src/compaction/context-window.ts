@@ -173,6 +173,13 @@ const WINDOWS: ReadonlyArray<readonly [prefix: string, tokens: number]> = [
 	['claude-3-5-haiku', 200_000],
 	['claude-3-opus', 200_000],
 	['claude-', 200_000],
+	// The gpt-6 family: UNVERIFIED floors. No first-party figure was read; secondary reports put
+	// the subscription route's default between 258k and 500k and the API window near 1M. These
+	// are the low end of that range, so a model that really holds more compacts a little early
+	// instead of dying on a rejection. A provider's own listing always outranks them (see
+	// `resolveContextWindow`), and the subscription driver reads one at run time.
+	['gpt-6.2', 258_000],
+	['gpt-6', 258_000],
 	['gpt-5', 400_000],
 	['gpt-4.1', 1_047_576],
 	['gpt-4o', 128_000],
