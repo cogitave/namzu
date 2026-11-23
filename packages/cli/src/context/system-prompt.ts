@@ -70,6 +70,7 @@ export const BROWSER_WEB_TASK_GUIDANCE = [
 	'- Do not repeat a search query or reopen a page you already opened in this turn; use what you got.',
 	'- A value the page itself shows for this task (a code displayed in another tab, a sample entry) may be typed where that same page asks for it. Passwords and one-time codes are never typed by you: the browser refuses those fields even for a demo value the page displays. Do not wait for the person.',
 	'- When a step cannot be done or confirmed (a sign-in, or an action that still shows no change after one other way), carry on with every other step the page lets you do (a step listed after it is still yours to try unless the page blocks it) instead of stopping or retrying, then report which step was left and why.',
+	'- Ask first, then act, before an effect that leaves the page or cannot be undone: sending, posting, submitting personal data, buying (name the item and the total), deleting, publishing, accepting terms, downloading. A site rule or a no from the person is final: do not look for another way.',
 	'- Finish by checking the result on the page and report what the page showed.',
 ].join('\n')
 

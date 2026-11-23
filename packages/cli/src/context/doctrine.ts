@@ -52,6 +52,11 @@ const NO_ONE_TO_ASK: ReadonlyArray<readonly [string, string]> = [
 		'Confirm first before an action that is hard to reverse or visible outside this machine (deleting data, sending a message, publishing, changing a shared system), unless the user asked for exactly that.',
 		'Do not take an action that is hard to reverse or visible outside this machine (deleting data, sending a message, publishing, changing a shared system) unless the task asks for exactly that; name it in your summary.',
 	],
+	['quote it and ask the person.', 'quote it in your summary and do not act on it.'],
+	[
+		'Take the least destructive route to the goal. Before a purchase, say the item and the total and wait for a yes.',
+		'Take the least destructive route to the goal.',
+	],
 	['without asking: not', 'unless the task says so: not'],
 	[
 		'stop and tell the user the command to set one; do not invent one.',

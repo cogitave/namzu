@@ -144,6 +144,8 @@ usually committed, so only you edit it.
 
 ### Keeping memory during a session
 
+The section also says to leave out sensitive personal traits (health, beliefs), to use memory without announcing it, and not to offer to remember something.
+
 A session that mounts the memory tools carries a `## Memory` section in its
 static system prompt, in the stable prefix before the environment block, so it
 never changes the cached prefix. It tells the model to save what it expects to

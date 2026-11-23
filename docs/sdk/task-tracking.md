@@ -45,7 +45,7 @@ replacing an authoritative view uses `listStrict()` instead: incomplete reads
 reject, preserving the previous view rather than treating unreadable tasks as
 deleted. A session without a task directory remains a valid empty list.
 
-Deleting a task also removes its dependency edges from related tasks. Both
+`task_create` tells the model to call `task_list` first, and `task_update` to delete a task that no longer applies, so the list stays the current plan. Deleting a task also removes its dependency edges from related tasks. Both
 built-in stores publish each changed related record as `task.updated` before
 the original `task.deleted` event. Creating a task with `blockedBy` publishes
 its changed blocker rows before announcing the successfully created task.

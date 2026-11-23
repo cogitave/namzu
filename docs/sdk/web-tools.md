@@ -29,7 +29,7 @@ follow the WebFetch rules set out here.
 A URL longer than 2000 characters, one with a user name or password, and one
 whose host has no dot (`localhost`, `intranet`) are refused before any request.
 The last message points to a shell command such as `curl` for a local server.
-Reading a page starts with `web_fetch`; the browser tools are for a sign-in, a
+`web_fetch` is for a URL the person gave or a result returned; its description says not to build one from memory. Reading a page starts with `web_fetch`; the browser tools are for a sign-in, a
 page drawn by script, or a page you must click through. A non-2xx answer, an
 empty body or script-only body points to the browser tools. A PDF (by its
 content type or its first bytes `%PDF-`) is answered with one line saying

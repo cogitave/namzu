@@ -151,7 +151,7 @@ every optional field), and a one-entry `edits` that restates the top-level edit 
 input a review card, the classifier and the executor see is the canonical one, with the redundant half removed. A
 different top-level edit beside a batch, a longer list beside one, or an `insertLine` beside a list stays refused, and
 the message shows both accepted shapes, one per line, as `Single edit: {...}` and `Several edits: {...}`, and the required-fields hint follows on a line of its own so the last JSON line stays pure. An empty
-`edits` with nothing beside it is refused the same way. The read-before-edit rule, the uniqueness of `old_string`,
+`edits` with nothing beside it is refused the same way. The `edit` description tells the model to read the file with `read` first (a shell read does not count) and not to read it back after a successful edit, since the result is the confirmation. The read-before-edit rule, the uniqueness of `old_string`,
 path containment and the notebook check apply to the canonical edit exactly as before.
 
 `edit` matches `old_string` exactly, but recovers a few differences that are not the model being wrong about

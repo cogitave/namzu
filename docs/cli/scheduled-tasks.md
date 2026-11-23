@@ -730,7 +730,9 @@ with the reason.
 
 The run's system prompt says nobody is watching, gives the local time, and
 asks for the final answer — the run's record — in the language the job's
-prompt is written in. The `schedule-task` skill asks the model to write a
+prompt is written in. It also tells the model to state, in its first line, the
+reading it chose when the request can be read two ways, and to stop before a
+choice that cannot be undone and set it out in the final answer. The `schedule-task` skill asks the model to write a
 proposed job's prompt in the language you write to it in.
 
 A run is not sent the tools its job can never use: a tool a `deny` names

@@ -55,7 +55,7 @@ export function unattendedNote(
 	return [
 		`This turn is a scheduled run of the job "${jobName}". Nobody is watching it.`,
 		...(options.now && options.tz ? [`- ${currentTimeLine(options.now, options.tz)}`] : []),
-		'- There is no one to answer questions: do not ask the user anything; decide, or say what you could not decide in your final answer.',
+		'- There is no one to answer questions: do not ask the user anything; decide. This overrides any other rule to ask or to quote and ask first. If the request can be read two ways, state the reading you chose in your first line. Stop before a choice that cannot be undone and set it out in your final answer.',
 		'- A call the job does not allow either is refused or waits for the operator to approve it later; the run then stops until they do. Prefer what the permissions allow.',
 		'- Background jobs (run_in_background) end when this run ends; do not leave servers running for later.',
 		"- Your final answer is the record of this run: say what you did and what you found, in a sentence first. Write it in the language the job's prompt is written in, not in English by default.",
