@@ -547,6 +547,8 @@ export class CodexProvider implements LLMProvider {
 	/** Per model, the window the account's listing states. Absent until a listing has answered. */
 	private windows?: Map<string, number>
 	private windowListingRetryAt = 0
+	/** The listing in flight, shared by callers that arrive while it runs. */
+	private windowListing?: Promise<boolean>
 	private readonly listingKey: string
 
 	constructor(config: CodexConfig) {
@@ -612,22 +614,32 @@ export class CodexProvider implements LLMProvider {
 		signal?.throwIfAborted()
 		if (!this.windows) {
 			if (Date.now() < this.windowListingRetryAt) return undefined
-			const controller = new AbortController()
-			const forward = () => controller.abort()
-			signal?.addEventListener('abort', forward, { once: true })
-			const timer = setTimeout(forward, WINDOW_LISTING_TIMEOUT_MS)
-			try {
-				await this.listModels(controller.signal)
-			} catch {
-				signal?.throwIfAborted()
-				this.windowListingRetryAt = Date.now() + WINDOW_LISTING_RETRY_MS
-				return undefined
-			} finally {
-				clearTimeout(timer)
-				signal?.removeEventListener('abort', forward)
-			}
+			this.windowListing ??= this.listForWindow().finally(() => {
+				this.windowListing = undefined
+			})
+			const abandoned = new Promise<never>((_, reject) => {
+				if (signal?.aborted) reject(signal.reason)
+				signal?.addEventListener('abort', () => reject(signal.reason), { once: true })
+			})
+			await Promise.race([this.windowListing, abandoned])
+			signal?.throwIfAborted()
 		}
 		return this.windows?.get(model.toLowerCase())
+	}
+
+	/** One bounded listing for every caller waiting on it; a failure is remembered, never thrown. */
+	private async listForWindow(): Promise<boolean> {
+		const controller = new AbortController()
+		const timer = setTimeout(() => controller.abort(), WINDOW_LISTING_TIMEOUT_MS)
+		try {
+			await this.listModels(controller.signal)
+			return true
+		} catch {
+			this.windowListingRetryAt = Date.now() + WINDOW_LISTING_RETRY_MS
+			return false
+		} finally {
+			clearTimeout(timer)
+		}
 	}
 
 	async *chatStream(params: ChatCompletionParams): AsyncIterable<StreamChunk> {

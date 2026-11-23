@@ -8526,7 +8526,7 @@ function AppBody({
 	resumeActiveTurnRef.current = resumeActiveTurn
 	const pushMessageRef = useRef(pushMessage)
 	pushMessageRef.current = pushMessage
-	const windowGuessNotedRef = useRef(false)
+	const windowGuessNotedRef = useRef<Set<string>>(new Set())
 	// biome-ignore lint/correctness/useExhaustiveDependencies: `signInPark` is not read inside; a new pause object is what restarts the watch.
 	useEffect(() => {
 		if (signInWatchTurn === undefined) signInWatchStartRef.current = null
@@ -11274,9 +11274,9 @@ function AppBody({
 					if (
 						event.windowSource === 'default' &&
 						event.contextWindowTokens !== undefined &&
-						!windowGuessNotedRef.current
+						!windowGuessNotedRef.current.has(replyModelRef.current ?? '')
 					) {
-						windowGuessNotedRef.current = true
+						windowGuessNotedRef.current.add(replyModelRef.current ?? '')
 						pushMessage('system', windowGuessLine(event.contextWindowTokens))
 					}
 					// What the cache and context look like after this call; the idle

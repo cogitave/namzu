@@ -102,6 +102,26 @@ describe('the subscription route reads the context window from its model list', 
 		}
 	})
 
+	it('reads a window and a percentage sent as strings', async () => {
+		const p = provider()
+		answerWith(p, async () => ({
+			models: [
+				{ slug: 'texty', context_window: '272000', effective_context_window_percent: '95' },
+				{ slug: 'junk', context_window: 'lots' },
+			],
+		}))
+		expect(await p.resolveContextWindow('texty')).toBe(258_400)
+		expect(await p.resolveContextWindow('junk')).toBeUndefined()
+	})
+
+	it('shares one listing between callers that arrive together', async () => {
+		const p = provider()
+		const get = answerWith(p, async () => ({ models: [{ slug: 'a', context_window: 300_000 }] }))
+		const both = await Promise.all([p.resolveContextWindow('a'), p.resolveContextWindow('a')])
+		expect(both).toEqual([300_000, 300_000])
+		expect(get).toHaveBeenCalledTimes(1)
+	})
+
 	it('lets the caller abort', async () => {
 		const p = provider()
 		answerWith(p, async () => ({ models: [] }))

@@ -3,14 +3,21 @@
  * route so the two spell the same fields the same way.
  */
 
+/** A number, or a string that holds one (some backends send counts as strings). */
+function asNumber(value: unknown): number | undefined {
+	if (typeof value === 'number') return value
+	if (typeof value === 'string' && value.trim() !== '') return Number(value)
+	return undefined
+}
+
 /** The first of these fields of `row` that holds a positive safe integer. */
 export function firstCount(
 	row: Record<string, unknown> | undefined,
 	wires: readonly string[],
 ): number | undefined {
 	for (const wire of wires) {
-		const value = row?.[wire]
-		if (typeof value === 'number' && Number.isSafeInteger(value) && value > 0) return value
+		const value = asNumber(row?.[wire])
+		if (value !== undefined && Number.isSafeInteger(value) && value > 0) return value
 	}
 	return undefined
 }
@@ -34,8 +41,8 @@ export function declaredContextWindow(row: Record<string, unknown> | undefined) 
  * row sends one (`effective_context_window_percent`, 1 to 100). Anything else is not a statement.
  */
 export function effectiveWindowFraction(row: Record<string, unknown> | undefined) {
-	const percent = row?.effective_context_window_percent
-	if (typeof percent !== 'number' || !Number.isFinite(percent)) return undefined
+	const percent = asNumber(row?.effective_context_window_percent)
+	if (percent === undefined || !Number.isFinite(percent)) return undefined
 	if (percent <= 0 || percent > 100) return undefined
 	return percent / 100
 }

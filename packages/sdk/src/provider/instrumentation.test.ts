@@ -135,6 +135,13 @@ describe('wrapProviderWithProbes — chatStream', () => {
 		expect(ids[0]).not.toBe(ids[2])
 	})
 
+	it('forwards resolveContextWindow when the inner provider has one', async () => {
+		const resolveContextWindow = vi.fn(async () => 123_000)
+		const wrapped = wrapProviderWithProbes({ ...makeFakeProvider(), resolveContextWindow })
+		expect(await wrapped.resolveContextWindow?.('m')).toBe(123_000)
+		expect(wrapProviderWithProbes(makeFakeProvider()).resolveContextWindow).toBeUndefined()
+	})
+
 	it('forwards optional methods (listModels, healthCheck) to the inner provider', () => {
 		const listModels = vi.fn()
 		const healthCheck = vi.fn()
