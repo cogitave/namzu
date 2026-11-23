@@ -822,6 +822,16 @@ export class AgentPaneRelay {
 				for (const conversationId of conversationsOf(host)) host.closeAgentTabs(conversationId)
 	}
 
+	/**
+	 * One conversation's engine went away (it restarted, or its connection closed): the debuggers on
+	 * its tabs are taken off and the tabs stay, so the page the person was looking at is still there
+	 * when the engine asks for its tab again. `closeTabs` closes them too.
+	 */
+	releaseConversation(conversationId: string, reason: string, closeTabs: boolean): void {
+		for (const record of [...(this.driven.get(conversationId)?.values() ?? [])])
+			this.drop(record, reason, closeTabs, conversationId, false)
+	}
+
 	dispose(): void {
 		this.releaseAll('disposed', false)
 		for (const stop of this.hosts.values()) stop()

@@ -27,6 +27,7 @@ import {
 	storedFamily,
 } from '../shared/settings-catalogue.js'
 import type {
+	AgentBrowserPlace,
 	BannerLevel,
 	BrowserCookieScope,
 	DataFolderKind,
@@ -655,6 +656,9 @@ function BuiltInBrowserRows({ settings }: SectionProps) {
 	const cookies = catalogueEntry('browser-cookies').control as {
 		options: readonly CatalogueOption[]
 	}
+	const agentBrowser = catalogueEntry('agent-browser').control as {
+		options: readonly CatalogueOption[]
+	}
 	const bridge = typeof window === 'undefined' ? undefined : window.namzu
 	return (
 		<>
@@ -678,6 +682,20 @@ function BuiltInBrowserRows({ settings }: SectionProps) {
 					{cookies.options.map((option) => (
 						<option key={option.value} value={option.value}>
 							{defaultMarked('browser-cookies', option.value, option.label)}
+						</option>
+					))}
+				</SelectControl>
+			</CatalogueRow>
+			<CatalogueRow id="agent-browser">
+				<SelectControl
+					label={labelOf('agent-browser')}
+					value={saved?.agentBrowser ?? 'pane'}
+					disabled={!saved}
+					onChange={(value) => void settings.change({ agentBrowser: value as AgentBrowserPlace })}
+				>
+					{agentBrowser.options.map((option) => (
+						<option key={option.value} value={option.value}>
+							{defaultMarked('agent-browser', option.value, option.label)}
 						</option>
 					))}
 				</SelectControl>

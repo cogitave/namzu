@@ -892,6 +892,44 @@ export const SETTINGS_CATALOGUE: readonly CatalogueEntry[] = [
 		],
 	},
 	{
+		id: 'agent-browser',
+		key: 'agentBrowser',
+		owner: 'desktop',
+		section: 'tools',
+		label: 'Where Namzu browses',
+		description: 'Where the pages Namzu opens for you show up.',
+		control: {
+			kind: 'select',
+			options: [
+				{
+					value: 'pane',
+					label: 'In the built-in browser',
+					help: 'Namzu works in a tab you can watch, and you sign in there yourself.',
+				},
+				{
+					value: 'window',
+					label: 'In its own window',
+					help: 'Namzu opens a separate browser window, with sign-ins of its own.',
+				},
+			],
+		},
+		default: 'pane',
+		appliesWhen: 'next-conversation',
+		appliesNote:
+			'Applies to a conversation the next time its project opens. A browser Namzu is using now stays where it is.',
+		keywords: [
+			'browser',
+			'browse',
+			'browser pane',
+			'tab',
+			'window',
+			'chromium',
+			'agent browser',
+			'web',
+			'sign-in',
+		],
+	},
+	{
 		id: 'open-links-in-browser',
 		key: 'openLinksInBrowser',
 		owner: 'desktop',

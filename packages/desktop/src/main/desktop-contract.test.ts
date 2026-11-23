@@ -10,9 +10,11 @@ import { TERMINAL_NOTIFICATIONS } from '../shared/terminal-protocol.js'
 import { buildEngineLaunch, namzuPermissionArgument } from '../shared/terminal-tabs.js'
 import { TITLE_NOTIFICATION } from '../shared/title-protocol.js'
 import { USAGE_NOTIFICATION } from '../shared/usage-protocol.js'
+import { AGENT_PANE_REQUESTS } from './agent-pane-acp.js'
 import { OPTIONAL_EXTENSION_GROUPS } from './extension-groups.js'
 import { KERNEL_CONTRACT_RANGE } from './kernel/keys.js'
 import {
+	DESKTOP_BROWSER_PANE_CAPABILITY,
 	DESKTOP_CLIENT_CAPABILITIES,
 	DESKTOP_CLIENT_NAME,
 	REQUIRED_EXTENSIONS,
@@ -35,7 +37,12 @@ const inventory = JSON.parse(
 ) as {
 	desktopContract: number
 	initialize: {
-		client: { protocolVersion: number; capabilities: string[]; clientInfoName: string }
+		client: {
+			protocolVersion: number
+			capabilities: string[]
+			optionalCapabilities: string[]
+			clientInfoName: string
+		}
 		answerFieldsRead: string[]
 		agentName: string
 	}
@@ -92,6 +99,21 @@ describe('the app against the desktop contract inventory', () => {
 		expect([...DESKTOP_CLIENT_CAPABILITIES]).toEqual(inventory.initialize.client.capabilities)
 	})
 
+	it('names an optional capability only when told to, and only the ones the inventory lists', () => {
+		expect([DESKTOP_BROWSER_PANE_CAPABILITY]).toEqual(
+			inventory.initialize.client.optionalCapabilities,
+		)
+		expect(
+			desktopInitializeParams('1.2.3', [DESKTOP_BROWSER_PANE_CAPABILITY]).capabilities,
+		).toEqual([
+			...inventory.initialize.client.capabilities,
+			...inventory.initialize.client.optionalCapabilities,
+		])
+		expect(desktopInitializeParams('1.2.3', []).capabilities).toEqual(
+			inventory.initialize.client.capabilities,
+		)
+	})
+
 	it('reads from the initialize answer exactly the fields the inventory lists', () => {
 		const text = source('rpc-client.ts')
 		const start = text.indexOf("'initialize',")
@@ -130,7 +152,11 @@ describe('the app against the desktop contract inventory', () => {
 			...inventory.notifications.requestsFromHost.map((entry) => entry.name),
 		])
 		// `namzu/tasks` is a capability the app announces, not a method (see `initialize.client`).
-		const notMethods = new Set(['namzu/tasks', ...inventory.initialize.client.capabilities])
+		const notMethods = new Set([
+			'namzu/tasks',
+			...inventory.initialize.client.capabilities,
+			...inventory.initialize.client.optionalCapabilities,
+		])
 		const unrecorded: string[] = []
 		for (const [file, text] of sources) {
 			if (file.startsWith('kernel/')) continue
@@ -159,6 +185,8 @@ describe('the app against the desktop contract inventory', () => {
 			QUESTION_CLOSED_NOTIFICATION,
 			TERMINAL_NOTIFICATIONS.data,
 			TERMINAL_NOTIFICATIONS.exit,
+			// The requests the engine sends for the agent's tab in the Browser pane.
+			...Object.values(AGENT_PANE_REQUESTS),
 		])
 		for (const [file, text] of sources) {
 			if (file.startsWith('kernel/')) continue

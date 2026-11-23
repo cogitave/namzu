@@ -95,6 +95,8 @@ export const OPTIONAL_EXTENSION_GROUPS = {
 		'namzu/pals/computer/return_control',
 		'namzu/pals/computer/input',
 	],
+	/** The engine takes the Browser pane's events: the agent's browser can run in a tab of the pane. */
+	agentBrowserPane: ['namzu/browser/pane/event', 'namzu/browser/pane/state'],
 } as const satisfies Record<string, readonly string[]>
 
 export type OptionalExtensionGroup = keyof typeof OPTIONAL_EXTENSION_GROUPS
