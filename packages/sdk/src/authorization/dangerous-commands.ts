@@ -431,9 +431,10 @@ function askReason(layer: Layer): string | undefined {
  *
  * The working folder is the checkout the turn is working in, and everything
  * not committed in it. It is the one folder a wrong path most easily names, and
- * `rm -rf .`, `rm -rf ..` and `find . -delete` are read the same way here as
- * `dangerousRemoval` reads them when it is given a working directory, so a
- * host that has one does not depend on which of the two checks ran.
+ * `rm -rf .`, `rm -rf ..`, `rm -rf *`, `rm -rf .*` and `find . -delete` are
+ * read the same way here as `dangerousRemoval` reads them when it is given a
+ * working directory, so a host that has one does not depend on which of the two
+ * checks ran.
  *
  * Only a recursive removal asks. `rm file.txt` and `rm dir` leave the folder
  * standing (the second fails without `-r`), and `rm -rf build` is neither.
@@ -502,17 +503,24 @@ function removesRecursively(args: readonly ShellWord[]): boolean {
 
 /**
  * A removal target as the directory it names, resolved against `cwd` when it is
- * relative, with trailing slashes and a trailing glob removed (`build/*` names
- * `build`'s contents, which is `build` as far as reaching the working directory
- * goes). `undefined` when the word cannot be settled before the line runs: a
- * tilde path belongs to the home check, and a variable or substitution is not
- * this check's to guess.
+ * relative, with trailing slashes and trailing glob segments removed. A glob
+ * segment names everything in the directory before it, so `build/*` reaches
+ * `build` — as far as reaching the working directory goes — and a word that is
+ * nothing but a glob reaches the folder it is written in: `*` and `.*` both
+ * reach `cwd`, and `.*` takes `.git` and every dotfile with it. `undefined`
+ * when the word cannot be settled before the line runs: a tilde path belongs to
+ * the home check, and a variable or substitution is not this check's to guess.
  */
 function settledRemovalTarget(spelled: string, cwd: string): string | undefined {
-	const bare = spelled.replace(/(?:\/+\.?\*+)*\/*$/, '')
-	if (bare === '' || bare.startsWith('~') || /^[A-Za-z]:$/.test(bare)) return undefined
-	if (bare.startsWith('/')) return posix.normalize(bare)
-	return posix.normalize(`${cwd.replace(/\/+$/, '')}/${bare}`)
+	if (spelled === '' || spelled.startsWith('~') || /^[A-Za-z]:$/.test(spelled)) return undefined
+	const rooted = spelled.startsWith('/') ? spelled : `${cwd.replace(/\/+$/, '')}/${spelled}`
+	let settled = posix.normalize(rooted)
+	for (let previous = ''; previous !== settled; ) {
+		previous = settled
+		const stripped = settled.replace(/(?:\/+\.?\*+)+$/, '')
+		if (stripped !== settled) settled = stripped === '' ? '/' : posix.normalize(stripped)
+	}
+	return settled
 }
 
 /** Why a removal that reaches the working directory asks, in the tier's words. */

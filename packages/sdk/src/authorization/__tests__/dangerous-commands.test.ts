@@ -313,12 +313,17 @@ describe('a recursive removal of the working directory', () => {
 	const cwd = '/srv/build/proj'
 	const here = (command: string) => find(command, { cwd })
 
-	it.each(['rm -rf .', 'rm -rf ./', 'rm -rf ./*', 'sudo rm -rf .', `rm -rf ${cwd}`])(
-		'asks: %s',
-		(command) => {
-			expect(here(command)).toEqual({ tier: 'ask', reason: 'it removes the working directory' })
-		},
-	)
+	it.each([
+		'rm -rf .',
+		'rm -rf ./',
+		'rm -rf ./*',
+		'rm -rf *',
+		'rm -rf .*',
+		'sudo rm -rf .',
+		`rm -rf ${cwd}`,
+	])('asks: %s', (command) => {
+		expect(here(command)).toEqual({ tier: 'ask', reason: 'it removes the working directory' })
+	})
 
 	it.each(['rm -rf ..', 'rm -rf ../..', 'rm -r ../other/../..'])(
 		'asks about a folder above it: %s',
@@ -350,6 +355,7 @@ describe('a recursive removal of the working directory', () => {
 		'rm file.txt',
 		'rm -rf build',
 		'rm -rf ./build/*',
+		'rm -rf *.txt',
 		'rm -rf /srv/build/proj/out',
 		'rm -rf /tmp/build',
 		'rm -rf ~/scratch',
