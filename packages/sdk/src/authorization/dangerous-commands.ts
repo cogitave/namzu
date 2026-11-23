@@ -18,8 +18,13 @@
  *   device; a raw write to a device with `dd of=/dev/…`; a fork bomb; a
  *   world-writable root.
  * - `ask`: intent, not damage. `sudo`, `su -`, `ssh user@host`, `eval` of a
- *   dynamic string, a download piped into a shell. The person is asked in the
- *   modes that ask; bypass and auto lift it as they lift any other ask.
+ *   dynamic string, a download piped into a shell, and a recursive removal of
+ *   the turn's own working directory or a directory above it when the caller
+ *   gives `cwd`. The person is asked in the modes that ask and the call is
+ *   refused where nobody can answer; bypass and auto lift it as they lift any
+ *   other ask. The working directory is in this tier and not the first because
+ *   a build tree or a checkout is sometimes removed on purpose, and a floor
+ *   that refuses every spelling of it leaves the model no way to say yes.
  *
  * Strict mode (`strict: true`) keeps the old list as it was: every entry a
  * `stop`, matched on the raw text.
@@ -68,6 +73,14 @@ export interface FindDangerousOptions {
 	readonly home?: string
 	/** Environment deciding whether a variable may be empty; `process.env` when omitted. */
 	readonly env?: Readonly<Record<string, string | undefined>>
+	/**
+	 * The effective working directory the line will run in, when the caller
+	 * knows it (`effectiveBashWorkingDirectory`). A recursive removal of this
+	 * folder or of a directory above it is then an `ask`. Omitted, no removal is
+	 * read against a working directory the host did not name: `process.cwd()`
+	 * is the process the SDK runs in, not the folder the command runs in.
+	 */
+	readonly cwd?: string
 }
 
 /** One program a command runs: the command's own head, or what a wrapper (`sudo`, `env`, `nice`) runs. */
@@ -274,36 +287,37 @@ function pipesDownloadIntoShell(
 	return next !== undefined && layersOf(next, vars).some((layer) => SHELLS.has(layer.program))
 }
 
-function hardStop(layer: Layer, options: FindDangerousOptions): string | undefined {
+function hardStop(layer: Layer, options: FindDangerousOptions): DangerousFinding | undefined {
 	const { program, args } = layer
 	if (program === 'rm' || program === 'rmdir') return irreversibleRemoval(args, options)
 	if (/^mkfs(?:\.[A-Za-z0-9_]+)?$/.test(program)) {
 		return args.some((arg) => isDevice(arg.value))
-			? 'it creates a file system on a device'
+			? { tier: 'stop', reason: 'it creates a file system on a device' }
 			: undefined
 	}
 	if (program === 'shred' && args.some((arg) => isDevice(arg.value))) {
-		return 'it overwrites a device with shred'
+		return { tier: 'stop', reason: 'it overwrites a device with shred' }
 	}
 	if (
 		program === 'wipefs' &&
 		args.some((arg) => ['-a', '--all', '-f', '--force'].includes(arg.value)) &&
 		args.some((arg) => isDevice(arg.value))
 	) {
-		return 'it erases the signatures of a device with wipefs'
+		return { tier: 'stop', reason: 'it erases the signatures of a device with wipefs' }
 	}
 	if (program === 'find') return irreversibleFind(args, options)
 	if (program === 'dd') {
 		const target = args.find((arg) => arg.value.startsWith('of=/dev/'))
 		if (target !== undefined && isDevice(target.value.slice(3))) {
-			return 'it writes raw data to a device with dd'
+			return { tier: 'stop', reason: 'it writes raw data to a device with dd' }
 		}
 		return undefined
 	}
 	if (program === 'chmod') {
 		const modes = args.filter((arg) => /^0?777$/.test(arg.value))
 		const onRoot = args.some((arg) => /^\/(?:\*)?$/.test(arg.value))
-		if (modes.length > 0 && onRoot) return 'it makes the root directory world-writable'
+		if (modes.length > 0 && onRoot)
+			return { tier: 'stop', reason: 'it makes the root directory world-writable' }
 	}
 	return undefined
 }
@@ -339,14 +353,16 @@ const REMOVERS = new Set(['rm', 'rmdir', 'unlink', 'shred'])
 
 /**
  * `find / -delete` and `find ~ -exec rm {} +` remove what `rm -rf /` would,
- * with the path named by `find` and not by the remover. It is a stop only when
- * no test narrows the match (`-name`, `-type`, `-mtime`, …) and a remover
- * runs; the path is then judged as `rm`'s own would be.
+ * with the path named by `find` and not by the remover. It is a `stop` only
+ * when no test narrows the match (`-name`, `-type`, `-mtime`, …) and a remover
+ * runs; the path is then judged as `rm`'s own would be, `find` being recursive
+ * by nature. That also puts `find . -delete` on the working directory in the
+ * `ask` tier, which `rm`'s own reading of `.` already reaches.
  */
 function irreversibleFind(
 	args: readonly ShellWord[],
 	options: FindDangerousOptions,
-): string | undefined {
+): DangerousFinding | undefined {
 	const spans = findCommands(args)
 	const execs = new Set(args.map((arg) => arg.value).filter((value) => FIND_EXEC.has(value)))
 	const removes =
@@ -376,8 +392,10 @@ function irreversibleFind(
 		if (arg.value === '(' || arg.value === ')' || arg.value === '!') return undefined
 		if (arg.value.startsWith('-') && !FIND_PLAIN.has(arg.value)) return undefined
 	}
-	const reason = irreversibleRemoval(paths, options, true)
-	return reason === undefined ? undefined : reason.replace(/^it removes/, 'it deletes')
+	const found = irreversibleRemoval(paths, options, true)
+	return found === undefined
+		? undefined
+		: { tier: found.tier, reason: found.reason.replace(/^it removes/, 'it deletes') }
 }
 
 function askReason(layer: Layer): string | undefined {
@@ -405,50 +423,119 @@ function askReason(layer: Layer): string | undefined {
 }
 
 /**
- * Why a removal can never be undone, or `undefined`: the file system root, the
- * home directory, a top-level directory (`/usr`, `/etc`), or a variable that
- * may be empty followed by one (`"$PREFIX/usr"`, `"$DIR/"`).
+ * What a removal can do, or `undefined`: the file system root, the home
+ * directory, a top-level directory (`/usr`, `/etc`) or a variable that may be
+ * empty followed by one (`"$PREFIX/usr"`, `"$DIR/"`) is a `stop`, refused in
+ * every mode. A recursive removal of `options.cwd` or of a directory above it
+ * is an `ask`: a person says yes, and a run with nobody to ask refuses it.
  *
- * This is the narrow class refused in every mode. `dangerousRemoval` is the
- * wider one, which asks. A recursive removal of `/tmp/build` or
- * `/usr/local/.wtest` is neither.
+ * The working folder is the checkout the turn is working in, and everything
+ * not committed in it. It is the one folder a wrong path most easily names, and
+ * `rm -rf .`, `rm -rf ..`, `rm -rf *`, `rm -rf .*` and `find . -delete` are
+ * read the same way here as `dangerousRemoval` reads them when it is given a
+ * working directory, so a host that has one does not depend on which of the two
+ * checks ran.
+ *
+ * Only a recursive removal asks. `rm file.txt` and `rm dir` leave the folder
+ * standing (the second fails without `-r`), and `rm -rf build` is neither.
  */
 function irreversibleRemoval(
 	args: readonly ShellWord[],
 	options: FindDangerousOptions,
 	operands = false,
-): string | undefined {
+): DangerousFinding | undefined {
 	const home = slashes(options.home ?? homedir()).replace(/(?<=.)\/$/, '')
 	const env = options.env ?? process.env
+	const cwd = options.cwd === undefined ? undefined : slashes(options.cwd)
+	const recursive = operands || removesRecursively(args)
+	let asked: DangerousFinding | undefined
 	for (const target of operands ? args : targetsOf(args)) {
 		const spelled = target.value
 		if (spelled === '') continue
-		if (/^\\+$/.test(spelled)) return 'it removes the drive root'
+		if (/^\\+$/.test(spelled)) return { tier: 'stop', reason: 'it removes the drive root' }
 		if (BARE_HOME.test(spelled) || /^~\/*(?:\.?\*)?$/.test(spelled)) {
-			return 'it removes the home directory'
+			return { tier: 'stop', reason: 'it removes the home directory' }
 		}
 		const root = EMPTY_VARIABLE_ROOT.exec(spelled)
 		if (root !== null) {
-			return `it removes the file system root when $${root[1] ?? root[2]} is empty`
+			return {
+				tier: 'stop',
+				reason: `it removes the file system root when $${root[1] ?? root[2]} is empty`,
+			}
 		}
 		const top = EMPTY_VARIABLE_TOP.exec(spelled)
 		if (top !== null) {
 			const name = top[1] ?? top[2] ?? ''
 			const value = env[name]
 			if (typeof value !== 'string' || value === '') {
-				return `it removes /${top[3]} when $${name} is empty`
+				return { tier: 'stop', reason: `it removes /${top[3]} when $${name} is empty` }
 			}
 			continue
 		}
-		if (/[$`]/.test(spelled) || !spelled.startsWith('/')) continue
+		if (/[$`]/.test(spelled)) continue
+		if (cwd !== undefined && recursive) {
+			const settled = settledRemovalTarget(spelled, cwd)
+			if (settled !== undefined && withinOrEqual(settled, cwd) && asked === undefined) {
+				asked = { tier: 'ask', reason: workdirRemoval(settled, cwd) }
+			}
+		}
+		if (!spelled.startsWith('/')) continue
 		// Trailing slashes and globs reach the same directory's contents.
 		const bare = spelled.replace(/(?:\/+\.?\*+)*\/*$/, '')
 		const settled = posix.normalize(bare === '' ? '/' : bare).replace(/(?<=.)\/+$/, '')
-		if (settled === '/') return 'it removes the file system root'
-		if (/^\/[^/]+$/.test(settled)) return `it removes the top-level directory ${settled}`
-		if (fold(settled) === fold(home)) return 'it removes the home directory'
+		if (settled === '/') return { tier: 'stop', reason: 'it removes the file system root' }
+		if (/^\/[^/]+$/.test(settled))
+			return { tier: 'stop', reason: `it removes the top-level directory ${settled}` }
+		if (fold(settled) === fold(home))
+			return { tier: 'stop', reason: 'it removes the home directory' }
 	}
-	return undefined
+	return asked
+}
+
+/** `rm -r`, `rm -R` and `rm --recursive`, up to the `--` that ends the flags. */
+function removesRecursively(args: readonly ShellWord[]): boolean {
+	for (const arg of args) {
+		if (arg.value === '--') break
+		if (/^--r/.test(arg.value) || /^-[A-Za-z]*[rR]/.test(arg.value)) return true
+	}
+	return false
+}
+
+/**
+ * A removal target as the directory it names, resolved against `cwd` when it is
+ * relative, with trailing slashes and trailing glob segments removed. A glob
+ * segment names everything in the directory before it, so `build/*` reaches
+ * `build` — as far as reaching the working directory goes — and a word that is
+ * nothing but a glob reaches the folder it is written in: `*` and `.*` both
+ * reach `cwd`, and `.*` takes `.git` and every dotfile with it. `undefined`
+ * when the word cannot be settled before the line runs: a tilde path belongs to
+ * the home check, and a variable or substitution is not this check's to guess.
+ */
+function settledRemovalTarget(spelled: string, cwd: string): string | undefined {
+	if (spelled === '' || spelled.startsWith('~') || /^[A-Za-z]:$/.test(spelled)) return undefined
+	const rooted = spelled.startsWith('/') ? spelled : `${cwd.replace(/\/+$/, '')}/${spelled}`
+	let settled = posix.normalize(rooted)
+	for (let previous = ''; previous !== settled; ) {
+		previous = settled
+		const stripped = settled.replace(/(?:\/+\.?\*+)+$/, '')
+		if (stripped !== settled) settled = stripped === '' ? '/' : posix.normalize(stripped)
+	}
+	return settled
+}
+
+/** Why a removal that reaches the working directory asks, in the tier's words. */
+function workdirRemoval(settled: string, cwd: string): string {
+	const target = fold(settled).replace(/\/+$/, '')
+	return target === fold(cwd).replace(/\/+$/, '')
+		? 'it removes the working directory'
+		: 'it removes a directory above the working directory'
+}
+
+/** Whether `directory` is `child` or a directory above it. */
+function withinOrEqual(directory: string, child: string): boolean {
+	const parent = fold(slashes(directory)).replace(/\/+$/, '')
+	const inside = fold(slashes(child)).replace(/\/+$/, '')
+	return parent === '' || inside === parent || inside.startsWith(`${parent}/`)
 }
 
 /** Raw-text entries by position in {@link DANGEROUS_PATTERNS}: which are irreversible. */
@@ -496,8 +583,10 @@ export function findDangerousCommand(
 		const written = deviceWrite(each)
 		if (written !== undefined) return { tier: 'stop', reason: written }
 		for (const layer of layers) {
-			const stop = hardStop(layer, options)
-			if (stop !== undefined) return { tier: 'stop', reason: stop }
+			const found = hardStop(layer, options)
+			if (found === undefined) continue
+			if (found.tier === 'stop') return found
+			if (asked === undefined) asked = found
 		}
 		if (asked === undefined) {
 			for (const layer of layers) {

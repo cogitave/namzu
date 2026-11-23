@@ -1,0 +1,7 @@
+---
+"@namzu/sdk": minor
+---
+
+A recursive removal of the working directory, or of a directory above it, is now asked about rather than run. The problem was not the flags: `rm -rf .`, `rm -rf ..`, `rm -rf ./*`, `rm -rf *`, `rm -rf .*` and `find . -delete` name the checkout the turn is working in — and everything uncommitted in it — while the dangerous-command floor read only the file system root, the home directory and top-level directories, because it was never told which folder the line runs in. One approved call with a wrong path could take the project with it.
+
+`FindDangerousOptions` gains an optional `cwd`: the effective working directory the line will run in. With it, a recursive removal of that folder or of a directory above it is an `ask` — the person is asked in the modes that ask, and a run with nobody to answer refuses it — instead of passing as an ordinary removal. Without it nothing changes, so a host that does not know the directory keeps the old reading rather than being judged against `process.cwd()`. `EvaluateRuleOptions`, `AuthorizationGate`'s `ToolCallContext` and `AuthorizationPredicateCall` pass the same value through, and `dangerousCommandReason` and `isDangerousCommand` take it as an optional second argument. Nothing else moves: the folder itself, not a file in it, and only a removal that is recursive, so `rm -rf build` and `rm file.txt` are untouched.

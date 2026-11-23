@@ -544,17 +544,20 @@ export function execHostShell(
 /**
  * Why `command` is one this tool refuses to run, or `undefined`. Only the
  * irreversible acts the gate refuses in every mode: a command the gate let
- * through as a question (`sudo`, `ssh user@host`) was a person's call, and this
- * check must not take it back.
+ * through as a question (`sudo`, `ssh user@host`, or a recursive removal of the
+ * working directory `cwd` names) was a person's call, and this check must not
+ * take it back. `cwd` is read where it is given, so a line this process reads
+ * the same way the gate did; a host that does not know the directory gets the
+ * reading that needs no directory at all.
  */
-export function dangerousCommandReason(command: string): string | undefined {
-	const found = findDangerousCommand(command)
+export function dangerousCommandReason(command: string, cwd?: string): string | undefined {
+	const found = findDangerousCommand(command, cwd === undefined ? {} : { cwd })
 	return found?.tier === 'stop' ? found.reason : undefined
 }
 
 /** The dangerous-pattern check `bash` applies, shared so the `monitor` tool refuses the same lines. */
-export function isDangerousCommand(command: string): boolean {
-	return dangerousCommandReason(command) !== undefined
+export function isDangerousCommand(command: string, cwd?: string): boolean {
+	return dangerousCommandReason(command, cwd) !== undefined
 }
 
 /** The refusal when a sandbox cannot host a detached process; exported so the test states the same words. */
@@ -632,7 +635,7 @@ const BashToolBase = defineTool({
 
 	async execute(input, context) {
 		const startDirectory = bashWorkingDirectoryForExecution(context)
-		const refused = dangerousCommandReason(input.command)
+		const refused = dangerousCommandReason(input.command, startDirectory)
 		if (refused !== undefined) {
 			return {
 				success: false,

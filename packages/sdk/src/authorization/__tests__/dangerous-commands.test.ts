@@ -302,3 +302,71 @@ describe('harmless uses of device and file-system programs', () => {
 		expect(find('mkfs.ext4 "$IMG"')?.tier).toBe('ask')
 	})
 })
+
+/**
+ * The checkout a turn works in is the folder whose loss costs the most and the
+ * one a wrong path most easily names, so a recursive removal of it — or of a
+ * folder above it, which takes it too — is a question. It is not a `stop`:
+ * removing a build tree the turn created is a call a person may make.
+ */
+describe('a recursive removal of the working directory', () => {
+	const cwd = '/srv/build/proj'
+	const here = (command: string) => find(command, { cwd })
+
+	it.each([
+		'rm -rf .',
+		'rm -rf ./',
+		'rm -rf ./*',
+		'rm -rf *',
+		'rm -rf .*',
+		'sudo rm -rf .',
+		`rm -rf ${cwd}`,
+	])('asks: %s', (command) => {
+		expect(here(command)).toEqual({ tier: 'ask', reason: 'it removes the working directory' })
+	})
+
+	it.each(['rm -rf ..', 'rm -rf ../..', 'rm -r ../other/../..'])(
+		'asks about a folder above it: %s',
+		(command) => {
+			expect(here(command)).toEqual({
+				tier: 'ask',
+				reason: 'it removes a directory above the working directory',
+			})
+		},
+	)
+
+	it('asks when find removes it, which names no remover of its own', () => {
+		expect(here('find . -delete')).toEqual({
+			tier: 'ask',
+			reason: 'it deletes the working directory',
+		})
+		expect(here('find . -exec rm -rf {} +')).toEqual({
+			tier: 'ask',
+			reason: 'it deletes the working directory',
+		})
+	})
+
+	it('keeps a stop a stop on a line that also removes the working directory', () => {
+		expect(here('rm -rf . /')).toEqual({ tier: 'stop', reason: 'it removes the file system root' })
+		expect(here('rm -rf . /usr')?.tier).toBe('stop')
+	})
+
+	it.each([
+		'rm file.txt',
+		'rm -rf build',
+		'rm -rf ./build/*',
+		'rm -rf *.txt',
+		'rm -rf /srv/build/proj/out',
+		'rm -rf /tmp/build',
+		'rm -rf ~/scratch',
+		'rmdir .',
+		'echo rm -rf .',
+	])('leaves alone: %s', (command) => {
+		expect(here(command)).toBeUndefined()
+	})
+
+	it('reads no working directory it was not given', () => {
+		expect(find('rm -rf .')).toBeUndefined()
+		expect(find('find . -delete')).toBeUndefined()
+	})
+})

@@ -23,6 +23,13 @@ export interface EvaluateRuleOptions {
 	 * caller with no manager to ask.
 	 */
 	readonly toolSource?: ToolSourceRef
+	/**
+	 * The effective working directory the call's command line will run in, when
+	 * the caller knows it (`effectiveBashWorkingDirectory`). A recursive
+	 * removal of that folder or of one above it is then `review`, not allowed:
+	 * the answer is a person's, and a run with nobody to ask refuses it.
+	 */
+	readonly workingDirectory?: string
 }
 
 /**
@@ -63,7 +70,11 @@ function executedText(
 export function dangerousFindingFor(
 	toolDef: ToolDefinition | undefined,
 	toolInput: unknown,
-	options: { readonly commandDialect?: ShellDialect; readonly strict?: boolean } = {},
+	options: {
+		readonly commandDialect?: ShellDialect
+		readonly strict?: boolean
+		readonly workingDirectory?: string
+	} = {},
 ): DangerousFinding | undefined {
 	const executed = executedText(toolDef, toolInput)
 	if (executed === undefined) return undefined
@@ -71,6 +82,7 @@ export function dangerousFindingFor(
 		dialect: options.commandDialect ?? 'sh',
 		serialized: executed.serialized,
 		...(options.strict === true ? { strict: true } : {}),
+		...(options.workingDirectory !== undefined ? { cwd: options.workingDirectory } : {}),
 	})
 }
 
@@ -119,6 +131,9 @@ export function evaluateRule(
 			const finding = dangerousFindingFor(toolDef, toolInput, {
 				commandDialect: dialect,
 				strict: rule.strict === true,
+				...(options.workingDirectory !== undefined
+					? { workingDirectory: options.workingDirectory }
+					: {}),
 			})
 			if (finding === undefined) return null
 			// A `stop` is refused in every mode. An `ask` is a question: the gate
