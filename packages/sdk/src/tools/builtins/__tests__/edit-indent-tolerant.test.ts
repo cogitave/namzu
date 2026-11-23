@@ -160,3 +160,38 @@ describe('a batch reports every hunk that does not apply', () => {
 		expect(result.error.match(/Nothing was written/g)).toHaveLength(1)
 	})
 })
+
+describe('the tolerant road never changes what is not indentation', () => {
+	it('refuses when a matched line has trailing whitespace the edit would drop', () => {
+		const result = run('\tfoo  \n\tbar\n', 'foo\nbar', 'foo\nbaz')
+		expect(result.success).toBe(false)
+		if (result.success) return
+		expect(result.error).toContain('not found')
+	})
+
+	it('re-indents a tab-written new_string at the file indent unit, not at four', () => {
+		const file = 'root:\n  a:\n    c: 1\n'
+		const result = run(file, '\tc: 1', '\tc: 2\n\t\td: 3')
+		expect(result.success).toBe(true)
+		if (!result.success) return
+		expect(result.content).toBe('root:\n  a:\n    c: 2\n      d: 3\n')
+	})
+})
+
+describe('a batch error stays bounded', () => {
+	it('gives the file lines to the first hunks only and caps the whole text', () => {
+		const file = `${Array.from({ length: 60 }, (_, i) => `\tconst value${i} = compute(${i})`).join('\n')}\n`
+		const ops = Array.from({ length: 40 }, (_, i) => ({
+			operation: 'replace' as const,
+			oldString: `const value${i} = compute(${i})\nnot in the file`,
+			newString: 'x',
+			replace_all: false,
+		}))
+		const result = applyEdit(file, ops)
+		expect(result.success).toBe(false)
+		if (result.success) return
+		expect(result.error.length).toBeLessThan(6600)
+		expect(result.error).toContain('edits[0] of 40')
+		expect(result.error.match(/The file's lines/g)).toHaveLength(3)
+	})
+})

@@ -44,14 +44,6 @@ export interface RenderedRead {
 	readonly partial: boolean
 }
 
-/**
- * Render `content` the way `read` renders it.
- *
- * The numbering is what makes this reversible enough to compare against: every
- * line goes out behind its own `linePrefix(n)`, so two different bodies cannot render
- * to one string, and the partial-view notice below — whose lines carry no such
- * prefix — cannot be mistaken for part of a body.
- */
 /** Width the line number is right-aligned to, so the arrow sits in one column. */
 export const LINE_NUMBER_WIDTH = 6
 
@@ -67,6 +59,14 @@ export function linePrefix(lineNumber: number): string {
 	return `${String(lineNumber).padStart(LINE_NUMBER_WIDTH)}→`
 }
 
+/**
+ * Render `content` the way `read` renders it.
+ *
+ * The numbering is what makes this reversible enough to compare against: every
+ * line goes out behind its own `linePrefix(n)`, so two different bodies cannot render
+ * to one string, and the partial-view notice below — whose lines carry no such
+ * prefix — cannot be mistaken for part of a body.
+ */
 export function renderNumberedRead(content: string, input: ReadWindowRequest): RenderedRead {
 	const lines = content.split('\n')
 	// One definition of a file's length for the header, the notice and the

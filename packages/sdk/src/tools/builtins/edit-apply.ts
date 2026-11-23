@@ -174,7 +174,7 @@ export function applyEdit(
 	// the ones after it are judged against the file without it; the write
 	// stays all-or-nothing either way.
 	for (const [index, operation] of operations.entries()) {
-		const result = applyOne(current, operation)
+		const result = applyOne(current, operation, index < FULL_EXCERPT_HUNKS)
 		if (!result.success) {
 			failures.push(framedFailure(result.error, index, operations.length))
 			reason ??= result.reason
@@ -193,7 +193,7 @@ export function applyEdit(
 			error:
 				operations.length === 1
 					? (failures[0] as string)
-					: `${failures.join('\n')}\nNothing was written — the whole batch is refused, so the file is exactly as it was.`,
+					: `${capBatchError(failures.join('\n'))}\nNothing was written — the whole batch is refused, so the file is exactly as it was.`,
 			...(reason ? { reason } : {}),
 		}
 	}
@@ -204,6 +204,7 @@ export function applyEdit(
 function applyOne(
 	content: string,
 	input: NormalizedEditInput,
+	fullExcerpt = true,
 ): { success: true; content: string; replacements: number; note?: string } | EditApplyFailure {
 	if (input.operation === 'insert') {
 		return applyLineInsert(content, input)
@@ -236,7 +237,7 @@ function applyOne(
 				return {
 					success: false,
 					reason: 'text_not_found',
-					error: notFoundError(content, oldString),
+					error: notFoundError(content, oldString, fullExcerpt),
 				}
 			}
 			oldString = indented.span
@@ -290,6 +291,15 @@ const INDENT_NOTE =
 	'matched with adjusted indentation (old_string was indented differently from the file; new_string was re-indented to fit). Copy leading whitespace as it is after the arrow in read output.'
 
 const CONTEXT_LINES = 12
+/** Failing hunks of one batch that get the file's lines; the rest get index, reason and line number. */
+const FULL_EXCERPT_HUNKS = 3
+/** The most characters one batch's failure text may run to. */
+const BATCH_ERROR_MAX_CHARS = 6000
+
+function capBatchError(text: string): string {
+	if (text.length <= BATCH_ERROR_MAX_CHARS) return text
+	return `${text.slice(0, BATCH_ERROR_MAX_CHARS)}…\n(more failing hunks follow; fix these and run again)`
+}
 const CONTEXT_LINE_MAX_CHARS = 160
 
 /**
@@ -297,12 +307,15 @@ const CONTEXT_LINE_MAX_CHARS = 160
  * old_string apart from spacing, the file's own lines there are shown with
  * their whitespace made visible, so the model can copy them without a read.
  */
-function notFoundError(content: string, oldString: string): string {
+function notFoundError(content: string, oldString: string, fullExcerpt = true): string {
 	const head =
 		'old_string/oldStr not found in file. Make sure the string matches exactly, including whitespace and indentation.'
 	const near = nearLine(content, oldString)
 	if (near === undefined) {
 		return `${head} Read the lines you mean to change again and copy them as they are.`
+	}
+	if (!fullExcerpt) {
+		return `${head} A line that matches its first line apart from spacing is at line ${near}; read around it and copy it as it is.`
 	}
 	const lines = content.split('\n')
 	const wanted = oldString.split('\n')

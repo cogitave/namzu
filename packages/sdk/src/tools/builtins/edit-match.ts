@@ -295,6 +295,18 @@ function indentWidth(indent: string, tab: number): number {
 	return width
 }
 
+/** The smallest space-only indent (2 or more) among the lines, or 0. */
+function spaceIndentUnit(lines: readonly string[]): number {
+	let unit = 0
+	for (const line of lines) {
+		if (line.trim() === '') continue
+		const indent = leadingWhitespace(line)
+		if (indent.length < 2 || indent.includes('\t')) continue
+		if (unit === 0 || indent.length < unit) unit = indent.length
+	}
+	return unit
+}
+
 function isBlank(line: string): boolean {
 	return line.trim() === ''
 }
@@ -356,6 +368,16 @@ export function resolveIndentedMatch(
 	}
 	if (found === -1) return null
 
+	// Trailing whitespace on a matched line is compared away but the replaced
+	// span keeps it nowhere: new_string has none, so applying would silently
+	// delete it (a Markdown hard break, say). Refuse; the not-found error
+	// shows the whitespace.
+	for (let i = 0; i < wanted.length; i++) {
+		// biome-ignore lint/style/noNonNullAssertion: index < length
+		const fileLine = lines[found + i]!.replace(/\r$/, '')
+		if (fileLine !== fileLine.trimEnd()) return null
+	}
+
 	const pairs: { file: string; model: string }[] = []
 	for (let i = 0; i < wanted.length; i++) {
 		// biome-ignore lint/style/noNonNullAssertion: index < length
@@ -367,7 +389,13 @@ export function resolveIndentedMatch(
 
 	let tab = 0
 	let delta = 0
-	for (const candidate of TAB_WIDTHS) {
+	const modelTabs = pairs.some((p) => p.model.includes('\t'))
+	const fileTabs = pairs.some((p) => p.file.includes('\t'))
+	// A model writing tabs into a space-indented file means the file's own
+	// indent unit per tab; guess 4 and a 2-space file gets the wrong nesting.
+	const unit = modelTabs && !fileTabs ? spaceIndentUnit(lines) : 0
+	const widths = unit > 0 ? [unit, ...TAB_WIDTHS.filter((w) => w !== unit)] : TAB_WIDTHS
+	for (const candidate of widths) {
 		const [head, ...rest] = pairs
 		if (head === undefined) return null
 		const shift = indentWidth(head.file, candidate) - indentWidth(head.model, candidate)
