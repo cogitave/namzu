@@ -173,3 +173,31 @@
 .extension-value {
 	color: var(--muted-foreground);
 }
+
+.extension-collected-summary {
+	display: grid;
+	justify-items: start;
+	gap: 10px;
+	padding-block: 8px 12px;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
+}
+.extension-collected-summary p,
+.extension-collected-summary dl,
+.extension-collected-summary dd {
+	margin: 0;
+}
+.extension-collected-summary dl {
+	display: grid;
+	gap: 4px;
+	width: 100%;
+}
+.extension-collected-summary dl > div {
+	display: grid;
+	grid-template-columns: minmax(6em, 1fr) minmax(0, 4fr);
+	gap: 12px;
+}
+.extension-collected-summary dd {
+	color: var(--muted-foreground);
+	overflow-wrap: anywhere;
+}

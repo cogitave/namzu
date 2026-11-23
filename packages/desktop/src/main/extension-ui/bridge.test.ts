@@ -66,6 +66,7 @@ describe('a page can call only what its manifest declares', () => {
 			'query:other',
 			'action:format-disk',
 			'namzu/extensions/list',
+			'namzu/extensions/unlock',
 			'namzu/config/set',
 			'com.other.ext:query:counts',
 			'host:openExternal',

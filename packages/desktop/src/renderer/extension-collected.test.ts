@@ -80,11 +80,12 @@ describe('What is collected, as a page of Settings', () => {
 		)
 		expect(titles[0]).toBe('Applications')
 		expect(titles).toContain('How many keys and clicks happened in a minute')
-		expect(m).toContain('>What it records<')
+		expect(m).not.toContain('>What it records<')
+		expect(m).not.toContain('>How long it is kept<')
 		expect(m).toContain('Which program was in front, minute by minute.')
 		expect(m).toContain('>For example<')
 		expect(m).toContain('Microsoft Excel · 1 h 20 min today')
-		expect(m).toContain('>How long it is kept<')
+		expect(m).toContain('>Retention<')
 		expect(m).toContain('Kept until your organisation deletes it')
 		expect(m).toContain('Kept 30 days')
 		expect(m).toContain('4 380 records')
@@ -111,6 +112,15 @@ describe('What is collected, as a page of Settings', () => {
 		expect(open).toContain('<table')
 		expect(open).toContain('EXCEL.EXE')
 		expect(open).toContain('>Program<')
+		expect(
+			view({
+				row: { ...ROW, running: false },
+				recent: {
+					kind: 'activity.app.minute',
+					table: { kind: 'activity.app.minute', columns: ['exe'], rows: [['EXCEL.EXE']] },
+				},
+			}),
+		).not.toContain('EXCEL.EXE')
 	})
 	it('has no id, no path and no technical word', () => {
 		const m = view()
