@@ -7402,9 +7402,11 @@ export async function createAgentSession(
 					const delegationBusy = delegationIsBusy({
 						hypermode: opts?.hypermode === true,
 						liveAgents: subagentRuntime?.liveChildSessionIds().size ?? 0,
-						runningWorkflows: (workflowHost?.registry.running() ?? []).filter(
-							(run) => workflowOwners.get(run.runId) === scope.sessionId,
-						).length,
+						// Owners are read against every run (ownedBy forgets a run the
+						// registry no longer holds), then narrowed to the ones still running.
+						runningWorkflows: workflowOwners
+							.ownedBy(scope.sessionId, workflowHost?.registry.list() ?? [])
+							.filter((run) => run.status === 'running').length,
 					})
 					if (delegationBusy && toolLoadingDeferred) {
 						busySessionToolsets ??= sessionToolsetsWith([
