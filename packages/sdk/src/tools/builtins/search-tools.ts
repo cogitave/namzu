@@ -42,7 +42,7 @@ export const SearchToolsTool = defineTool({
 		'Load deferred tools so they can be called. ' +
 		'Use this only when a needed deferred tool schema is absent from the current runtime tools parameter. If its schema is already visible, call the tool directly without searching again.\n\n' +
 		'Query forms:\n' +
-		'- "select:read_memory,save_memory" loads exactly those tools by name. Use it when you know the names.\n' +
+		'- "select:read_memory,save_memory" loads exactly those tools by name. Use it when you know the names. Load every tool you will need in one call: list all the names, comma-separated, instead of one search per tool.\n' +
 		'- "notebook jupyter" searches by keywords. A word in a tool\'s name ranks far above a word in its description. Loads the best matches, up to max_results (default 5).\n' +
 		'- "+slack send" requires "slack" in the result and ranks by the rest.\n' +
 		"A query that is exactly one tool's name loads that tool and no other match, plus any companions it declares.",

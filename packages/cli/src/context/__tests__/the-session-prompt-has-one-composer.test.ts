@@ -108,12 +108,15 @@ describe('the session system prompt', () => {
 		expect(fromFacts({ browserWebTask: BROWSER_WEB_TASK_GUIDANCE })).toBe(withTask)
 	})
 
-	it('tells the web-task paragraph what a small model needs: search, one action then read, change approach, no shell fetch, page values, no credentials, confirm', () => {
+	it('tells the web-task paragraph what a small model needs: search, one action then read, change approach, web_fetch first then the browser, no shell fetch, page values, no credentials, confirm', () => {
 		for (const part of [
 			"site's own search",
 			'one action',
 			'changed nothing twice',
-			'Do not fetch them with the shell',
+			'use web_fetch first',
+			'If web_fetch returns 403, an empty page or only script, use the browser instead',
+			'do not fetch a public page with curl or wget',
+			'Do not repeat a search query or reopen a page',
 			'a code displayed in another tab',
 			'Passwords and one-time codes are never typed',
 			'cannot be done or confirmed',

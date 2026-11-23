@@ -22,7 +22,11 @@
 import { CHARS_PER_TOKEN } from '../../constants/limits.js'
 import type { AssistantMessage, Message, ToolMessage } from '../../types/message/index.js'
 import { estimateMessageTokens } from '../token-estimate.js'
-import { clearToolResult, isClearedToolResult } from '../tool-result-editing.js'
+import {
+	ALWAYS_KEPT_TOOL_RESULTS,
+	clearToolResult,
+	isClearedToolResult,
+} from '../tool-result-editing.js'
 import type { ScoredMessage } from './score.js'
 
 export interface WorkingSetAction {
@@ -95,7 +99,7 @@ function evictionRules(
 	return {
 		minTool: options.minToolResultChars ?? 1_000,
 		minNarration: options.minNarrationChars ?? 240,
-		preserve: new Set(options.preserveTools ?? []),
+		preserve: new Set([...ALWAYS_KEPT_TOOL_RESULTS, ...(options.preserveTools ?? [])]),
 		toolNameByCallId,
 	}
 }

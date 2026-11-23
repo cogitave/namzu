@@ -418,8 +418,27 @@ describe('an answer from a page that is not 200', () => {
 
 		expect(result.success).toBe(true)
 		expect(result.output).toContain('The server returned HTTP 404 Not Found.')
-		expect(result.output).toContain('authenticated tool')
+		expect(result.output).toContain('browser tools')
+		expect(result.output).not.toContain('curl')
 		expect(result.output).not.toContain('nothing here')
+		expect(extraction.requests).toHaveLength(0)
+	})
+})
+
+describe('a PDF', () => {
+	it('is named as a PDF in one message, by its type or by its first bytes', async () => {
+		const origin = await site('127.0.0.1', {
+			'/paper.pdf': { type: 'application/pdf', body: '%PDF-1.7 \u0000 binary' },
+			'/disguised': { type: 'application/octet-stream', body: '%PDF-1.4 more' },
+		})
+		const extraction = extractorReplying('should not be asked')
+
+		for (const path of ['/paper.pdf', '/disguised']) {
+			const result = await call(contextWith(extraction), `${origin.origin}${path}`)
+			expect(result.success).toBe(true)
+			expect(result.output).toContain('is a PDF')
+			expect(result.output).not.toContain('binary')
+		}
 		expect(extraction.requests).toHaveLength(0)
 	})
 })

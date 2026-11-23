@@ -47,6 +47,13 @@ export interface ToolResultEditConfig {
 export const DEFAULT_KEEP_RECENT_TOOL_RESULTS = 3
 export const DEFAULT_MIN_CHARS_TO_CLEAR = 1_000
 
+/**
+ * Tools whose result is never cleared, whatever a host's own list says. A
+ * `search_tools` result is what tells the model which tools it has loaded;
+ * with it gone the model searches again for a tool it already holds.
+ */
+export const ALWAYS_KEPT_TOOL_RESULTS: readonly string[] = ['search_tools']
+
 /** Marks a cleared result, and is how a second pass recognizes its own work. */
 const CLEARED_PREFIX = '[tool output cleared]'
 
@@ -157,7 +164,7 @@ export function clearStaleToolResults(
 ): ToolResultEditOutcome {
 	const keepRecent = Math.max(0, config.keepRecentToolResults ?? DEFAULT_KEEP_RECENT_TOOL_RESULTS)
 	const minChars = Math.max(0, config.minCharsToClear ?? DEFAULT_MIN_CHARS_TO_CLEAR)
-	const preserve = new Set(config.preserveTools ?? [])
+	const preserve = new Set([...ALWAYS_KEPT_TOOL_RESULTS, ...(config.preserveTools ?? [])])
 
 	// Which tool call produced which result, so a preserve-list can be
 	// written in terms of TOOL NAMES — the only handle a host actually has.
