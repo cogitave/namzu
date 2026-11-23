@@ -178,8 +178,10 @@ import { TerminalHostClient } from './terminal-client.js'
 import { engineHost, findProgram, shellEnvironment } from './terminal-env.js'
 import { TerminalHub } from './terminal-hub.js'
 import { TerminalTabStore } from './terminal-tab-store.js'
+import { productTitle, testProfileName } from './test-profile.js'
 import { TrayController } from './tray-controller.js'
 import { trayRepresentations, trayTheme } from './tray-icons.js'
+import { paintTestMark } from './tray-mark.js'
 import { EngineTrustList } from './trust-list.js'
 import { TrustedFolderStore, createFolderTrustGuard } from './trusted-folders.js'
 import { clearInstalledPending } from './updater-cache.js'
@@ -228,6 +230,13 @@ Object.assign(
 	}),
 )
 const diagnostics = new DesktopDiagnostics(app.getPath('userData'))
+// An instance on its own user-data folder is a test copy: its window title and tray tooltip say so.
+const testProfile = testProfileName({
+	argv: process.argv,
+	userData: app.getPath('userData'),
+	defaultUserData: join(app.getPath('appData'), app.getName()),
+})
+const appTitle = productTitle(testProfile)
 /** The first time each of these happens, with how long after the process started: the open and quit timeline. */
 const timeline = new Set<string>()
 function recordOnce(
@@ -978,13 +987,32 @@ const trayController = new TrayController({
 		for (const rep of trayRepresentations(
 			process.platform,
 			trayTheme(nativeTheme.shouldUseDarkColorsForSystemIntegratedUI),
-		))
+		)) {
+			let buffer = rep.png
+			if (testProfile !== undefined) {
+				// A test profile's icon carries a small dot, so it is not taken for the person's own.
+				const picture = nativeImage.createFromBuffer(rep.png)
+				const { width, height } = picture.getSize()
+				if (width === rep.size && height === rep.size) {
+					buffer = nativeImage
+						.createFromBitmap(paintTestMark(picture.toBitmap(), rep.size), { width, height })
+						.toPNG()
+				} else {
+					diagnostics.record('ipc_failed', {
+						operation: 'tray',
+						error: new Error(
+							`tray icon is ${width}x${height}, not ${rep.size}x${rep.size}: test mark skipped`,
+						),
+					})
+				}
+			}
 			image.addRepresentation({
 				scaleFactor: rep.scaleFactor,
 				width: rep.size,
 				height: rep.size,
-				buffer: rep.png,
+				buffer,
 			})
+		}
 		if (!image.isEmpty()) return image
 		const fallback = await app.getFileIcon(process.execPath, { size: 'small' })
 		return fallback.isEmpty() ? undefined : fallback
@@ -994,6 +1022,7 @@ const trayController = new TrayController({
 	open: () => showMainWindow(),
 	quit: () => app.quit(),
 	record: (error) => diagnostics.record('ipc_failed', { operation: 'tray', error }),
+	title: appTitle,
 })
 // The tray follows the system's bar, not the app's own appearance choice.
 nativeTheme.on('updated', () => void trayController.refreshIcon())
@@ -2452,7 +2481,7 @@ async function createWindow(
 	)
 	workspace.addWindow(windowId, bounds)
 	const window = new BrowserWindow({
-		title: 'Namzu',
+		title: appTitle,
 		...(windowIcon ? { icon: windowIcon } : {}),
 		...bounds,
 		minWidth: 560,
@@ -2469,6 +2498,12 @@ async function createWindow(
 		},
 	})
 	windows.register(windowId, window)
+	// The page names itself `Namzu`; a test profile keeps the title that says which profile it is.
+	if (testProfile !== undefined)
+		window.on('page-title-updated', (event) => {
+			event.preventDefault()
+			window.setTitle(appTitle)
+		})
 	applyWindowMode(window, readWindowMode(viewState, windowId))
 	const paneHost = new BrowserPaneHost({
 		window,

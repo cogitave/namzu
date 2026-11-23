@@ -121,8 +121,27 @@ function rewrite(code: number, modifiers: number, eventType: number | undefined)
 	}
 }
 
+/**
+ * `ESC [ 27 ; modifier ; code ~`: how xterm's `modifyOtherKeys` reports a modified key, which
+ * Ink does not read (it would be typed as text). With ctrl held it is the same key as the kitty
+ * form `ESC [ code ; modifier u`, so that is what the reader gets. Only letters are rewritten:
+ * `ctrl+shift+c` is the one that matters, the copy chord.
+ */
+const MODIFY_OTHER_KEYS = new RegExp(`${ESC}\\[27;(\\d+);(\\d+)~`, 'g')
+
 /** Rewrite every keypad sequence in `chunk`; anything else stays byte-identical. */
-export function normalizeKeypadKeys(chunk: string): string {
+export function normalizeKeypadKeys(input: string): string {
+	const chunk = input.includes(`${ESC}[27;`)
+		? input.replace(MODIFY_OTHER_KEYS, (whole: string, modText: string, codeText: string) => {
+				const modifiers = Number.parseInt(modText, 10)
+				if (!((modifiers - 1) & 4)) return whole
+				// A capital letter's code is its lower-case twin's: the shift is in the modifier.
+				const code = Number.parseInt(codeText, 10)
+				const isLetter = (code >= 65 && code <= 90) || (code >= 97 && code <= 122)
+				if (!isLetter) return whole
+				return `${ESC}[${code >= 65 && code <= 90 ? code + 32 : code};${modifiers}u`
+			})
+		: input
 	const applicationMode = chunk.includes(`${ESC}O`)
 		? chunk.replace(
 				APPLICATION_KEYPAD_SEQUENCE,

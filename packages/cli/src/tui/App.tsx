@@ -18772,6 +18772,12 @@ function AppBody({
 				})
 				return
 			}
+			// ctrl+shift+c is the copy chord many terminals use: it copies a selection (in the
+			// fullscreen view) and is never the interrupt, so with nothing selected it does nothing.
+			if (key.ctrl && key.shift && input === 'c') {
+				fullscreenControl.current?.takeCopy()
+				return
+			}
 			// Fullscreen: Esc closes the search or lets go of a selection before it is
 			// anything else, and ctrl+c copies a selection that was not copied on release.
 			if (fullscreenControl.current) {

@@ -17,6 +17,8 @@ export interface TrayHost {
 	/** Quits the way the application menu does. */
 	quit(): void
 	record(error: unknown): void
+	/** The tooltip: `Namzu`, or `Namzu (test: <folder>)` on a test profile. */
+	title?: string
 }
 
 /**
@@ -91,7 +93,7 @@ export class TrayController {
 				return
 			}
 			const tray = this.host.makeTray(icon)
-			tray.setToolTip('Namzu')
+			tray.setToolTip(this.host.title ?? 'Namzu')
 			tray.setContextMenu(
 				this.host.menu([
 					{ label: 'Open Namzu', click: () => this.host.open() },
