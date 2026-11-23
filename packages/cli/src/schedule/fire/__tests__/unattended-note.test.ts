@@ -19,4 +19,10 @@ describe('unattendedNote', () => {
 		const note = unattendedNote('ticker', { wakeGateContext: '' })
 		expect(note).toMatch(/wake-gate script ran before this turn/)
 	})
+
+	it('overrides any rule to ask first, so the doctrine ask-rules never apply to an unattended run', () => {
+		const note = unattendedNote('nightly')
+		expect(note).toContain('do not ask the user anything; decide.')
+		expect(note).toContain('This overrides any other rule to ask or to quote and ask first.')
+	})
 })
