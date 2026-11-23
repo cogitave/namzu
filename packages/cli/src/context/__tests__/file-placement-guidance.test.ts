@@ -4,10 +4,10 @@ import { composeFilePlacementGuidance } from '../file-placement.js'
 import { composeSessionSystemPrompt, sessionPromptInput } from '../system-prompt.js'
 
 describe('the "Where files go" guidance', () => {
-	it('is two short paragraphs under the heading, the same on every platform', () => {
+	it('is three short paragraphs under the heading, the same on every platform', () => {
 		const text = composeFilePlacementGuidance()
-		expect(text.split('\n')).toHaveLength(3)
-		expect(text.length).toBeLessThan(720)
+		expect(text.split('\n')).toHaveLength(4)
+		expect(text.length).toBeLessThan(1150)
 	})
 
 	it('sends everything that is not the work to the scratch folder, and keeps it out of the project and the home folder', () => {
@@ -29,6 +29,19 @@ describe('the "Where files go" guidance', () => {
 			'A file they asked for goes where they said, or where the project keeps such files',
 			'A backup copy goes in the scratch folder, not beside the file',
 			'Give a full path only when the person needs it',
+		]) {
+			expect(text, phrase).toContain(phrase)
+		}
+	})
+
+	it('writes no documentation unless asked, names files by the project, and keeps lists and output real', () => {
+		const text = composeFilePlacementGuidance()
+		for (const phrase of [
+			'Do not create documentation, report or README files unless the person asked for one',
+			"follows the project's own file names and folders",
+			'hyphenated English name with no spaces',
+			'add the new one to that list',
+			'never retyped',
 		]) {
 			expect(text, phrase).toContain(phrase)
 		}

@@ -503,6 +503,7 @@ import {
 	markOrphanNoticesDelivered,
 	recoverUnfinishedWorkflows,
 } from '../integrations/workflows/orphans.js'
+import { WorkflowOwners } from '../integrations/workflows/owners.js'
 import type { WorkflowRunEnd } from '../integrations/workflows/registry.js'
 import {
 	type ResumeReview,
@@ -4234,7 +4235,7 @@ export async function createAgentSession(
 		}
 	>()
 	let workflowHost: WorkflowHost | undefined
-	const workflowOwners = new Map<string, SessionId>()
+	const workflowOwners = new WorkflowOwners()
 	/** What the review showed of each saved script, so the run can refuse a file that changed after approval. */
 	const reviewedScripts = new ReviewedScripts()
 	const workflowEndListeners = new Set<(end: WorkflowRunEnd) => void>()
@@ -4244,9 +4245,7 @@ export async function createAgentSession(
 		jobOwner,
 		activity: () => subagentRuntime?.activity,
 		workflows: (sessionId) =>
-			(workflowHost?.registry.list() ?? []).filter(
-				(run) => workflowOwners.get(run.runId) === sessionId,
-			),
+			workflowOwners.ownedBy(sessionId, workflowHost?.registry.list() ?? []),
 		// The id the agent tools accept, which a continued agent keeps from its first run.
 		agentId: (agent) =>
 			agent.taskId !== undefined
@@ -5030,7 +5029,6 @@ export async function createAgentSession(
 					turnId: runTurnId,
 					release: () => {
 						released ??= (async () => {
-							workflowOwners.delete(runId)
 							liveModeControls.delete(control)
 							delegationScopes.delete(runTurnId)
 							delegationLimits.delete(runTurnId)
@@ -7730,6 +7728,7 @@ export async function createAgentSession(
 							)
 						const reminderSource = createCliReminderSource({
 							mode: () => modeControl.current(),
+							memoryTools: memoryGuidance !== undefined,
 							...(quietStretch ? { quietStretch } : {}),
 							...{
 								environment: () => ({
