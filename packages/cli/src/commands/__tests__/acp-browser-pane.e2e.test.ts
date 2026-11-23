@@ -2,6 +2,8 @@ import { mkdirSync, mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
+import type { MCPJsonRpcMessage, MCPTransport } from '@namzu/sdk'
+import { ACPServer, HostCommandRegistry } from '@namzu/sdk'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 import { createBrowserControl } from '../../browser/control.js'
@@ -72,6 +74,10 @@ interface Fixture {
 		close(): Promise<void>
 	}>
 }
+
+const DESKTOP = join(import.meta.dirname, '..', '..', '..', '..', 'desktop', 'src', 'main')
+const loadDesktop = async <T>(name: string): Promise<T> =>
+	(await import(/* @vite-ignore */ pathToFileURL(join(DESKTOP, name)).href)) as T
 
 const SESSION = 'session-pane'
 
@@ -150,11 +156,11 @@ describe.skipIf(!E2E)(
 		}
 
 		/** The runtime hands the session builder the browser options; the session built is the real control. */
-		async function runBrowser(
+		async function buildRuntime(
 			runtimeOptions: CliAcpRuntimeOptions,
 			browserConfig: Record<string, unknown>,
 			use: (control: ReturnType<typeof createBrowserControl>) => Promise<void>,
-		): Promise<void> {
+		) {
 			const { PlaywrightBrowserHost, createPaneProvider } = await import('@namzu/browser')
 			let control: ReturnType<typeof createBrowserControl> | undefined
 			const deps = {
@@ -203,6 +209,15 @@ describe.skipIf(!E2E)(
 				deps,
 				runtimeOptions,
 			)
+			return { runtime, control: () => control }
+		}
+
+		async function runBrowser(
+			runtimeOptions: CliAcpRuntimeOptions,
+			browserConfig: Record<string, unknown>,
+			use: (control: ReturnType<typeof createBrowserControl>) => Promise<void>,
+		): Promise<void> {
+			const { runtime, control: current } = await buildRuntime(runtimeOptions, browserConfig, use)
 			try {
 				await runtime.gateway.prompt({
 					sessionId: SESSION,
@@ -215,7 +230,7 @@ describe.skipIf(!E2E)(
 					filesystem: undefined,
 				})
 			} finally {
-				await control?.dispose()
+				await current()?.dispose()
 				await runtime.close()
 			}
 		}
@@ -262,6 +277,151 @@ describe.skipIf(!E2E)(
 			expect(pane.sent.some((entry) => entry.endsWith('Page.navigate'))).toBe(true)
 			// And it let go when the session closed.
 			expect(app.asked.at(-1)?.method).toBe(BROWSER_PANE_METHODS.close)
+		})
+
+		it('drives the app’s tab through the real ACP server and the app’s own request handler on one pipe', async () => {
+			const { serveAgentPane } = await loadDesktop<{
+				serveAgentPane: (
+					relay: unknown,
+					conversationId: string,
+					method: string,
+					params: unknown,
+					allowed: () => boolean,
+				) => Promise<
+					| { ok: true; result: unknown }
+					| { ok: false; code: number; message: string; reason?: string }
+				>
+			}>('agent-pane-acp.ts')
+			const pane = await chromium.startChromiumPane({ initialTabs: 1 })
+			const requests: string[] = []
+			const released: string[] = []
+			let closedTabs = 0
+			const relay = {
+				open: async () => {
+					const [tab] = await pane.listTabs()
+					if (!tab) throw new Error('There is no Browser pane to open a tab in.')
+					const info = (await pane.cdp(tab.tabId, 'Target.getTargetInfo')) as {
+						targetInfo: unknown
+					}
+					return { tabId: tab.tabId, targetInfo: info.targetInfo }
+				},
+				cdp: async (input: {
+					tabId: string
+					method: string
+					params?: object
+					sessionId?: string
+				}) => pane.cdp(input.tabId, input.method, input.params ?? {}, input.sessionId),
+				close: () => {
+					closedTabs += 1
+				},
+				releaseConversation: (id: string) => {
+					released.push(id)
+				},
+			}
+			let receive!: (message: MCPJsonRpcMessage) => void
+			let session = ''
+			const answers = new Map<number | string, (message: MCPJsonRpcMessage) => void>()
+			const transport: MCPTransport = {
+				connect: async () => {},
+				close: async () => {},
+				isConnected: () => true,
+				onMessage: (handler) => {
+					receive = handler
+				},
+				onClose: () => {},
+				onError: () => {},
+				send: async (message) => {
+					if (message.id !== undefined && message.method?.startsWith('namzu/browser/pane/')) {
+						requests.push(message.method)
+						const answer = await serveAgentPane(
+							relay,
+							'app-conversation',
+							message.method,
+							message.params,
+							() => true,
+						)
+						receive(
+							answer.ok
+								? { jsonrpc: '2.0', id: message.id, result: answer.result as never }
+								: {
+										jsonrpc: '2.0',
+										id: message.id,
+										error: { code: answer.code, message: answer.message },
+									},
+						)
+						return
+					}
+					if (message.id !== undefined && !message.method) answers.get(message.id)?.(message)
+				},
+			}
+			const call = (id: number, method: string, params: Record<string, unknown>) =>
+				new Promise<MCPJsonRpcMessage>((resolve) => {
+					answers.set(id, resolve)
+					receive({ jsonrpc: '2.0', id, method, params })
+				})
+			let title: string | undefined
+			let acp: ACPServer | undefined
+			try {
+				const connection: PaneConnection = {
+					offers: (capability) => acp?.clientOffers(capability) ?? false,
+					ask: (method, params) => acp?.askClient(method, params) as Promise<unknown>,
+				}
+				const link = createAcpPaneLink(connection)
+				const { runtime, control } = await buildRuntime(
+					{ computerUse: true, browserPane: link },
+					{ sites: { [server.allowed]: 'act', '*': 'ask' } },
+					async (browser) => {
+						const opened = await browser.host.observe({
+							action: 'navigate',
+							url: `${server.allowed}/index.html`,
+						})
+						title = opened.page?.title
+					},
+				)
+				acp = new ACPServer({
+					transport,
+					gateway: runtime.gateway,
+					commands: new HostCommandRegistry(),
+					presenter: runtime.presenter,
+					agentInfo: { name: 'namzu', version: 'wire-test' },
+					extensions: link.extensions as never,
+				} as never)
+				await acp.start()
+				const init = await call(1, 'initialize', {
+					capabilities: ['permission', BROWSER_PANE_CAPABILITY],
+				})
+				expect(init.error).toBeUndefined()
+				const created = await call(2, 'session/new', { cwd, mcpServers: [] })
+				session = String((created.result as { sessionId: string }).sessionId)
+				const event = link.extensions[BROWSER_PANE_METHODS.event]
+				pane.onEvent((e) =>
+					event?.({
+						sessionId: session,
+						kind: 'cdp',
+						tabId: e.tabId,
+						method: e.method,
+						params: e.params,
+						...(e.sessionId ? { cdpSessionId: e.sessionId } : {}),
+					}),
+				)
+				const prompted = await call(3, 'session/prompt', {
+					sessionId: session,
+					prompt: 'open the page',
+				})
+				expect(prompted.error).toBeUndefined()
+				await control()?.dispose()
+				await runtime.close()
+			} finally {
+				await acp?.stop()
+				await pane.shutdown()
+			}
+			expect(title).toBe('Fixture index')
+			expect(requests[0]).toBe(BROWSER_PANE_METHODS.open)
+			expect(requests).toContain(BROWSER_PANE_METHODS.cdp)
+			// The engine let go of the conversation; it did not close the tab the person watches.
+			expect(requests.at(-1)).toBe(BROWSER_PANE_METHODS.close)
+			expect(released).toEqual(['app-conversation'])
+			expect(closedTabs).toBe(0)
 		})
 
 		it('opens its own browser, with a note, when the app’s pane cannot be driven', async () => {

@@ -64,9 +64,9 @@ describe('the Browser pane link', () => {
 		expect(calls).toHaveLength(1)
 	})
 
-	it('sends no rules when there are none, and fails the open when the app names no tab', async () => {
+	it('sends no rules when the channel has none, and fails the open when the app names no tab', async () => {
 		const { connection, calls } = fakeConnection()
-		const channel = createAcpPaneLink(connection).channel('s1', {})
+		const channel = createAcpPaneLink(connection).channel('s1')
 		const listing = channel.listTabs()
 		await next(calls, 1)
 		expect(calls[0]?.params).toEqual({ sessionId: 's1' })
@@ -202,9 +202,14 @@ describe('the Browser pane link', () => {
 		expect(heardByOther).toEqual([])
 	})
 
-	it('records who holds the tab', () => {
-		const link = createAcpPaneLink(fakeConnection().connection)
+	it('records who holds the tab', async () => {
+		const { connection, calls } = fakeConnection()
+		const link = createAcpPaneLink(connection)
 		const channel = link.channel('s1')
+		const opened = channel.listTabs()
+		await next(calls, 1)
+		calls[0]?.answer({ tabId: 't' })
+		await opened
 		expect(channel.control()).toBe('agent')
 		link.extensions[BROWSER_PANE_METHODS.state]?.({
 			sessionId: 's1',
@@ -245,12 +250,52 @@ describe('the Browser pane link', () => {
 
 		const done = channel.close()
 		await next(calls, 3)
-		expect(calls[2]?.params).toEqual({ sessionId: 's1' })
+		// It lets go; it never asks the app to close the tab the person may be signed in on.
+		expect(calls[2]?.params).toEqual({ sessionId: 's1', release: true })
 		calls[2]?.answer({})
 		await done
 		// A channel that was never opened asks nothing when it closes.
 		await createAcpPaneLink(connection).channel('s9').close()
 		expect(calls).toHaveLength(3)
+	})
+})
+
+describe('the channels of a link', () => {
+	it('says an empty rule set, so an open replaces the stricter rules an earlier engine left', async () => {
+		const { connection, calls } = fakeConnection()
+		void createAcpPaneLink(connection).channel('s1', {}).listTabs()
+		await next(calls, 1)
+		expect(calls[0]?.params).toEqual({ sessionId: 's1', rules: {} })
+		const none = fakeConnection()
+		void createAcpPaneLink(none.connection).channel('s2').listTabs()
+		await next(none.calls, 1)
+		expect(none.calls[0]?.params).toEqual({ sessionId: 's2' })
+	})
+
+	it('hears the app only once it has opened, so an unstarted channel is never delivered to', async () => {
+		const { connection, calls } = fakeConnection()
+		const link = createAcpPaneLink(connection)
+		const unused = link.channel('s1')
+		const seen: string[] = []
+		unused.onTabAdded((tab) => seen.push(tab.tabId))
+		link.extensions[BROWSER_PANE_METHODS.event]?.({
+			sessionId: 's1',
+			kind: 'tab-added',
+			tabId: 'x',
+		})
+		expect(seen).toEqual([])
+		const used = link.channel('s1')
+		const opened = used.listTabs()
+		await next(calls, 1)
+		calls[0]?.answer({ tabId: 'first' })
+		await opened
+		used.onTabAdded((tab) => seen.push(tab.tabId))
+		link.extensions[BROWSER_PANE_METHODS.event]?.({
+			sessionId: 's1',
+			kind: 'tab-added',
+			tabId: 'y',
+		})
+		expect(seen).toEqual(['y'])
 	})
 })
 

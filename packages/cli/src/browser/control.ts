@@ -136,7 +136,10 @@ export function createBrowserControl(
 	const ownSites = options.sites ?? { '*': 'ask' }
 	let sites = ownSites
 	const build = (profile: string) => {
-		const channel = paneProvider ? options.pane?.() : undefined
+		// The pane holds the conversation's own profile only: another profile (a delegated run's,
+		// or one switched to) keeps its own browser, so its cookies stay apart.
+		const channel =
+			paneProvider && profile === (options.profile ?? 'default') ? options.pane?.() : undefined
 		const pane = channel && paneProvider ? paneProvider(channel) : undefined
 		return new Host({
 			...(pane ? { preferredProvider: pane } : {}),

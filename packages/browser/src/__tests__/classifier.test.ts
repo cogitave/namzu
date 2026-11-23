@@ -341,6 +341,16 @@ describe('signInDetection: page', () => {
 		expect(text).toContain('sign in in the browser window')
 		expect(text).toContain('I signed in')
 		expect(text).not.toContain('namzu browser login')
+		// On the Browser pane the place is named as the pane.
+		const pane = signInNotice(
+			{ ...demo, passwordFields: 1 },
+			page,
+			undefined,
+			true,
+			'the Browser pane',
+		)
+		expect(pane).toContain('sign in in the Browser pane')
+		expect(pane).not.toContain('browser window')
 		// A page with no credential field, or one that already stopped the turn, still says nothing.
 		expect(signInNotice(demo, page, undefined, true)).toBeUndefined()
 		expect(signInNotice({ ...demo, passwordFields: 1 }, address, undefined, true)).toBeUndefined()

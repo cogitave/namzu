@@ -15,7 +15,8 @@
  *   patterns) the application enforces under the engine's own.
  * - `namzu/browser/pane/cdp` `{ sessionId, tabId, method, params?, cdpSessionId? }` returns the
  *   protocol result, or an error whose message is plain words.
- * - `namzu/browser/pane/close` `{ sessionId, tabId? }`: let go of the agent's tab, or all of them.
+ * - `namzu/browser/pane/close` `{ sessionId, tabId? }`: close one tab a page opened. With
+ *   `release: true` and no tab it only lets go: the debuggers detach and the tabs stay open.
  *
  * Notifications the application sends (the engine serves these as methods):
  *
@@ -106,9 +107,7 @@ export function createAcpPaneLink(connection: PaneConnection): AcpPaneLink {
 		constructor(
 			readonly sessionId: string,
 			private readonly rules: PaneRules | undefined,
-		) {
-			channels.add(this)
-		}
+		) {}
 
 		control(): PaneControl {
 			return this.holder
@@ -117,13 +116,18 @@ export function createAcpPaneLink(connection: PaneConnection): AcpPaneLink {
 		private ask(method: string, params: Record<string, unknown>): Promise<unknown> {
 			if (this.done || closed !== undefined)
 				return Promise.reject(new Error('The Browser pane is not connected.'))
+			// Registered on first use: a host built and never started asks nothing, and is never
+			// delivered to or kept in the set.
+			channels.add(this)
 			return connection.ask(method, { sessionId: this.sessionId, ...params })
 		}
 
 		listTabs(): Promise<readonly PaneTabRef[]> {
 			// The tab opens once; a later list is the tabs known now, in the order they were seen.
+			// Rules are always said when the channel has a set, an empty one included, so an open
+			// replaces the stricter rules an earlier engine left on the app's side.
 			this.opened ??= this.ask(BROWSER_PANE_METHODS.open, {
-				...(this.rules?.allow?.length || this.rules?.deny?.length ? { rules: this.rules } : {}),
+				...(this.rules !== undefined ? { rules: this.rules } : {}),
 			}).then((reply) => {
 				const tabId = text(object(reply)?.tabId)
 				if (!tabId) throw new Error('The Browser pane did not name the tab it opened.')
@@ -187,9 +191,14 @@ export function createAcpPaneLink(connection: PaneConnection): AcpPaneLink {
 			const wasOpen = this.opened !== undefined && closed === undefined
 			this.done = true
 			channels.delete(this)
+			// This lets go of the conversation's tabs; it does not close them. The person may be
+			// signed in on one, and a tab leaves only when the conversation ends or they close it.
 			if (wasOpen)
 				await connection
-					.ask(BROWSER_PANE_METHODS.close, { sessionId: this.sessionId })
+					.ask(BROWSER_PANE_METHODS.close, {
+						sessionId: this.sessionId,
+						release: true,
+					})
 					.catch(() => undefined)
 		}
 

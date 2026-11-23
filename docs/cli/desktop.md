@@ -4078,7 +4078,7 @@ The engine's browser tools (`browser`, `browser_act`) drive a tab of the Browser
 |---|---|---|
 | `namzu/browser/pane/open` | `rules?` (`{ allow?, deny? }` host patterns) | `{ tabId, targetInfo }`: the conversation's agent tab, opened or found, with the debugger attached. |
 | `namzu/browser/pane/cdp` | `tabId`, `method`, `params?`, `cdpSessionId?` | `{ result }`, or an error. |
-| `namzu/browser/pane/close` | `tabId?` | `{}`: the tab, or all of the conversation's, is let go and closed. |
+| `namzu/browser/pane/close` | `tabId?`, `release?` | `{}`: with a `tabId`, that tab (one a page opened) is let go and closed. With `release: true` and no tab, the engine only lets go: the debuggers detach and the tabs stay open for you. The engine releases when its browser is disposed (a delegated run starting or ending, a profile switch, the session ending); tabs close when the conversation ends or you close them. |
 
 A refusal or failure is a JSON-RPC error whose message is plain words and whose `data.code` is the relay's code (`method-refused`, `address-refused`, `human-in-control`, `not-found`, `tab-cap`, `debugger-busy`, `too-large`, `timeout`, `detached`, `unavailable`, `cdp-error`). A session the app has no conversation for, a Pal's, or a setting that says *In its own window*, answers `unavailable`. Every check described under **The relay** above still runs; the wire adds none and removes none, and calls reach the relay in the order they were sent.
 

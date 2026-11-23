@@ -14,6 +14,7 @@ const relay = () => ({
 	open: vi.fn(async () => ({ tabId: 't1', targetInfo: {} })),
 	cdp: vi.fn(async () => undefined),
 	close: vi.fn(),
+	releaseConversation: vi.fn(),
 })
 
 it('offers the pane only when the setting leaves it there and a window or display exists', () => {
@@ -206,4 +207,13 @@ it('says each relay event with the engine’s session id and nothing of the conv
 		method: AGENT_PANE_NOTIFICATIONS.state,
 		params: { sessionId: 'engine', tabId: 't', state: 'person' },
 	})
+})
+
+it('lets go of the tabs without closing them when the engine releases', async () => {
+	const r = relay()
+	expect(
+		await serveAgentPane(r, 'mine', AGENT_PANE_REQUESTS.close, { release: true }, () => true),
+	).toEqual({ ok: true, result: {} })
+	expect(r.releaseConversation).toHaveBeenCalledWith('mine', 'released-by-engine', false)
+	expect(r.close).not.toHaveBeenCalled()
 })

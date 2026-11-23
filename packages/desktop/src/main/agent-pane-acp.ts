@@ -12,7 +12,7 @@ import { type AgentPaneRelay, RelayError, type RelayEvent } from './agent-pane-r
  *
  * - `namzu/browser/pane/open` `{ rules? }` answers `{ tabId, targetInfo }`.
  * - `namzu/browser/pane/cdp` `{ tabId, method, params?, cdpSessionId? }` answers `{ result }`.
- * - `namzu/browser/pane/close` `{ tabId? }` answers `{}`.
+ * - `namzu/browser/pane/close` `{ tabId?, release? }` answers `{}`; `release` detaches and keeps the tabs.
  *
  * Notifications the app sends: `namzu/browser/pane/event` (`kind` is `cdp`, `tab-added`,
  * `tab-closed` or `detached`) and `namzu/browser/pane/state` (`agent` or `person` holds the tab).
@@ -98,7 +98,7 @@ const failure = (code: number, message: string, reason: string): PaneFailure => 
  * different one. `allowed` is read at every request, so turning the setting off stops the next one.
  */
 export async function serveAgentPane(
-	relay: Pick<AgentPaneRelay, 'open' | 'cdp' | 'close'>,
+	relay: Pick<AgentPaneRelay, 'open' | 'cdp' | 'close' | 'releaseConversation'>,
 	conversationId: string,
 	method: string,
 	rawParams: unknown,
@@ -132,6 +132,11 @@ export async function serveAgentPane(
 			case AGENT_PANE_REQUESTS.close: {
 				if (params.tabId !== undefined && typeof params.tabId !== 'string')
 					return failure(INVALID_PARAMS, 'The tab is not named as text.', 'method-refused')
+				if (params.release === true && params.tabId === undefined) {
+					// The engine lets go; the tabs stay for the person.
+					relay.releaseConversation(conversationId, 'released-by-engine', false)
+					return { ok: true, result: {} }
+				}
 				relay.close({
 					conversationId,
 					...(typeof params.tabId === 'string' ? { tabId: params.tabId } : {}),

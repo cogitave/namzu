@@ -881,7 +881,8 @@ export class PlaywrightBrowserHost implements BrowserHost {
 			signals,
 			classifier,
 			this.loginCommandFor(url),
-			this.asksPersonToSignIn() && !this.plan.headless,
+			this.asksPersonToSignIn() && (!this.plan.headless || this.viaPreferred),
+			this.viaPreferred ? 'the Browser pane' : undefined,
 		)
 		if (notice && tab.signInNoticeFor !== withoutQuery(url)) {
 			tab.signInNoticeFor = withoutQuery(url)
