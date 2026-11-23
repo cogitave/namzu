@@ -3,6 +3,7 @@ import { extname } from 'node:path'
 import { type StdioCodeNavigationOptions, StdioCodeNavigationProvider } from './stdio.js'
 import type {
 	CodeNavigationProvider,
+	CodeNavigationRequestOptions,
 	CodeNavigationResult,
 	HoverResult,
 	SymbolSearchResult,
@@ -62,22 +63,37 @@ export class RoutingCodeNavigationProvider implements CodeNavigationProvider {
 		}
 	}
 
-	async definition(file: string, line: number, character: number): Promise<CodeNavigationResult> {
+	async definition(
+		file: string,
+		line: number,
+		character: number,
+		options?: CodeNavigationRequestOptions,
+	): Promise<CodeNavigationResult> {
 		const routed = this.routeFor(file)
 		if ('reason' in routed) return { kind: 'unsupported', reason: routed.reason }
-		return await routed.provider.definition(file, line, character)
+		return await routed.provider.definition(file, line, character, options)
 	}
 
-	async references(file: string, line: number, character: number): Promise<CodeNavigationResult> {
+	async references(
+		file: string,
+		line: number,
+		character: number,
+		options?: CodeNavigationRequestOptions,
+	): Promise<CodeNavigationResult> {
 		const routed = this.routeFor(file)
 		if ('reason' in routed) return { kind: 'unsupported', reason: routed.reason }
-		return await routed.provider.references(file, line, character)
+		return await routed.provider.references(file, line, character, options)
 	}
 
-	async hover(file: string, line: number, character: number): Promise<HoverResult> {
+	async hover(
+		file: string,
+		line: number,
+		character: number,
+		options?: CodeNavigationRequestOptions,
+	): Promise<HoverResult> {
 		const routed = this.routeFor(file)
 		if ('reason' in routed) return { kind: 'unsupported', reason: routed.reason }
-		return await routed.provider.hover(file, line, character)
+		return await routed.provider.hover(file, line, character, options)
 	}
 
 	/**
@@ -88,11 +104,15 @@ export class RoutingCodeNavigationProvider implements CodeNavigationProvider {
 	 * because "find this symbol" in a mixed repository means all of it and a
 	 * caller who wanted one language would have said which.
 	 */
-	async symbols(query: string, scope?: string): Promise<SymbolSearchResult> {
+	async symbols(
+		query: string,
+		scope?: string,
+		options?: CodeNavigationRequestOptions,
+	): Promise<SymbolSearchResult> {
 		if (scope) {
 			const routed = this.routeFor(scope)
 			if ('reason' in routed) return { kind: 'unsupported', reason: routed.reason }
-			return await routed.provider.symbols(query, scope)
+			return await routed.provider.symbols(query, scope, options)
 		}
 
 		const routes = [...new Set(this.byExtension.values())]
@@ -101,7 +121,9 @@ export class RoutingCodeNavigationProvider implements CodeNavigationProvider {
 		}
 
 		const answers = await Promise.all(
-			routes.map(async (route) => await this.providerFor(route).symbols(query)),
+			routes.map(async (route) =>
+				await this.providerFor(route).symbols(query, undefined, options),
+			),
 		)
 		const found = answers.flatMap((a) => (a.kind === 'symbols' ? a.symbols : []))
 		if (found.length > 0) return { kind: 'symbols', symbols: found }
@@ -109,6 +131,13 @@ export class RoutingCodeNavigationProvider implements CodeNavigationProvider {
 		// Nothing found anywhere. If EVERY server refused, that is not an empty
 		// result — nobody looked. Reporting it as `symbols: []` would tell the
 		// caller the name does not exist in the repository.
+		//
+		// An interrupted search is the same claim from the other side: the
+		// caller stopped it, so no server got to finish looking. It is checked
+		// first because it names the reason the caller itself supplied, and a
+		// turn that was stopped should not be handed a transport failure.
+		const interrupted = answers.find((a) => a.kind === 'interrupted')
+		if (interrupted) return interrupted
 		const failure = answers.find((a) => a.kind === 'failed')
 		if (failure) return failure
 		const unsupported = answers.find((a) => a.kind === 'unsupported')

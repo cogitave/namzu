@@ -36,11 +36,19 @@ export interface SourceLocation {
  * looked, and there are none", which is a real answer and the one a
  * deletion depends on; conflating it with a failure is how an agent
  * concludes a symbol has no callers because the server never started.
+ *
+ * `interrupted` is the fourth case and it is neither of the other two: the
+ * caller aborted the request (the turn was stopped) before the server
+ * answered, so nobody finished asking. Reporting that as `failed` says the
+ * resolver broke, which is false and invites a retry against a server that
+ * is fine; reporting it as an empty list says the symbol has no callers,
+ * which is how a deletion gets made on an answer nobody gave.
  */
 export type CodeNavigationResult =
 	| { readonly kind: 'locations'; readonly locations: readonly SourceLocation[] }
 	| { readonly kind: 'unsupported'; readonly reason: string }
 	| { readonly kind: 'failed'; readonly error: string }
+	| { readonly kind: 'interrupted'; readonly reason: string }
 
 /** A symbol found by name rather than by position. */
 export interface SymbolLocation extends SourceLocation {
@@ -63,19 +71,51 @@ export type HoverResult =
 	| { readonly kind: 'hover'; readonly contents: string }
 	| { readonly kind: 'unsupported'; readonly reason: string }
 	| { readonly kind: 'failed'; readonly error: string }
+	| { readonly kind: 'interrupted'; readonly reason: string }
 
 export type SymbolSearchResult =
 	| { readonly kind: 'symbols'; readonly symbols: readonly SymbolLocation[] }
 	| { readonly kind: 'unsupported'; readonly reason: string }
 	| { readonly kind: 'failed'; readonly error: string }
+	| { readonly kind: 'interrupted'; readonly reason: string }
+
+/**
+ * Per-call control, passed alongside a request.
+ *
+ * `signal` is the turn's abort signal, so a Stop ends the request instead of
+ * leaving it to the provider's own deadline: a language server that is still
+ * indexing, wedged, or waiting on a binary that never became ready would
+ * otherwise hold the turn open with nothing able to end it. A provider that
+ * receives an aborted signal answers `interrupted` — never `failed`, and
+ * never an empty result — because the answer is unknown for a reason that
+ * says nothing about the server.
+ */
+export interface CodeNavigationRequestOptions {
+	readonly signal?: AbortSignal
+}
 
 export interface CodeNavigationProvider {
 	/** Where the symbol under this position is declared. */
-	definition(file: string, line: number, character: number): Promise<CodeNavigationResult>
+	definition(
+		file: string,
+		line: number,
+		character: number,
+		options?: CodeNavigationRequestOptions,
+	): Promise<CodeNavigationResult>
 	/** Everywhere the symbol under this position is used. */
-	references(file: string, line: number, character: number): Promise<CodeNavigationResult>
+	references(
+		file: string,
+		line: number,
+		character: number,
+		options?: CodeNavigationRequestOptions,
+	): Promise<CodeNavigationResult>
 	/** The symbol's type and documentation, without opening the file. */
-	hover(file: string, line: number, character: number): Promise<HoverResult>
+	hover(
+		file: string,
+		line: number,
+		character: number,
+		options?: CodeNavigationRequestOptions,
+	): Promise<HoverResult>
 	/**
 	 * Find a declaration by NAME, with no position.
 	 *
@@ -88,7 +128,11 @@ export interface CodeNavigationProvider {
 	 * `scope` is a file path or an extension that picks which language's
 	 * server answers. Absent means every configured language.
 	 */
-	symbols(query: string, scope?: string): Promise<SymbolSearchResult>
+	symbols(
+		query: string,
+		scope?: string,
+		options?: CodeNavigationRequestOptions,
+	): Promise<SymbolSearchResult>
 	/**
 	 * Stop whatever backs it.
 	 *

@@ -4,6 +4,7 @@ export { RoutingCodeNavigationProvider } from './routing.js'
 export type { CodeNavigationRoute, RoutingCodeNavigationOptions } from './routing.js'
 export type {
 	CodeNavigationProvider,
+	CodeNavigationRequestOptions,
 	CodeNavigationResult,
 	HoverResult,
 	SourceLocation,

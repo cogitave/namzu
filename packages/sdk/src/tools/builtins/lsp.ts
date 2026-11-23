@@ -110,8 +110,22 @@ export const LspTool = defineTool({
 			}
 		}
 
+		// Checked before anything is spawned. A turn that was stopped must not
+		// pay for starting a language server, and the server must not be asked a
+		// question whose answer nobody will read.
+		if (context.abortSignal.aborted) {
+			return interruptedResult(
+				input.operation,
+				'The turn was stopped before the language server was asked.',
+			)
+		}
+		// The turn's own signal, so Esc reaches the request instead of leaving it
+		// to the provider's deadline: a server that is still indexing would hold
+		// the turn open with nothing able to end it.
+		const options = { signal: context.abortSignal }
+
 		if (input.operation === 'symbols') {
-			const result = await provider.symbols(input.query, absolute)
+			const result = await provider.symbols(input.query, absolute, options)
 			switch (result.kind) {
 				case 'symbols': {
 					if (result.symbols.length === 0) {
@@ -133,11 +147,13 @@ export const LspTool = defineTool({
 					return { success: false, output: '', error: unsupportedMessage(result.reason) }
 				case 'failed':
 					return { success: false, output: '', error: failedMessage(result.error) }
+				case 'interrupted':
+					return interruptedResult('symbols', result.reason)
 			}
 		}
 
 		if (input.operation === 'hover') {
-			const result = await provider.hover(absolute as string, input.line, input.character)
+			const result = await provider.hover(absolute as string, input.line, input.character, options)
 			switch (result.kind) {
 				case 'hover':
 					return {
@@ -154,13 +170,15 @@ export const LspTool = defineTool({
 					return { success: false, output: '', error: unsupportedMessage(result.reason) }
 				case 'failed':
 					return { success: false, output: '', error: failedMessage(result.error) }
+				case 'interrupted':
+					return interruptedResult('hover', result.reason)
 			}
 		}
 
 		const result =
 			input.operation === 'definition'
-				? await provider.definition(absolute as string, input.line, input.character)
-				: await provider.references(absolute as string, input.line, input.character)
+				? await provider.definition(absolute as string, input.line, input.character, options)
+				: await provider.references(absolute as string, input.line, input.character, options)
 
 		switch (result.kind) {
 			case 'locations': {
@@ -189,6 +207,8 @@ export const LspTool = defineTool({
 				return { success: false, output: '', error: unsupportedMessage(result.reason) }
 			case 'failed':
 				return { success: false, output: '', error: failedMessage(result.error) }
+			case 'interrupted':
+				return interruptedResult(input.operation, result.reason)
 		}
 	},
 })
@@ -201,6 +221,29 @@ function unsupportedMessage(reason: string): string {
 /** NOT an empty result. An agent told a symbol has no callers deletes it. */
 function failedMessage(error: string): string {
 	return `Code navigation failed, so this answer is unknown rather than empty: ${error}`
+}
+
+/**
+ * An answer nobody finished asking for.
+ *
+ * The ordinary end of a call the person stopped, and the one case that must
+ * not read as a broken server: the next move is to ask again, not to fall
+ * back to `grep` or to conclude the symbol has no callers. It says "unknown
+ * rather than empty" for the same reason a failure does — a model acts on the
+ * absence of an answer.
+ */
+function interruptedMessage(reason: string): string {
+	return `The call was interrupted before the language server answered, so this answer is unknown rather than empty: ${reason} Ask again if the answer is still needed.`
+}
+
+/** Structured as well as worded, because a host renders a stopped call differently. */
+function interruptedResult(operation: LspInput['operation'], reason: string): ToolResult {
+	return {
+		success: false,
+		output: '',
+		error: interruptedMessage(reason),
+		data: { operation, interrupted: true },
+	}
 }
 
 /**

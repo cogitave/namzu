@@ -3,6 +3,7 @@ import { pathToFileURL } from 'node:url'
 
 import type {
 	CodeNavigationProvider,
+	CodeNavigationRequestOptions,
 	CodeNavigationResult,
 	HoverResult,
 	SourceLocation,
@@ -29,6 +30,12 @@ import type {
  * answer produces `{ kind: 'failed' }` naming the binary. Returning
  * `{ kind: 'locations', locations: [] }` there tells an agent the symbol has
  * no callers, and the agent then deletes it.
+ *
+ * **A caller that stops waiting is not a failure either.** The turn's signal
+ * travels with the request: aborting it drops that request, tells the server
+ * with `$/cancelRequest`, and answers `{ kind: 'interrupted' }`. Latching
+ * that as a terminal transport error would take navigation away for the
+ * rest of the session because somebody pressed Esc once.
  */
 
 export interface StdioCodeNavigationOptions {
@@ -51,6 +58,28 @@ interface Pending {
 	resolve: (value: unknown) => void
 	reject: (error: Error) => void
 	timer: NodeJS.Timeout
+	/** The caller's signal, and the listener added to it, so both are released when the request settles. */
+	signal?: AbortSignal
+	onAbort?: () => void
+}
+
+/**
+ * A request the caller stopped waiting for.
+ *
+ * Its own error type, recognised by instance rather than by message text: an
+ * abort is a control-flow signal, and every caller has to answer it with the
+ * `interrupted` arm rather than with `failed`. Matching on wording instead
+ * would classify a server that happened to say "cancel" as an abort.
+ */
+class InterruptedError extends Error {
+	constructor(reason: string) {
+		super(reason)
+		this.name = 'AbortError'
+	}
+}
+
+function interrupted(reason: string): InterruptedError {
+	return new InterruptedError(reason)
 }
 
 /** LSP's own position shape, before it becomes a {@link SourceLocation}. */
@@ -106,33 +135,59 @@ export class StdioCodeNavigationProvider implements CodeNavigationProvider {
 
 	constructor(private readonly options: StdioCodeNavigationOptions) {}
 
-	async definition(file: string, line: number, character: number): Promise<CodeNavigationResult> {
-		return await this.navigate('textDocument/definition', file, line, character, {})
+	async definition(
+		file: string,
+		line: number,
+		character: number,
+		options?: CodeNavigationRequestOptions,
+	): Promise<CodeNavigationResult> {
+		return await this.navigate('textDocument/definition', file, line, character, {}, options)
 	}
 
-	async references(file: string, line: number, character: number): Promise<CodeNavigationResult> {
-		return await this.navigate('textDocument/references', file, line, character, {
-			// The declaration itself is not a "use". An agent asking who calls
-			// this wants the call sites; including the declaration inflates the
-			// count by one and reads as a caller that does not exist.
-			context: { includeDeclaration: false },
-		})
+	async references(
+		file: string,
+		line: number,
+		character: number,
+		options?: CodeNavigationRequestOptions,
+	): Promise<CodeNavigationResult> {
+		return await this.navigate(
+			'textDocument/references',
+			file,
+			line,
+			character,
+			{
+				// The declaration itself is not a "use". An agent asking who calls
+				// this wants the call sites; including the declaration inflates the
+				// count by one and reads as a caller that does not exist.
+				context: { includeDeclaration: false },
+			},
+			options,
+		)
 	}
 
-	async hover(file: string, line: number, character: number): Promise<HoverResult> {
+	async hover(
+		file: string,
+		line: number,
+		character: number,
+		options?: CodeNavigationRequestOptions,
+	): Promise<HoverResult> {
 		try {
-			await this.start()
+			await this.ready(options)
 		} catch (err) {
-			return { kind: 'failed', error: err instanceof Error ? err.message : String(err) }
+			return toStartFailure(err)
 		}
 		if (this.capabilities.hoverProvider === false) {
 			return { kind: 'unsupported', reason: `${this.options.command} declares no hoverProvider.` }
 		}
 		try {
-			const result = await this.request('textDocument/hover', {
-				textDocument: { uri: pathToFileURL(file).href },
-				position: { line, character },
-			})
+			const result = await this.request(
+				'textDocument/hover',
+				{
+					textDocument: { uri: pathToFileURL(file).href },
+					position: { line, character },
+				},
+				options?.signal,
+			)
 			// EMPTY, not failed. Hovering over whitespace or a comment resolves
 			// to nothing, and a caller has to be able to tell that from a server
 			// that broke — the same distinction `locations: []` carries.
@@ -142,11 +197,15 @@ export class StdioCodeNavigationProvider implements CodeNavigationProvider {
 		}
 	}
 
-	async symbols(query: string, _scope?: string): Promise<SymbolSearchResult> {
+	async symbols(
+		query: string,
+		_scope?: string,
+		options?: CodeNavigationRequestOptions,
+	): Promise<SymbolSearchResult> {
 		try {
-			await this.start()
+			await this.ready(options)
 		} catch (err) {
-			return { kind: 'failed', error: err instanceof Error ? err.message : String(err) }
+			return toStartFailure(err)
 		}
 
 		// The DECLARED capability decides which request goes out. A server
@@ -155,7 +214,7 @@ export class StdioCodeNavigationProvider implements CodeNavigationProvider {
 		// told so rather than asked and silently mishandled.
 		if (this.capabilities.workspaceSymbolProvider) {
 			try {
-				const result = await this.request('workspace/symbol', { query })
+				const result = await this.request('workspace/symbol', { query }, options?.signal)
 				return { kind: 'symbols', symbols: toSymbols(result) }
 			} catch (err) {
 				return toFailure(err, this.options.command, 'workspace/symbol')
@@ -169,9 +228,11 @@ export class StdioCodeNavigationProvider implements CodeNavigationProvider {
 				}
 			}
 			try {
-				const result = await this.request('textDocument/documentSymbol', {
-					textDocument: { uri: pathToFileURL(_scope).href },
-				})
+				const result = await this.request(
+					'textDocument/documentSymbol',
+					{ textDocument: { uri: pathToFileURL(_scope).href } },
+					options?.signal,
+				)
 				return {
 					kind: 'symbols',
 					symbols: toSymbols(result, _scope).filter((s) => s.name.includes(query)),
@@ -192,19 +253,24 @@ export class StdioCodeNavigationProvider implements CodeNavigationProvider {
 		line: number,
 		character: number,
 		extra: Record<string, unknown>,
+		options?: CodeNavigationRequestOptions,
 	): Promise<CodeNavigationResult> {
 		try {
-			await this.start()
+			await this.ready(options)
 		} catch (err) {
-			return { kind: 'failed', error: err instanceof Error ? err.message : String(err) }
+			return toStartFailure(err)
 		}
 
 		try {
-			const result = await this.request(method, {
-				textDocument: { uri: pathToFileURL(file).href },
-				position: { line, character },
-				...extra,
-			})
+			const result = await this.request(
+				method,
+				{
+					textDocument: { uri: pathToFileURL(file).href },
+					position: { line, character },
+					...extra,
+				},
+				options?.signal,
+			)
 			if (result === null || result === undefined) {
 				// A server that answered `null` looked and found nothing. That is
 				// an empty location list, not a failure — and saying so is what
@@ -219,18 +285,49 @@ export class StdioCodeNavigationProvider implements CodeNavigationProvider {
 					.map(toSourceLocation),
 			}
 		} catch (err) {
-			const message = err instanceof Error ? err.message : String(err)
-			// A method the server does not implement is `unsupported`, not
-			// `failed`: a caller can fall back to grep and say why, where a
-			// failure means the answer is unknown.
-			if (/method not found|-32601/i.test(message)) {
-				return {
-					kind: 'unsupported',
-					reason: `${this.options.command} does not implement ${method}.`,
-				}
-			}
-			return { kind: 'failed', error: message }
+			return toFailure(err, this.options.command, method)
 		}
+	}
+
+	/**
+	 * Wait for the handshake, but never past the caller's signal.
+	 *
+	 * The start is SHARED — one process, one `initialize` — so one caller's
+	 * abort must not fail it for everyone else: it stops that caller waiting
+	 * and leaves the handshake alone, bounded by the startup timeout that was
+	 * already running. The rejection of the shared promise is observed here so
+	 * an abort that outlives its caller is not an unhandled rejection.
+	 */
+	private async ready(options?: CodeNavigationRequestOptions): Promise<void> {
+		const starting = this.start()
+		const signal = options?.signal
+		if (!signal) return await starting
+
+		starting.catch(() => {})
+		if (signal.aborted) {
+			throw interrupted(
+				`The call was cancelled before the language server "${this.options.command}" was asked.`,
+			)
+		}
+		await new Promise<void>((resolve, reject) => {
+			const onAbort = () =>
+				reject(
+					interrupted(
+						`The call was cancelled while the language server "${this.options.command}" was starting.`,
+					),
+				)
+			signal.addEventListener('abort', onAbort, { once: true })
+			starting.then(
+				() => {
+					signal.removeEventListener('abort', onAbort)
+					resolve()
+				},
+				(err: unknown) => {
+					signal.removeEventListener('abort', onAbort)
+					reject(err)
+				},
+			)
+		})
 	}
 
 	/** Spawn and handshake, once, and remember a failure so it is not retried per call. */
@@ -297,7 +394,11 @@ export class StdioCodeNavigationProvider implements CodeNavigationProvider {
 		return this.starting
 	}
 
-	private request(method: string, params: Record<string, unknown>): Promise<unknown> {
+	private request(
+		method: string,
+		params: Record<string, unknown>,
+		signal?: AbortSignal,
+	): Promise<unknown> {
 		if (this.disposed)
 			return Promise.reject(new Error('This code navigation provider is disposed.'))
 		if (this.terminalError) return Promise.reject(new Error(this.terminalError))
@@ -306,22 +407,65 @@ export class StdioCodeNavigationProvider implements CodeNavigationProvider {
 				new Error(`The language server "${this.options.command}" is not running.`),
 			)
 		}
+		if (signal?.aborted) {
+			// Nothing was sent, so there is nothing to answer and nothing to
+			// cancel: the server is not told about a request it never received.
+			return Promise.reject(
+				interrupted(
+					`The call was cancelled before the language server "${this.options.command}" was asked for ${method}.`,
+				),
+			)
+		}
 		this.seq += 1
 		const id = this.seq
 		const timeoutMs = this.options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS
 		return new Promise<unknown>((resolve, reject) => {
 			const timer = setTimeout(() => {
-				this.pending.delete(id)
+				this.forget(id)
 				reject(new Error(`The language server did not answer ${method} within ${timeoutMs}ms.`))
 			}, timeoutMs)
 			timer.unref?.()
-			this.pending.set(id, { resolve, reject, timer })
+			const onAbort = signal
+				? () => {
+						// Only the caller stops waiting. The transport is fine, so the
+						// server stays up for the next call — this is not a `failed`
+						// transport, and latching it as one would kill navigation for a
+						// turn that pressed Esc.
+						this.forget(id)
+						// A server grinding through a slow index otherwise keeps
+						// answering a question nobody is waiting for. Its answer, if it
+						// sends one, finds no waiter and is dropped by `deliver`.
+						try {
+							this.notify('$/cancelRequest', { id })
+						} catch {
+							// The pipe is gone. The transport listeners retire it.
+						}
+						reject(
+							interrupted(
+								`The call was cancelled before the language server "${this.options.command}" answered ${method}.`,
+							),
+						)
+					}
+				: undefined
+			if (signal && onAbort) signal.addEventListener('abort', onAbort, { once: true })
+			this.pending.set(id, { resolve, reject, timer, ...(signal ? { signal } : {}), ...(onAbort ? { onAbort } : {}) })
 			try {
 				this.write({ jsonrpc: '2.0', id, method, params })
 			} catch (err) {
 				this.retireTransport(toError(err))
 			}
 		})
+	}
+
+	/** Drop a request from the table, releasing its timer and abort listener. */
+	private forget(id: number): Pending | undefined {
+		const waiting = this.pending.get(id)
+		if (!waiting) return undefined
+		this.pending.delete(id)
+		clearTimeout(waiting.timer)
+		if (waiting.signal && waiting.onAbort)
+			waiting.signal.removeEventListener('abort', waiting.onAbort)
+		return waiting
 	}
 
 	private notify(method: string, params: Record<string, unknown>): void {
@@ -402,11 +546,9 @@ export class StdioCodeNavigationProvider implements CodeNavigationProvider {
 	private retireTransport(error: Error): void {
 		if (this.disposed) return
 		this.terminalError ??= error.message
-		for (const waiting of this.pending.values()) {
-			clearTimeout(waiting.timer)
-			waiting.reject(new Error(this.terminalError))
+		for (const id of [...this.pending.keys()]) {
+			this.forget(id)?.reject(new Error(this.terminalError))
 		}
-		this.pending.clear()
 	}
 
 	/**
@@ -451,10 +593,8 @@ export class StdioCodeNavigationProvider implements CodeNavigationProvider {
 			return
 		}
 		if (message.id === undefined) return
-		const waiting = this.pending.get(message.id)
+		const waiting = this.forget(message.id)
 		if (!waiting) return
-		this.pending.delete(message.id)
-		clearTimeout(waiting.timer)
 		if (message.error) {
 			waiting.reject(new Error(message.error.message ?? `error ${message.error.code ?? 'unknown'}`))
 		} else {
@@ -467,11 +607,9 @@ export class StdioCodeNavigationProvider implements CodeNavigationProvider {
 		this.disposed = true
 		const child = this.child
 		this.child = undefined
-		for (const waiting of this.pending.values()) {
-			clearTimeout(waiting.timer)
-			waiting.reject(new Error('The code navigation provider was disposed.'))
+		for (const id of [...this.pending.keys()]) {
+			this.forget(id)?.reject(new Error('The code navigation provider was disposed.'))
 		}
-		this.pending.clear()
 		if (!child) return
 
 		// The handshake FIRST, so a server with unsaved index state gets to
@@ -531,7 +669,14 @@ function toFailure(
 	err: unknown,
 	command: string,
 	method: string,
-): { kind: 'unsupported'; reason: string } | { kind: 'failed'; error: string } {
+):
+	| { kind: 'unsupported'; reason: string }
+	| { kind: 'failed'; error: string }
+	| { kind: 'interrupted'; reason: string } {
+	// FIRST, before any wording is read: an abort is not a statement about the
+	// server, and a server whose error happened to mention cancelling must not
+	// be classified as an abort.
+	if (err instanceof InterruptedError) return { kind: 'interrupted', reason: err.message }
 	const message = err instanceof Error ? err.message : String(err)
 	// A method the server does not implement is `unsupported`, not `failed`:
 	// a caller can fall back and say why the answer is approximate, where a
@@ -540,6 +685,14 @@ function toFailure(
 		return { kind: 'unsupported', reason: `${command} does not implement ${method}.` }
 	}
 	return { kind: 'failed', error: message }
+}
+
+/** The same split for a handshake that was cancelled before a method was even named. */
+function toStartFailure(
+	err: unknown,
+): { kind: 'failed'; error: string } | { kind: 'interrupted'; reason: string } {
+	if (err instanceof InterruptedError) return { kind: 'interrupted', reason: err.message }
+	return { kind: 'failed', error: err instanceof Error ? err.message : String(err) }
 }
 
 /**
