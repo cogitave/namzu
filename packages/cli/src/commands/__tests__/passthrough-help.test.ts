@@ -92,6 +92,15 @@ describe('--help on a passThrough command', () => {
 		expect(ran).toEqual([])
 	})
 
+	it('does not read help words after a literal --', async () => {
+		ran.length = 0
+		const h = harness(withHelp)
+		await h.program.parseAsync(['demo', 'add', 'x', '--', 'echo', '--help'], { from: 'user' })
+		expect(h.printed).toEqual([])
+		expect(ran).toHaveLength(1)
+		expect(ran[0]).toContain('echo --help')
+	})
+
 	it('leaves a command that renders its own help alone', async () => {
 		// Intercepting here would mean that command's real help never shows.
 		ran.length = 0
