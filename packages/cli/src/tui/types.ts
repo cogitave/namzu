@@ -248,6 +248,12 @@ export interface TuiContext {
 	 * already read from the file when one was named. Session-only, never saved.
 	 */
 	readonly appendSystem?: string
+	/** `--system-prompt`: replaces the default system prompt text for this launch. */
+	readonly replaceSystem?: string
+	/** `--tools`: the only tools offered to the model; an empty list offers none. */
+	readonly onlyTools?: readonly string[]
+	/** `--bare`: no project instruction files or saved memory notes in the prompt. */
+	readonly bare?: boolean
 	/**
 	 * External tool servers from the operator's config, by the same reasoning as
 	 * `rules`: a config file belongs to the user, not to a command, and a server

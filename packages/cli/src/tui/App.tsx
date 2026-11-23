@@ -6984,6 +6984,9 @@ function AppBody({
 								: { codeAnalysis: activeCtx.codeAnalysis ?? {} }),
 							rules: activeCtx.rules,
 							...(activeCtx.appendSystem ? { appendSystem: activeCtx.appendSystem } : {}),
+							...(activeCtx.replaceSystem ? { replaceSystem: activeCtx.replaceSystem } : {}),
+							...(activeCtx.onlyTools ? { onlyTools: activeCtx.onlyTools } : {}),
+							...(activeCtx.bare ? { bare: true } : {}),
 							...(sessionsRef.current
 								? {
 										sessionGoals: sessionsRef.current.goals,
@@ -16713,6 +16716,16 @@ function AppBody({
 			source: 'launch-message',
 		})
 	}, [phase, state, session, permission, textPrompt, choicePicker, handleSubmit])
+	// `--name`: names the conversation once the composer is ready, the way `/rename` does, so the
+	// resume picker and the terminal title carry it. Spent before the call, so a re-render or a
+	// resume cannot name it twice.
+	const launchNameRef = useRef(initialCtx.launchSettings?.name)
+	useEffect(() => {
+		const name = launchNameRef.current
+		if (name === undefined || phase !== 'ready' || !session?.hasProvider) return
+		launchNameRef.current = undefined
+		void doTitle(name, false)
+	}, [phase, session, doTitle])
 	// `applyChoiceSelection` is declared before `handleSubmit` because the
 	// picker is also used by review/export flows. Keep only this dispatch hop in
 	// a ref so selecting a help row re-enters the one ordinary slash-command

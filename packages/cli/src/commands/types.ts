@@ -16,6 +16,8 @@ export interface CommandContext {
 	 * `getContext()` would have produced with no flags set.
 	 */
 	readonly logging?: ResolvedLogging
+	/** `--bare` was given: the run reads no project instruction files or saved memory notes. */
+	readonly bare?: boolean
 }
 
 export interface CommandHandlerArgs {

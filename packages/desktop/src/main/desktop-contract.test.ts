@@ -49,7 +49,7 @@ const inventory = JSON.parse(
 	}
 	flags: {
 		host: { command: string; flags: string[] }
-		terminalUi: { flags: string[]; permissionModeValues: string[] }
+		terminalUi: { flags: string[]; hiddenFlags: string[]; permissionModeValues: string[] }
 		shortCommands: { command: string; verbs: string[]; flags: string[] }
 	}
 	kernelFolder: { files: { path: string }[] }
@@ -206,7 +206,10 @@ describe('the app against the desktop contract inventory', () => {
 				{ name: 'project' },
 			)
 			const args = launch.args ?? []
-			for (const arg of args.slice(args.indexOf('/x/dist/bin.js') + 1))
+			const after = args.slice(args.indexOf('/x/dist/bin.js') + 1)
+			// The first message follows `--` as one argument, whatever it holds.
+			expect(after.slice(-2)).toEqual(['--', 'hello'])
+			for (const arg of after.slice(0, -2))
 				if (arg.startsWith('--')) flags.add(arg.split('=')[0] as string)
 			values.add(namzuPermissionArgument(mode))
 		}

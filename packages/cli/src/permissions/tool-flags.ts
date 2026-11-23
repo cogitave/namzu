@@ -42,8 +42,15 @@ export function splitToolList(value: string): { items: string[]; unbalanced: boo
 }
 
 /** Built-in tool names are lower case; a server's tools (`mcp__a__b`) are exact. */
-function toolName(name: string): string {
+export function toolKey(name: string): string {
 	return name.includes('__') ? name : name.toLowerCase()
+}
+
+const toolName = toolKey
+
+/** Whether a tool is on offer under `--tools`: every tool when `only` is absent, none when it is empty. */
+export function toolOnOffer(only: readonly string[] | undefined, name: string): boolean {
+	return only === undefined || only.includes(toolKey(name))
 }
 
 /** One flag's lists as a permissions table that gives every entry `effect`. */

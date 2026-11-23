@@ -34,6 +34,8 @@ export interface TuiLaunchSettings {
 	 * or a reload.
 	 */
 	readonly message?: string
+	/** `--name`: the name this launch's conversation is listed under, applied once the composer is ready. */
+	readonly name?: string
 }
 
 /** Whether any flag changes which providers or models the session starts on. */

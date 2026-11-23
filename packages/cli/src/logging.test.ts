@@ -1,6 +1,10 @@
+import { mkdtempSync, statSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+
 import { afterEach, describe, expect, it } from 'vitest'
 
-import { contextLogging, resolveLogFormat, resolveLogLevel } from './logging.js'
+import { contextLogging, openDebugFile, resolveLogFormat, resolveLogLevel } from './logging.js'
 
 describe('resolveLogLevel', () => {
 	it('--verbose wins outright: debug, regardless of env', () => {
@@ -63,5 +67,14 @@ describe('contextLogging', () => {
 	it('falls back to the flagless/envless resolution when ctx.logging is absent', () => {
 		process.env.NAMZU_LOG_LEVEL = 'warn'
 		expect(contextLogging({})).toEqual({ level: 'warn', format: 'pretty' })
+	})
+})
+
+describe('openDebugFile', () => {
+	it('creates the file readable by its owner only', () => {
+		if (process.platform === 'win32') return
+		const file = join(mkdtempSync(join(tmpdir(), 'namzu-debug-file-')), 'debug.log')
+		openDebugFile(file)
+		expect(statSync(file).mode & 0o077).toBe(0)
 	})
 })

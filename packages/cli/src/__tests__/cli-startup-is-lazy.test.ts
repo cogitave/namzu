@@ -83,8 +83,9 @@ describe('a command behind the lazy definitions', () => {
 		}
 	})
 
-	it('reports an unknown command as a usage error, as before', async () => {
-		const { code } = await runWithoutSdk(['no-such-command'])
+	it('reports a retired command as a usage error, as before', async () => {
+		// Any other word is the first message of the session, which does need the SDK.
+		const { code } = await runWithoutSdk(['run'])
 
 		expect(code).toBe(64)
 	})

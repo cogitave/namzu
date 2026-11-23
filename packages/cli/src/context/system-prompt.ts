@@ -32,6 +32,7 @@
  */
 
 import { CONVERSATION_EVIDENCE_GUIDANCE } from '../integrations/sessions/conversation-search.js'
+import { toolOnOffer } from '../permissions/tool-flags.js'
 import {
 	NAMZU_DELEGATION_DOCTRINE,
 	NAMZU_PLAN_FILE_DOCTRINE,
@@ -108,6 +109,8 @@ export interface SessionPromptInput {
 	readonly planPath?: string | undefined
 	readonly extraSystem?: string | undefined
 	readonly systemNote?: string | undefined
+	/** See {@link SessionPromptFacts.systemOverride}. */
+	readonly systemOverride?: string | undefined
 	readonly skillsOverflowNote?: string | null | undefined
 	/** See {@link SessionPromptFacts.closingSummary}. */
 	readonly closingSummary?: boolean | undefined
@@ -124,6 +127,10 @@ export interface SessionPromptFacts {
 	readonly palBlock?: string | undefined
 	readonly environment?: string | undefined
 	readonly withheldTools?: readonly string[] | undefined
+	/** `--tools`: the only tools on offer; absent offers every tool. */
+	readonly onlyTools?: readonly string[] | undefined
+	/** `--system-prompt`: replaces the composed sections; see `composeSessionSystemPrompt`. */
+	readonly systemOverride?: string | undefined
 	readonly conversationSessions?: unknown
 	/** Written once at session start, so the prefix stays byte-stable. */
 	readonly memoryGuidance?: string | undefined
@@ -175,7 +182,10 @@ export function sessionPromptInput(
 		browserWebTask: withNote(facts.browserWebTask, BROWSER_DEFERRED_NOTE),
 		palBlock: facts.palBlock,
 		environment: facts.environment,
-		delegationAvailable: !facts.withheldTools?.includes(AGENT_LAUNCH_TOOL),
+		delegationAvailable:
+			!facts.withheldTools?.includes(AGENT_LAUNCH_TOOL) &&
+			toolOnOffer(facts.onlyTools, AGENT_LAUNCH_TOOL),
+		systemOverride: facts.systemOverride,
 		conversationEvidence: withNote(
 			facts.conversationSessions ? CONVERSATION_EVIDENCE_GUIDANCE : undefined,
 			CONVERSATION_DEFERRED_NOTE,
@@ -212,6 +222,16 @@ export function attributionNote(text: string | undefined): string | undefined {
 }
 
 export function composeSessionSystemPrompt(input: SessionPromptInput): string | undefined {
+	// `--system-prompt`: the person's text stands where Namzu's identity, working
+	// rules, guidance and environment sections would. What this turn itself adds
+	// (a mode note, a hook's notice) still follows it.
+	if (input.systemOverride !== undefined) {
+		return (
+			[input.systemOverride, input.extraSystem, input.systemNote]
+				.filter((s): s is string => Boolean(s))
+				.join('\n\n') || undefined
+		)
+	}
 	const sections: (string | null | undefined)[] = [
 		NAMZU_IDENTITY,
 		input.closingSummary === false

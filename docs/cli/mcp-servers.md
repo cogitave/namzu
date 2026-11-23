@@ -73,7 +73,7 @@ It is read exactly when `namzu.config.json` is, which is after you have trusted 
 
 `mcpServers` is replaced as a whole by the highest layer that sets it, not merged by name: a project's `.mcp.json` (or `namzu.config.json`) table hides servers you declared in `~/.namzu/config.yaml`. Repeat a server in the project file if you want it there too.
 
-For one run, `namzu exec --mcp-config <file>` (also with `--json`) adds the servers in that file, which has the same shape. The option repeats; a later file wins over an earlier one and over the config for a server of the same name. A missing or unreadable file stops the run with a usage error naming it.
+For one run, `namzu exec --mcp-config <file>` (also with `--json`) adds the servers in that file, which has the same shape. The option repeats; a later file wins over an earlier one and over the config for a server of the same name. A missing or unreadable file stops the run with a usage error naming it. A value that starts with `{` is the JSON itself, and `--strict-mcp-config` uses only the servers given this way. The interactive `namzu` and `namzu resume` take both options too ([Launch flags](launch-flags.md#--mcp-config-and---strict-mcp-config)).
 
 ## One entry
 

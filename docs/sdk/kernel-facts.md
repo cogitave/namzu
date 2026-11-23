@@ -220,7 +220,7 @@ the app starts relying on is recorded for the guard below. It records, as read f
 - the methods it calls without probing (`otherMethods`);
 - the notifications it consumes, and the request the host sends it (`notifications`);
 - the flags it passes: the host's `acp --desktop`, the terminal UI's `--provider --model --effort
-  --permission-mode --message`, and the short `computer status | setup | stop idle` commands (`flags`; `legacyVerbs` lists `stop-idle`, the spelling installed applications pass, which stays accepted but is left out of the help);
+  --permission-mode`, the hidden `--message` and a first message after `--`, and the short `computer status | setup | stop idle` commands (`flags`; `legacyVerbs` lists `stop-idle`, the spelling installed applications pass, which stays accepted but is left out of the help);
 - the files it reads from the kernel folder: `dist/bin.js`, `package.json` and
   `node_modules/@namzu/sdk/package.json`, both for their `version` (`kernelFolder`);
 - what it hands to the kernel: `ELECTRON_RUN_AS_NODE`, `NAMZU_PAL_COMPUTER_ENGINE` and

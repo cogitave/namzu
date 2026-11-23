@@ -71,12 +71,12 @@ describe('runCli', () => {
 		expect(stderr).toContain('--fast apply to the interactive TUI, not this subcommand')
 	})
 
-	it('refuses --message on a subcommand instead of ignoring it', async () => {
+	it('refuses the first message on a subcommand instead of ignoring it', async () => {
 		expect(await invoke(['--message', 'hi', 'providers', 'list', '--json'])).toBe(64)
 		expect(stderr).toContain('--message apply to the interactive TUI, not this subcommand')
 	})
 
-	it('refuses --message on resume: a resumed conversation never gets a first message', async () => {
+	it('refuses the first message on resume: a resumed conversation never gets one', async () => {
 		expect(await invoke(['--message', 'hi', 'resume', 'abc'])).toBe(64)
 		expect(flat(stderr)).toContain('not sent when resuming')
 	})
@@ -115,10 +115,10 @@ describe('runCli', () => {
 		expect(stdout).toContain('interactive TUI requires a terminal')
 		stdout = ''
 		stderr = ''
-		// A value-taking flag would swallow this word and start the session; a bare
-		// flag leaves it as a stray argument, which the launch refuses.
-		expect(await invoke(['--fast', 'ultrafast'])).not.toBe(0)
-		expect(flat(stderr)).toContain("Unknown command 'ultrafast'")
+		// A value-taking flag would swallow the first word and start the session; a bare
+		// flag leaves both as arguments, and a launch takes one prompt.
+		expect(await invoke(['--fast', 'ultrafast', 'now'])).not.toBe(0)
+		expect(flat(stderr)).toContain('Too many arguments')
 		expect(stdout).not.toContain('interactive TUI requires a terminal')
 	})
 
@@ -130,7 +130,7 @@ describe('runCli', () => {
 			'--effort <level>',
 			'--fast',
 			'--permission-mode <mode>',
-			'--message <text>',
+			'-p, --print',
 			'-c, --continue',
 			'-r, --resume [value]',
 		])
@@ -185,11 +185,12 @@ describe('runCli', () => {
 		expect(stdout).toMatch(/\d+\.\d+\.\d+/)
 	})
 
-	it('unknown command returns sysexits EX_USAGE (64)', async () => {
-		const code = await invoke(['definitely-not-a-command'])
-		expect(code).toBe(64)
-		expect(stderr).toContain("Unknown command 'definitely-not-a-command'.")
-		expect(stderr).not.toMatch(/too many arguments/i)
+	it('a word that is not a command is the prompt; two loose words are refused with EX_USAGE (64)', async () => {
+		expect(await invoke(['definitely-not-a-command'])).toBe(0)
+		expect(stdout).toContain('interactive TUI requires a terminal')
+		stderr = ''
+		expect(await invoke(['definitely', 'not-a-command'])).toBe(64)
+		expect(flat(stderr)).toMatch(/too many arguments/i)
 	})
 
 	it.each([

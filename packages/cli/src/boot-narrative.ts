@@ -40,6 +40,7 @@ export function emitBootNarrative(provenance: ConfigProvenance, config: NamzuCli
 		profile: 0,
 		env: 0,
 		managed: 0,
+		launch: 0,
 	}
 	for (const source of Object.values(provenance)) {
 		if (source) counts[source.kind]++

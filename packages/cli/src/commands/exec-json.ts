@@ -85,6 +85,7 @@ import {
 	loadConversation,
 	openSessions,
 	resolveConversation,
+	setTitle,
 } from '../integrations/sessions/store.js'
 import { cliLogger, contextLogging, installCliLogging } from '../logging.js'
 import { warnBroadAllowRules } from '../permissions/broad-allow.js'
@@ -295,7 +296,11 @@ export async function execJson(
 	}
 	const cwd = trust.cwd
 	ctx = resolveTrustedProjectContext(bootstrapCtx, cwd)
-	const mcpServers = launchMcpServers(ctx.config.mcpServers, flags.mcpConfigs)
+	const mcpServers = launchMcpServers(
+		ctx.config.mcpServers,
+		flags.mcpConfigs,
+		flags.strictMcpConfig,
+	)
 	if ('error' in mcpServers) return fail(mcpServers.error)
 	// See exec.ts: nobody can be asked here, so say once that project servers are waiting.
 	try {
@@ -335,6 +340,16 @@ export async function execJson(
 			cli = await openSessions(cwd)
 			conversationId = await resolveConversation(cli, sessionKey)
 			prior = await loadConversation(cli, conversationId)
+			// `--name`: the host conversation is listed under this name.
+			if (flags.name !== null) {
+				try {
+					await setTitle(cli, conversationId, flags.name)
+				} catch (error) {
+					cliLogger().warn('could not name the conversation', {
+						'exception.message': error instanceof Error ? error.message : String(error),
+					})
+				}
+			}
 		}
 	} catch (err) {
 		if (sessionKey) {
@@ -453,6 +468,9 @@ export async function execJson(
 			: { sessionId: generateSessionId(), ephemeral: true }),
 		rules: permissions.rules,
 		...(run.appendSystem ? { appendSystem: run.appendSystem } : {}),
+		...(run.replaceSystem ? { replaceSystem: run.replaceSystem } : {}),
+		...(run.onlyTools ? { onlyTools: run.onlyTools } : {}),
+		...(ctx.bare ? { bare: true } : {}),
 		// The operator's --gate commands, as a standing condition on the
 		// answer. Spread rather than passed as undefined so a turn without
 		// gates is byte-identical to the one that shipped before them.

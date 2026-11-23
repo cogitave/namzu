@@ -52,7 +52,7 @@ import { registerCommandOrLazy } from './commands/registry.js'
 import type { CommandContext } from './commands/types.js'
 import type { ConfigDebugSnapshot } from './config/debug.js'
 import { hookSwitch } from './config/hook-layers.js'
-import type { loadConfigWithProvenance } from './config/load.js'
+import type { LaunchSettingsLayer, loadConfigWithProvenance } from './config/load.js'
 import { positiveTokenCount, readModelLaunchEnvironment } from './config/model-environment.js'
 import type { NamzuCliConfig } from './config/schema.js'
 import {
@@ -73,6 +73,11 @@ import { CLI_VERSION } from './version.js'
 /** The root options that only `exec` takes after the command name. */
 const PER_RUN_FLAG_KEYS: ReadonlySet<string> = new Set([
 	'appendSystemPrompt',
+	'systemPrompt',
+	'tools',
+	'name',
+	'mcpConfig',
+	'strictMcpConfig',
 	'allowedTools',
 	'disallowedTools',
 	'fallbackModel',
@@ -91,7 +96,7 @@ function collectFlagValue(value: string, previous: string[] | undefined): string
  * only recognises a root option before the subcommand name (positional options
  * are on), so `namzu resume --dangerously-skip-permissions <id>` needs `resume` to declare them too.
  * The options that choose a conversation (`--continue`, `--resume`,
- * `--from-pr`) and `--message` stay on the root alone.
+ * `--from-pr`) and the first message stay on the root alone.
  */
 function addLaunchOptions(command: Command): Command {
 	return command
@@ -156,6 +161,39 @@ function addLaunchOptions(command: Command): Command {
 		.option(
 			'--append-system-prompt <text|@file>',
 			'Add standing instructions for this launch only; @file reads them from a file. They go after the cached part of the prompt, so the cache is untouched.',
+		)
+		.option(
+			'--system-prompt <text|@file>',
+			'Replace Namzu’s own system prompt text for this launch only; @file reads it from a file. Tools, --append-system-prompt, project instructions and memory still apply.',
+		)
+		.option(
+			'--tools <list>',
+			'Offer only these tools to the model, e.g. "read edit bash"; "" offers none and "default" offers all. Unlike --allowed-tools this removes tools; it is not a permission rule.',
+		)
+		.option(
+			'-n, --name <name>',
+			'Name this conversation; the name shows in /resume and in the terminal title.',
+		)
+		.option(
+			'--bare',
+			'Minimal start: no hooks, plugins, project instruction files, saved memory notes, learning, code index, background catalogue refresh or update check. See docs/cli/launch-flags.md.',
+		)
+		.option(
+			'--debug-file <path>',
+			'Write every log record, debug level included, to this file; what appears on screen keeps its usual level. The folders of the path are created.',
+		)
+		.option(
+			'--settings <file-or-json>',
+			'Add one settings layer for this launch, from a JSON file or an inline JSON object. It wins over your user and project settings and loses to flags.',
+		)
+		.option(
+			'--mcp-config <file-or-json>',
+			'Add the tool servers in this JSON file (or inline JSON) for this launch; repeatable.',
+			collectFlagValue,
+		)
+		.option(
+			'--strict-mcp-config',
+			'Use only the tool servers named by --mcp-config; none of the configured or project ones start.',
 		)
 		.option(
 			'--allowed-tools <list>',
@@ -302,6 +340,10 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 	const program = new Command()
 		.name('namzu')
 		.description('Operator CLI for the Namzu agent platform')
+		.argument(
+			'[prompt]',
+			'First message of the interactive session, sent as a plain prompt (never a slash command). With -p it is answered without opening the session.',
+		)
 		.version(CLI_VERSION, '-V, --version', 'Print version and exit')
 		.addOption(
 			new Option('-f, --format <type>', 'Output format: text, json, yaml').choices([
@@ -321,16 +363,18 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 				'Log record format for exec/drain/TUI-flush output: pretty (default) or json. namzu exec --json always writes json, regardless of this flag.',
 			).choices(['pretty', 'json']),
 		)
-		.addOption(
-			new Option(
-				'--max-budget-usd <amount>',
-				'Spend limit in dollars. It belongs to a headless run: pass it after exec.',
-			).hideHelp(),
-		)
 		.option(
-			'--message <text>',
-			'Send this text as the first message once the interactive session is ready, for this launch only. It runs as a plain prompt, never a slash command, and is not sent again on resume.',
+			'-p, --print',
+			'Answer one prompt and exit, without opening the session: `namzu -p "<prompt>"` is `namzu exec "<prompt>"`. It takes the options of `namzu exec`, such as --output-format text|json|stream-json, --input-format text|stream-json and --max-budget-usd; piped input is read the same way. See `namzu exec --help`.',
 		)
+		// The print-only options are declared so that using one without -p is
+		// refused in one line; with -p they are read by `namzu exec`, not here.
+		.addOption(new Option('--output-format <format>', 'Needs -p.').hideHelp())
+		.addOption(new Option('--input-format <format>', 'Needs -p.').hideHelp())
+		.addOption(new Option('--max-budget-usd <amount>', 'Needs -p.').hideHelp())
+		// Already shipped: Namzu Desktop's earlier builds start the CLI with this
+		// flag. It keeps working, hidden; `namzu "<text>"` is the spelling to use.
+		.addOption(new Option('--message <text>', 'First message; use namzu "<text>".').hideHelp())
 		.option('-c, --continue', 'Continue the most recent conversation in this directory.')
 		.option(
 			'-r, --resume [value]',
@@ -368,6 +412,30 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 			if (usesCustomNetwork(process.env)) {
 				await (await import('./network/install.js')).installNetwork()
 			}
+			// `--debug-file`, `--bare` and `--settings` shape every command that reads
+			// settings or logs: checked first, so a bad value costs nothing else.
+			const launchValues = command.opts<{
+				bare?: boolean
+				settings?: string
+				debugFile?: string
+			}>()
+			const layers = runtime().launchLayersFor(launchValues)
+			if ('error' in layers)
+				return command.error(layers.error, {
+					exitCode: EX_USAGE,
+					code: 'commander.invalidArgument',
+				})
+			launchLayers = layers.layers
+			if (launchValues.debugFile !== undefined) {
+				try {
+					runtime().openDebugFile(launchValues.debugFile)
+				} catch (error) {
+					command.error((error as Error).message, {
+						exitCode: EX_USAGE,
+						code: 'commander.invalidArgument',
+					})
+				}
+			}
 			const launchOnly = (
 				[
 					'provider',
@@ -380,10 +448,14 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 					'resume',
 					'fromPr',
 					'appendSystemPrompt',
+					'systemPrompt',
+					'tools',
+					'name',
+					'mcpConfig',
+					'strictMcpConfig',
 					'allowedTools',
 					'disallowedTools',
 					'fallbackModel',
-					'maxBudgetUsd',
 					'maxOutputTokens',
 					'account',
 				] as const
@@ -413,9 +485,25 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 				)
 			if (action.name() === 'resume' && command.opts().message !== undefined)
 				command.error(
-					'--message is the first message of a new conversation; it is not sent when resuming one.',
+					'The first message starts a new conversation; it is not sent when resuming one.',
 					{ exitCode: EX_USAGE, code: 'commander.invalidArgument' },
 				)
+			// With -p the arguments were handed to `namzu exec` before parsing, so
+			// a print-only option that reaches here was given without it.
+			const needsPrint = (
+				[
+					['outputFormat', '--output-format'],
+					['inputFormat', '--input-format'],
+					['maxBudgetUsd', '--max-budget-usd'],
+				] as const
+			).filter(([key]) => command.opts()[key] !== undefined)
+			if (needsPrint.length > 0) {
+				const names = needsPrint.map(([, flag]) => flag)
+				command.error(
+					`${names.join(', ')} ${names.length === 1 ? 'needs' : 'need'} -p: namzu -p ${names[0]} <value> "<prompt>". For a subcommand, write it after the command.`,
+					{ exitCode: EX_USAGE, code: 'commander.invalidArgument' },
+				)
+			}
 			if (command.opts().outputSchema && !['namzu', 'resume'].includes(action.name())) {
 				command.error(
 					action.name() === 'exec'
@@ -451,6 +539,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 			logFormat?: string
 			profile?: string
 			pluginDir?: string[]
+			bare?: boolean
 		}>()
 		const { config: loadedConfig, provenance } = load()
 		// `--plugin-dir` is a launch decision, so it joins the plugin settings here
@@ -502,16 +591,24 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 			config: { ...fileConfig, format, quiet },
 			configDebug,
 			logging,
+			...(globalOpts.bare === true ? { bare: true } : {}),
 		}
 	}
 
+	/** The settings layers `--bare` and `--settings` add; read once the command line is parsed. */
+	let launchLayers: readonly LaunchSettingsLayer[] = []
 	const selectedConfigOpts = (
 		cwd?: string,
-	): { readonly profile?: string; readonly cwd?: string } => {
+	): {
+		readonly profile?: string
+		readonly cwd?: string
+		readonly launchLayers?: readonly LaunchSettingsLayer[]
+	} => {
 		const profile = program.opts<{ profile?: string }>().profile
 		return {
 			...(profile !== undefined ? { profile } : {}),
 			...(cwd !== undefined ? { cwd } : {}),
+			...(launchLayers.length > 0 ? { launchLayers } : {}),
 		}
 	}
 	let bootstrapCtx: ResolvedCommandContext | null = null
@@ -683,6 +780,8 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 		})
 	}
 
+	/** The text of `namzu "<text>"`: the first message of the interactive launch. */
+	let launchPrompt: string | undefined
 	const launchInteractiveTui = async (
 		initialConversationId?: string,
 		/** `namzu resume` with no id: open the picker of this folder's conversations. */
@@ -704,6 +803,12 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 				permissionMode?: (typeof PERMISSION_MODE_NAMES)[number]
 				message?: string
 				appendSystemPrompt?: string
+				systemPrompt?: string
+				tools?: string
+				name?: string
+				bare?: boolean
+				mcpConfig?: string[]
+				strictMcpConfig?: boolean
 				allowedTools?: string[]
 				disallowedTools?: string[]
 				fallbackModel?: string[]
@@ -776,6 +881,8 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 			const runFlags = runtime().resolveRunFlags(
 				{
 					appendSystemPrompt: launchOpts.appendSystemPrompt ?? null,
+					systemPrompt: launchOpts.systemPrompt ?? null,
+					tools: launchOpts.tools ?? null,
 					allowedTools: launchOpts.allowedTools ?? [],
 					disallowedTools: launchOpts.disallowedTools ?? [],
 					fallbackModels: launchOpts.fallbackModel ?? [],
@@ -875,7 +982,8 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 				...(launchPlan.source === 'launch-flag' || launchPlan.source === 'config-default'
 					? { permissionMode: launchPlan.mode }
 					: {}),
-				...(launchOpts.message?.trim() ? { message: launchOpts.message } : {}),
+				...(launchPrompt?.trim() ? { message: launchPrompt } : {}),
+				...(launchOpts.name?.trim() ? { name: launchOpts.name.trim() } : {}),
 				...(launchOpts.fallbackModel?.length ? { fallbackModels: launchOpts.fallbackModel } : {}),
 			}
 			// The same three lines `exec` uses. The TUI compiled
@@ -883,7 +991,25 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 			// in the mode most people actually use.
 			const commandCtx = getBootstrapContext()
 			beginCatalogueRefresh(commandCtx.config)
+			// The tool server files are read before the screen opens, so a missing or
+			// broken one is refused here and not reported inside it.
+			const mcpCheck = runtime().launchMcpServers(
+				commandCtx.config.mcpServers,
+				launchOpts.mcpConfig ?? [],
+				launchOpts.strictMcpConfig === true,
+			)
+			if ('error' in mcpCheck) {
+				commandCtx.formatter.error({ message: mcpCheck.error })
+				setExitCode(EX_USAGE)
+				return
+			}
 			const buildTuiContext = (resolvedCtx: ResolvedCommandContext, cwd: string) => {
+				const launchMcp = runtime().launchMcpServers(
+					resolvedCtx.config.mcpServers,
+					launchOpts.mcpConfig ?? [],
+					launchOpts.strictMcpConfig === true,
+				)
+				if ('error' in launchMcp) throw new Error(launchMcp.error)
 				runtime().warnLegacyMcpPermissionNames(resolvedCtx.config.permissions)
 				runtime().warnBroadAllowRules(cwd, runtime().cliLogger())
 				const permissions = runtime().compilePermissionLayers(
@@ -935,6 +1061,9 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 							? 'default'
 							: launchPlan.source,
 					...(runFlags.appendSystem ? { appendSystem: runFlags.appendSystem } : {}),
+					...(runFlags.replaceSystem ? { replaceSystem: runFlags.replaceSystem } : {}),
+					...(runFlags.onlyTools ? { onlyTools: runFlags.onlyTools } : {}),
+					...(launchOpts.bare === true ? { bare: true } : {}),
 					// The project's own file may close bypass or auto for its folder, so the
 					// door is recomputed from the full configuration.
 					bypassAvailable: fullPlan?.bypassAvailable === true,
@@ -949,7 +1078,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 					logging: resolvedCtx.logging,
 					...(conversationId ? { initialConversationId: conversationId } : {}),
 					...(openResumePicker ? { openResumePicker } : {}),
-					...(resolvedCtx.config.mcpServers ? { mcpServers: resolvedCtx.config.mcpServers } : {}),
+					...(launchMcp.servers ? { mcpServers: launchMcp.servers } : {}),
 					...(resolvedCtx.config.plugins ? { plugins: resolvedCtx.config.plugins } : {}),
 					...(resolvedCtx.config.skills ? { skills: resolvedCtx.config.skills } : {}),
 					...(resolvedCtx.config.composerTriggers
@@ -1110,16 +1239,43 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 	// the TUI (M3). When stdout is not a TTY (tests, pipes, CI), print a
 	// one-line marker instead so the binary stays scriptable and our test
 	// suite does not try to render Ink against a non-tty stream.
-	program.action(async () => {
+	program.action(async (prompt: string | undefined) => {
+		const hidden = program.opts<{ message?: string }>().message
+		if (prompt !== undefined && hidden !== undefined)
+			program.error('Give the first message once: namzu "<text>".', {
+				exitCode: EX_USAGE,
+				code: 'commander.invalidArgument',
+			})
+		launchPrompt = prompt ?? hidden ?? promptAfterDashes
 		await launchInteractiveTui()
 	})
+
+	// `namzu -- "<text>"`: the text after `--` is the first message even when
+	// it begins with a dash or spells a command, so it never reaches the
+	// command lookup.
+	let argv = opts.argv as string[]
+	let promptAfterDashes: string | undefined
+	const dashed = dashedPrompt(program, argv.slice(2))
+	if (dashed !== undefined) {
+		argv = argv.slice(0, 2 + dashed.index)
+		promptAfterDashes = dashed.prompt
+	}
+	// `namzu -p "<prompt>"` is `namzu exec "<prompt>"`.
+	const printed = printModeArgs(program, argv.slice(2))
+	if (printed !== undefined) argv = [...argv.slice(0, 2), ...printed]
+	else {
+		const hoisted = hoistExecLaunchFlags(program, argv.slice(2))
+		if (hoisted !== undefined) argv = [...argv.slice(0, 2), ...hoisted]
+	}
 
 	try {
 		// `namzu help [command] [action...]` prints what `namzu <command> [action...]
 		// --help` prints. Rewritten before commander parses, so the command's own
 		// help path answers and the two cannot differ. A name that is not a command
-		// loses the word `help` and gets the usual error for an unknown command.
-		const argv = rewriteHelpCommand(program, opts.argv)
+		// loses the word `help`: a retired name prints its line, any other is an
+		// unknown command (checked below).
+		const helpOf = helpTarget(program, argv)
+		argv = [...rewriteHelpCommand(program, argv)]
 		helpArgv = argv
 		// Help never reads or writes the Namzu home, so a `NAMZU_HOME` that names a
 		// folder which does not exist (yet) must not stop it: the home is checked
@@ -1141,18 +1297,15 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 				code: 'commander.unknownCommand',
 			})
 		}
-		// The root command takes no operands, so a first word that names no command
-		// is an unknown command; commander would call it "too many arguments".
-		const rootArgs = argv.slice(2)
-		const word = firstRootOperandIndex(program, rootArgs)
-		const typed = word === undefined ? undefined : rootArgs[word]
-		if (typed !== undefined && !program.commands.some((c) => c.name() === typed)) {
-			program.error(`unknown command '${typed}'`, {
+		// `namzu help <word>` where the word names no command is an unknown command,
+		// not a first message: the root takes a prompt, so the check is made here.
+		if (helpOf !== undefined && !isCommandName(program, helpOf)) {
+			program.error(`unknown command '${helpOf}'`, {
 				exitCode: EX_USAGE,
 				code: 'commander.unknownCommand',
 			})
 		}
-		await program.parseAsync(argv as string[], { from: 'node' })
+		await program.parseAsync(argv, { from: 'node' })
 		return exitCode
 	} catch (err) {
 		if (err instanceof CommanderError) {
@@ -1193,6 +1346,109 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 		catalogueRefresh?.cancel()
 		await (await otlpExport)?.shutdown()
 	}
+}
+
+/** The root options that `-p` leaves on the root: the output controls, not the run's options. */
+const PRINT_ROOT_FLAGS = new Set(['-q', '--quiet', '-v', '--verbose', '--debug', '--bare'])
+const PRINT_ROOT_VALUE_FLAGS = new Set([
+	'-f',
+	'--format',
+	'--log-format',
+	'--settings',
+	'--debug-file',
+])
+
+/**
+ * The arguments of `namzu -p …`, as `namzu exec …`: the root's output
+ * controls stay in front, every other word goes after `exec`, which reads
+ * them as it always has. Undefined when the call is not print mode: no `-p`,
+ * or a subcommand name came first, so the `-p` belongs to that command.
+ */
+export function printModeArgs(program: Command, args: readonly string[]): string[] | undefined {
+	const end = args.indexOf('--')
+	const head = end === -1 ? args : args.slice(0, end)
+	if (!head.some((arg) => arg === '-p' || arg === '--print')) return undefined
+	const first = firstRootOperand(program, head)
+	if (first !== undefined && isCommandName(program, first)) return undefined
+	if (first !== undefined && Object.hasOwn(REMOVED_COMMANDS, first)) return undefined
+	const root: string[] = []
+	const rest: string[] = []
+	for (let i = 0; i < head.length; i++) {
+		const arg = head[i] as string
+		if (PRINT_ROOT_FLAGS.has(arg)) root.push(arg)
+		else if (PRINT_ROOT_VALUE_FLAGS.has(arg)) {
+			root.push(arg)
+			if (i + 1 < head.length) root.push(head[++i] as string)
+		} else if (
+			arg.startsWith('--format=') ||
+			arg.startsWith('--log-format=') ||
+			arg.startsWith('--settings=') ||
+			arg.startsWith('--debug-file=')
+		)
+			root.push(arg)
+		else rest.push(arg)
+	}
+	return [...root, 'exec', ...rest, ...args.slice(head.length)]
+}
+
+/**
+ * `namzu exec … --bare --settings <x> --debug-file <p>`: these three shape the
+ * process (which settings load, where logs go), not the run, so they are read
+ * by the root. Written after `exec`, they are moved in front of it. Undefined
+ * when the call is not `exec` or none of them follows it.
+ */
+export function hoistExecLaunchFlags(
+	program: Command,
+	args: readonly string[],
+): string[] | undefined {
+	let at = -1
+	for (let i = 0; i < args.length; i++) {
+		if (args[i] === '--') return undefined
+		if (args[i] === 'exec' && firstRootOperand(program, args.slice(0, i + 1)) === 'exec') {
+			at = i
+			break
+		}
+	}
+	if (at === -1) return undefined
+	const end = args.indexOf('--', at)
+	const tail = end === -1 ? args.slice(at + 1) : args.slice(at + 1, end)
+	const moved: string[] = []
+	const kept: string[] = []
+	for (let i = 0; i < tail.length; i++) {
+		const arg = tail[i] as string
+		if (arg === '--bare') moved.push(arg)
+		else if (arg === '--settings' || arg === '--debug-file') {
+			moved.push(arg)
+			if (i + 1 < tail.length) moved.push(tail[++i] as string)
+		} else if (arg.startsWith('--settings=') || arg.startsWith('--debug-file=')) moved.push(arg)
+		else kept.push(arg)
+	}
+	if (moved.length === 0) return undefined
+	return [...args.slice(0, at), ...moved, 'exec', ...kept, ...(end === -1 ? [] : args.slice(end))]
+}
+
+function isCommandName(program: Command, name: string): boolean {
+	return program.commands.some(
+		(command) => command.name() === name || command.aliases().includes(name),
+	)
+}
+
+/**
+ * `namzu [root options] -- "<text>"`: where the `--` is and the one word
+ * after it. Undefined when there is no `--` at the root, or an operand
+ * came first (the `--` then belongs to that command).
+ */
+function dashedPrompt(
+	program: Command,
+	args: readonly string[],
+): { index: number; prompt: string } | undefined {
+	const index = args.indexOf('--')
+	if (index === -1) return undefined
+	const before = args.slice(0, index)
+	if (firstRootOperand(program, before) !== undefined) return undefined
+	if (before.some((arg) => arg === '-p' || arg === '--print')) return undefined
+	if (args.length !== index + 2) return undefined
+	return { index, prompt: args[index + 1] as string }
 }
 
 /**
@@ -1267,6 +1523,20 @@ function rewriteHelpCommand(program: Command, argv: readonly string[]): readonly
 	const known = target !== undefined && program.commands.some((c) => c.name() === target)
 	const tail = target === undefined || known ? [...rest, '--help'] : rest
 	return [...argv.slice(0, 2), ...before, ...tail]
+}
+
+/** The word after `namzu help`, or undefined when the call is not `namzu help <word>`. */
+function helpTarget(program: Command, argv: readonly string[]): string | undefined {
+	const args = argv.slice(2)
+	const at = firstRootOperandIndex(program, args)
+	if (at === undefined || args[at] !== 'help') return undefined
+	return args.slice(at + 1).find((a) => a !== '--help' && a !== '-h')
+}
+
+/** The first operand the root command would see in `args`, or undefined. */
+function firstRootOperand(program: Command, args: readonly string[]): string | undefined {
+	const at = firstRootOperandIndex(program, args)
+	return at === undefined ? undefined : args[at]
 }
 
 /** Whether the command line asks for help, which never needs the Namzu home. */

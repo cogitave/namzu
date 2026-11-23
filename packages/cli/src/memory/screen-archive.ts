@@ -108,8 +108,11 @@ export async function archiveUnscreenedRecords(options: {
 	readonly store: MarkdownMemoryStore
 	readonly directory: string
 	readonly log: Logger
+	/** A session that keeps no memory (`--bare`) does not touch the store. */
+	readonly disabled?: boolean
 }): Promise<ArchiveReport> {
 	const { store, directory, log } = options
+	if (options.disabled) return { ran: false, archived: 0, skipped: 0 }
 	const marker = join(directory, SCREEN_MARKER_FILE)
 	try {
 		if (
