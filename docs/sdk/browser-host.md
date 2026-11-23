@@ -46,6 +46,7 @@ The constructor launches nothing and touches no file. The first `observe` or `ac
 | `signInDetection` | `page` | `page` (default): only the listed hosts, `signInAddresses`, a challenge or a bare 401 with a password field stop the call; any other page with a password or code field loads and the result's message says the model cannot type one (once per address). Typing into those fields is refused either way. `address`: a sign-in path proves a sign-in page, so any `/login`-style address stops the call. |
 | `loginCommand` | `namzu browser login <profile> <url>` | The command a handoff names. |
 | `windowsLaunchTimeoutMs` | 60 000 | Windows engine: how long starting the browser and connecting to it may take. |
+| `provider` | the one the plan names | Where the browser context comes from; see [A desktop app's browser pane](#a-desktop-apps-browser-pane). |
 
 `host.warnings` repeats detection's warnings; `host.running` says whether the browser is up.
 
@@ -106,6 +107,38 @@ Playwright points a connected browser's downloads at a temporary directory on th
 **Leases and closing.** Leases on a Windows-engine profile are shared: every namzu process on the profile drives the same browser, attaching through `DevToolsActivePort`. `dispose()` of the last holder closes the browser with CDP `Browser.close`, which lets it save the profile; any other holder, or `keepOpen`, disconnects and leaves it running. If this process dies, the bridge's standard input closes and the bridge closes the browser it started (never one it attached to). If the bridge dies instead, the host starts a second bridge that only attaches and sends `Browser.close`. With `keepOpen` neither happens. The bridge stops nothing by name: its last resort, ten seconds after `Browser.close`, is the process id it started.
 
 **Measured** on WSL 2.7.14 (NAT) with Chrome 153, headless, against the same pages with the local engine: first call (start PowerShell and Chrome, navigate) 1.3–3.7 s; a snapshot of example.com 155 ms against 153 ms locally, of a 20 000-character Wikipedia page 296 ms against 289 ms; a viewport screenshot 69 ms against 34 ms; a full-page screenshot of that page (1264×27299, 3.5 MB PNG) 0.97 s through the bridge (the local headless shell took more than the 10-second action timeout).
+
+## A desktop app's browser pane
+
+The host drives one `BrowserContext` whatever opened it. A `BrowserContextProvider` is only the opening: the local Chromium on a profile and the Windows browser from WSL are what the plan selects, and behave as described above. `PaneProvider` is the third, for an app that owns its own browser tabs and wants the agent to work in them: the app's tabs become the context, with no second browser, no profile and no lease.
+
+```ts
+import { PlaywrightBrowserHost, createPaneProvider } from '@namzu/browser'
+import type { PaneChannel } from '@namzu/browser'
+
+declare const channel: PaneChannel // relays to the app that owns the tabs
+
+const host = new PlaywrightBrowserHost({
+  provider: createPaneProvider(channel),
+  sites: { 'https://example.com': 'act', '*': 'ask' },
+})
+```
+
+`capabilities.engine` is `pane`. Everything above the context (snapshots, refs, the site policy, the sign-in classifier, dialogs, the credential rules) is unchanged.
+
+**The channel.** `PaneChannel` is the narrow surface the app offers: `listTabs()`, `cdp(tabId, method, params?, sessionId?)` (a protocol command on a tab's page, or on a child session of it), `onEvent`, `onTabAdded`, `onTabClosed`, and `close()`; optionally `openTab(url?)`, `closeTab(tabId)`, `onDownloadRefused` and `onClose`. It is an in-process object; an app whose tabs live in another process writes a relay that implements it. The first `cdp` call on a tab attaches to it, and events for the tab follow. A tab the app holds back (`paused: true` on `onTabAdded`, for a popup) sends nothing until the agent's first `Runtime.runIfWaitingForDebugger`, so the host's request screening is installed before the popup's first request.
+
+**The transport.** `createPaneTransport(channel)` makes the tabs look like one Chromium to `chromium.connectOverCDP(transport, { noDefaults: true })`: it answers the browser-level conversation itself (version, target list, auto-attach, the page targets) and forwards everything below a page to the channel by session id. A tab's fake target id is its real main-frame id. Without `openTab`, `Target.createTarget` is refused with "The browser pane does not let the agent open tabs", and without `closeTab`, closing a tab is refused; with them the app owns tab creation and removal, and a tab the app adds or removes on its own reaches the host as a Playwright page that opens or closes.
+
+**What is never sent.** The transport refuses, before the channel sees them, `Storage.*`, `IndexedDB.*`, `Debugger.*`, `Tracing.*`, `SystemInfo.*`, `Browser.*` (except the page's own window), reading or writing cookies, clearing the browser cache, `Page.setDownloadBehavior`, `Security.setIgnoreCertificateErrors`, and a non-empty `Emulation.setUserAgentOverride`; no browser-level method that reaches outside the pane (new contexts, closing the browser) is answered. A page-level debugger would answer all of them; the agent has no use for them and the host never sends them. Pass `refuse` to `createPaneProvider` to change the table.
+
+**Screening.** Request interception (`context.route`, which the site policy's check before a request leaves runs on) works over a page-level session: it is `Fetch.enable` on each tab. The provider reports `policy: 'external'`: the app is expected to enforce landing rules too, as a second layer, and a context that cannot intercept requests is tolerated, the check after the navigation lands still running.
+
+**Downloads.** The pane never downloads files. The app reports a refusal through `onDownloadRefused` and the host tells the model once, in the same words as for the other engines.
+
+**Letting go.** `dispose()` and `close()` disconnect Playwright and call `channel.close()`; the tabs stay open, they are the person's.
+
+The suite runs the whole end-to-end host contract on this path: `NAMZU_BROWSER_E2E=1 NAMZU_BROWSER_E2E_PANE=1` runs `host.test.ts` with the context coming from a pane channel backed by a real Chromium's protocol (one browser-level socket, one flat session per page), and `pane.test.ts` covers what is particular to a pane. The transport's own logic is unit-tested over a fake channel.
 
 ## Profiles and leases
 
@@ -243,4 +276,4 @@ An action that fails after it started (a click that timed out after the pointer 
 
 ## Tests
 
-`pnpm --filter @namzu/browser test` runs the unit tests: the classifier over the fixture pages' signals, the quiet-page wait over a fake clock, the policy, detection over injected environments (WSL networking mode, interop socket, mount root, Edge), profiles and leases, snapshot rendering and paging, the pin, the bridge's command-line encoding and line framing (an 8 MB line in odd-sized chunks), the bridge's process protocol against a stand-in, and the relay's refusals. `NAMZU_BROWSER_E2E=1` adds the end-to-end suite, headless, against a local fixture server with two origins (`127.0.0.1` allowed, `localhost` not); it needs the Chromium build in the Playwright cache and downloads nothing. `NAMZU_BROWSER_E2E_HEADED=1` with a display adds a headed run. The on-demand web benchmark is separate: `scripts/bench-web/bench.mjs` drives the real terminal app through scored tasks against `packages/browser/test/fixtures/bench-site/` (a site that scores each step from its own event log) and two public pages, through a recording proxy that alone reads the API key; it calls a real model, costs money and never runs in CI. `NAMZU_BROWSER_WSL_E2E=1` (`pnpm --filter @namzu/browser test:e2e:wsl`) runs the Windows engine on a real WSL machine: the bridge relaying 5 MB and nine-frame messages through PowerShell, headless Chrome through the fixture server (reached through WSL's localhost forwarding), downloads refused, two holders sharing one browser, the bridge killed with and without `keepOpen`, and Edge when installed; `NAMZU_BROWSER_WSL_E2E_HEADED=1` adds a visible window. Its profiles are `namzu-test-e2e-*` and are deleted afterwards.
+`pnpm --filter @namzu/browser test` runs the unit tests: the classifier over the fixture pages' signals, the quiet-page wait over a fake clock, the policy, detection over injected environments (WSL networking mode, interop socket, mount root, Edge), profiles and leases, snapshot rendering and paging, the pin, the bridge's command-line encoding and line framing (an 8 MB line in odd-sized chunks), the bridge's process protocol against a stand-in, and the relay's refusals. `NAMZU_BROWSER_E2E=1` adds the end-to-end suite, headless, against a local fixture server with two origins (`127.0.0.1` allowed, `localhost` not); it needs the Chromium build in the Playwright cache and downloads nothing. `NAMZU_BROWSER_E2E_HEADED=1` with a display adds a headed run. `NAMZU_BROWSER_E2E_PANE=1` runs the same host suite through a pane channel. The on-demand web benchmark is separate: `scripts/bench-web/bench.mjs` drives the real terminal app through scored tasks against `packages/browser/test/fixtures/bench-site/` (a site that scores each step from its own event log) and two public pages, through a recording proxy that alone reads the API key; it calls a real model, costs money and never runs in CI. `NAMZU_BROWSER_WSL_E2E=1` (`pnpm --filter @namzu/browser test:e2e:wsl`) runs the Windows engine on a real WSL machine: the bridge relaying 5 MB and nine-frame messages through PowerShell, headless Chrome through the fixture server (reached through WSL's localhost forwarding), downloads refused, two holders sharing one browser, the bridge killed with and without `keepOpen`, and Edge when installed; `NAMZU_BROWSER_WSL_E2E_HEADED=1` adds a visible window. Its profiles are `namzu-test-e2e-*` and are deleted afterwards.

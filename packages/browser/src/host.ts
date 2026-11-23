@@ -41,12 +41,18 @@ import {
 	signInNotice,
 } from './classifier.js'
 import {
+	type BrowserContextProvider,
+	type ExternalConnection,
+	LocalProvider,
+	WindowsCdpProvider,
+	firstLine,
+	quoteShort,
+} from './context-providers.js'
+import {
 	type BrowserEnginePlan,
 	type BrowserEngineSetting,
 	type BrowserHeadlessSetting,
 	type BrowserRunMode,
-	type LocalBrowserPlan,
-	type WindowsCdpBrowserPlan,
 	detectBrowserEnvironment,
 	runnableBrowserPlan,
 } from './detect.js'
@@ -59,7 +65,6 @@ import {
 	BrowserStaleRefError,
 	BrowserTargetUnclearError,
 	BrowserUnavailableError,
-	ProfileBusyError,
 } from './errors.js'
 import {
 	type ElementFieldFacts,
@@ -71,13 +76,7 @@ import {
 	valueFacts,
 } from './page-scripts.js'
 import { BrowserSitePolicy, type BrowserSiteRules, DEFAULT_BROWSER_SITE_RULES } from './policy.js'
-import {
-	type BrowserLease,
-	BrowserLeaseStore,
-	BrowserProfileError,
-	BrowserProfileStore,
-	DEFAULT_BROWSER_PROFILE,
-} from './profiles.js'
+import { type BrowserLease, DEFAULT_BROWSER_PROFILE } from './profiles.js'
 import {
 	type Aim,
 	CANDIDATES_MAX,
@@ -96,7 +95,6 @@ import {
 import { type SettleOutcome, type SettleProbe, waitUntilQuiet } from './settle.js'
 import {
 	EFFECT_REQUESTS_SHOWN,
-	PLAYWRIGHT_CORE_VERSION,
 	SnapshotPager,
 	buildEffect,
 	captureAriaTree,
@@ -108,8 +106,6 @@ import {
 	renderReading,
 	subtreeOf,
 } from './snapshot.js'
-import { WindowsBridgeError } from './windows-bridge.js'
-import { type WindowsBrowserConnection, connectWindowsBrowser } from './windows-engine.js'
 
 export interface PlaywrightBrowserHostOptions {
 	/** Profile to run under. Default `default`. Chosen by the operator, never by the model. */
@@ -154,6 +150,11 @@ export interface PlaywrightBrowserHostOptions {
 	readonly loginCommand?: (profile: string, url: string) => string
 	/** Windows engine: how long starting and connecting to the browser may take. Default 60 000. */
 	readonly windowsLaunchTimeoutMs?: number
+	/**
+	 * Where the browser context comes from. Default: the one the plan names (local Chromium or the
+	 * Windows browser). A Desktop pane passes a {@link PaneProvider}, which drives the app's own tab.
+	 */
+	readonly provider?: BrowserContextProvider
 }
 
 interface Tab {
@@ -239,11 +240,6 @@ const SCREENSHOT_INPUT_MASK_COLOR = '#666666'
 /** Most inputs one screenshot checks for a credential. */
 const MASK_CANDIDATES_MAX = 200
 
-function firstLine(error: unknown): string {
-	const text = error instanceof Error ? error.message : String(error)
-	return (text.split('\n')[0] ?? '').slice(0, 300)
-}
-
 /** The page's origin as the header shows it: canonical, or `null` for anything that is not a web page. */
 function originOf(url: string): string {
 	if (url === 'about:blank' || url === '') return 'null'
@@ -265,11 +261,6 @@ function pngSize(data: Uint8Array): { width: number; height: number } {
 	if (data.length < 24) return { width: 0, height: 0 }
 	const view = new DataView(data.buffer, data.byteOffset, data.byteLength)
 	return { width: view.getUint32(16), height: view.getUint32(20) }
-}
-
-function quoteShort(value: string, max = 80): string {
-	const flat = value.replace(/\s+/g, ' ').trim()
-	return JSON.stringify(flat.length > max ? `${flat.slice(0, max - 1)}…` : flat)
 }
 
 /**
@@ -308,9 +299,10 @@ export class PlaywrightBrowserHost implements BrowserHost {
 	private readonly policy: BrowserSitePolicy
 	private readonly sessionId: string
 	private readonly pager: SnapshotPager
+	private readonly provider: BrowserContextProvider | undefined
 
 	private context: BrowserContext | undefined
-	private windows: WindowsBrowserConnection | undefined
+	private connection: ExternalConnection | undefined
 	private launching: Promise<BrowserContext> | undefined
 	private lease: BrowserLease | undefined
 	private readonly tabs = new Map<string, Tab>()
@@ -340,12 +332,27 @@ export class PlaywrightBrowserHost implements BrowserHost {
 					...(options.mode ? { mode: options.mode } : {}),
 				},
 			)
-		this.plan = runnableBrowserPlan(detected)
+		this.provider = options.provider
+		this.plan = options.provider
+			? // The provider decides where the browser is; the plan only describes it.
+				{
+					engine: 'local',
+					platform: detected.platform,
+					browser: 'chromium',
+					headless: false,
+					display: true,
+					warnings: [],
+				}
+			: runnableBrowserPlan(detected)
 		const pageChars = Math.min(options.snapshotMaxChars ?? SNAPSHOT_PAGE_MAX, SNAPSHOT_PAGE_MAX)
 		this.pager = new SnapshotPager(pageChars)
-		this.id = `playwright-${this.plan.engine === 'local' ? this.plan.browser : this.plan.engine}`
+		this.id = `playwright-${options.provider?.id ?? (this.plan.engine === 'local' ? this.plan.browser : this.plan.engine)}`
 		this.capabilities = {
-			engine: this.plan.engine === 'local' ? `local-${this.plan.browser}` : this.plan.engine,
+			engine: options.provider
+				? options.provider.id
+				: this.plan.engine === 'local'
+					? `local-${this.plan.browser}`
+					: this.plan.engine,
 			headless: this.plan.headless,
 			screenshot: true,
 			upload: true,
@@ -382,10 +389,16 @@ export class PlaywrightBrowserHost implements BrowserHost {
 
 	private async launch(): Promise<BrowserContext> {
 		const plan = this.plan
-		if (plan.unavailableReason !== undefined)
+		if (!this.provider && plan.unavailableReason !== undefined)
 			throw new BrowserUnavailableError(plan.unavailableReason)
-		const context =
-			plan.engine === 'local' ? await this.launchLocal(plan) : await this.launchWindows(plan)
+		const opened = await this.contextProvider(plan).open({
+			note: (text) => {
+				this.notes.push(text)
+			},
+		})
+		const context = opened.context
+		this.lease = opened.lease
+		this.connection = opened.connection
 		this.context = context
 		context.setDefaultTimeout(this.options.actionTimeoutMs ?? DEFAULT_ACTION_TIMEOUT_MS)
 		context.setDefaultNavigationTimeout(
@@ -399,10 +412,16 @@ export class PlaywrightBrowserHost implements BrowserHost {
 		// Before a top-level request leaves: a link, script or popup heading for
 		// a site the rules do not allow is stopped here, so its address (and
 		// anything a page smuggled into it) never reaches the network.
-		await context.route(
-			() => true,
-			(route) => this.screen(route),
-		)
+		try {
+			await context.route(
+				() => true,
+				(route) => this.screen(route),
+			)
+		} catch (error) {
+			// An embedder that enforces the rules itself may hand over a context that cannot
+			// intercept requests; the check after the navigation lands still runs.
+			if (opened.policy !== 'external') throw error
+		}
 		for (const page of context.pages()) {
 			this.adopt(page, false)
 			void page.evaluate(installMutationClock).catch(() => undefined)
@@ -410,138 +429,42 @@ export class PlaywrightBrowserHost implements BrowserHost {
 		return context
 	}
 
+	private contextProvider(plan: BrowserEnginePlan): BrowserContextProvider {
+		if (this.provider) return this.provider
+		const services = {
+			profile: this.profile,
+			sessionId: this.sessionId,
+			home: () => this.home(),
+			note: (text: string) => {
+				this.notes.push(text)
+			},
+		}
+		if (plan.engine === 'local') {
+			return new LocalProvider(services, {
+				plan,
+				...(this.options.executablePath ? { executablePath: this.options.executablePath } : {}),
+			})
+		}
+		return new WindowsCdpProvider(services, {
+			plan,
+			env: this.options.env ?? process.env,
+			...(this.options.keepOpen !== undefined ? { keepOpen: this.options.keepOpen } : {}),
+			...(this.options.windowsLaunchTimeoutMs !== undefined
+				? { windowsLaunchTimeoutMs: this.options.windowsLaunchTimeoutMs }
+				: {}),
+		})
+	}
+
 	private home(): string {
 		return this.options.home ?? resolveNamzuHome({ env: this.options.env ?? process.env })
-	}
-
-	private async launchLocal(plan: LocalBrowserPlan): Promise<BrowserContext> {
-		const home = this.home()
-		const profiles = new BrowserProfileStore(home)
-		const descriptor = profiles.ensureLocal(this.profile, plan.browser)
-		const lease = new BrowserLeaseStore(home).acquire(this.profile, this.sessionId, {
-			exclusive: true,
-		})
-		let context: BrowserContext
-		try {
-			// Loaded here, on the first browser launch: playwright-core is several
-			// megabytes of source that a session which never opens a browser must
-			// not compile at startup.
-			const { chromium } = await import('playwright-core')
-			context = await chromium.launchPersistentContext(descriptor.userDataDir, {
-				headless: plan.headless,
-				...(plan.channel ? { channel: plan.channel } : {}),
-				...(this.options.executablePath ? { executablePath: this.options.executablePath } : {}),
-				acceptDownloads: false,
-				// The terminal owns Ctrl-C; the browser closes with the host.
-				handleSIGINT: false,
-				...(plan.headless ? {} : { viewport: null }),
-				timeout: 60_000,
-			})
-		} catch (error) {
-			lease.release()
-			throw this.launchError(error)
-		}
-		this.lease = lease
-		return context
-	}
-
-	/**
-	 * The Windows browser, through the PowerShell bridge. The profile lives on
-	 * the Windows side; its descriptor here records where. Leases are shared:
-	 * every namzu process on the profile drives the same browser, and the
-	 * last one to let go closes it.
-	 */
-	private async launchWindows(plan: WindowsCdpBrowserPlan): Promise<BrowserContext> {
-		const home = this.home()
-		const profiles = new BrowserProfileStore(home)
-		const existing = profiles.get(this.profile)
-		if (existing && existing.engine !== 'windows-cdp') {
-			throw new BrowserProfileError(
-				`Browser profile "${this.profile}" belongs to the ${existing.engine} engine, not the Windows browser. Use another profile name.`,
-			)
-		}
-		if (existing && existing.browser !== plan.browser) {
-			throw new BrowserProfileError(
-				`Browser profile "${this.profile}" was made with ${existing.browser}, and this run would use ${plan.browser}. Use another profile name, or the browser the profile was made with.`,
-			)
-		}
-		const lease = new BrowserLeaseStore(home).acquire(this.profile, this.sessionId)
-		let connection: WindowsBrowserConnection
-		try {
-			connection = await connectWindowsBrowser({
-				plan,
-				profile: this.profile,
-				...(existing ? { userDataDir: existing.userDataDir } : {}),
-				closeOnExit: !this.options.keepOpen,
-				env: this.options.env ?? process.env,
-				...(this.options.windowsLaunchTimeoutMs !== undefined
-					? { timeoutMs: this.options.windowsLaunchTimeoutMs }
-					: {}),
-				onDownloadRefused: (name) => {
-					this.notes.push(
-						`A download of ${quoteShort(name)} was cancelled: the browser does not download files.`,
-					)
-				},
-			})
-		} catch (error) {
-			lease.release()
-			throw this.windowsLaunchError(plan, error)
-		}
-		try {
-			profiles.ensureWindows(this.profile, plan.browser, connection.userDataDir)
-		} catch (error) {
-			lease.release()
-			await connection.detach().catch(() => undefined)
-			throw error
-		}
-		this.lease = lease
-		this.windows = connection
-		return connection.context
-	}
-
-	private windowsLaunchError(plan: WindowsCdpBrowserPlan, error: unknown): Error {
-		const name = plan.browser === 'chrome' ? 'Google Chrome' : 'Microsoft Edge'
-		if (error instanceof WindowsBridgeError) {
-			if (error.code === 'browser-exited') return new ProfileBusyError(this.profile, [])
-			return new BrowserUnavailableError(
-				`The Windows ${name} could not be started from WSL: ${error.message}`,
-			)
-		}
-		return new BrowserUnavailableError(
-			`The Windows ${name} was started but could not be driven from WSL: ${firstLine(error)}`,
-		)
-	}
-
-	private launchError(error: unknown): Error {
-		const text = error instanceof Error ? error.message : String(error)
-		if (
-			/Executable doesn't exist|executable doesn't exist|browserType\.launch.*not found/i.test(text)
-		) {
-			const which =
-				this.plan.engine === 'local' && this.plan.browser !== 'chromium'
-					? `The installed ${this.plan.browser === 'chrome' ? 'Google Chrome' : 'Microsoft Edge'} was not found where it should be.`
-					: `Playwright's Chromium for playwright-core ${PLAYWRIGHT_CORE_VERSION} is not installed.`
-			return new BrowserUnavailableError(
-				`${which} Run \`namzu browser install\` (or \`npx playwright-core@${PLAYWRIGHT_CORE_VERSION} install chromium\`).`,
-			)
-		}
-		if (/ProcessSingleton|SingletonLock|already in use|profile.*in use/i.test(text)) {
-			return new ProfileBusyError(this.profile, [])
-		}
-		if (/Missing X server|cannot open display|\$DISPLAY/i.test(text)) {
-			return new BrowserUnavailableError(
-				'The browser needs a display for a visible window and could not open one. Run headless, or under a desktop session.',
-			)
-		}
-		return new BrowserUnavailableError(`The browser could not start: ${firstLine(error)}`)
 	}
 
 	private forget(context: BrowserContext): void {
 		if (this.context !== context) return
 		this.context = undefined
-		const windows = this.windows
-		this.windows = undefined
-		if (windows) void windows.detach().catch(() => undefined)
+		const connection = this.connection
+		this.connection = undefined
+		if (connection) void connection.detach().catch(() => undefined)
 		this.tabs.clear()
 		this.activeTabId = undefined
 		this.pendingDialog = undefined
@@ -569,21 +492,21 @@ export class PlaywrightBrowserHost implements BrowserHost {
 		// The Windows browser is shared with every other holder of the
 		// profile, or is to stay open: disconnect without closing it.
 		const context = this.context
-		const windows = this.windows
-		if (!context || !windows) return
-		this.windows = undefined
+		const connection = this.connection
+		if (!context || !connection) return
+		this.connection = undefined
 		this.forget(context)
-		await windows.detach().catch(() => undefined)
+		await connection.detach().catch(() => undefined)
 	}
 
 	/** Close the browser now, whatever the leases say. */
 	async close(): Promise<void> {
 		const context = this.context
 		if (!context) return
-		const windows = this.windows
-		this.windows = undefined
+		const connection = this.connection
+		this.connection = undefined
 		this.forget(context)
-		if (windows) await windows.close().catch(() => undefined)
+		if (connection) await connection.close().catch(() => undefined)
 		else await context.close().catch(() => undefined)
 	}
 
