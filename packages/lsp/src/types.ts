@@ -27,6 +27,7 @@
  */
 export type {
 	CodeNavigationProvider,
+	CodeNavigationRequestOptions,
 	CodeNavigationResult,
 	HoverResult,
 	SourceLocation,

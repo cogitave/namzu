@@ -300,4 +300,61 @@ describe('routing by extension', () => {
 		// repository. Nobody looked.
 		expect(result.kind).toBe('unsupported')
 	})
+
+	it('reports an interrupted fan-out as interrupted, not as an empty list', async () => {
+		const provider = new RoutingCodeNavigationProvider({
+			routes: [{ extensions: ['.ts'], server: { command: 'x', rootDir: WORKSPACE } }],
+			createProvider: () => ({
+				definition: async () => ({ kind: 'locations', locations: [] }),
+				references: async () => ({ kind: 'locations', locations: [] }),
+				hover: async () => ({ kind: 'hover', contents: '' }),
+				symbols: async () => ({ kind: 'interrupted', reason: 'the turn was stopped' }),
+				dispose: async () => {},
+			}),
+		})
+		open.push(provider)
+
+		const result = await provider.symbols('computeTotal')
+
+		// `symbols: []` would read as "the name does not exist in the
+		// repository", and `failed` as a resolver that broke — neither is true
+		// when the caller stopped the search itself, so the fan-out hands back
+		// the reason the caller supplied rather than either of them.
+		expect(result.kind).toBe('interrupted')
+		if (result.kind !== 'interrupted') return
+		expect(result.reason).toBe('the turn was stopped')
+	})
+
+	it('keeps a partial answer when one route was interrupted and another found symbols', async () => {
+		const provider = new RoutingCodeNavigationProvider({
+			routes: [
+				{ extensions: ['.ts'], server: { command: 'ts-server', rootDir: WORKSPACE } },
+				{ extensions: ['.py'], server: { command: 'py-server', rootDir: WORKSPACE } },
+			],
+			createProvider: (options) => ({
+				definition: async () => ({ kind: 'locations', locations: [] }),
+				references: async () => ({ kind: 'locations', locations: [] }),
+				hover: async () => ({ kind: 'hover', contents: options.command }),
+				symbols: async () =>
+					options.command === 'py-server'
+						? { kind: 'interrupted', reason: 'the turn was stopped' }
+						: {
+								kind: 'symbols',
+								symbols: [{ name: 'computeTotal', path: '/w/a.ts', line: 3, character: 0 }],
+							},
+				dispose: async () => {},
+			}),
+		})
+		open.push(provider)
+
+		const result = await provider.symbols('computeTotal')
+
+		// A symbol another language did find is a real answer even though the
+		// route that was stopped never got to speak. Throwing it away for
+		// `interrupted` would hide what was found; the rule is that a partial
+		// answer still wins, and only an answerless fan-out is interrupted.
+		expect(result.kind).toBe('symbols')
+		if (result.kind !== 'symbols') return
+		expect(result.symbols.map((s) => s.name)).toEqual(['computeTotal'])
+	})
 })

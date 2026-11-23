@@ -267,3 +267,79 @@ describe('hover and symbols through the tool', () => {
 		expect(seen).toEqual([undefined])
 	})
 })
+describe("the turn's signal", () => {
+	let dir: string
+	beforeEach(() => {
+		dir = mkdtempSync(join(tmpdir(), 'namzu-lsp-'))
+		writeFileSync(join(dir, 'a.ts'), 'export const x = 1\n')
+	})
+	afterEach(() => rmSync(dir, { recursive: true, force: true }))
+
+	it('hands the signal to the provider, so Esc reaches the request', async () => {
+		const seen: (AbortSignal | undefined)[] = []
+		const controller = new AbortController()
+
+		const result = await LspTool.execute(
+			{ operation: 'references', path: 'a.ts', line: 0, character: 13 },
+			{
+				workingDirectory: dir,
+				abortSignal: controller.signal,
+				codeNavigation: providerWith({
+					references: async (_file, _line, _character, options) => {
+						seen.push(options?.signal)
+						return { kind: 'locations', locations: [] }
+					},
+				}),
+			} as ToolContext,
+		)
+
+		expect(result.success).toBe(true)
+		// Identity, not merely "a signal": the point is that the TURN's own
+		// signal reaches the request, so aborting the turn ends the call.
+		expect(seen).toEqual([controller.signal])
+	})
+
+	it('starts nothing when the turn is already stopped', async () => {
+		const calls: string[] = []
+
+		const result = await LspTool.execute({ operation: 'symbols', query: 'computeTotal' }, {
+			workingDirectory: dir,
+			abortSignal: AbortSignal.abort(),
+			codeNavigation: providerWith({
+				symbols: async () => {
+					calls.push('symbols')
+					return { kind: 'symbols', symbols: [] }
+				},
+			}),
+		} as ToolContext)
+
+		// A stopped turn must not pay for spawning a language server.
+		expect(calls).toEqual([])
+		expect(result.success).toBe(false)
+		expect(result.error).toContain('interrupted')
+	})
+
+	it('reads a stopped answer as interrupted, not as a broken server', async () => {
+		const result = await LspTool.execute(
+			{ operation: 'references', path: 'a.ts', line: 0, character: 13 },
+			{
+				workingDirectory: dir,
+				abortSignal: new AbortController().signal,
+				codeNavigation: providerWith({
+					references: async () => ({
+						kind: 'interrupted',
+						reason: 'the turn was stopped before the server answered',
+					}),
+				}),
+			} as ToolContext,
+		)
+
+		expect(result.success).toBe(false)
+		expect(result.error).toContain('interrupted')
+		expect(result.error).toContain('unknown rather than empty')
+		// The distinction the union exists for: a failure says the resolver
+		// broke, which invites a different next move.
+		expect(result.error).not.toContain('Code navigation failed')
+		expect(result.data).toMatchObject({ operation: 'references', interrupted: true })
+	})
+})

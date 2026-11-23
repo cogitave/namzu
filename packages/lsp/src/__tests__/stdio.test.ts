@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, watch } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -361,4 +361,115 @@ describe('dispose', () => {
 		// from having looked.
 		expect(result.kind).toBe('failed')
 	}, 30_000)
+})
+/**
+ * Resolve once the server has recorded `method`, observed through the file
+ * system rather than by polling a clock: the record is written by the child
+ * as it receives the request, so waiting for it is deterministic on any host.
+ */
+async function waitForRecorded(file: string, method: string): Promise<void> {
+	const recorded = () => existsSync(file) && readFileSync(file, 'utf8').split('\n').includes(method)
+	await new Promise<void>((resolve, reject) => {
+		const check = () => {
+			if (!recorded()) return
+			watcher.close()
+			resolve()
+		}
+		const watcher = watch(dirname(file), check)
+		watcher.on('error', (err) => {
+			watcher.close()
+			reject(err)
+		})
+		check()
+	})
+}
+
+describe('a caller that stops waiting', () => {
+	/**
+	 * A request in flight is answered as `interrupted`, not as a failure and
+	 * not as a timeout: the turn's own signal reached it, so the call ends
+	 * when the person ends it rather than when the provider's deadline does.
+	 */
+	it('interrupts the request in flight, and tells the server to stop working on it', async () => {
+		const temp = mkdtempSync(join(tmpdir(), 'namzu-lsp-abort-'))
+		const marker = join(temp, 'requests.txt')
+		const p = provider({
+			command: process.execPath,
+			args: [join(HERE, '..', '__fixtures__', 'ignores-requests.mjs'), marker],
+			startupTimeoutMs: 20_000,
+			// Far beyond this test's own timeout, so a call that ignores the
+			// signal fails here as a hang instead of passing on the server's
+			// own deadline.
+			requestTimeoutMs: 60_000,
+		})
+
+		try {
+			const controller = new AbortController()
+			const pending = p.references(DECLARATION.file, 0, 0, { signal: controller.signal })
+			await waitForRecorded(marker, 'textDocument/references')
+
+			controller.abort()
+			const result = await pending
+
+			expect(result.kind).toBe('interrupted')
+			if (result.kind !== 'interrupted') return
+			expect(result.reason).toContain('textDocument/references')
+			// Nothing of this call is left waiting: a leaked entry would hold a
+			// timer and reject into a promise nobody is listening to.
+			expect((p as unknown as { pending: Map<number, unknown> }).pending.size).toBe(0)
+
+			// A server grinding through a slow index is told the answer is no
+			// longer wanted, so a stop gives the CPU back too.
+			await waitForRecorded(marker, '$/cancelRequest')
+
+			// Aborting one call is not a broken transport: the server stays alive
+			// for the next call, so a stop does not take navigation away for the
+			// rest of the session.
+			expect((p as unknown as { terminalError?: string }).terminalError).toBeUndefined()
+		} finally {
+			await p.dispose()
+			const index = open.indexOf(p)
+			if (index !== -1) open.splice(index, 1)
+			rmSync(temp, { recursive: true, force: true })
+		}
+	}, 20_000)
+
+	/**
+	 * A server that has not finished starting is the worse case: the startup
+	 * timeout is fifteen seconds by default, and nothing else can end it. The
+	 * caller's signal ends its own wait, while the shared handshake is left
+	 * alone for whoever else is waiting on it.
+	 */
+	it('interrupts a start that has not finished, instead of waiting out the startup timeout', async () => {
+		const p = provider({
+			command: process.execPath,
+			args: ['-e', 'process.stdin.resume()'],
+			startupTimeoutMs: 60_000,
+		})
+
+		const controller = new AbortController()
+		const pending = p.definition(DECLARATION.file, 0, 0, { signal: controller.signal })
+		controller.abort()
+		const result = await pending
+
+		expect(result.kind).toBe('interrupted')
+		if (result.kind !== 'interrupted') return
+		expect(result.reason).toContain('starting')
+	}, 20_000)
+
+	it('answers interrupted before the request is sent, when the signal is already aborted', async () => {
+		const p = provider({
+			command: '/definitely/not/a/language/server',
+			startupTimeoutMs: 3_000,
+		})
+
+		const result = await p.references(DECLARATION.file, 0, 0, {
+			signal: AbortSignal.abort(),
+		})
+
+		// Nothing was spawned: a stopped turn does not start a server it has no
+		// question left to ask, and the answer says who stopped it.
+		expect(result.kind).toBe('interrupted')
+		expect((p as unknown as { child?: unknown }).child).toBeUndefined()
+	}, 20_000)
 })
