@@ -1724,6 +1724,7 @@ export {
 	autoReviewStoppedFeedback,
 	autoReviewUnavailableFeedback,
 	createAutoReviewClassifier,
+	describeCheckFailure,
 	resolveAutoReviewRules,
 } from './runtime/query/auto-review/index.js'
 // What the model is told when a person declines a call without words of their own.

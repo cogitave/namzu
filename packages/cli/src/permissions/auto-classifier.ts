@@ -11,6 +11,7 @@ import {
 	type TokenUsage,
 	type TurnId,
 	createAutoReviewClassifier,
+	describeCheckFailure,
 } from '@namzu/sdk'
 
 import { parseSmallModel } from '../integrations/small-model/route.js'
@@ -148,12 +149,24 @@ export function classifierUnavailableReason(opts: {
 	return undefined
 }
 
-const UNAVAILABLE: Extract<AutoReviewDecision, { verdict: 'block' }> = {
-	verdict: 'block',
-	cause: 'unavailable',
-	stage: 0,
-	reason: 'the check that decides this could not be reached, so the action was not run',
-	latencyMs: 0,
+/** The block for a check that could not be reached, naming the class of failure. */
+function unavailable(why: string): Extract<AutoReviewDecision, { verdict: 'block' }> {
+	return {
+		verdict: 'block',
+		cause: 'unavailable',
+		stage: 0,
+		reason: `the safety check could not be completed (${why}), so the action was not run`,
+		latencyMs: 0,
+	}
+}
+
+/**
+ * The class of a failure to reach the check model, in plain words. A provider
+ * client that cannot be built on this machine is almost always a missing
+ * credential; anything else is classified by the kernel from the error.
+ */
+function whyUnreachable(error: unknown): string {
+	return describeCheckFailure(error)
 }
 
 /**
@@ -240,10 +253,20 @@ export function createSessionClassifier(
 			let decision: AutoReviewDecision
 			try {
 				const classifier = turn ? await classifierFor(turn.sessionId, request.signal) : undefined
-				if (!classifier) return counted(UNAVAILABLE)
+				if (!classifier) {
+					deps.log?.warn('auto review has no model to ask', {
+						'namzu.auto_review.failure': 'no check model',
+					})
+					return counted(unavailable('no check model is available'))
+				}
 				decision = await classifier.review(request)
-			} catch {
-				return counted(UNAVAILABLE)
+			} catch (error) {
+				const why = whyUnreachable(error)
+				deps.log?.warn('auto review could not reach the check model', {
+					'namzu.auto_review.failure': why,
+					'namzu.auto_review.error': error instanceof Error ? error.message : String(error),
+				})
+				return counted(unavailable(why))
 			}
 			if (decision.verdict === 'block' && decision.cause === 'rule') {
 				blocks.unshift({

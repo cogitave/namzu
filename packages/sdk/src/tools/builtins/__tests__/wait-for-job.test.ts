@@ -233,6 +233,9 @@ describe('a bounded wait is an observation that can be resumed', () => {
 			expect(second.output).toContain('END\n')
 			expect(second.output).not.toContain('BEGIN')
 			expect(second.data).toMatchObject({ nextOffset: 10, exitCode: 0 })
+			// The exit is also given as a typed command result, so the turn's record can read a background check.
+			expect(first.facts).toBeUndefined()
+			expect(second.facts).toEqual({ kind: 'command', jobId: 'b00000001', exitCode: 0 })
 		} finally {
 			vi.useRealTimers()
 		}

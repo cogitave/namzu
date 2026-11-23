@@ -369,6 +369,8 @@ export class OutcomeLedger {
 	private couldHaveChangedUnseen = false
 	private writes = 0
 	private readonly checks = new Map<string, CheckState>()
+	/** Background jobs that run a recognised check, by job id: the command they run. */
+	private readonly jobChecks = new Map<string, string>()
 	private unrecorded = false
 	private settled: TurnOutcome | undefined
 
@@ -486,6 +488,19 @@ export class OutcomeLedger {
 		// answers for exactly the state they left.
 		let pending: CheckState[] = []
 		for (const call of calls) {
+			// A check started as a background job is not a result yet; the wait that
+			// reads its exit is. Remember which command the job runs.
+			if (
+				call.launched === true &&
+				call.toolName === 'bash' &&
+				call.facts?.kind === 'command' &&
+				call.facts.jobId !== undefined
+			) {
+				const started = commandOf(call.input)
+				if (started !== undefined && runsRecognisedCheck(started, this.config.isCheck)) {
+					this.jobChecks.set(call.facts.jobId, started)
+				}
+			}
 			// A call that did not run, or only started work elsewhere, changed nothing here.
 			if (call.skipped === true || call.notRun === true || call.launched === true) continue
 			const written = WRITING_TOOLS.has(call.toolName)
@@ -498,7 +513,16 @@ export class OutcomeLedger {
 				continue
 			}
 			if (written) continue
-			const command = call.toolName === 'bash' ? commandOf(call.input) : undefined
+			// The exit of a background check, read by `wait_for_job`, is that check's
+			// result: the job's own command, with the exit code the wait reported.
+			const jobCommand =
+				call.toolName === 'wait_for_job' &&
+				call.facts?.kind === 'command' &&
+				call.facts.jobId !== undefined &&
+				call.facts.exitCode !== undefined
+					? this.jobChecks.get(call.facts.jobId)
+					: undefined
+			const command = call.toolName === 'bash' ? commandOf(call.input) : jobCommand
 			if (command !== undefined && runsRecognisedCheck(command, this.config.isCheck)) {
 				this.afterEveryCheck('other')
 				for (const check of pending) check.fingerprint = null

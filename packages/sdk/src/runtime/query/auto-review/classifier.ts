@@ -45,6 +45,7 @@ import {
 import { SCOPE_ATTRIBUTE } from '../../../utils/log/types.js'
 import { type Logger, resolveLogger } from '../../../utils/logger.js'
 import { chatStreamWithSamplingRepair } from '../iteration/side-call.js'
+import { describeCheckFailure } from './failure.js'
 import { renderGitStatus } from './git-status.js'
 import {
 	STAGE_ONE_INSTRUCTION,
@@ -426,11 +427,17 @@ export function createAutoReviewClassifier(
 			if (request.signal?.aborted) {
 				return blocked(started, 0, 'aborted', 'the review was cancelled before it finished')
 			}
+			const why = describeCheckFailure(error, options.quickDeadlineMs ?? 60_000)
+			log.warn('auto review could not complete', {
+				'namzu.auto_review.stage': 1,
+				'namzu.auto_review.failure': why,
+				'namzu.auto_review.error': error instanceof Error ? error.message : String(error),
+			})
 			return blocked(
 				started,
 				0,
 				'unavailable',
-				'the safety check could not be completed, so the action was not run',
+				`the safety check could not be completed (${why}), so the action was not run`,
 			)
 		}
 		const first = parseVerdict(quick)
@@ -447,11 +454,17 @@ export function createAutoReviewClassifier(
 			if (request.signal?.aborted) {
 				return blocked(started, 1, 'aborted', 'the review was cancelled before it finished')
 			}
+			const why = describeCheckFailure(error, options.reasonedDeadlineMs ?? 120_000)
+			log.warn('auto review could not complete', {
+				'namzu.auto_review.stage': 2,
+				'namzu.auto_review.failure': why,
+				'namzu.auto_review.error': error instanceof Error ? error.message : String(error),
+			})
 			return blocked(
 				started,
 				1,
 				'unavailable',
-				'a first look flagged this action and the closer look could not be completed',
+				`a first look flagged this action and the closer look could not be completed (${why})`,
 			)
 		}
 		const second = parseVerdict(careful)

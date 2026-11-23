@@ -27,7 +27,8 @@ export function outcomeLine(
 	cwd?: string,
 ): string | undefined {
 	if (outcome === undefined) return undefined
-	const { verdict, changes, checks } = outcome
+	const { verdict, changes } = outcome
+	const checks = newestPerCommand(outcome.checks)
 	if (verdict === 'unchanged') return undefined
 	if (verdict === 'unknown') return 'A command ran that may have changed files · cannot tell'
 
@@ -73,6 +74,22 @@ export function outcomeLine(
 			return `${lead} · ${ran(passed)} passed, but it is not known whether files changed after it`
 		}
 	}
+}
+
+/**
+ * The newest result of each distinct command, in the order the commands last
+ * ran. A check that failed and then passed is a pass: the line must not name
+ * the old failure. The record is already reduced this way; this keeps a line
+ * built from a record that was not (an older log, a merged one) honest too.
+ */
+function newestPerCommand(checks: readonly TurnOutcomeCheck[]): TurnOutcomeCheck[] {
+	const newest = new Map<string, TurnOutcomeCheck>()
+	for (const check of checks) {
+		const key = check.command.trim().replace(/\s+/g, ' ')
+		newest.delete(key)
+		newest.set(key, check)
+	}
+	return [...newest.values()]
 }
 
 /**

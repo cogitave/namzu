@@ -135,8 +135,12 @@ export interface PerCallReviewDeps {
  * - An answer that grants something (a remembered approval, a changed rule or
  *   mode on the host's side) re-checks the questions still open, and any call
  *   the new state covers is let through unasked. A re-check never refuses.
- * - A plain refusal ends the turn: the questions still open close, calls not
- *   yet started are refused without being asked, calls in flight are cancelled.
+ * - A refusal that ends the turn closes the questions still open and refuses,
+ *   without asking, the calls that would have needed one. Calls that need no
+ *   review (a read, a search, a call a rule already allowed) still run, and
+ *   calls already running are left to finish: the refusal is about the call
+ *   it answered. Only the host stopping the turn (`cancelled`) cancels what
+ *   is running and starts nothing more.
  * - Every refusal and every call that could not be matched to a reviewed
  *   summary is a refusal. Nothing is approved by the absence of an answer.
  */
@@ -266,6 +270,10 @@ export class PerCallReview implements ReviewedExecution {
 			})
 			return { run: true }
 		}
+		// A refusal ended the turn while this call waited its turn: nobody is asked
+		// about it any more. It is refused here; a call that needed no question was
+		// let through above.
+		if (this.#endsTurn) return { run: false, reason: REFUSED_WITH_THE_TURN }
 		const interpreted = await this.#ask([summary], leave)
 		this.#noteEnd(interpreted)
 		const verdict = interpreted.verdicts.get(summary.id) ?? {
@@ -372,7 +380,9 @@ export class PerCallReview implements ReviewedExecution {
 			ask.closedBy ??= 'ended'
 			ask.controller.abort()
 		}
-		this.#endController.abort(new Error('the user stopped the turn'))
+		// A refusal stops the turn without cancelling what is running or what
+		// needs no review; only the host stopping it does.
+		if (cancelled) this.#endController.abort(new Error('the user stopped the turn'))
 	}
 
 	/** One request to the handler about `calls`, and what its answer means for each. */

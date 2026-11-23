@@ -257,3 +257,34 @@ describe('goalEndingLine', () => {
 		expect((line?.model ?? []).join('')).not.toMatch(/[\u202e\u200b]/)
 	})
 })
+
+describe('a check that failed and was run again', () => {
+	it('names only the newest result of each command', () => {
+		const line = outcomeLine(
+			outcome({
+				verdict: 'failing',
+				checks: [
+					{ command: 'pnpm  test', step: 2, result: 'failed', exitCode: 1 },
+					{ command: 'pnpm lint', step: 3, result: 'failed', exitCode: 1 },
+					{ command: 'pnpm test', step: 5, result: 'passed', exitCode: 0 },
+				],
+			}),
+		)
+		// The old failure of `pnpm test` is gone; only the lint failure remains, with nothing more.
+		expect(line).toBe('Changed 4 files · pnpm lint failed')
+	})
+
+	it('counts the other failing commands, not the same command twice', () => {
+		const line = outcomeLine(
+			outcome({
+				verdict: 'failing',
+				checks: [
+					{ command: 'pnpm test', step: 2, result: 'failed', exitCode: 1 },
+					{ command: 'pnpm test', step: 3, result: 'failed', exitCode: 1 },
+					{ command: 'pnpm lint', step: 4, result: 'failed', exitCode: 1 },
+				],
+			}),
+		)
+		expect(line).toBe('Changed 4 files · pnpm test failed (and 1 more)')
+	})
+})
