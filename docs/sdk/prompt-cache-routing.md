@@ -31,7 +31,22 @@ system message was joined into `instructions`, so a preamble that changed each
 step changed the first bytes of the request and no request shared a cache
 prefix with the one before it.
 
-Not yet confirmed against the live subscription backend: that it accepts a `developer`-role item in `input` and the `session_id` header. Confirm with one real round trip before a release.
+## If the backend refuses the new shape
+
+Whether the subscription backend accepts a `developer`-role item in `input` and
+the `session_id` header is not provable without a live call, so the driver
+guards it. A request that fails with HTTP 400 (the client's bad-request error)
+whose message names the role, `developer`, `input[...]`, `session_id` or
+`prompt_cache_key` is resent once in the previous shape: every system message
+joined into `instructions`, no developer items, no `session_id` header (and no
+`prompt_cache_key` when the message named it). The downgrade is remembered for
+the rest of the process, so later requests go straight to the old shape and
+nothing is resent twice. No other error is retried, and the resend only
+happens when the request itself was refused, before any output streamed. The
+cost of the downgrade is the cache sharing described above, not a failed turn.
+
+Still to confirm against the live backend with one real round trip: that the
+new shape is accepted, so the fallback never needs to fire.
 
 The turn record already keeps the cached share of each call's prompt tokens
 (`cachedTokens` on the usage and the `cache read tokens` span attribute); read
