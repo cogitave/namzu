@@ -203,7 +203,7 @@ async function runPurge(
 			return EXIT_OK
 		}
 	}
-	const outcomes = await executePurge(plan, { all })
+	const outcomes = await executePurge(plan, { all }, seams.seams)
 	formatter.print({ outcomes, text: renderPurgeOutcome(outcomes) })
 	return outcomes.some((outcome) => outcome.failed.length > 0) || blocked.length > 0
 		? EXIT_FAIL

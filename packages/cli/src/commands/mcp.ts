@@ -172,6 +172,11 @@ export const mcpCommand: CommandDef = {
 	handler: async ({ ctx, rawArgs }) => {
 		const action = parseMcpAction(rawArgs)
 		if (action.kind === 'error') {
+			// A retired spelling is the bare line naming the new form, as for a retired command.
+			if (action.message === RETIRED_ENV || action.message === RETIRED_HEADER) {
+				process.stderr.write(`${action.message}\n`)
+				return EXIT_USAGE
+			}
 			ctx.formatter.error({ message: action.message })
 			return EXIT_USAGE
 		}

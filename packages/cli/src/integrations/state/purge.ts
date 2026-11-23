@@ -422,6 +422,7 @@ function dropIndexRows(path: string, slug: string): void {
 export async function executePurge(
 	plan: PurgePlan,
 	options: { readonly all: boolean },
+	seams: PurgeSeams = {},
 ): Promise<PurgeOutcome[]> {
 	const realHome = await realHomeOf(plan.home)
 	const outcomes: PurgeOutcome[] = []
@@ -431,6 +432,18 @@ export async function executePurge(
 		if (realHome === null || project.blocked !== undefined) {
 			outcomes.push({ slug: project.slug, deleted, failed })
 			continue
+		}
+		// The plan may be minutes old (a person reads the list and answers a
+		// prompt): look again for a session that started since.
+		if (project.items.some((item) => item.path === join(realHome, 'projects', project.slug))) {
+			const holder = await liveHolder(join(realHome, 'projects', project.slug), seams)
+			if (holder !== null) {
+				failed.push(
+					`${project.slug}: a session of this project is running${holder.pid === undefined ? '' : ` (process ${holder.pid})`}; left alone, stop it first`,
+				)
+				outcomes.push({ slug: project.slug, deleted, failed })
+				continue
+			}
 		}
 		const folders = new Set<string>(project.folders)
 		for (const item of project.items) {

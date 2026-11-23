@@ -71,6 +71,7 @@ function run(
 		terminal?: boolean
 		answer?: boolean
 		seams?: PurgeSeams
+		beforeAnswer?: () => void
 	} = {},
 ) {
 	const printed: string[] = []
@@ -92,6 +93,7 @@ function run(
 			isTerminal: () => extra.terminal ?? false,
 			confirm: async (q) => {
 				asked.push(q)
+				extra.beforeAnswer?.()
 				return extra.answer ?? false
 			},
 			seams: extra.seams,
@@ -167,6 +169,23 @@ describe('namzu state purge', () => {
 		const r = run(w, ['--yes'], { seams: { isProcessAlive: () => true } })
 		expect(await r.code).toBe(1)
 		expect(r.printed.join('\n')).toContain('is running')
+		expect(existsSync(join(w.home, 'projects', w.slug, 'sess1.jsonl'))).toBe(true)
+	})
+
+	it('leaves a project alone when a session starts while the prompt is open', async () => {
+		const w = await world('late')
+		const r = run(w, [], {
+			terminal: true,
+			answer: true,
+			seams: { isProcessAlive: () => true },
+			beforeAnswer: () =>
+				writeFileSync(
+					join(w.home, 'projects', w.slug, 'sess1', 'lease.1.json'),
+					JSON.stringify({ holder: 'someone', expiresAt: Date.now() + 3_600_000 }),
+				),
+		})
+		expect(await r.code).toBe(1)
+		expect(r.printed.join('\n')).toContain('left alone')
 		expect(existsSync(join(w.home, 'projects', w.slug, 'sess1.jsonl'))).toBe(true)
 	})
 
