@@ -26,6 +26,8 @@ export interface RuntimeCommand {
 	extraEnv?: Readonly<Record<string, string>>
 	/** The app's own version, told to the host at initialize. Read from the app, never written here. */
 	clientVersion?: string
+	/** Capabilities added to the app's own at each `initialize`, read when the host starts. */
+	capabilities?: () => readonly string[]
 	/**
 	 * Chooses the engine at every start. When present, `program`, `args` and `env` above are only
 	 * the defaults the launcher's spawn specification is laid over.
@@ -45,6 +47,15 @@ export class RuntimeClient extends EventEmitter {
 	private palInboxStart = false
 	supportsPalInboxStart(): boolean {
 		return this.palInboxStart
+	}
+	private agentBrowserPane = false
+	/**
+	 * The engine takes the Browser pane's events (`namzu/browser/pane/event` and `/state`), so its
+	 * browser tools can work in a tab of the pane. Whether it does is up to the engine at each
+	 * session: it asks for the pane only when this app named the capability at `initialize`.
+	 */
+	supportsAgentBrowserPane(): boolean {
+		return this.agentBrowserPane
 	}
 	private palComputerControl = false
 	supportsPalComputerControl(): boolean {
@@ -379,7 +390,7 @@ export class RuntimeClient extends EventEmitter {
 		})
 		const result = (await this.request(
 			'initialize',
-			desktopInitializeParams(command.clientVersion),
+			desktopInitializeParams(command.clientVersion, command.capabilities?.()),
 			30_000,
 		)) as AcpInitializeResult
 		this.promptAttachments = result.promptAttachments === true
@@ -421,6 +432,7 @@ export class RuntimeClient extends EventEmitter {
 		this.pals = offers('pals')
 		this.palInboxStart = offers('palInboxStart')
 		this.palComputerControl = offers('palComputerControl')
+		this.agentBrowserPane = offers('agentBrowserPane')
 		if (
 			result.agentInfo?.name !== 'namzu' ||
 			!REQUIRED_EXTENSIONS.every((method) => result.extensions?.includes(method))
@@ -469,6 +481,18 @@ export class RuntimeClient extends EventEmitter {
 	}
 	answer(id: string | number, result: unknown): void {
 		this.write({ jsonrpc: '2.0', id, result })
+	}
+	/** Answers a request of the host with an error: plain words, and a stable word to pick wording by. */
+	answerError(id: string | number, code: number, message: string, reason?: string): void {
+		this.write({
+			jsonrpc: '2.0',
+			id,
+			error: { code, message, ...(reason ? { data: { code: reason } } : {}) },
+		})
+	}
+	/** Says something to the host that needs no answer. */
+	notify(method: string, params: Record<string, unknown>): void {
+		this.write({ jsonrpc: '2.0', method, params })
 	}
 	private write(value: unknown): void {
 		if (!this.child || this.closed) return

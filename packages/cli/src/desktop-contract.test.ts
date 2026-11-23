@@ -21,6 +21,7 @@ import ts from 'typescript'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { removeTempDir } from './__fixtures__/temp-dir.js'
 import { runCli } from './cli.js'
+import { BROWSER_PANE_CAPABILITY, BROWSER_PANE_METHODS } from './commands/acp-browser-pane.js'
 import {
 	QUESTION_CLOSED_NOTIFICATION,
 	QUESTION_NOTIFICATION,
@@ -69,7 +70,11 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 interface Inventory {
 	schema: number
 	desktopContract: number
-	initialize: { agentName: string; answerFieldsRead: string[] }
+	initialize: {
+		client: { capabilities: string[]; optionalCapabilities: string[] }
+		agentName: string
+		answerFieldsRead: string[]
+	}
 	coreMethods: string[]
 	requiredMethods: string[]
 	optionalGroups: Record<string, string[]>
@@ -287,6 +292,9 @@ describe('every recorded name still exists in what the host offers', () => {
 			'cli TERMINAL_NOTIFICATIONS.exit': TERMINAL_NOTIFICATIONS.exit,
 			'cli EXTENSIONS_STATE_NOTIFICATION': EXTENSIONS_STATE_NOTIFICATION,
 			'sdk ACP_CLIENT_REQUESTS.REQUEST_PERMISSION': ACP_CLIENT_REQUESTS.REQUEST_PERMISSION,
+			'cli BROWSER_PANE_METHODS.open': BROWSER_PANE_METHODS.open,
+			'cli BROWSER_PANE_METHODS.cdp': BROWSER_PANE_METHODS.cdp,
+			'cli BROWSER_PANE_METHODS.close': BROWSER_PANE_METHODS.close,
 		}
 		const recorded = [
 			...inventory.notifications.consumed,
@@ -296,6 +304,15 @@ describe('every recorded name still exists in what the host offers', () => {
 			.filter((entry) => sources[entry.from] !== entry.name)
 			.map((entry) => `${entry.name} (${entry.from} is ${sources[entry.from] ?? 'unknown'})`)
 		expect(wrong, `Notification names changed: ${wrong.join(', ')}\n${RULE}`).toEqual([])
+	})
+
+	it('serves the Browser pane group whole, and names the capability the app announces for it', () => {
+		expect(inventory.initialize.client.optionalCapabilities).toEqual([BROWSER_PANE_CAPABILITY])
+		expect(inventory.optionalGroups.agentBrowserPane?.sort()).toEqual(
+			[BROWSER_PANE_METHODS.event, BROWSER_PANE_METHODS.state].sort(),
+		)
+		// A capability is not a method: it is never in a table of methods.
+		expect(offered).not.toContain(BROWSER_PANE_CAPABILITY)
 	})
 
 	it('keeps the extension methods the Extensions page probes as one group', () => {

@@ -1,5 +1,16 @@
 export { PlaywrightBrowserHost } from './host.js'
 export type { PlaywrightBrowserHostOptions } from './host.js'
+export type {
+	BrowserContextProvider,
+	ExternalConnection,
+	OpenedBrowserContext,
+	ProviderServices,
+} from './context-providers.js'
+export { PaneProvider, createPaneProvider } from './pane-provider.js'
+export type { PaneProviderOptions } from './pane-provider.js'
+export { createPaneTransport, refuseOutsideThePane } from './pane-transport.js'
+export type { PaneTransport, PaneTransportOptions } from './pane-transport.js'
+export type { PaneChannel, PaneEvent, PaneTabRef } from './pane-channel.js'
 export {
 	detectBrowserEnvironment,
 	isWsl,

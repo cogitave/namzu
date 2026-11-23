@@ -20,6 +20,31 @@ if (process.argv[2] === "hooks" && process.env.NAMZU_E2E_NO_HOOKS_COMMAND) {
 	process.exit(2);
 }
 createRequire(import.meta.url)("./redirect-fetch.cjs");
+// A flow about the sign-in card for a page in the Browser pane: the engine that would say so is not under
+// test here, so the one answer that carries a handoff is rewritten to name the pane. Nothing else changes.
+if (process.env.NAMZU_E2E_HANDOFF_WINDOW === "pane") {
+	const write = process.stdout.write.bind(process.stdout);
+	process.stdout.write = (chunk, ...rest) => {
+		const text = typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8");
+		if (!text.includes('"handoff"')) return write(chunk, ...rest);
+		const lines = text.split("\n").map((line) => {
+			if (!line.includes('"handoff"')) return line;
+			try {
+				const message = JSON.parse(line);
+				const handoff = message?.result?.handoff;
+				if (handoff) {
+					handoff.window = "pane";
+					delete handoff.loginCommand;
+				}
+				return JSON.stringify(message);
+			} catch {
+				return line;
+			}
+		});
+		return write(lines.join("\n"), ...rest);
+	};
+}
+
 // A flow about time (an idle conversation, an expiry) moves the engine's clock with a preload of its
 // own, named here, instead of waiting. Nothing else changes; without the variable the clock is real.
 if (process.env.NAMZU_E2E_CLOCK_PRELOAD) createRequire(import.meta.url)(process.env.NAMZU_E2E_CLOCK_PRELOAD);

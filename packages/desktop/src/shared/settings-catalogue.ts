@@ -862,12 +862,12 @@ export const SETTINGS_CATALOGUE: readonly CatalogueEntry[] = [
 				{
 					value: 'quit',
 					label: 'Until you quit',
-					help: 'Every conversation shares one set of sign-ins, forgotten when Namzu closes.',
+					help: 'Every conversation shares one set of sign-ins, forgotten when Namzu closes. A page Namzu opens for a task can use a sign-in made in another conversation.',
 				},
 				{
 					value: 'restarts',
 					label: 'Across restarts',
-					help: 'Sign-ins are kept on this computer and shared by every conversation.',
+					help: 'Sign-ins are kept on this computer and shared by every conversation. A page Namzu opens for a task can use a sign-in made in another conversation.',
 				},
 				{
 					value: 'conversation',
@@ -889,6 +889,44 @@ export const SETTINGS_CATALOGUE: readonly CatalogueEntry[] = [
 			'browser pane',
 			'privacy',
 			'remember',
+		],
+	},
+	{
+		id: 'agent-browser',
+		key: 'agentBrowser',
+		owner: 'desktop',
+		section: 'tools',
+		label: 'Where Namzu browses',
+		description: 'Where the pages Namzu opens for you show up.',
+		control: {
+			kind: 'select',
+			options: [
+				{
+					value: 'pane',
+					label: 'In the built-in browser',
+					help: 'Namzu works in a tab you can watch, and you sign in there yourself.',
+				},
+				{
+					value: 'window',
+					label: 'In its own window',
+					help: 'Namzu opens a separate browser window, with sign-ins of its own.',
+				},
+			],
+		},
+		default: 'pane',
+		appliesWhen: 'next-conversation',
+		appliesNote:
+			'Applies to a conversation the next time its project opens. A browser Namzu is using now stays where it is.',
+		keywords: [
+			'browser',
+			'browse',
+			'browser pane',
+			'tab',
+			'window',
+			'chromium',
+			'agent browser',
+			'web',
+			'sign-in',
 		],
 	},
 	{

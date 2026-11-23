@@ -179,6 +179,20 @@ export function useBrowserPane(
 		: undefined
 }
 
+/** The mark of a tab Namzu opened: a dot that pulses while a call is on the page. */
+export function AgentMark({ working }: { working?: boolean | undefined }) {
+	return <span className="agent-mark" data-working={working || undefined} aria-hidden="true" />
+}
+
+/** What the strip under the address bar says about an agent's tab, in plain words. */
+export function agentStatusWords(tab: {
+	control?: 'agent' | 'person' | undefined
+	working?: boolean | undefined
+}): string {
+	if (tab.control === 'person') return 'You have control'
+	return tab.working ? 'Namzu is using this tab · working' : 'Namzu is using this tab'
+}
+
 /** The tabs in the Browser pane's header: the page titles and a plus. */
 export function BrowserTabs({ browser }: { browser: BrowserPane | undefined }) {
 	const tabs = browser?.state?.tabs ?? []
@@ -190,8 +204,16 @@ export function BrowserTabs({ browser }: { browser: BrowserPane | undefined }) {
 					? tabs.map((tab) => ({
 							id: tab.id,
 							label: tab.title,
-							title: tab.address || tab.title,
-							icon: <GlobeIcon aria-hidden="true" />,
+							title:
+								tab.owner === 'agent'
+									? `Namzu is using this tab · ${tab.address || tab.title}`
+									: tab.address || tab.title,
+							icon:
+								tab.owner === 'agent' ? (
+									<AgentMark working={tab.working} />
+								) : (
+									<GlobeIcon aria-hidden="true" />
+								),
 						}))
 					: [{ id: 'blank', label: 'Browser', icon: <GlobeIcon aria-hidden="true" />, fixed: true }]
 			}
@@ -328,6 +350,47 @@ export function BrowserBody({ browser }: { browser: BrowserPane | undefined }) {
 					}}
 				/>
 			</div>
+			{tab?.owner === 'agent' && (
+				<div
+					className="browser-agent-bar"
+					data-testid="agent-tab-bar"
+					data-control={tab.control ?? 'agent'}
+					data-working={tab.working || undefined}
+				>
+					<AgentMark working={tab.working} />
+					<output
+						className="browser-agent-words"
+						title={
+							tab.control === 'person'
+								? 'You have control of this tab. Namzu is paused until you hand it back.'
+								: agentStatusWords(tab)
+						}
+					>
+						{agentStatusWords(tab)}
+					</output>
+					{tab.control === 'person' ? (
+						<Button
+							type="button"
+							size="xs"
+							variant="outline"
+							data-action="hand-back"
+							onClick={() => act?.({ kind: 'handback', tabId: tab.id })}
+						>
+							Hand back
+						</Button>
+					) : (
+						<Button
+							type="button"
+							size="xs"
+							variant="outline"
+							data-action="take-over"
+							onClick={() => act?.({ kind: 'takeover', tabId: tab.id })}
+						>
+							Take over
+						</Button>
+					)}
+				</div>
+			)}
 			{state?.notice && <output className="browser-notice">{state.notice}</output>}
 			<div className="browser-page" ref={page} data-loading={tab?.loading || undefined}>
 				{state?.still && (

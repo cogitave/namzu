@@ -80,6 +80,7 @@ it('reads a stored file entry by entry and ignores what it does not know', () =>
 		voiceShortcut: '',
 		autoOpenFiles: true,
 		browserCookies: 'conversation',
+		agentBrowser: 'pane',
 		openLinksInBrowser: true,
 		lastSettingsSection: 'general',
 	})
@@ -124,6 +125,7 @@ it('documents the defaults the spec names', () => {
 		voiceShortcut: '',
 		autoOpenFiles: true,
 		browserCookies: 'conversation',
+		agentBrowser: 'pane',
 		openLinksInBrowser: true,
 		lastSettingsSection: 'general',
 	})
@@ -296,6 +298,7 @@ it('keeps the built-in browser rows: files that open by themselves, how long sig
 	expect(DEFAULT_DESKTOP_SETTINGS).toMatchObject({
 		autoOpenFiles: true,
 		browserCookies: 'conversation',
+		agentBrowser: 'pane',
 		openLinksInBrowser: true,
 	})
 	expect(

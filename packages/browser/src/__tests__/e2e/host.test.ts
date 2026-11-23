@@ -15,11 +15,12 @@ import { type Page, chromium } from 'playwright-core'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import type { LocalBrowserPlan } from '../../detect.js'
 import { ProfileBusyError } from '../../errors.js'
-import { PlaywrightBrowserHost } from '../../host.js'
+import { PlaywrightBrowserHost, type PlaywrightBrowserHostOptions } from '../../host.js'
 import { countCredentialFields } from '../../page-scripts.js'
 import { locateRef } from '../../snapshot.js'
 import { FIXTURE_EXPECTATIONS } from '../fixture-signals.js'
 import { type FixtureServer, startFixtureServer } from './fixture-server.js'
+import { chromiumPaneProvider } from './pane-chromium-channel.js'
 
 /**
  * Against a real Chromium and a local fixture server. Opt in with
@@ -29,6 +30,18 @@ import { type FixtureServer, startFixtureServer } from './fixture-server.js'
  */
 const E2E = process.env.NAMZU_BROWSER_E2E === '1'
 const HEADED = E2E && process.env.NAMZU_BROWSER_E2E_HEADED === '1'
+/**
+ * NAMZU_BROWSER_E2E_PANE=1 runs this whole suite with the browser coming
+ * from a pane channel over a real Chromium (see pane-chromium-channel.ts)
+ * instead of a launched profile. The behaviour contract is the same.
+ */
+const PANE = E2E && process.env.NAMZU_BROWSER_E2E_PANE === '1'
+
+function newHost(options: PlaywrightBrowserHostOptions): PlaywrightBrowserHost {
+	return new PlaywrightBrowserHost(
+		PANE ? { ...options, provider: chromiumPaneProvider() } : options,
+	)
+}
 
 const plan = (headless: boolean): LocalBrowserPlan => ({
 	engine: 'local',
@@ -116,7 +129,7 @@ describe.skipIf(!E2E)('PlaywrightBrowserHost against a local site', { timeout: 3
 		server = await startFixtureServer()
 		home = mkdtempSync(join(tmpdir(), 'namzu-browser-e2e-'))
 		work = mkdtempSync(join(tmpdir(), 'namzu-browser-e2e-work-'))
-		host = new PlaywrightBrowserHost({
+		host = newHost({
 			home,
 			plan: plan(true),
 			profile: 'e2e',
@@ -135,10 +148,15 @@ describe.skipIf(!E2E)('PlaywrightBrowserHost against a local site', { timeout: 3
 
 	it('does not launch until the first call, then holds a lease on the profile', async () => {
 		expect(host.running).toBe(false)
-		expect(host.capabilities.engine).toBe('local-chromium')
+		expect(host.capabilities.engine).toBe(PANE ? 'pane' : 'local-chromium')
 		await host.observe({ action: 'navigate', url: `${origin()}/index.html` })
 		expect(host.running).toBe(true)
-		expect(readdirSync(join(home, 'browser', 'leases', 'e2e'))).toEqual([`${process.pid}-e2e.json`])
+		// A pane holds no profile, so there is no lease to take.
+		if (!PANE) {
+			expect(readdirSync(join(home, 'browser', 'leases', 'e2e'))).toEqual([
+				`${process.pid}-e2e.json`,
+			])
+		}
 	})
 
 	it('contract: ai-mode snapshot refs resolve through aria-ref (fails if an upgrade changes either)', async () => {
@@ -622,7 +640,7 @@ describe.skipIf(!E2E)('PlaywrightBrowserHost against a local site', { timeout: 3
 			// interrupt the next fixture's navigation.
 			const activeHost =
 				status === 407
-					? new PlaywrightBrowserHost({
+					? newHost({
 							home,
 							plan: plan(true),
 							profile: 'proxy-407',
@@ -772,7 +790,7 @@ describe.skipIf(!E2E)('PlaywrightBrowserHost against a local site', { timeout: 3
 	})
 
 	it('makes popups owned tabs, and blocks one heading for an unasked site', async () => {
-		const fresh = new PlaywrightBrowserHost({
+		const fresh = newHost({
 			home,
 			plan: plan(true),
 			profile: 'popups',
@@ -1052,7 +1070,7 @@ describe.skipIf(!E2E)('PlaywrightBrowserHost against a local site', { timeout: 3
 	})
 
 	it('pages a long snapshot by cursor', async () => {
-		const small = new PlaywrightBrowserHost({
+		const small = newHost({
 			home,
 			plan: plan(true),
 			profile: 'paging',
@@ -1088,7 +1106,7 @@ describe.skipIf(!E2E)('PlaywrightBrowserHost against a local site', { timeout: 3
 	})
 
 	it('refuses a denied site before loading it', async () => {
-		const strict = new PlaywrightBrowserHost({
+		const strict = newHost({
 			home,
 			plan: plan(true),
 			profile: 'strict',
@@ -1268,8 +1286,9 @@ describe.skipIf(!E2E)('PlaywrightBrowserHost against a local site', { timeout: 3
 		})
 	})
 
-	it('refuses a second browser on a profile in use', async () => {
-		const second = new PlaywrightBrowserHost({
+	// A pane has no profile to be in use.
+	it.skipIf(PANE)('refuses a second browser on a profile in use', async () => {
+		const second = newHost({
 			home,
 			plan: plan(true),
 			profile: 'e2e',
@@ -1282,7 +1301,7 @@ describe.skipIf(!E2E)('PlaywrightBrowserHost against a local site', { timeout: 3
 	it('closes the browser and drops the lease on dispose', async () => {
 		await host.dispose()
 		expect(host.running).toBe(false)
-		expect(readdirSync(join(home, 'browser', 'leases', 'e2e'))).toEqual([])
+		if (!PANE) expect(readdirSync(join(home, 'browser', 'leases', 'e2e'))).toEqual([])
 	})
 })
 
@@ -1290,7 +1309,7 @@ describe.skipIf(!HEADED)('PlaywrightBrowserHost headed', { timeout: 60_000 }, ()
 	it('opens a visible window, reads and clicks', async () => {
 		const server = await startFixtureServer()
 		const home = mkdtempSync(join(tmpdir(), 'namzu-browser-headed-'))
-		const host = new PlaywrightBrowserHost({
+		const host = newHost({
 			home,
 			plan: plan(false),
 			profile: 'headed',
@@ -1325,7 +1344,7 @@ describe.skipIf(!E2E)('sign-in detection by page (the default)', { timeout: 30_0
 	beforeAll(async () => {
 		server = await startFixtureServer()
 		home = mkdtempSync(join(tmpdir(), 'namzu-browser-e2e-page-'))
-		host = new PlaywrightBrowserHost({
+		host = newHost({
 			home,
 			plan: plan(true),
 			profile: 'e2e-page',

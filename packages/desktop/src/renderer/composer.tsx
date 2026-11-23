@@ -199,6 +199,7 @@ export function Composer({
 	onApproval,
 	onAnswerQuestion,
 	handoff,
+	onShowHandoffTab,
 	onContinueHandoff,
 	onStopHandoff,
 	attachments,
@@ -330,6 +331,8 @@ export function Composer({
 		| undefined
 	/** A turn a tool paused for the person: the card offers Continue and Stop. */
 	handoff?: DesktopTurnHandoff | undefined
+	/** Reveals the agent's tab in the Browser pane; given only when the card sends the person there. */
+	onShowHandoffTab?: (() => void) | undefined
 	onContinueHandoff?: (() => unknown) | undefined
 	onStopHandoff?: (() => unknown) | undefined
 	attachments: AttachmentView[]
@@ -1009,6 +1012,7 @@ export function Composer({
 							disabled={approvalDisabled}
 							onContinue={onContinueHandoff}
 							onStop={onStopHandoff}
+							{...(onShowHandoffTab ? { onShowTab: onShowHandoffTab } : {})}
 						/>
 					)}
 					{/* A note about the conversation itself sits above the box, never inside what you type in. */}

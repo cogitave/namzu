@@ -95,3 +95,30 @@ describe('askPersonToSignIn', () => {
 		expect(read()).toBe(false)
 	})
 })
+
+describe('BrowserControl and the Browser pane', () => {
+	it('gives the pane to the session’s own profile only', async () => {
+		built.length = 0
+		let asked = 0
+		const control = createBrowserControl(
+			FakeHost as never,
+			{
+				profile: 'work',
+				pane: () => {
+					asked++
+					return {} as never
+				},
+			},
+			() => ({}) as never,
+		)
+		expect(built.at(-1)?.preferredProvider).toBeDefined()
+		const restore = await control.runAs({
+			profile: 'social',
+			sites: { '*': 'ask' },
+		})
+		expect(built.at(-1)?.preferredProvider).toBeUndefined()
+		await restore()
+		expect(built.at(-1)?.preferredProvider).toBeDefined()
+		expect(asked).toBe(2)
+	})
+})
