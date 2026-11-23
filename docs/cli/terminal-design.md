@@ -230,7 +230,8 @@ so above the input frame), not inside the frame: pending rows, then the send-now
 hint, then `Working (…)`, then the input. Each is `❯ <text>` in the grey of a
 message not yet read, one row per message in the order it will be used. A
 Tab-queued row ends with a dim `· after this reply`, so it reads apart from a
-steer. Once a message is sent it is an ordinary `❯ <text>` row, whether it was
+steer; a slash command waiting for the reply ends `· Queued, runs after this reply`
+(`· Queued` when narrow). Once a message is sent it is an ordinary `❯ <text>` row, whether it was
 typed while a reply ran or not: it carries no `sent while working` label, and a
 conversation restored later draws it the same way. (An `N files attached` note
 under a message stays.) Under the last row a dim `ctrl+x ctrl+s to send now` appears while a
@@ -338,8 +339,9 @@ approves nothing already refused. Each change is written to the session log as
 `approval_policy_changed` before anything is decided under it, and the model is
 told once through the kernel's own notice. See [Slash commands](slash-commands.md#keys-that-are-not-commands).
 
-The workflow detail is the exception: it is drawn above the input box, between the
-conversation and the frame, and the footer is not drawn while it is open.
+The workflow detail is the exception: it takes the place of the input box, the frame and
+the footer, directly under the conversation. None of the three is drawn while it is open;
+the box stays mounted, so its draft and cursor are back when the view closes.
 
 Below the footer — not between it and the frame — comes whatever panel owns
 the rest of the screen while agents are live: the automatic delegated-work
@@ -629,7 +631,7 @@ live state belongs to the rail.
   obeyed), `failed: <reason>` (the glyph is red and the sentence is plain text, with no
   duration; the sentence is the error's own text on one line, and
   `Unknown error` stands when nothing says why) or `was stopped by user · 1s`, `was stopped by Namzu ·
-  1s` (the conversation's own agent stopped it with `cancel_agent`), or plain
+  1s` (the conversation's own agent stopped it with `stop_task`), or plain
   `was stopped · 1s` when nobody recorded who (warning). Ctrl+O opens the detailed
   transcript, where the answer is shown whole. The result is not repeated in
   the line and it carries no token count; an agent resumed by a later message
@@ -1436,7 +1438,10 @@ its text while the view scrolls and while output arrives below it; a resize,
 which wraps the rows again, lets go of it.
 
 On release the text is copied (`tui.copyOnSelect: false` keeps it selected and
-makes `ctrl+c` copy it instead, as in `namzu workspaces`). The copy is the
+makes `ctrl+c` copy it instead, as in `namzu workspaces`). While text is selected,
+`ctrl+c` belongs to the selection and never interrupts the reply: it copies a
+selection not yet copied, and lets go of one already copied on release, so the
+next `ctrl+c` is the interrupt. The copy is the
 plain text of the rows: no styling, no gutter glyph, no hanging indent. Rows
 that one line was wrapped over are joined back into that line, with the space
 the wrap broke at or with nothing where it cut a word; separate lines and
@@ -1702,18 +1707,18 @@ and `wait_for_task` outputs name the actual `task_id` and terminal status before
 the child result, so identifiers inside that result remain clearly separate.
 
 The agent cockpit (Enter on `main` or on a workflow row, or on an agent row in `/tasks`) is the workflow detail view described
-under the rail. It is drawn above the message box, never in place of it: the
-conversation stays above, and the message box (waiting while the detail has the
-keys) and the status line stay below. Its height is half of the terminal in the
-full screen view, and elsewhere every row above the message box as it is drawn now
-(its margin, rules, update row and draft lines), the status line, an extension row and
-four rows of the conversation (`rows − 9` for a one-line box). It is never under 12
-rows (8 when the terminal is under 18 rows) while those fit, and gives way to them
-down to 4 rows on a short terminal, so the stack never passes the screen. In the full
-screen view a click on the `hypermode` word on the composer frame opens the effort
-picker, like the effort item in the status line. Keys: `↑↓` or `j`/`k` move,
+under the rail. It takes the place of the message box and the status line: the
+conversation stays above it, nothing of the box or the line is drawn, and the keys are
+the detail's until Esc closes it and the box comes back. Its bordered box fills the rest
+of the screen, at least `max(12, min(avail − 1, rows − 6))` rows and at most
+`max(11, avail − 1)` (8 on a terminal of 24 rows or fewer), where `avail` is the screen
+less ten rows of conversation; the whole detail never passes the screen, down to 4 rows.
+Above the box are a full-width rule, the workflow's name, its description (dim, cut with
+`…`) with the stats flush right, and a blank row; under it, one dim italic key line of
+what applies (`↑↓ select`, `x stop workflow`, `esc back`; on the agents `↑↓ agent`,
+`enter view`, `x skip` or `x stop`). Keys: `↑↓` or `j`/`k` move,
 Enter or `→` goes one level deeper (phases, agents, the agent), `←` or Esc goes one
-level back and closes the view at the top, Space closes it, and `x` stops the
+level back and closes the view at the top, Space closes it (not listed), and `x` stops the
 workflow on its phases or skips the agent on its agents. It has no pause, restart,
 filter or save, because the workflow runtime has none. Its parts: a header with the workflow's name and
 `<done>/<total> agents · <elapsed>`, then `Phases` or one phase's agents, one
@@ -1785,7 +1790,7 @@ The terminal app speaks in the person's terms. `--json`, `namzu exec`, scheduled
 - **The startup header and `/status` write the folder the same way**: from `~` or, when it does not fit, its last folders cut on a separator (`…/hygiene-live/run/proj`), never clipped from the left in the middle of a name. The bypass warning under the header and the bypass question printed before the screen opens wrap on words, with one constant indent on continuation rows, at the terminal's width.
 - **The folder trust prompt says what the folder pre-approves** before the choice. It reads the folder's own settings files (`namzu.config.json`, `.namzu/settings.json`, `.namzu/settings.local.json` and the earlier `namzu.config.local.json`) without applying them and lists the allow rules (`bash(git status *)`, at most eight, the rest counted), the extra directories the folder adds to the workspace, the tool servers its shared file would start and the hooks those files declare and the hook entries its own plugins (`.namzu/plugins/`) ship (each of those ending in the plugin's name, `(plugin review-bot)`), in either shape (each as its event as written and what it would run, a group of the [common shape](../sdk/hooks.md#a-hooks-block-in-the-common-shape) read through to the hooks inside it, such as the command, `POST <address>` or the start of a prompt; at most eight, the rest counted, each line bounded), then one line saying they apply without asking. A folder whose config grants nothing shows nothing extra. The focus rests on the exit choice: `y` trusts, and `enter`, `n` or `esc` exits, so the answer the folder has to earn is never the default and a stray Enter can only leave. An Enter that arrives while the screen is still painting (the launch keystroke) is ignored, as `y` is. The detailed transcript hides the stale mode footer while open; clipping of long descriptions below about 90 columns is not addressed here.
 - **The permission box names things once and keeps its words whole.** A write says what it does to the file (`New file · 3 lines` or `Replaces the existing file · 3 lines`; the title says `· new file` or `· may overwrite` to match) and the question does not repeat the file's name; several writes in one box name each file on its own row. The answers keep a hanging indent when one wraps, and the folder in "don't ask again for … in <folder>" is written from `~` or its last folders. An edit is drawn against the file as it is on disk when the box opens: the removed and added rows are the whole lines the replacement touches, and a line above them says when the text to replace is no longer in the file or now appears more than once. The review wraps on word boundaries (a word wider than a row is still cut so no character is ever hidden). On a workflow review, `d read the whole script` outranks `y / n answer` when the key line is short of room, because it is the only key that shows what will run.
-- **The detailed transcript (`ctrl+o`) and the workflow detail replace the composer's mode footer** rather than drawing under it, so no stale footer row sits above them; both carry their own key line.
+- **The detailed transcript (`ctrl+o`) and the workflow detail replace the composer and its status line** rather than drawing under them, so no stale footer row sits above or below them; both carry their own key line.
 - **One gutter for every tool result.** A shell body, a one-line result and a web result all hang from the same `  ⎿  ` (two columns of indent, the glyph, two spaces), and a wrapped result lines up under its own text.
 - **The stop-all chord's confirm is footer feedback, not a transcript row.** `Press ctrl+x ctrl+k again to stop background agents` (3 s) and `No background agents running` (2 s) replace the footer's hint and then disappear; only the stop itself leaves `● All background agents stopped`, and that is the only row it leaves: the stopped agents write no row of their own and the waiting line ends without a closing line. An agent stopped with Esc, Ctrl+C or the chord reads `was stopped by user` everywhere; one the conversation's own agent stopped reads `by Namzu`.
 - **`/compact` leaves its echo and result where it ran**: on the default screen every row already printed stays above, then `› /compact`, then `✻ Compacted · N messages summarized. The messages above are summarized for the model (ctrl+o to see full summary)`, and the conversation goes on under it; nothing is erased and no row is printed twice. (Fullscreen redraws its own screen and keeps only the turns that stay.) `/context` leaves the `freeing about N tokens` clause out when the reclaimed size is unknown. Every resume path writes the `Resumed:` row with the same dot.

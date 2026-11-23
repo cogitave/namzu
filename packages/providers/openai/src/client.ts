@@ -28,6 +28,7 @@ import type {
 	ChatCompletionToolChoiceOption,
 } from 'openai/resources/chat/completions'
 import { assertFastModeAccepted, isFirstPartyOpenAIEndpoint, servedSpeed } from './fast-mode.js'
+import { declaredContextWindow, firstCount } from './model-limits.js'
 import type { OpenAIConfig } from './types.js'
 
 /**
@@ -148,15 +149,6 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
 		: undefined
 }
 
-/** The first of these fields of `row` that holds a positive safe integer. */
-function firstCount(row: Record<string, unknown> | undefined, wires: readonly string[]) {
-	for (const wire of wires) {
-		const value = row?.[wire]
-		if (typeof value === 'number' && Number.isSafeInteger(value) && value > 0) return value
-	}
-	return undefined
-}
-
 /** A price per token that is a number or a numeric string, as a rate per million tokens. */
 function ratePerMillion(value: unknown): number | undefined {
 	const perToken = typeof value === 'string' && value.trim() !== '' ? Number(value) : value
@@ -194,12 +186,7 @@ function compatibleModelMetadata(model: unknown): Partial<ModelInfo> {
 
 	// Catalogues spell the same limits several ways: the first spelling that holds a positive
 	// integer wins.
-	const contextWindow = firstCount(row, [
-		'context_window_tokens',
-		'context_window',
-		'context_length',
-		'max_model_len',
-	])
+	const contextWindow = declaredContextWindow(row)
 	if (contextWindow !== undefined) result.contextWindow = contextWindow
 	const maxOutputTokens =
 		firstCount(row, ['maximum_output_tokens', 'max_output_tokens', 'max_completion_tokens']) ??

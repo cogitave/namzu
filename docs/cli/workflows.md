@@ -204,8 +204,12 @@ A workflow's agents ask their questions through the review channel of the turn
 that started the workflow, but for as long as the workflow runs, not only for as
 long as that turn does: an approval for an agent's `edit` appears on screen even
 when the model's turn is over, under the permission mode the operator has chosen
-at that moment. Leaving the conversation (`/resume`, `/new`) stops running
-workflows.
+at that moment. A turn that is stopped (Esc, or a refused call that ends the turn)
+does not stop a run it started: a run ends only when it finishes, when it is
+stopped on purpose (`x` in `/workflows`, or the model's `stop_task`), or when the
+program ends it. Leaving the conversation (`/resume`, `/new`) and closing the
+session do the last: the run is cut short, and the notice is kept beside its
+journal (see [Resuming a run](#resuming-a-run)).
 
 Limits come from the configuration below, or the SDK defaults: at most `min(16, CPUs − 2)` agents (at least 2) run at
 once, 1000 start per run, one value crossing the bridge is at most 1 MiB, and the
@@ -295,22 +299,29 @@ the detail, a frameless dialog (side by side from 64 columns, one list at a time
 
 1. **Phases**: the number (turning `✔` or `✘`), the title, and `done/total`.
    Phases the script declared in `meta.phases` are listed from the start in the
-   declared order; one nothing has started in is dim, with no count. Esc goes
-   back to the row. `x` stops the whole run: queued agents never start, running
-   ones are cancelled.
+   declared order; one nothing has started in is dim, with no count. Esc closes
+   the view and the message box has the keyboard again. `x` stops the whole run: queued agents never start, running
+   ones are cancelled. The model can stop a run it started the same way with
+   `stop_task` and the run id (see [Stopping delegated work](delegated-work.md#stopping-delegated-work)):
+   the journal is kept, so a later `workflow` call with `resumeFromRunId` reuses
+   the finished agents.
    A phase whose agents were all skipped shows `✘`, not the tick: the tick is
    for a phase where something finished. The phase's detail text (from
-   `meta.phases`) sits right under its title in the right-hand pane. The last
+   `meta.phases`) shows under its row on narrow terminals only; side by side the
+   agents column starts right under its title. The last
    `log()` line the script wrote shows under the header, the two before it dim
    (three lines from 30 terminal rows, one from 24, none below 24); the rail
    row never shows them.
-   The detail is drawn above the input box, which stays on screen under it, and is sized
-   to what it lists: its header, the log lines and the longer of the phase list and the
-   selected phase's agent list, never under 8 rows and never taller than the free rows
-   (half the screen in the full screen view). A run of one phase and two agents is about
-   ten rows tall, with no blank rows under the last agent; a long list keeps the full
-   height and scrolls.
-2. **`<phase> · N agents · D done`**: each agent as `✔` done, `✘` failed or skipped, `●`
+   The detail takes the place of the input box and the status line, directly under the
+   conversation: while it is open neither is drawn (the box keeps its draft and cursor
+   for when the view closes), and its box fills the rest of the screen whatever it lists,
+   at least `max(12, min(avail − 1, rows − 6))` rows (8 on a terminal of 24 rows or
+   fewer) where `avail` is the screen less ten rows of conversation; a long list scrolls
+   inside it. The key line under the box says only what applies: `↑↓ select · x stop
+   workflow · esc back` on the phases, `↑↓ agent · enter view · x skip · esc back` on the
+   agents (`x stop` for agents that are not a run's). Space still closes the view but is
+   not listed.
+2. **`<phase> · N agents`**: each agent as `✔` done, `✘` failed or skipped, `●`
    running or `◌` queued, with its label, type, model, what it wrote (and, from 110 columns, what it was sent and had cached) and time. A phase
    nothing has started in says `Not started yet`. `x` skips the selected agent:
    a queued one never starts, a running one is cancelled, and its `agent()`
@@ -417,6 +428,15 @@ or was skipped starts running again, and so does everything after it. A call
 that was cut off by a stop or a closed session runs again without ending reuse.
 Resuming a finished run is allowed (every unchanged call replays), and resumes
 compound. Nothing resumes by itself.
+
+A run that was going when the session closed or the person left the
+conversation is told to the model the next time that conversation is opened (the
+same message a run that never recorded an end gets): its run id, how many agents
+had finished, and the `resumeFromRunId` call, with the instruction that when the
+person says to continue the model resumes the run rather than redoing its work
+by hand or starting a new one, and says so in one line. A journal that cannot be
+resumed on this machine is reported as one to start again. A run the person or
+the model stopped is not announced this way: its end was already told.
 
 A resume goes through the same review as a start. It also shows which run it
 continues and what it can reuse:

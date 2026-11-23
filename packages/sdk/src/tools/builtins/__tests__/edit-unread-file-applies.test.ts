@@ -52,7 +52,7 @@ describe('edit on a file the session has not read', () => {
 		)
 		expect(result.success).toBe(false)
 		expect(result.error).toContain('had not been read in this session')
-		expect(result.error).toContain('2\tbeta')
+		expect(result.error).toContain('     2→beta')
 		expect(read()).toBe('alpha\nbeta\ngamma\n')
 	})
 

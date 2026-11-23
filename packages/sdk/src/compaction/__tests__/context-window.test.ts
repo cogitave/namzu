@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import {
 	DEFAULT_ASSUMED_CONTEXT_WINDOW,
 	lookupContextWindow,
+	providerTriggerFraction,
 	resolveContextWindow,
 } from '../context-window.js'
 
@@ -100,5 +101,47 @@ describe('resolveContextWindow', () => {
 		for (const model of [undefined, '', 'unknown', 'claude-opus-5', 'gpt-4']) {
 			expect(resolveContextWindow(undefined, model).tokens).toBeGreaterThan(0)
 		}
+	})
+})
+
+describe('the gpt-6 family', () => {
+	it.each(['gpt-6.2-sol', 'gpt-6.2-astra', 'gpt-6.1-terra', 'gpt-6-luna', 'gpt-6'])(
+		'has no table row for %s: an unknown window is the default guess',
+		(id) => {
+			expect(lookupContextWindow(id)).toBeUndefined()
+			expect(resolveContextWindow(undefined, id)).toEqual({
+				tokens: DEFAULT_ASSUMED_CONTEXT_WINDOW,
+				source: 'default',
+			})
+		},
+	)
+
+	it('takes the provider value, up or down', () => {
+		expect(resolveContextWindow(undefined, 'gpt-6.2-sol', 1_050_000)).toEqual({
+			tokens: 1_050_000,
+			source: 'provider',
+		})
+		expect(resolveContextWindow(undefined, 'gpt-6.2-sol', 200_000)).toEqual({
+			tokens: 200_000,
+			source: 'provider',
+		})
+	})
+
+	it('leaves the gpt-5 row alone', () => {
+		expect(lookupContextWindow('gpt-5.6-sol')).toBe(400_000)
+	})
+})
+
+describe('providerTriggerFraction', () => {
+	it('is the limit as a share of the window, held to 90%', () => {
+		expect(providerTriggerFraction(100_000, 200_000)).toBe(0.5)
+		expect(providerTriggerFraction(190_000, 200_000)).toBe(0.9)
+	})
+
+	it('answers nothing without a usable limit or window', () => {
+		expect(providerTriggerFraction(undefined, 200_000)).toBeUndefined()
+		expect(providerTriggerFraction(0, 200_000)).toBeUndefined()
+		expect(providerTriggerFraction(Number.NaN, 200_000)).toBeUndefined()
+		expect(providerTriggerFraction(100_000, 0)).toBeUndefined()
 	})
 })

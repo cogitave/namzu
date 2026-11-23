@@ -414,7 +414,6 @@ import {
 	agentViewPageRows,
 	agentWorkflowPageSize,
 	agentWorkflows,
-	cockpitDetailHeight,
 	cockpitEntryFocus,
 	maxAgentTranscriptTailOffset,
 	maxAgentViewTailOffset,
@@ -550,6 +549,7 @@ import {
 	estimateHistoryTokens,
 } from './compaction-rows.js'
 import { approvalIsDeliberate } from './consent-timing.js'
+import { windowGuessLine } from './context-grid.js'
 import { CONTEXT_NOTICE_KEY, contextMeter, contextNotice } from './context-meter.js'
 import { buildContextRow, effectiveContextWindow } from './context-usage.js'
 import { assistantTranscriptTexts } from './conversation-history.js'
@@ -879,6 +879,7 @@ import {
 } from './slashCommands.js'
 import { StatusLineRows } from './status-line/StatusLineRows.js'
 import { useStatusLine } from './status-line/useStatusLine.js'
+import { isCallNotRun, stoppedTurnLine } from './stopped-turn-line.js'
 import {
 	DROPPED_REPLY_NOTICE,
 	type FlowContext,
@@ -2431,7 +2432,12 @@ function AppBody({
 	}, [session])
 	// Runs a previous process left unfinished: told to the model once with its next
 	// turn (never waking an idle model), and named to the operator in one line.
-	useEffect(() => {
+	/**
+	 * Name the runs of the open conversation that did not finish, once. Called
+	 * when the session opens and again when another conversation is resumed:
+	 * the run may have been cut short when the person left it.
+	 */
+	const announceUnfinishedRuns = useCallback((): void => {
 		const source = session?.workflows
 		if (!source) return
 		void source
@@ -2439,14 +2445,19 @@ function AppBody({
 			.then((notices) => {
 				if (previousSessionRef.current !== session || appLifetime.signal.aborted) return
 				for (const notice of notices) {
-					wakeLedgerRef.current.noteWorkflowEnd(
-						`${ORPHAN_NOTICE_PREFIX}${notice.runIds.join(',')}`,
-						notice.text,
-					)
+					const key = `${ORPHAN_NOTICE_PREFIX}${notice.runIds.join(',')}`
+					// Already waiting for the model: not named to the person twice.
+					if (wakeLedgerRef.current.workflowIds().includes(key)) continue
+					wakeLedgerRef.current.noteWorkflowEnd(key, notice.text)
 					pushMessage('system', notice.line)
 				}
 			})
 			.catch(() => undefined)
+	}, [session])
+	useEffect(() => {
+		const source = session?.workflows
+		if (!source) return
+		announceUnfinishedRuns()
 		// A run resumed before the model was told about it no longer needs the notice.
 		return source.subscribe(() => {
 			const live = new Set(source.runs().map((view) => view.runId))
@@ -2459,7 +2470,7 @@ function AppBody({
 				}
 			}
 		})
-	}, [session])
+	}, [announceUnfinishedRuns, session])
 	const [usage, setUsage] = useState<{
 		budget?: Extract<AgentEvent, { kind: 'usage' }>['budget']
 		totalTokens: number
@@ -3455,6 +3466,10 @@ function AppBody({
 	const stoppedAtPromptRef = useRef(new Set<string>())
 	/** A plain No ended the running turn: its interruption row is still owed. */
 	const refusalEndedTurnRef = useRef(false)
+	/** The auto mode's check gave no verdict and the turn was stopped; its closing line is still owed. */
+	const checkStoppedTurnRef = useRef(false)
+	/** Calls of the running turn the review did not let run. */
+	const callsNotRunRef = useRef(0)
 	/** Open while any question waits on the person; the background learning cycle reads it. */
 	const learningQuestionsRef = useRef<QuestionGate | null>(null)
 	if (learningQuestionsRef.current === null) learningQuestionsRef.current = createQuestionGate()
@@ -5209,10 +5224,20 @@ function AppBody({
 	 */
 	const handleAutoModeLimit = useCallback(
 		(event: {
-			readonly limit: 'consecutive' | 'total' | 'unavailable'
+			readonly limit: 'consecutive' | 'total' | 'unavailable' | 'asked'
 			readonly reason: string
 		}): void => {
+			if (event.limit === 'asked') {
+				// The check could not be completed; the person is asked about this
+				// call instead. Nothing changes about the mode.
+				pushMessage(
+					'system',
+					`Auto mode asks you instead: ${event.reason.replace(/, so the action was not run$/, '')}.`,
+				)
+				return
+			}
 			if (event.limit === 'unavailable') {
+				checkStoppedTurnRef.current = true
 				// The kernel refused the batch and ended the turn. A person who chose
 				// auto keeps it. A terminal in auto only because nothing chose another
 				// mode goes back to asking, as it does at the block limit, so a model
@@ -5223,10 +5248,10 @@ function AppBody({
 					permissionModeRef.current === 'classify'
 				) {
 					commitPermissionMode('prompt', false)
-					pushMessage('system', AUTO_MODE_DEFAULT_STOPPED_NOTICE)
+					pushMessage('system', `${AUTO_MODE_DEFAULT_STOPPED_NOTICE} ${event.reason}`)
 					return
 				}
-				pushMessage('system', AUTO_MODE_STOPPED_NOTICE)
+				pushMessage('system', `${AUTO_MODE_STOPPED_NOTICE} ${event.reason}`)
 				return
 			}
 			if (permissionModeRef.current !== 'classify') return
@@ -7933,6 +7958,7 @@ function AppBody({
 						? peerMailLabel(prompt.mail)
 						: (prompt.recallText ?? prompt.text),
 		attachmentCount: prompt.kind === 'human' ? prompt.attachments?.length : undefined,
+		...(prompt.kind === 'human' && prompt.command ? { command: true } : {}),
 	}))
 	const pendingInputVisible =
 		phase === 'ready' &&
@@ -8525,6 +8551,7 @@ function AppBody({
 	resumeActiveTurnRef.current = resumeActiveTurn
 	const pushMessageRef = useRef(pushMessage)
 	pushMessageRef.current = pushMessage
+	const windowGuessNotedRef = useRef<Set<string>>(new Set())
 	// biome-ignore lint/correctness/useExhaustiveDependencies: `signInPark` is not read inside; a new pause object is what restarts the watch.
 	useEffect(() => {
 		if (signInWatchTurn === undefined) signInWatchStartRef.current = null
@@ -9195,6 +9222,7 @@ function AppBody({
 			// children are readable. Without this the first cockpit open after a resume
 			// would have nothing to find.
 			void hydrateSavedChildren()
+			announceUnfinishedRuns()
 			conversationMaterializedRef.current = true
 			sourceDeliveryPollRef.current()
 			pushMessage(
@@ -9228,6 +9256,7 @@ function AppBody({
 			pushMessage,
 			cancelPendingModelSwitch,
 			hydrateSavedChildren,
+			announceUnfinishedRuns,
 			hasUnsettledTurn,
 			hydrateSession,
 			detected,
@@ -10667,6 +10696,9 @@ function AppBody({
 				signal?.addEventListener('abort', onAbort, { once: true })
 				setSelectedChoice(0)
 				setJobSurface(null)
+				// The chooser is drawn only when no child surface is open, so a cockpit left open
+				// would leave the question on no screen at all.
+				if (agentSurfaceRef.current?.kind === 'cockpit') setAgentSurface(null)
 				setChoicePicker(picker)
 				announceApproval()
 			}),
@@ -10677,6 +10709,7 @@ function AppBody({
 			setQuestionDialog,
 			setSelectedChoice,
 			setJobSurface,
+			setAgentSurface,
 			resolveQuestion,
 		],
 	)
@@ -11137,6 +11170,7 @@ function AppBody({
 					break
 				}
 				case 'tool-end': {
+					if (isCallNotRun(event.output)) callsNotRunRef.current += 1
 					// A background bash call or a monitor creates its job before this
 					// event. A job action may also stop one. Re-read the owning session
 					// here so the footer and rail update while the model continues.
@@ -11268,6 +11302,15 @@ function AppBody({
 					// waits on background agents, and their notices print above it.
 					closeAssistant()
 					st.lastUsage = event
+					// A window Namzu had to guess is said once, in plain words, with the setting that fixes it.
+					if (
+						event.windowSource === 'default' &&
+						event.contextWindowTokens !== undefined &&
+						!windowGuessNotedRef.current.has(replyModelRef.current ?? '')
+					) {
+						windowGuessNotedRef.current.add(replyModelRef.current ?? '')
+						pushMessage('system', windowGuessLine(event.contextWindowTokens))
+					}
 					// What the cache and context look like after this call; the idle
 					// compactor decides from it when the turn is over.
 					idleCompaction.compactor.recordCall(event.cache)
@@ -11540,12 +11583,22 @@ function AppBody({
 						}
 					}
 					// A plain No stopped this turn: say so once, under the calls it left.
+					const stoppedByReview = refusalEndedTurnRef.current || checkStoppedTurnRef.current
 					if (refusalEndedTurnRef.current) {
 						refusalEndedTurnRef.current = false
 						if (event.stopReason === 'cancelled') {
 							const row = interruptionRow({ callRunning: false })
 							pushMessage('system', row.content, false, row.glyph, undefined, row.color)
 						}
+					}
+					checkStoppedTurnRef.current = false
+					// A turn stopped by a refusal or a missing verdict has no closing text
+					// from the model: say what was done and what is left.
+					if (stoppedByReview && event.stopReason === 'cancelled') {
+						pushSystem(
+							'notice',
+							stoppedTurnLine({ outcome: event.outcome, notRun: callsNotRunRef.current }),
+						)
 					}
 					// A refusal row already said it, with the model and the provider's
 					// own words; saying it again as a stop line would double it.
@@ -12098,6 +12151,8 @@ function AppBody({
 			abortRef.current = ac
 			replyCutOffRef.current = false
 			refusalEndedTurnRef.current = false
+			checkStoppedTurnRef.current = false
+			callsNotRunRef.current = 0
 			activeTurnTokenRef.current = turnToken
 			takeBackRef.current =
 				userEchoId !== undefined && prompt.kind === 'human' && isRecallableHumanPrompt(prompt)
@@ -15799,6 +15854,19 @@ function AppBody({
 					}
 					case 'context': {
 						pushMessage('system', dispatch.trim(), false, '›', undefined, tokenColor('accent.user'))
+						// Typed while a reply runs, the numbers are the last finished reply's:
+						// usage, compaction and the model history settle when a reply ends.
+						if (state !== 'idle' || abortRef.current !== null || hasUnsettledTurn()) {
+							pushMessage(
+								'system',
+								'Numbers are as of the last finished reply; the running reply is not counted yet.',
+								false,
+								'⎿',
+							)
+						}
+						// The grid is built after an await; a reply that streams meanwhile
+						// writes rows with later ids, so the grid goes in ahead of them.
+						const anchorId = idRef.current
 						void (async () => {
 							const view = await buildContextRow({
 								usage,
@@ -15819,15 +15887,21 @@ function AppBody({
 								pushMessage('system', view, false, '⎿')
 								return
 							}
-							setMessages((previous) => [
-								...previous,
-								{
-									id: nextId(),
-									role: 'system',
-									content: view.text,
-									contextView: view,
-								},
-							])
+							const row = {
+								id: nextId(),
+								role: 'system' as const,
+								content: view.text,
+								contextView: view,
+							}
+							setMessages((previous) => {
+								const later = previous.findIndex((message) => {
+									const n = /^m(\d+)$/.exec(message.id)
+									return n !== null && Number(n[1]) > anchorId
+								})
+								return later < 0
+									? [...previous, row]
+									: [...previous.slice(0, later), row, ...previous.slice(later)]
+							})
 						})()
 						return
 					}
@@ -18241,8 +18315,10 @@ function AppBody({
 								setAgentSurface({ ...agentView, focus: 'phases' })
 								return
 							}
+							// Closing hands the keyboard back to the message box, as the
+							// view replaced it while open.
 							setAgentSurface(null)
-							setRailFocus(agentView.railReturn)
+							setRailFocus(null)
 							return
 						}
 						if (agentView.focus === 'agents' && hasPhaseLevel) {
@@ -18263,7 +18339,7 @@ function AppBody({
 						} else if (agentView.focus !== 'workflows') {
 							if (agentView.railReturn !== undefined) {
 								setAgentSurface(null)
-								setRailFocus(agentView.railReturn)
+								setRailFocus(null)
 							} else if (workflows.length > 1) {
 								setAgentSurface({ ...agentView, focus: 'workflows' })
 							} else {
@@ -19064,34 +19140,24 @@ function AppBody({
 		(!compacting &&
 			(state === 'thinking' || state === 'tool' || pendingModelSwitchRef.current !== null)) ||
 		(handoffPark !== null && state === 'idle')
-	// The workflow detail is drawn above the message box, which stays on screen (waiting) under it.
+	// The workflow detail takes the place of the message box and the status line: while it is open
+	// neither is drawn (the box stays mounted, so its draft and cursor are still there when it
+	// closes), and the keys are the detail's.
 	const workflowDetailOpen =
 		showComposerSurface &&
 		permission === null &&
 		scheduleReviewPrompt === null &&
+		questionDialog === null &&
+		planPrompt === null &&
+		saveSkillPrompt === null &&
+		textPrompt === null &&
+		choicePicker === null &&
+		copyPicker === null &&
 		agentSurface?.kind === 'cockpit' &&
 		!transcriptScreen &&
 		jobSurface === null
-	// Under the detail: the box as measured, the status line, the extension row and rows of the
-	// conversation, so nothing below it is pushed past the bottom of the screen.
-	const detailCap = workflowDetailHeight(
-		terminal.rows,
-		fullscreen !== undefined,
-		composerBoxRows + 1 + (extensionMarks.length > 0 ? 1 : 0) + 4,
-	)
-	// Sized to what it lists, up to the free rows, so a small run leaves no blank rows in it.
-	const detailRows =
-		workflowDetailOpen && agentSurface?.kind === 'cockpit'
-			? cockpitDetailHeight(
-					subagents,
-					workflowRuns,
-					agentSurface.selectedPhaseId,
-					agentSurface.focus,
-					terminal.rows,
-					terminal.columns,
-					detailCap,
-				)
-			: detailCap
+	// The conversation keeps its top rows; the detail is the rest of the screen (less the extension row).
+	const detailRows = workflowDetailHeight(terminal.rows - (extensionMarks.length > 0 ? 1 : 0))
 	const viewRailRows =
 		liveSubagents.length > 0 || liveWorkflows.length > 0
 			? 1 +
@@ -19594,8 +19660,7 @@ function AppBody({
 								/>
 							) : null}
 							{workflowDetailOpen && agentSurface?.kind === 'cockpit' ? (
-								// Above the message box, never in place of it: the conversation stays readable
-								// above, and the box and the status line stay under it.
+								// In place of the message box and the status line, under the conversation.
 								<Box height={detailRows} flexShrink={0} flexDirection="column" overflowY="hidden">
 									<AgentCockpit
 										agents={subagents}
@@ -19652,7 +19717,7 @@ function AppBody({
 										textPrompt !== null ||
 										choicePicker !== null ||
 										copyPicker !== null ||
-										(childSurfaceOpen && !workflowDetailOpen)
+										childSurfaceOpen
 									}
 								>
 									<Composer
@@ -19670,7 +19735,6 @@ function AppBody({
 												: promptSuggestion !== undefined
 													? { promptSuggestion }
 													: {})}
-										parked={workflowDetailOpen}
 										mayReadImage={imageReadPolicy}
 										reasoningEffortLevels={session?.reasoningEffortLevels}
 										onCycleMode={cyclePermissionMode}
@@ -19696,7 +19760,7 @@ function AppBody({
 											textPrompt !== null ||
 											choicePicker !== null ||
 											copyPicker !== null ||
-											(childSurfaceOpen && !workflowDetailOpen)
+											childSurfaceOpen
 										}
 										// A turn is running, so Esc is the interrupt and not
 										// the composer's clear.
@@ -19798,6 +19862,7 @@ function AppBody({
 				    does nothing before the folder is trusted. */}
 					{phase === 'trust' ||
 					transcriptScreen ||
+					workflowDetailOpen ||
 					!showComposerSurface ||
 					statusLineText === undefined ? null : (
 						<StatusLineRows text={statusLineText} padding={ctx.statusLine?.padding ?? 0} />
@@ -19809,6 +19874,7 @@ function AppBody({
 				    its box was a stale row from the composer it replaced. */}
 					{phase === 'trust' ||
 					transcriptScreen ||
+					workflowDetailOpen ||
 					(dialogShowing && !exitHint && !noticeIsImmediate) ? null : (
 						<StatusBar
 							provider={session?.providerSummary ?? null}

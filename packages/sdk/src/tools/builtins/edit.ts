@@ -267,7 +267,7 @@ const modelInputSchema: Record<string, unknown> = {
 		old_string: {
 			type: 'string',
 			description:
-				'For a single change: exact unique text from the file, without read-tool line-number prefixes. Must not be empty. Do not send together with edits.',
+				'For a single change: exact unique text from the file, without the line number and arrow that read puts in front of each line. Must not be empty. Do not send together with edits.',
 		},
 		new_string: {
 			type: 'string',
@@ -329,7 +329,8 @@ const modelInputSchema: Record<string, unknown> = {
 				properties: {
 					old_string: {
 						type: 'string',
-						description: 'Exact text from the file at this point in the sequence.',
+						description:
+							'Exact text from the file at this point in the sequence, without the line number and arrow from read.',
 					},
 					new_string: {
 						type: 'string',
@@ -411,6 +412,11 @@ type EditAdmission =
 	| { success: false; output: ''; error: string; facts: ToolFacts }
 	| { success: true; result: ReturnType<typeof applyEdit>; unreadNote?: string }
 
+/** The reply line for an edit that applied after its indentation was adjusted; empty otherwise. */
+function adjustedNote(notes: readonly string[]): string {
+	return notes.length === 0 ? '' : ` Note: ${notes.join(' ')}`
+}
+
 /** Appended to the result of an edit that was applied to a file the session had not read. */
 const UNREAD_APPLIED_NOTE = '(file was not read before; the edit matched exactly and was applied)'
 
@@ -444,7 +450,9 @@ function admitAgainstRead(
 	if (tracker && !tracker.hasRead(key)) {
 		if (!content.includes('\u0000') && operations.every((op) => op.operation === 'replace')) {
 			const applied = applyEdit(content, operations)
-			if (applied.success) {
+			// Only an exact match counts for a file nobody read; a match found by
+			// adjusting indentation is not the model knowing the text.
+			if (applied.success && applied.notes.length === 0) {
 				tracker.recordRead(key, content)
 				return { success: true, result: applied, unreadNote: UNREAD_APPLIED_NOTE }
 			}
@@ -558,7 +566,8 @@ async function refuseEditBeforeReview(
 			!content.includes('\u0000') &&
 			normalized.operations.every((op) => op.operation === 'replace')
 		) {
-			if (applyEdit(content, normalized.operations).success) return undefined
+			const exact = applyEdit(content, normalized.operations)
+			if (exact.success && exact.notes.length === 0) return undefined
 		}
 		const shown = unreadEditShownError(key, content)
 		if (shown !== undefined) tracker.recordRead(key, content)
@@ -584,7 +593,7 @@ async function refuseEditBeforeReview(
 export const EditTool = defineTool({
 	name: 'edit',
 	description:
-		'Makes targeted edits to a file using exact string find-and-replace or line insertion. To change an existing file, use `edit`: `write` overwrites the whole body and discards earlier work on partial failure, while `edit` keeps the rest of the file byte-for-byte intact and is recoverable: if a single edit fails (old_string/oldStr ambiguous, broader restructuring needed), follow up with another `edit` instead of re-emitting the entire file via `write`. The old_string/oldStr must be unique in the file unless replace_all is true. For insertions, pass insertLine plus new_string/newStr; use insertLine: "end" to extend a file at the end. Keep new_string/newStr under 12000 characters, because a longer payload can be cut off mid-call and fail; use repeated bounded edits for long sections. Preserves file formatting and indentation. To make several changes to one file that only make sense together, send them as `edits` (and then no top-level old_string/new_string; for a single change leave `edits` out): a list of {old_string, new_string} applied in order and committed as one write — if any of them does not apply, nothing is written and the reply names which one, so the file is never left half-changed. An edit that would leave a `.ipynb` file as invalid notebook JSON is refused and the file is unchanged.',
+		'Makes targeted edits to a file using exact string find-and-replace or line insertion. To change an existing file, use `edit`: `write` overwrites the whole body and discards earlier work on partial failure, while `edit` keeps the rest of the file byte-for-byte intact and is recoverable: if a single edit fails (old_string/oldStr ambiguous, broader restructuring needed), follow up with another `edit` instead of re-emitting the entire file via `write`. The old_string/oldStr must be unique in the file unless replace_all is true. For insertions, pass insertLine plus new_string/newStr; use insertLine: "end" to extend a file at the end. Keep new_string/newStr under 12000 characters, because a longer payload can be cut off mid-call and fail; use repeated bounded edits for long sections. Preserves file formatting and indentation. Copy old_string from read output after the arrow (→) and keep the tabs and spaces that follow it. If only the indentation is off and the lines match in exactly one place, the edit is applied with the indentation adjusted and the reply says so. To make several changes to one file that only make sense together, send them as `edits` (and then no top-level old_string/new_string; for a single change leave `edits` out): a list of {old_string, new_string} applied in order and committed as one write — if any of them does not apply, nothing is written and the reply names every one that failed, so the file is never left half-changed. An edit that would leave a `.ipynb` file as invalid notebook JSON is refused and the file is unchanged.',
 	inputSchema,
 	modelInputSchema,
 	enforceModelInput: true,
@@ -725,7 +734,7 @@ export const EditTool = defineTool({
 				const changed = editFacts(parsed.data.path, result.replacements, content, result.content)
 				return {
 					success: true as const,
-					output: `Edited ${parsed.data.path}: ${result.replacements} replacement(s) (+${changed.diff.added} -${changed.diff.removed}) [sandboxed]${admitted.unreadNote ? ` ${admitted.unreadNote}` : ''}. ${CURRENT_ON_DISK}`,
+					output: `Edited ${parsed.data.path}: ${result.replacements} replacement(s) (+${changed.diff.added} -${changed.diff.removed}) [sandboxed]${admitted.unreadNote ? ` ${admitted.unreadNote}` : ''}. ${CURRENT_ON_DISK}${adjustedNote(result.notes)}`,
 					data: {
 						path: parsed.data.path,
 						replacements: result.replacements,
@@ -756,7 +765,7 @@ export const EditTool = defineTool({
 			const changed = editFacts(hostPath, result.replacements, content, result.content)
 			return {
 				success: true as const,
-				output: `Edited ${hostPath}: ${result.replacements} replacement(s) (+${changed.diff.added} -${changed.diff.removed})${admitted.unreadNote ? ` ${admitted.unreadNote}` : ''}. ${CURRENT_ON_DISK}`,
+				output: `Edited ${hostPath}: ${result.replacements} replacement(s) (+${changed.diff.added} -${changed.diff.removed})${admitted.unreadNote ? ` ${admitted.unreadNote}` : ''}. ${CURRENT_ON_DISK}${adjustedNote(result.notes)}`,
 				data: { path: hostPath, replacements: result.replacements },
 				facts: changed.facts,
 			}

@@ -27,8 +27,9 @@ import {
 } from '@namzu/sdk'
 
 import type { SubagentRuntime } from '../subagents/runtime.js'
-import { completionNotice, launchedText } from './notice.js'
+import { completionNotice, interruptedNotice, launchedText } from './notice.js'
 import { WORKFLOW_TOOL_DESCRIPTION, WORKFLOW_TOOL_NAME } from './offering.js'
+import { storeInterruptedNotice } from './orphans.js'
 import { type WorkflowRunEnd, WorkflowRunRegistry } from './registry.js'
 import {
 	KEY_MISMATCH_MESSAGE,
@@ -196,7 +197,23 @@ export function describeWorkflowCall(input: Partial<WorkflowToolInput>): string 
 }
 
 export function createWorkflowHost(options: WorkflowHostOptions): WorkflowHost {
-	const registry = options.registry ?? new WorkflowRunRegistry()
+	const registry =
+		options.registry ??
+		new WorkflowRunRegistry({
+			onInterrupted: (view, cause) => {
+				if (view.journalPath === undefined) return
+				const told = interruptedNotice(view, cause)
+				storeInterruptedNotice({
+					journalPath: view.journalPath,
+					runId: view.runId,
+					name: view.name,
+					pass: view.pass ?? 1,
+					text: told.text,
+					line: told.line,
+					at: Date.now(),
+				})
+			},
+		})
 	const tool = defineTool({
 		name: WORKFLOW_TOOL_NAME,
 		description: [WORKFLOW_TOOL_DESCRIPTION, options.sizeAdvice].filter(Boolean).join('\n\n'),

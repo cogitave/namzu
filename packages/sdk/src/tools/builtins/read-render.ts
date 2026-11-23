@@ -44,11 +44,26 @@ export interface RenderedRead {
 	readonly partial: boolean
 }
 
+/** Width the line number is right-aligned to, so the arrow sits in one column. */
+export const LINE_NUMBER_WIDTH = 6
+
+/**
+ * What every numbered line of a read begins with: the line number, right-aligned,
+ * then an arrow. The separator is deliberately not a tab: the file's own
+ * indentation is tabs in many projects, and a tab separator made the first
+ * tab of an indented line look like part of the prefix, so a model copying
+ * the line back dropped one level of indentation. The prefix is never part
+ * of the file.
+ */
+export function linePrefix(lineNumber: number): string {
+	return `${String(lineNumber).padStart(LINE_NUMBER_WIDTH)}→`
+}
+
 /**
  * Render `content` the way `read` renders it.
  *
  * The numbering is what makes this reversible enough to compare against: every
- * line goes out behind its own `${n}\t`, so two different bodies cannot render
+ * line goes out behind its own `linePrefix(n)`, so two different bodies cannot render
  * to one string, and the partial-view notice below — whose lines carry no such
  * prefix — cannot be mistaken for part of a body.
  */
@@ -79,7 +94,7 @@ export function renderNumberedRead(content: string, input: ReadWindowRequest): R
 		}
 	}
 	const selected = lines.slice(start, Math.min(end, lineCount))
-	const numbered = selected.map((line, i) => `${start + i + 1}\t${line}`).join('\n')
+	const numbered = selected.map((line, i) => `${linePrefix(start + i + 1)}${line}`).join('\n')
 	// Only a cut the cap imposed is the model's to be warned about: a window it
 	// asked for is what it got.
 	const asked = (input.readRange?.length ?? 0) >= 2 || Boolean(input.limit)
@@ -334,5 +349,5 @@ function trimFirstPage(
 }
 
 function numbered(lines: readonly string[]): string {
-	return lines.map((line, i) => `${i + 1}\t${line}`).join('\n')
+	return lines.map((line, i) => `${linePrefix(i + 1)}${line}`).join('\n')
 }

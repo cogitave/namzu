@@ -800,3 +800,92 @@ describe('a piped check whose output shows the runner summary', () => {
 		expect(outcome?.checks[0]?.result).toBe('masked')
 	})
 })
+
+describe('a check that failed and then passed', () => {
+	const launched = (command: string, jobId: string): OutcomeCall => ({
+		toolName: 'bash',
+		input: { command, run_in_background: true },
+		launched: true,
+		facts: { kind: 'command', command, background: true, jobId },
+	})
+	const waited = (jobId: string, exitCode: number): OutcomeCall => ({
+		toolName: 'wait_for_job',
+		input: { id: jobId },
+		readOnly: true,
+		facts: { kind: 'command', jobId, exitCode },
+	})
+
+	it('is a pass when the same command passes in the foreground', async () => {
+		const outcome = await turn(new OutcomeLedger(), [
+			[edit('a.ts')],
+			[failedBash('pnpm test')],
+			[edit('a.ts')],
+			[bash('pnpm test')],
+		])
+		expect(outcome?.checks.map((c) => [c.command, c.result])).toEqual([['pnpm test', 'passed']])
+		expect(outcome?.verdict).not.toBe('failing')
+	})
+
+	it('is a pass when the same command passes as a background job and the wait reads its exit', async () => {
+		const outcome = await turn(new OutcomeLedger(), [
+			[edit('a.ts')],
+			[failedBash('pnpm --filter @namzu/cli test src/x')],
+			[edit('a.ts')],
+			[launched('pnpm --filter @namzu/cli test src/x', 'job_1')],
+			[waited('job_1', 0)],
+		])
+		expect(outcome?.checks.map((c) => [c.command, c.result])).toEqual([
+			['pnpm --filter @namzu/cli test src/x', 'passed'],
+		])
+		expect(outcome?.verdict).toBe('checked')
+	})
+
+	it('a background check whose wait reports a failing exit is a failed check', async () => {
+		const outcome = await turn(new OutcomeLedger(), [
+			[edit('a.ts')],
+			[launched('pnpm test', 'job_1')],
+			[waited('job_1', 1)],
+		])
+		expect(outcome?.checks.map((c) => [c.command, c.result])).toEqual([['pnpm test', 'failed']])
+		expect(outcome?.verdict).toBe('failing')
+	})
+
+	it('a job id survives a checkpoint, so a wait after a resume still reads the check', async () => {
+		const first = new OutcomeLedger()
+		await turn(first, [[edit('a.ts')], [launched('pnpm test', 'job_1')]])
+		const snapshot = JSON.parse(JSON.stringify(first.snapshot()))
+		const resumed = new OutcomeLedger()
+		resumed.restore(snapshot)
+		const outcome = await turn(resumed, [[waited('job_1', 1)]])
+		expect(outcome?.checks.map((c) => [c.command, c.result])).toEqual([['pnpm test', 'failed']])
+	})
+
+	it('a foreground check the time limit moved to the background is a job the wait can read', async () => {
+		const moved: OutcomeCall = {
+			toolName: 'bash',
+			input: { command: 'pnpm test' },
+			isError: false,
+			facts: { kind: 'command', command: 'pnpm test', background: true, jobId: 'job_9' },
+		}
+		const outcome = await turn(new OutcomeLedger(), [[edit('a.ts')], [moved], [waited('job_9', 0)]])
+		expect(outcome?.checks.at(-1)).toMatchObject({ command: 'pnpm test', result: 'passed' })
+	})
+
+	it('a wait for a job that is not a check says nothing about checks', async () => {
+		const outcome = await turn(new OutcomeLedger(), [
+			[edit('a.ts')],
+			[launched('node server.js', 'job_2')],
+			[waited('job_2', 0)],
+		])
+		expect(outcome?.checks).toEqual([])
+	})
+
+	it('counts every distinct file the turn wrote or edited, over all its steps', async () => {
+		const files = ['a.ts', 'b.ts', 'c.ts', 'd.ts', 'e.ts', 'f.ts', 'g.ts']
+		const outcome = await turn(
+			new OutcomeLedger(),
+			files.map((f, i) => (i % 2 === 0 ? [edit(f)] : [edit(f), edit('a.ts')])),
+		)
+		expect(outcome?.changes.total).toBe(7)
+	})
+})

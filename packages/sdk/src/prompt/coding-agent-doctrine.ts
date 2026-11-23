@@ -90,7 +90,8 @@ This section applies only when you were asked to change something.
 export const CODING_AGENT_DELEGATION_DOCTRINE = `### Planning and delegating
 - A task list is optional. For work of three or more distinct steps you may keep one, a step in progress at a time, each marked done when it is; none for a two-step job.
 - When the \`Agent\` tool is available, do small work, or work whose target you already know, yourself. A fresh sub-agent starts with none of your context, so brief it fully: the objective, what is out of bounds, the sources to use, the shape of the reply, paths and what is ruled out, never a conclusion to confirm. Delegate work that is independent of your next step, large, or whose output would flood your context.
-- A sub-agent's report is a claim, not a fact: check one claim you will build on against the files, and tell the user what each delegated agent found, because their results reach you and not the user.`
+- A sub-agent's report is a claim, not a fact: check one claim you will build on against the files, and tell the user what each delegated agent found, because their results reach you and not the user.
+- Background work you started is yours to end: stop it (with \`stop_task\`, where offered) when the person changed course, a result in hand already answers the question, or an earlier stage failed; never because it is only slow. Say in one sentence what you stopped and why.`
 
 /**
  * For a session whose permission layer refuses every mutation. Says what that

@@ -115,6 +115,25 @@ describe('a run in the registry, with a spawn the test controls', () => {
 		registry.close()
 	})
 
+	it("says who stopped a run: the person by default, the conversation's agent when it was that", async () => {
+		const texts: string[] = []
+		for (const who of [undefined, { by: 'parent' as const, reason: 'answer in hand' }]) {
+			const registry = new WorkflowRunRegistry()
+			const { spawn, waiting } = fakeSpawn()
+			const { ended } = start(registry, spawn)
+			await until(registry, () => waiting.length === 3)
+			const signal = waiting[0]?.signal as AbortSignal
+			expect(registry.stop('wtest0001', who)).toBe(true)
+			await until(registry, () => ended.length === 1)
+			texts.push((signal.reason as Error).message)
+			registry.close()
+		}
+		expect(texts).toEqual([
+			'The operator stopped this workflow.',
+			"The conversation's agent stopped this workflow: answer in hand",
+		])
+	})
+
 	it('journals the run and reads it back after the registry is gone', async () => {
 		const dir = mkdtempSync(join(tmpdir(), 'namzu-workflow-journal-'))
 		dirs.push(dir)

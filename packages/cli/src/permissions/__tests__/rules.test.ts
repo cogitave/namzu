@@ -13,6 +13,7 @@ import { describe, expect, it, vi } from 'vitest'
 import {
 	bySpecificity,
 	compilePermissions,
+	currentToolName,
 	legacyMcpPermissionNames,
 	matchesPattern,
 	patternToRegExpSource,
@@ -683,5 +684,37 @@ describe('a command deny starts and ends at a word', () => {
 	it('names the pattern in the refusal', () => {
 		const { rules } = compilePermissions({ bash: { 'gh *': 'deny' } })
 		expect(JSON.stringify(rules)).toContain('gh( .*)?')
+	})
+})
+
+describe('a rule written for the tool that stop_task replaced', () => {
+	const gateFor = (config: Parameters<typeof compilePermissions>[0]) =>
+		new AuthorizationGate(
+			{
+				enabled: true,
+				rules: [...compilePermissions(config).rules],
+				allowReadOnlyTools: false,
+				denyDangerousPatterns: false,
+				logDecisions: false,
+			},
+			NOOP_LOGGER,
+		)
+	const decide = (gate: AuthorizationGate, toolName: string) =>
+		gate.evaluate({ toolName, toolInput: { id: 'x' }, toolDef: undefined }).decision
+
+	it('maps a cancel_agent rule to stop_task, and leaves the old name unmatched', () => {
+		expect(currentToolName('cancel_agent')).toBe('stop_task')
+		expect(currentToolName('stop_task')).toBe('stop_task')
+		expect(currentToolName('bash')).toBe('bash')
+		const denied = gateFor({ cancel_agent: 'deny' })
+		expect(decide(denied, 'stop_task')).toBe('deny')
+		const allowed = gateFor({ cancel_agent: 'allow' })
+		expect(decide(allowed, 'stop_task')).toBe('allow')
+		const asked = gateFor({ cancel_agent: 'ask' })
+		expect(decide(asked, 'stop_task')).toBe('review')
+	})
+
+	it('treats the new name the same way', () => {
+		expect(decide(gateFor({ stop_task: 'deny' }), 'stop_task')).toBe('deny')
 	})
 })

@@ -497,5 +497,11 @@ export function withProviderRetry(
 						provider.resolveContextWindow?.(model, signal) ?? Promise.resolve(undefined),
 				}
 			: {}),
+		...(provider.resolveAutoCompactLimit
+			? {
+					resolveAutoCompactLimit: (model: string, signal?: AbortSignal) =>
+						provider.resolveAutoCompactLimit?.(model, signal) ?? Promise.resolve(undefined),
+				}
+			: {}),
 	} as LLMProvider
 }

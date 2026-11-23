@@ -1,4 +1,5 @@
 import {
+	providerTriggerFraction,
 	resolveContextWindow,
 	resolveTriggerThreshold,
 } from '../../../../compaction/context-window.js'
@@ -840,7 +841,7 @@ async function runCompactionCheckInner(
 	const configured = ctx.compactionConfig
 	if (!configured) return
 	if (configured.strategy === 'disabled') return
-	const config = options?.deeper ? deepenConfig(configured, ctx.recorder.messages) : configured
+	const deepened = options?.deeper ? deepenConfig(configured, ctx.recorder.messages) : configured
 
 	const measured = measureContext(ctx)
 	const estimatedTokens = measured.tokens
@@ -854,6 +855,24 @@ async function runCompactionCheckInner(
 	// trigger at ~700k. See `compaction/context-window.ts`.
 	const window = activeContextWindow(ctx)
 	const budget = window.tokens
+
+	// The provider's own compaction limit, when its service stated one, is the trigger:
+	// min(limit, 90% of the window). A host that set a threshold or an auto-compact window
+	// keeps what it set. Folding it into the config means the planners below read the same
+	// trigger this pass does.
+	const model = ctx.contextModel ?? ctx.turnConfig.model
+	const providerLimit =
+		model === ctx.turnConfig.model
+			? ctx.providerAutoCompactLimit
+			: ctx.activeProviderAutoCompactLimit
+	const providerFraction =
+		deepened.triggerThreshold === undefined &&
+		deepened.autoCompactWindowTokens === undefined &&
+		window.source !== 'config'
+			? providerTriggerFraction(providerLimit, budget)
+			: undefined
+	const config =
+		providerFraction !== undefined ? { ...deepened, triggerThreshold: providerFraction } : deepened
 
 	const usage = estimatedTokens / budget
 

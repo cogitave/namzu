@@ -85,14 +85,27 @@ export class WorkflowRunRegistry {
 	private readonly now: () => number
 	private notifyTimer: ReturnType<typeof setTimeout> | undefined
 	private closed = false
+	private readonly onInterrupted:
+		| ((view: WorkflowRunView, cause: 'session-ended' | 'conversation-changed') => void)
+		| undefined
 
 	constructor(
 		options: {
 			readonly now?: () => number
 			readonly runtime?: WorkflowRuntime
+			/**
+			 * Called, before a run is aborted, for each run this registry itself is
+			 * about to cut short (the session ends, the conversation changes), so the
+			 * host can keep a notice for the next time the conversation is opened.
+			 */
+			readonly onInterrupted?: (
+				view: WorkflowRunView,
+				cause: 'session-ended' | 'conversation-changed',
+			) => void
 		} = {},
 	) {
 		this.now = options.now ?? Date.now
+		this.onInterrupted = options.onInterrupted
 		this.runtime = options.runtime ?? new WorkflowRuntime()
 	}
 
@@ -225,11 +238,25 @@ export class WorkflowRunRegistry {
 		})
 	}
 
-	/** Stop a run: queued agents never start, running ones are aborted. False when it is not running. */
-	stop(runId: string): boolean {
+	/**
+	 * Stop a run: queued agents never start, running ones are aborted. False when
+	 * it is not running. `by` names who asked: the person (default) or the
+	 * conversation's agent, which may say why.
+	 */
+	stop(
+		runId: string,
+		who: { readonly by?: 'user' | 'parent'; readonly reason?: string } = {},
+	): boolean {
 		const run = this.runs.get(runId)
 		if (!run || run.view.status !== 'running') return false
-		run.abort.abort(new Error('The operator stopped this workflow.'))
+		const why = who.reason?.trim()
+		run.abort.abort(
+			new Error(
+				who.by === 'parent'
+					? `The conversation's agent stopped this workflow${why ? `: ${why}` : '.'}`
+					: 'The operator stopped this workflow.',
+			),
+		)
 		return true
 	}
 
@@ -264,17 +291,32 @@ export class WorkflowRunRegistry {
 
 	/** Forget runs that have ended (a new conversation). Running ones are stopped first. */
 	reset(): void {
-		for (const run of this.runs.values()) run.abort.abort(new Error('The conversation changed.'))
+		for (const run of this.runs.values()) {
+			this.interrupt(run, 'conversation-changed')
+			run.abort.abort(new Error('The conversation changed.'))
+		}
 		this.runs.clear()
 		this.notifySoon(true)
 	}
 
 	close(): void {
 		this.closed = true
-		for (const run of this.runs.values()) run.abort.abort(new Error('The session ended.'))
+		for (const run of this.runs.values()) {
+			this.interrupt(run, 'session-ended')
+			run.abort.abort(new Error('The session ended.'))
+		}
 		if (this.notifyTimer) clearTimeout(this.notifyTimer)
 		this.notifyTimer = undefined
 		this.listeners.clear()
+	}
+
+	private interrupt(run: LiveRun, cause: 'session-ended' | 'conversation-changed'): void {
+		if (run.view.status !== 'running' || run.abort.signal.aborted) return
+		try {
+			this.onInterrupted?.(run.view, cause)
+		} catch {
+			// A notice that cannot be kept must not keep the run alive.
+		}
 	}
 
 	private notifySoon(now: boolean): void {

@@ -34,6 +34,7 @@ import {
 	agentListLabel,
 	waitResultLabel,
 } from './row-labels.js'
+import { STOP_TASK_DESCRIPTION, WORKFLOW_RUN_ID } from './stop-guidance.js'
 import { WORKFLOW_STEP_ASSIGNMENT } from './workflow-assignment.js'
 
 /** What the work status read returns. */
@@ -354,6 +355,16 @@ export interface SubagentRuntimeOptions {
 	 * Absent: `agent_task_list` lists agents only.
 	 */
 	readonly workStatus?: (sessionId: SessionId, runId?: string) => WorkStatusRead
+	/**
+	 * Stop one workflow run of a parent conversation: its running agents abort,
+	 * its queued agents never start, its journal stays. `unknown` for a run
+	 * this conversation does not own. Absent: `stop_task` reaches agents only.
+	 */
+	readonly stopWorkflowRun?: (
+		sessionId: SessionId,
+		runId: string,
+		reason?: string,
+	) => 'stopped' | 'ended' | 'unknown'
 	readonly model: string
 	/** Operator's default for ordinary children; explicit choices and pinned agent files win. */
 	readonly defaultModel?: DelegatedModel
@@ -614,7 +625,8 @@ export interface SubagentRuntime {
 	readonly agentTaskListTool: ToolDefinition
 	/** Send a message to an agent of the conversation: queued while it runs, a resume once it has ended. */
 	readonly sendMessageTool: ToolDefinition
-	readonly cancelAgentTool: ToolDefinition
+	/** Stop work the conversation started: an agent task, or a workflow run. */
+	readonly stopTaskTool: ToolDefinition
 	/**
 	 * Write one line of commentary above the agent rail.
 	 *
@@ -859,6 +871,8 @@ export async function createSubagentRuntime(
 	const taskViews = new Map<string, string>()
 	// The names `Agent` calls have given, to the task each one addresses.
 	const agentNames = new AgentNames()
+	/** Which workflow run an agent id (its view id or its task id) belonged to, so a later lookup can say so. */
+	const workflowAgentRuns = new Map<string, string>()
 	/** The one id the model sees for an agent, whichever run of it a task handle belongs to. */
 	const publicTaskId = (taskId: TaskId | string): string => {
 		const viewId = taskViews.get(String(taskId))
@@ -1379,6 +1393,14 @@ export async function createSubagentRuntime(
 			return undefined
 		}
 	}
+	const workflowRunOfAgent = (id: string): string | undefined => {
+		const direct = workflowAgentRuns.get(id)
+		if (direct !== undefined) return direct
+		const entry = activity.getSnapshot().find((item) => item.taskId === id || item.viewId === id)
+		return entry?.workflowId?.startsWith(WORKFLOW_RUN_GROUP_PREFIX)
+			? entry.workflowId.slice(WORKFLOW_RUN_GROUP_PREFIX.length)
+			: undefined
+	}
 	/** Why no task answered to an id: what is running, and where a saved record might be. */
 	const unknownTaskMessage = async (asked: string, turnId: TurnId): Promise<string> => {
 		const taskId = asked.trim().slice(0, 80)
@@ -1411,8 +1433,12 @@ export async function createSubagentRuntime(
 				// Not a saved agent of this conversation either.
 			}
 		}
+		const run = workflowRunOfAgent(taskId)
 		return [
 			`No task with ID ${taskId} in this conversation.`,
+			run !== undefined
+				? `That agent belonged to workflow run ${run}, (an agent of a workflow is not a task of its own once no run holds it). Read the run's state with agent_task_list run_id ${run}; to get its agents' outputs set include_output: true with that run_id, and to continue it call workflow with resumeFromRunId ${run}.`
+				: '',
 			running.length > 0 ? `Running agents: ${running.join(', ')}.` : '',
 			saved
 				? 'That ID is a saved agent from an earlier run; see agent_task_list with history: true.'
@@ -1871,8 +1897,8 @@ export async function createSubagentRuntime(
 		name: 'Agent',
 		description: [
 			opts.backgroundByDefault === true
-				? 'Delegate a self-contained task to a sub-agent. Agents run in the background by default: you get the task ID at once and are notified automatically when one ends, so continue with other work or answer the user instead of sleeping or polling in a loop; one agent_task_list read is fine when the person asks how it is going. Pass run_in_background: false only when your very next action depends on the result and nothing else could usefully happen while it runs. Operator input can also release a blocking wait while the child keeps working; answer the operator first and keep the child work unless they ask to cancel or change it. Use agent_task_list for current agent status (task_list is only the planning list), send_message to correct a running task, cancel_agent to stop only one owned task, and wait_for_task to retrieve its result; launch each piece of work once.'
-				: 'Delegate a self-contained task to a sub-agent. Set run_in_background: true to receive its task ID immediately and continue independent work; completion arrives as a task notification. Otherwise wait for its result. Operator input can also release a blocking wait while the child keeps working; answer the operator first and keep the child work unless they ask to cancel or change it. Use agent_task_list for current agent status (task_list is only the planning list), send_message to correct a running task, cancel_agent to stop only one owned task, and wait_for_task to retrieve its result; launch each piece of work once.',
+				? 'Delegate a self-contained task to a sub-agent. Agents run in the background by default: you get the task ID at once and are notified automatically when one ends, so continue with other work or answer the user instead of sleeping or polling in a loop; one agent_task_list read is fine when the person asks how it is going. Pass run_in_background: false only when your very next action depends on the result and nothing else could usefully happen while it runs. Operator input can also release a blocking wait while the child keeps working; answer the operator first, and keep the child work unless the operator cancels it or the work is no longer needed. A finished agent is not gone: send_message to it resumes it with its context, which is better than starting a new agent for a follow-up. A background agent keeps running after the call returns: say so in one sentence. Use agent_task_list for current agent status (task_list is only the planning list), send_message to correct a running task, stop_task to end one you started that no longer serves the task, and wait_for_task to retrieve its result; launch each piece of work once.'
+				: 'Delegate a self-contained task to a sub-agent. Set run_in_background: true to receive its task ID immediately and continue independent work; completion arrives as a task notification. Otherwise wait for its result. Operator input can also release a blocking wait while the child keeps working; answer the operator first, and keep the child work unless the operator cancels it or the work is no longer needed. A finished agent is not gone: send_message to it resumes it with its context, which is better than starting a new agent for a follow-up. A background agent keeps running after the call returns: say so in one sentence. Use agent_task_list for current agent status (task_list is only the planning list), send_message to correct a running task, stop_task to end one you started that no longer serves the task, and wait_for_task to retrieve its result; launch each piece of work once.',
 			opts.backgroundByDefault === true
 				? 'For a request to run multiple independent tasks in parallel, issue all Agent calls together in one response. A blocking Agent call (run_in_background: false) followed by another call runs them sequentially.'
 				: 'For a request to run multiple independent tasks in parallel, issue all Agent calls together in one response, or set run_in_background: true on each launch before waiting. A single blocking Agent call followed by another call runs them sequentially.',
@@ -1908,7 +1934,7 @@ export async function createSubagentRuntime(
 					type: 'string',
 					maxLength: 64,
 					description:
-						'Name for the agent. Makes it addressable by send_message, wait_for_task and cancel_agent in place of its task ID. Letters, digits, underscores and hyphens; not "main", "user" or "system". A later agent given the same name takes it over.',
+						'Name for the agent. Makes it addressable by send_message, wait_for_task and stop_task in place of its task ID. Letters, digits, underscores and hyphens; not "main", "user" or "system". A later agent given the same name takes it over.',
 				},
 				run_in_background: {
 					type: 'boolean',
@@ -2094,12 +2120,21 @@ export async function createSubagentRuntime(
 					cancelCause: 'user',
 					onView: (id) => {
 						viewId = id
+						workflowAgentRuns.set(id, launch.runId)
 						launch.onView?.(id)
 					},
 					onEvent: () => report(false),
 				},
 			)
 			report(true)
+			// The ids the model was handed for this agent, so a later lookup that finds nothing can say whose it was.
+			const observed = viewId
+				? activity.getSnapshot().find((item) => item.viewId === viewId)
+				: undefined
+			if (observed?.taskId !== undefined) {
+				workflowAgentRuns.set(observed.taskId, launch.runId)
+				workflowAgentRuns.set(publicTaskId(observed.taskId), launch.runId)
+			}
 			const stats = viewId ? activity.progressOf(viewId) : undefined
 			const tokens = stats?.tokens ?? 0
 			const toolCalls = stats?.toolCalls ?? 0
@@ -2204,7 +2239,7 @@ export async function createSubagentRuntime(
 				run_id?: string
 			}
 			if (
-				(request.include_output && !request.task_id) ||
+				(request.include_output && !request.task_id && request.run_id === undefined) ||
 				((request.history || request.session_id) &&
 					(request.task_id !== undefined || request.include_output))
 			)
@@ -2212,7 +2247,7 @@ export async function createSubagentRuntime(
 					success: false,
 					output: '',
 					error:
-						'include_output requires one task_id. Inspect saved agents separately with history and session_id.',
+						'include_output requires one task_id, or a run_id to read the agents of one workflow run. Inspect saved agents separately with history and session_id.',
 				}
 			if (request.history || request.session_id) {
 				if (!opts.savedAgents)
@@ -2352,7 +2387,34 @@ export async function createSubagentRuntime(
 				opts.workStatus && request.task_id === undefined
 					? opts.workStatus((await resolveParent(context.turnId)).sessionId, request.run_id)
 					: undefined
+			// A run's agents, with what each one did: the one call that gives a run's outputs.
+			const runAgents =
+				request.include_output && request.task_id === undefined && request.run_id !== undefined
+					? snapshot
+							.filter(
+								(entry) => entry.workflowId === `${WORKFLOW_RUN_GROUP_PREFIX}${request.run_id}`,
+							)
+							.slice(-12)
+					: undefined
 			const body = {
+				...(runAgents
+					? {
+							run_agents:
+								runAgents.length > 0
+									? runAgents.map((entry) => ({
+											task_id: entry.taskId ?? entry.viewId,
+											label: entry.description,
+											status: entry.status,
+											...taskActivityOutput(entry, entry.completedAt !== undefined),
+										}))
+									: [],
+							...(runAgents.length === 0
+								? {
+										run_agents_note: `No agent activity is kept for run ${request.run_id} in this session. What its finished agents answered is in the run's journal (the journal path is in the workflows entry), and workflow with resumeFromRunId ${request.run_id} returns those answers without running the agents again.`,
+									}
+								: {}),
+						}
+					: {}),
 				tasks: request.run_id !== undefined && status ? [] : shown,
 				total: request.run_id !== undefined && status ? 0 : total,
 				omitted: request.run_id !== undefined && status ? 0 : total - shown.length,
@@ -2770,20 +2832,24 @@ export async function createSubagentRuntime(
 		},
 	})
 
-	const cancelAgentTool = defineTool({
-		name: 'cancel_agent',
-		description:
-			'Request cancellation of one running or queued agent task of this conversation, from any turn. Other agents and the parent continue. Acceptance is not proof of termination; check agent_task_list or wait_for_task for the terminal outcome. Does not restart finished tasks.',
+	const stopTaskTool = defineTool({
+		name: 'stop_task',
+		description: STOP_TASK_DESCRIPTION,
 		inputSchema: mcpJsonSchemaToZod({
 			type: 'object',
 			properties: {
-				task_id: {
+				id: {
 					type: 'string',
 					description:
-						'Exact task UUID returned by Agent or agent_task_list, or the name given to Agent.',
+						'What to stop: an agent task (its task ID from Agent or agent_task_list, or the name given to Agent) or a workflow run (its run ID, w followed by eight characters, as agent_task_list lists it).',
+				},
+				reason: {
+					type: 'string',
+					maxLength: 500,
+					description: 'Optional: why it is being stopped, in a few words.',
 				},
 			},
-			required: ['task_id'],
+			required: ['id'],
 			additionalProperties: false,
 		}),
 		category: 'custom',
@@ -2793,7 +2859,35 @@ export async function createSubagentRuntime(
 		concurrencySafe: false,
 		async execute(input, context) {
 			context.abortSignal.throwIfAborted()
-			const asked = (input as { task_id: string }).task_id
+			const asked = String((input as { id: string }).id ?? '').trim()
+			const why = String((input as { reason?: string }).reason ?? '').trim() || undefined
+			if (WORKFLOW_RUN_ID.test(asked)) {
+				if (!opts.stopWorkflowRun)
+					return {
+						success: false,
+						output: '',
+						error: 'This session cannot stop workflow runs from here.',
+					}
+				const owner = await resolveParent(context.turnId)
+				const outcome = opts.stopWorkflowRun(owner.sessionId, asked, why)
+				if (outcome === 'unknown')
+					return {
+						success: false,
+						output: '',
+						error: `No workflow run ${asked} in this conversation. Use agent_task_list to see its runs.`,
+					}
+				if (outcome === 'ended')
+					return {
+						success: true,
+						output: `Workflow run ${asked} already ended. Nothing was stopped.`,
+						data: { run_id: asked, status: 'already_ended' },
+					}
+				return {
+					success: true,
+					output: `Stop requested for workflow run ${asked}: its running agents are being aborted and its queued agents will not start. Agents that already finished keep their saved results, so the run can be continued later with resumeFromRunId. Acceptance is not proof it has ended; check agent_task_list (run_id ${asked}) for the outcome.${why ? ` Reason noted: ${why}` : ''}`,
+					data: { run_id: asked, status: 'stop_requested', ...(why ? { reason: why } : {}) },
+				}
+			}
 			const taskId = await parseTaskId(asked, context.turnId)
 			const found = taskId ? await resolveTask(taskId, context.turnId) : undefined
 			if (!taskId || !found)
@@ -2811,7 +2905,8 @@ export async function createSubagentRuntime(
 			if (found.kind === 'settled' || isTerminalAgentTaskState(task.state))
 				return {
 					success: true,
-					output: `Task ${taskId} already ended: ${agentTaskOutcome(task)}. No cancellation sent.`,
+					output: `Task ${taskId} already ended: ${agentTaskOutcome(task)}. Nothing was stopped.`,
+					data: { task_id: taskId, status: 'already_ended' },
 				}
 			const gateway = found.gateway
 			context.abortSignal.throwIfAborted()
@@ -2824,8 +2919,8 @@ export async function createSubagentRuntime(
 			gateway.cancelTask(task.taskId, 'user')
 			return {
 				success: true,
-				output: `Cancellation requested for task ${taskId}. Other tasks continue. Use agent_task_list or wait_for_task to confirm its terminal outcome.`,
-				data: { task_id: taskId, status: 'cancellation_requested' },
+				output: `Stop requested for task ${taskId}. Other tasks continue. Acceptance is not proof it has ended; use agent_task_list or wait_for_task to confirm its terminal outcome.${why ? ` Reason noted: ${why}` : ''}`,
+				data: { task_id: taskId, status: 'stop_requested', ...(why ? { reason: why } : {}) },
 			}
 		},
 	})
@@ -3244,7 +3339,7 @@ export async function createSubagentRuntime(
 				backgroundCompletionListeners.delete(listener)
 			}
 		},
-		cancelAgentTool,
+		stopTaskTool,
 		modelCatalogueTool,
 		messageChild,
 		stopChild,

@@ -466,7 +466,7 @@ export function readAudit(value: unknown): ExtensionAuditLine[] {
 	})
 }
 
-/** The methods the page may call through the one bridge; anything else is refused in the main process. */
+/** Methods for Namzu's own Extensions settings, not for sandboxed extension pages. */
 export const EXTENSION_BRIDGE_METHODS: readonly string[] = [
 	'namzu/extensions/list',
 	'namzu/extensions/license',
@@ -474,6 +474,7 @@ export const EXTENSION_BRIDGE_METHODS: readonly string[] = [
 	'namzu/extensions/acknowledge',
 	'namzu/extensions/enable',
 	'namzu/extensions/disable',
+	'namzu/extensions/unlock',
 	'namzu/extensions/remove',
 	'namzu/extensions/grant',
 	'namzu/extensions/revoke',

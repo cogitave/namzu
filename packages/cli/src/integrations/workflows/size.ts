@@ -148,5 +148,5 @@ export function largeRunNotice(name: string, reason: LargeRunReason): string {
 		reason.by === 'agents'
 			? `has asked for ${reason.asked} agents, more than the ${reason.limit} this session advises`
 			: 'is on course to spend a lot of tokens'
-	return `Workflow ${name} ${why}. It keeps running; press ↓ then x on its row, or open /workflows, to stop it.`
+	return `Workflow ${name} ${why}. It keeps running; press ↓ then x on its row, or open /workflows, to stop it. The model may also stop it with stop_task when it no longer serves the task.`
 }

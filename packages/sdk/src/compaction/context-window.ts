@@ -253,6 +253,24 @@ function lookupBareContextWindow(model: string | undefined): number | undefined 
 	return undefined
 }
 
+/** The share of the window a provider's own compaction limit is held to. */
+export const PROVIDER_COMPACT_LIMIT_MAX_FRACTION = 0.9
+
+/**
+ * The trigger fraction a provider's own compaction limit asks for: `min(limit, 90% of the
+ * window)` as a share of the window. `undefined` when the provider stated no usable limit or
+ * the window is unknown, which leaves Namzu's derived rule to answer.
+ */
+export function providerTriggerFraction(
+	limitTokens: number | undefined,
+	windowTokens: number,
+): number | undefined {
+	if (limitTokens === undefined || !Number.isFinite(limitTokens) || limitTokens <= 0)
+		return undefined
+	if (!(windowTokens > 0)) return undefined
+	return Math.min(limitTokens, windowTokens * PROVIDER_COMPACT_LIMIT_MAX_FRACTION) / windowTokens
+}
+
 /** Output room the trigger keeps free: the model's output cap, at most this many tokens. */
 export const TRIGGER_OUTPUT_RESERVE_CAP_TOKENS = 20_000
 /** Extra headroom below the reserved window before a summary is due. */

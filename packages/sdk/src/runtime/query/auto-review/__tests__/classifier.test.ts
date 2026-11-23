@@ -315,6 +315,64 @@ describe('failing closed', () => {
 		expect(requests).toHaveLength(1)
 	})
 
+	it.each([
+		[
+			'a rejected credential',
+			new ProviderError({ code: 'auth', message: 'bad key', status: 401 }),
+			'provider returned 401',
+		],
+		[
+			'a 401 whose text says invalid credentials',
+			new ProviderError({
+				code: 'auth',
+				message: 'invalid credentials, sign in again',
+				status: 401,
+			}),
+			'provider returned 401: the credential was refused',
+		],
+		[
+			'a bad request',
+			new ProviderError({ code: 'invalid_request', message: 'nope', status: 400 }),
+			'provider returned 400',
+		],
+		[
+			'a missing credential',
+			new Error('No API key for provider codex'),
+			'no credential for the check model',
+		],
+	])('names the class of the failure in what it says: %s', async (_what, error, why) => {
+		const { classifier } = make([error])
+		const decision = await review(classifier)
+		expect(decision).toMatchObject({ verdict: 'block', cause: 'unavailable' })
+		expect((decision as { reason: string }).reason).toContain(why)
+		// The provider's own text stays out of the sentence the person and the model read.
+		expect((decision as { reason: string }).reason).not.toContain('nope')
+	})
+
+	it('logs the cause it keeps out of the sentence', async () => {
+		const warned: unknown[] = []
+		const log: Logger = {
+			debug: () => {},
+			info: () => {},
+			warn: (message, data) => warned.push({ message, data }),
+			error: () => {},
+			child: () => log,
+		}
+		const { classifier } = make(
+			[
+				new ProviderError({
+					code: 'invalid_request',
+					message: 'unsupported parameter: stop',
+					status: 400,
+				}),
+			],
+			{ log },
+		)
+		await review(classifier)
+		expect(JSON.stringify(warned)).toContain('unsupported parameter: stop')
+		expect(JSON.stringify(warned)).toContain('provider returned 400')
+	})
+
 	it('blocks on a failure that is not a provider error at all', async () => {
 		const { classifier } = make([new Error('socket exploded')])
 		expect(await review(classifier)).toMatchObject({ verdict: 'block', cause: 'unavailable' })
@@ -433,7 +491,9 @@ describe('failing closed', () => {
 		const { classifier, requests } = make([hang], { maxRetries: 0, quickDeadlineMs: 5_000 })
 		const pending = review(classifier)
 		await vi.advanceTimersByTimeAsync(5_000)
-		expect(await pending).toMatchObject({ verdict: 'block', cause: 'unavailable' })
+		const decision = await pending
+		expect(decision).toMatchObject({ verdict: 'block', cause: 'unavailable' })
+		expect((decision as { reason: string }).reason).toContain('timed out after 5 s')
 		expect(requests).toHaveLength(1)
 	})
 
@@ -502,8 +562,36 @@ describe('counting blocks', () => {
 		expect(classifier.denials).toEqual({ consecutive: 0, total: 0 })
 	})
 
-	it('counts a check that could not run, and can be reset by the host', async () => {
+	it('does not count a check that could not run toward the blocks', async () => {
 		const { classifier } = make([new ProviderError({ code: 'auth', message: 'x' })])
+		await review(classifier)
+		expect(classifier.denials).toEqual({ consecutive: 0, total: 0 })
+	})
+
+	it('two checks that could not run, then one real block, do not reach the limit', async () => {
+		let answer: 'down' | 'block' = 'down'
+		const { classifier } = make(
+			[
+				async (params) => {
+					if (answer === 'down') throw new ProviderError({ code: 'auth', message: 'x' })
+					return params.maxTokens === 64
+						? '<verdict>block'
+						: '<verdict>block</verdict><reason>No.</reason>'
+				},
+			],
+			{ limits: { consecutive: 3, total: 3, noVerdict: 10 } },
+		)
+		await review(classifier)
+		await review(classifier)
+		answer = 'block'
+		const real = await review(classifier)
+		expect(real).toMatchObject({ verdict: 'block', cause: 'rule' })
+		expect(real).not.toHaveProperty('limitReached')
+		expect(classifier.denials).toEqual({ consecutive: 1, total: 1 })
+	})
+
+	it('can be reset by the host', async () => {
+		const { classifier } = make(['<verdict>block', '<verdict>block</verdict><reason>No.</reason>'])
 		await review(classifier)
 		expect(classifier.denials).toEqual({ consecutive: 1, total: 1 })
 		classifier.reset()

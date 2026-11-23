@@ -478,7 +478,7 @@ export function browserGrantLines(
 const STRICT_UNREACHABLE = [
 	'Agent',
 	'send_message',
-	'cancel_agent',
+	'stop_task',
 	'wait_for_task',
 	'agent_task_list',
 	'agent_models',

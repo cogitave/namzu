@@ -1097,6 +1097,55 @@ describe('the agents cockpit', () => {
 		}
 	})
 
+	it.each([
+		['a single choice', false],
+		['a multi-select card', true],
+	])(
+		'gives the screen to %s from the model while the workflow detail is open',
+		async (_name, multiSelect) => {
+			activity.set([
+				agent({ viewId: 'agent-alpha', description: 'Alpha audit' }),
+				agent({ viewId: 'agent-beta', description: 'Beta build' }),
+			])
+			let release!: () => void
+			const gate = new Promise<void>((resolve) => {
+				release = resolve
+			})
+			sendOverride.current = async function* (_messages, opts) {
+				await gate
+				await opts?.onQuestion?.({
+					questionId: 'q1',
+					question: 'Which audience is this for?',
+					header: 'Audience',
+					options: [
+						{ id: 'opt_1', label: 'Board', description: 'High level' },
+						{ id: 'opt_2', label: 'Engineers', description: 'Details' },
+					],
+					multiSelect,
+					allowFreeText: false,
+				})
+				yield { kind: 'done', stopReason: 'end_turn' }
+			}
+			try {
+				const screen = await renderToScreen(<App ctx={ctx} />, { cols: 110, rows: 28 })
+				mounted = screen
+				await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
+				await submit(screen, 'go')
+				await openCockpit(screen)
+				release()
+				await waitUntil(
+					screen,
+					() => screen.viewport().join('\n').includes('Which audience is this for?'),
+					'the question was hidden behind the detail',
+				)
+				expect(screen.viewport().join('\n')).not.toContain('Agents · 2 agents')
+			} finally {
+				release()
+				delete sendOverride.current
+			}
+		},
+	)
+
 	it('shows active children automatically and preserves a draft through inspect and completion', async () => {
 		const alpha = agent({
 			viewId: 'agent-alpha',
@@ -1542,7 +1591,7 @@ describe('the agents cockpit', () => {
 			expect([...stoppedChildren].sort()).toEqual(['wf-a', 'wf-c'])
 		})
 
-		it('opens the workflow on its phases with enter and returns to the row with escape', async () => {
+		it('opens the workflow on its phases with enter and returns to the message box with escape', async () => {
 			activity.set([
 				flow('wf-a', { startedAt: Date.now() - 9_000 }),
 				flow('wf-c', { startedAt: Date.now() - 8_000 }),
@@ -1563,12 +1612,14 @@ describe('the agents cockpit', () => {
 			screen.press('\x1b')
 			await waitUntil(
 				screen,
-				() => /^ *❯ ◯ Release audit/mu.test(screen.viewport().join('\n')),
-				'escape did not return to the workflow row',
+				() => screen.viewport().join('\n').includes('Type a message'),
+				'escape did not give the message box back',
 			)
+			// The keyboard is the message box's, not the row's.
+			expect(screen.viewport().join('\n')).not.toMatch(/^ *❯ ◯ Release audit/mu)
 		})
 
-		it('draws the detail above the message box, with the status line still under it', async () => {
+		it('draws the detail in place of the message box and the status line, and gives them back on escape', async () => {
 			activity.set([
 				flow('wf-a', { startedAt: Date.now() - 9_000 }),
 				flow('wf-c', { startedAt: Date.now() - 8_000 }),
@@ -1584,28 +1635,34 @@ describe('the agents cockpit', () => {
 				'enter did not open the workflow phases',
 			)
 			const rows = screen.viewport()
+			const text = rows.join('\n')
 			const at = (pattern: RegExp) => rows.findIndex((row) => pattern.test(row))
 			const rules = rows.flatMap((row, index) => (/^─{20,}$/u.test(row) ? [index] : []))
-			const detail = at(/ Phases /u)
-			// The detail's own rule, then the message box's two rules (the box itself reads `…` while the
-			// detail has the keys), then the status line: the box is not replaced, the line is not hidden.
-			expect(rules.length, rows.join('\n')).toBeGreaterThanOrEqual(3)
-			const [first, boxTop, boxBottom] = [
-				rules[0] as number,
-				rules.at(-2) as number,
-				rules.at(-1) as number,
-			]
-			expect(detail).toBeGreaterThan(first)
-			expect(boxTop).toBeGreaterThan(detail)
-			expect(at(/model/u)).toBeGreaterThan(boxBottom)
-			// The detail ends on its key line right above the box (one spacing row), with no blank rows
-			// kept for log lines the workflow never wrote.
-			expect(boxTop - at(/esc back/u), rows.join('\n')).toBeLessThanOrEqual(2)
-			// The detail is one block of the height the rule gives, never the whole screen, and the
-			// conversation's header stays readable above it.
-			expect(boxTop - first).toBeLessThanOrEqual(workflowDetailHeight(40, false) + 1)
+			// One rule across the top of the detail, and no other: the message box's two rules are gone.
+			expect(rules, text).toHaveLength(1)
+			expect(text).not.toContain('Type a message')
+			expect(text).not.toContain('(/help for commands)')
+			expect(text).not.toMatch(/model/u)
+			const first = rules[0] as number
+			const top = at(/ Phases /u)
+			const key = at(/esc back/u)
+			expect(top).toBeGreaterThan(first)
+			// The key line is the last drawn row, directly under the box's bottom border.
+			expect(key, text).toBe(rows.map((row) => row.trim() !== '').lastIndexOf(true))
+			expect(rows[key - 1]).toMatch(/^ *╰/u)
+			// The box fills the rest of the screen: the detail is the rule's height, no matter how few agents it lists.
+			expect(key - first + 2).toBeGreaterThanOrEqual(workflowDetailHeight(40) - 1)
 			expect(first).toBeGreaterThan(2)
-			expect(rows.join('\n')).toContain('Namzu')
+			expect(text).toContain('Namzu')
+			expect(rows[key]).toContain('↑↓ select')
+			expect(rows[key]).toContain('x stop workflow')
+			expect(rows[key]).not.toContain('space close')
+			screen.press('\x1b')
+			await waitUntil(
+				screen,
+				() => screen.viewport().join('\n').includes('Type a message'),
+				'the message box did not come back',
+			)
 		})
 
 		it('moves with j and k, goes deeper with right and back with left, and closes with left at the top or with space', async () => {
@@ -1645,15 +1702,16 @@ describe('the agents cockpit', () => {
 				() => / Phases /u.test(screen.viewport().join('\n')),
 				'left did not go back',
 			)
-			// Left at the top closes the view and gives the row its keys back.
+			// Left at the top closes the view and gives the message box its keys back.
 			screen.press('\x1b[D')
 			await waitUntil(
 				screen,
-				() => /^ *❯ ◯ Release audit/mu.test(screen.viewport().join('\n')),
+				() => screen.viewport().join('\n').includes('Type a message'),
 				'left at the top did not close',
 			)
 			expect(screen.viewport().join('\n')).not.toMatch(/ Phases /u)
 			// Space closes it from anywhere.
+			await focusWorkflow(screen, 1)
 			screen.press('\r')
 			await waitUntil(screen, () => / Phases /u.test(screen.viewport().join('\n')), 'not reopened')
 			screen.press(' ')
@@ -2858,10 +2916,10 @@ describe('agent explorer projection', () => {
 					selectedId={research.viewId}
 					focus="phases"
 					terminalRows={28}
-					terminalColumns={120}
+					terminalColumns={60}
 				/>
 			</Box>,
-			{ cols: 120, rows: 28 },
+			{ cols: 60, rows: 28 },
 		)
 		mounted = screen
 		const frame = screen.viewport().join('\n')

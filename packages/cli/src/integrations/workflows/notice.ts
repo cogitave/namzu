@@ -47,7 +47,7 @@ export function launchedText(
 	const lines = [
 		`Workflow "${view.name}" started in the background as ${view.runId}.`,
 		'Its agents are running now. You will get one message when it ends, with what the script returned, any failures and the usage. The person can watch it with /workflows or the rail under the message box.',
-		'Do not start the same work again, and do not poll in a loop: one status read with agent_task_list (run_id set to the id above) is fine when the person asks how it is going. Tell the person in one short sentence that it is running, then carry on with work that does not repeat what the run is doing, or end your turn.',
+		'Do not start the same work again, and do not poll in a loop: one status read with agent_task_list (run_id set to the id above) is fine when the person asks how it is going. Tell the person in one short sentence that it is running, then carry on with work that does not repeat what the run is doing, or end your turn. If the run stops serving the task (the person changed course, or what it would return no longer matters), end it with stop_task and this run id; what its agents already finished is kept for a later resume.',
 	]
 	if (view.pass !== undefined && view.pass > 1) {
 		lines.push(
@@ -136,4 +136,29 @@ export function completionNotice(view: WorkflowRunView): string {
 		'Report the outcome to the person in your own words. Name what failed, if anything, and what you would do about it.',
 	)
 	return lines.join('\n')
+}
+
+/**
+ * What the model is told, the next time a conversation is opened, about a run
+ * the program itself cut short (the session ended, or the person moved to
+ * another conversation) while the run was going. Not the person stopping it.
+ */
+export function interruptedNotice(
+	view: WorkflowRunView,
+	cause: 'session-ended' | 'conversation-changed',
+): { readonly text: string; readonly line: string } {
+	const counts = countAgents(view)
+	const why =
+		cause === 'session-ended'
+			? 'the session ended while it was running'
+			: 'the person moved to another conversation while it was running'
+	const text = [
+		`Background workflow ${JSON.stringify(view.name)} (run ${view.runId}) was cut short: ${why}. Nobody asked to stop it.`,
+		`${counts.done} agent${counts.done === 1 ? '' : 's'} had finished and saved their results; ${counts.total - counts.done} had not.`,
+		`If the person asks to continue, resume it rather than redoing its work by hand or starting a new run (load workflow with search_tools first if it is not in your tool list): call ${resumeCallText(view.scriptPath, view.runId)}; agents whose prompt and options are unchanged return their saved results without running again. Say in one line that you are resuming run ${view.runId}.`,
+	].join('\n')
+	return {
+		text,
+		line: `${view.name} was cut short when ${cause === 'session-ended' ? 'the session ended' : 'you left this conversation'}. /workflows to see it or resume it.`,
+	}
 }

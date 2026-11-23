@@ -1256,7 +1256,7 @@ export interface SendOptions {
 	 * leaves the mode as it is.
 	 */
 	readonly onAutoModeLimit?: (event: {
-		readonly limit: 'consecutive' | 'total' | 'unavailable'
+		readonly limit: 'consecutive' | 'total' | 'unavailable' | 'asked'
 		readonly reason: string
 	}) => void
 	/**
@@ -2568,7 +2568,7 @@ export const DELEGATION_TOOLS_WHEN_BUSY = [
 	'wait_for_task',
 	'agent_task_list',
 	'send_message',
-	'cancel_agent',
+	'stop_task',
 ] as const
 
 /**
@@ -4752,6 +4752,13 @@ export async function createAgentSession(
 			...(options.ephemeral ? {} : { paths }),
 			workStatus: (sessionId, runId) =>
 				readWorkStatus(outstandingFacts(sessionId), Date.now(), runId),
+			stopWorkflowRun: (sessionId, runId, reason) => {
+				const run = workflowOwners
+					.ownedBy(sessionId, workflowHost?.registry.list() ?? [])
+					.find((view) => view.runId === runId)
+				if (!run || !workflowHost) return 'unknown'
+				return workflowHost.registry.stop(runId, { by: 'parent', reason }) ? 'stopped' : 'ended'
+			},
 			...(conversationIndex
 				? {
 						savedAgents: (sessionId: SessionId) =>
@@ -5004,7 +5011,7 @@ export async function createAgentSession(
 			agentToolsets.push(toolset('agents:task-list', [sub.agentTaskListTool]))
 		if (sub.sendMessageTool)
 			agentToolsets.push(toolset('agents:send-message', [sub.sendMessageTool]))
-		if (sub.cancelAgentTool) agentToolsets.push(toolset('agents:cancel', [sub.cancelAgentTool]))
+		if (sub.stopTaskTool) agentToolsets.push(toolset('agents:stop', [sub.stopTaskTool]))
 		if (options.askUser && sub.narrationTool)
 			agentToolsets.push(toolset('agents:narration', [sub.narrationTool]))
 		// Fail here, inside this try block, before anything lands in the
@@ -9527,7 +9534,7 @@ export interface ReviewExtras {
 	 * on it, or (`unavailable`) gave no verdict often enough that the turn ended.
 	 */
 	readonly onClassifierLimit?: (event: {
-		readonly limit: 'consecutive' | 'total' | 'unavailable'
+		readonly limit: 'consecutive' | 'total' | 'unavailable' | 'asked'
 		readonly reason: string
 	}) => void
 	/** The conversation was too long for the classifier to read. */
@@ -9562,6 +9569,8 @@ function reviewOptionsOf(mode: PermissionMode, extras: ReviewExtras) {
 								onClassifierLimit: extras.onClassifierLimit,
 								onClassifierUnavailable: ({ reason }: { readonly reason: string }) =>
 									extras.onClassifierLimit?.({ limit: 'unavailable', reason }),
+								onClassifierFellBack: ({ reason }: { readonly reason: string }) =>
+									extras.onClassifierLimit?.({ limit: 'asked', reason }),
 							}
 						: {}),
 					...(extras.onClassifierTranscriptTooLong

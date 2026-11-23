@@ -56,7 +56,7 @@ const core = [
 	'wait_for_task',
 	'agent_task_list',
 	'send_message',
-	'cancel_agent',
+	'stop_task',
 	// Reading a page is the first step of most web work, so it rides every request
 	// where web fetch is on (these sessions turn it on).
 	'web_fetch',

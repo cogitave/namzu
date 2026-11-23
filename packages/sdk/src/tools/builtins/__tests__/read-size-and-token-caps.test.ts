@@ -52,7 +52,7 @@ describe('read size cap', () => {
 		const { context } = dirWith('big.txt', body)
 		const result = await ReadFileTool.execute({ path: 'big.txt', limit: 50 }, context)
 		expect(result.success).toBe(true)
-		expect(result.output).toContain('1\tline 00001')
+		expect(result.output).toContain('     1→line 00001')
 		const ranged = await ReadFileTool.execute({ path: 'big.txt', readRange: [10, 12] }, context)
 		expect(ranged.success).toBe(true)
 	})

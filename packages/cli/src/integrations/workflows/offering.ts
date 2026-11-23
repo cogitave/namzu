@@ -9,6 +9,8 @@
  * dropped with Alt+W), hypermode being on, or their own words. Pure.
  */
 
+import { CONTINUE_RUN_GUIDANCE } from '../subagents/stop-guidance.js'
+
 export const WORKFLOW_TOOL_NAME = 'workflow'
 
 /**
@@ -20,7 +22,7 @@ export const WORKFLOW_BACKGROUND_NOTE = 'Running in the background · follow it 
 
 /** The tool's description, as the model reads it. */
 export const WORKFLOW_TOOL_DESCRIPTION = [
-	'Run a workflow: a short JavaScript program you write once that starts many subagents, in order and in parallel, and returns one value. It runs in the background: this call returns once the first agent is requested, and one message arrives when the run ends. A script that fails before it requests any agent is an error of this call, and one that finishes without any returns its result here. Call it only after an explicit opt-in: the operator\'s message included the keyword "hypermode" or "workflow" (a note confirms it), hypermode is on for the session (a note confirms it), the operator asked for a workflow or multi-agent orchestration in their own words, or they named a saved workflow to run. For any other task, even one that would clearly benefit from parallelism, do not call it; for a single subagent or a small fan-out, use the Agent tool. When hypermode is on, that is a standing opt-in for every substantive task, and you work alone only on a conversational or trivial turn.',
+	'Run a workflow: a short JavaScript program you write once that starts many subagents, in order and in parallel, and returns one value. It runs in the background: this call returns once the first agent is requested, and one message arrives when the run ends. A script that fails before it requests any agent is an error of this call, and one that finishes without any returns its result here. Call it only after an explicit opt-in: the operator\'s message included the keyword "hypermode" or "workflow" (a note confirms it), hypermode is on for the session (a note confirms it), the operator asked for a workflow or multi-agent orchestration in their own words, they named a saved workflow to run, or the person asked to continue or resume a run of this conversation (resumeFromRunId). For any other task, even one that would clearly benefit from parallelism, do not call it; for a single subagent or a small fan-out, use the Agent tool. When hypermode is on, that is a standing opt-in for every substantive task, and you work alone only on a conversational or trivial turn.',
 	'',
 	'The script is confined: no files, no network, no commands, no timers, no imports. Its only power is agent(), which starts a subagent with the same tools, permissions, sandbox and budget the Agent tool gives. A prompt you pass is data for that subagent and cannot widen what it may do.',
 	'',
@@ -38,7 +40,8 @@ export const WORKFLOW_TOOL_DESCRIPTION = [
 	'',
 	'Scripts must be deterministic: the same inputs make the same agent() calls in the same order. Date.now(), new Date() with no argument and Math.random() throw (they break resume): pass a timestamp through args, and for N independent samples put the index in the label or prompt. new Date(x), Date.parse and Date.UTC work.',
 	'',
-	'Resuming: the receipt of a started run names a script file and the run id. To change the script, edit that file and call workflow again with {scriptPath, resumeFromRunId}; to continue a run that failed, was stopped or was cut off, do the same. Agents whose prompt and options are unchanged return their saved results without running; the first call that differs, failed or never ran starts running again, and so does everything after it. Saved results are in journal.jsonl in the run folder and can be empty, so read it before assuming there is something to recover. Resuming asks the operator, like a start, and a run that is still going cannot be resumed.',
+	'Resuming: the receipt of a started run names a script file and the run id. To change the script, edit that file and call workflow again with {scriptPath, resumeFromRunId}; to continue a run that failed, was stopped or was cut off, do the same. Agents whose prompt and options are unchanged return their saved results without running; the first call that differs, failed or never ran starts running again, and so does everything after it. Saved results are in journal.jsonl in the run folder and can be empty, so read it before assuming there is something to recover. Resuming asks the operator, like a start, and a run that is still going cannot be resumed. ' +
+		CONTINUE_RUN_GUIDANCE,
 	'',
 	'Limits: a handful of agents run at once (the cap comes from the configuration; usually up to 16) and at most 1000 start per run (fewer if configured); a script that asks for more fails, so give any loop a hard iteration cap. The script may be up to 256 KiB and args 64 KiB, but the operator reads the script before it starts, so keep it as short as it can be: loops over lists, shared helpers, prompts built from args. Put long per-agent instructions in a file the agents read.',
 	'',
@@ -46,7 +49,7 @@ export const WORKFLOW_TOOL_DESCRIPTION = [
 	'',
 	'Example call, one agent per package and one pass over what they found: {"script":"export const meta = { name: \\"check-stale-settings\\", description: \\"Check each package for stale settings\\", phases: [{ title: \\"Scan\\", detail: \\"one agent per package, side by side\\" }] }\\nconst found = await parallel(args.packages.map((p) => () => agent(\\"List stale settings in \\" + p, { label: \\"scan:\\" + p, phase: \\"Scan\\" })))\\nreturn found.filter(Boolean)","args":{"packages":["core","web"]}}.',
 	'',
-	'Once the operator approves the script the run goes on in the background: say in one sentence that it is running. When asked how it is going, read its state with one `agent_task_list` call (set `run_id`) or the running-work note, not the launch message, which is only a receipt, and say it is still running until its completion message has arrived.',
+	'Once the operator approves the script the run goes on in the background: say in one sentence that it is running. When asked how it is going, read its state with one `agent_task_list` call (set `run_id`) or the running-work note, not the launch message, which is only a receipt, and say it is still running until its completion message has arrived. stop_task with the run id ends a run that no longer serves the task, not one that is only slow; what its agents already finished is kept, so resumeFromRunId continues it later.',
 	'',
 	'Before it starts the operator sees the name, description, phases, limits and the script, and approves or declines. If they decline, do not retry with the same script; ask what to change.',
 ].join('\n')

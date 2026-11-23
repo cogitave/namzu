@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest'
 
-import { splitToolList, toolFlagLayers, toolListTable } from '../tool-flags.js'
+import {
+	splitToolList,
+	toolFlagLayers,
+	toolKey,
+	toolListTable,
+	toolOnOffer,
+} from '../tool-flags.js'
 
 describe('splitToolList', () => {
 	it('splits on commas and spaces but not inside brackets', () => {
@@ -15,6 +21,19 @@ describe('splitToolList', () => {
 	it('reports an unclosed bracket', () => {
 		expect(splitToolList('bash(git status').unbalanced).toBe(true)
 		expect(splitToolList('bash(git status)').unbalanced).toBe(false)
+	})
+})
+
+describe('a tool list that still names cancel_agent', () => {
+	it('is read as stop_task, in an allow list, a deny list and under --tools', () => {
+		expect(toolListTable('--allowed-tools', ['cancel_agent'], 'allow').table).toEqual({
+			stop_task: 'allow',
+		})
+		expect(toolListTable('--disallowed-tools', ['Cancel_Agent'], 'deny').table).toEqual({
+			stop_task: 'deny',
+		})
+		expect(toolOnOffer(['stop_task'], 'stop_task')).toBe(true)
+		expect(toolKey('cancel_agent')).toBe('stop_task')
 	})
 })
 

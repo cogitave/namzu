@@ -93,32 +93,40 @@ const DETAIL_MIN_LIST_ROWS = 2
 /** The least the detail is ever cut to, so a very small terminal still shows a title and a row. */
 const DETAIL_MIN_ROWS = 4
 
-/** Rows under the detail when the caller does not know them: a one-line box (margin, two rules, a line), the status line and some slack. */
-const DETAIL_BELOW_ROWS = 9
+/** Rows of the conversation the detail leaves above itself: the dialog is what is left of the screen below them. */
+const DETAIL_CONVERSATION_ROWS = 10
+
+/** A terminal this short or shorter is drawn in tight mode: the detail's box may be as low as 8 rows. */
+const DETAIL_TIGHT_ROWS = 24
+
+/** Rows around the detail's bordered box: the gap, the rule, the name, the description, a blank row and the key line. */
+const DETAIL_AROUND_BOX_ROWS = 6
 
 /**
- * The height of the workflow detail drawn above the message box, in rows of a terminal that is
- * `rows` tall, with `below` rows under it (the message box with its margin, rules and draft lines,
- * the status line, an extension or update row, and one row of the conversation). The detail is
- * half the screen in the full screen view, else everything above those rows. It is never less than
- * 12 rows (8 on a terminal under 18 rows) while they fit, and never more than what is left
- * above `below`, down to {@link DETAIL_MIN_ROWS}: on a short terminal it gives way, because rows
- * past the screen are not clipped but make the whole screen repaint on every update.
+ * The height of the bordered box of the workflow detail (borders included), in a terminal `rows`
+ * tall. The detail takes the place of the message box, so the box fills what is left under the
+ * conversation: at least `max(tight ? 8 : 12, min(avail - 1, rows - 6))` rows, at most
+ * `max(tight ? 8 : 11, avail - 1)`, where `avail` is the rows left for the dialog.
  */
-export function workflowDetailHeight(
-	rows: number,
-	fullscreen: boolean,
-	below: number = DETAIL_BELOW_ROWS,
-): number {
-	const available = Math.max(1, rows - below)
-	const wanted = fullscreen ? Math.floor(rows / 2) : available
-	const least = rows < 18 ? 8 : 12
-	const height = Math.max(Math.min(wanted, available), Math.min(least, available))
-	return Math.max(DETAIL_MIN_ROWS, height)
+export function workflowDetailBoxRows(rows: number): number {
+	const tight = rows <= DETAIL_TIGHT_ROWS
+	const avail = Math.max(1, rows - DETAIL_CONVERSATION_ROWS)
+	const least = Math.max(tight ? 8 : 12, Math.min(avail - 1, rows - 6))
+	const most = Math.max(tight ? 8 : 11, avail - 1)
+	return Math.min(least, most)
 }
 
-/** The least a content-sized workflow detail is drawn at, so a one-agent run still reads as a panel. */
-export const DETAIL_FLOOR_ROWS = 8
+/**
+ * The height of the whole workflow detail (rule, name, description, box and key line), which
+ * replaces the message box and the status line while it is open. It never exceeds the screen
+ * (down to {@link DETAIL_MIN_ROWS}): rows past it are not clipped but make the screen repaint.
+ */
+export function workflowDetailHeight(rows: number): number {
+	return Math.max(
+		DETAIL_MIN_ROWS,
+		Math.min(workflowDetailBoxRows(rows) + DETAIL_AROUND_BOX_ROWS, rows - 1),
+	)
+}
 
 /** Left and right pane widths of the detail's two lists, and whether they sit side by side. */
 function detailGeometry(
@@ -143,85 +151,6 @@ function detailGeometry(
 	return { leftInner, rightInner, sideBySide: columns >= DETAIL_WIDE_COLUMNS && rightInner >= 24 }
 }
 
-/**
- * The rows a workflow detail needs to show everything it has, with no blank rows under the last
- * agent: its chrome, the `log()` lines it shows, and the longer of the phase list and the selected
- * phase's agent list (at least one row), plus the phase's own detail text when that is shown.
- */
-export function workflowDetailContentRows(
-	workflow: AgentWorkflow,
-	phases: readonly AgentPhase[],
-	selectedPhaseIndex: number,
-	level: 1 | 2,
-	terminalRows: number,
-	terminalColumns: number,
-): number {
-	const columns = Math.max(20, terminalColumns)
-	const logLines = Math.min(detailLogLineCount(terminalRows), workflow.logs?.length ?? 0)
-	const phase = phases[selectedPhaseIndex]
-	const agentCount = phase?.agents.length ?? 0
-	const { rightInner, sideBySide } = detailGeometry(workflow, phases, columns)
-	let list: number
-	if (sideBySide) {
-		const detailLines =
-			level === 1 && phase?.detail
-				? wrapPhaseDetailLines(phase.detail, rightInner - 2).slice(0, PHASE_DETAIL_LINE_BUDGET)
-				: []
-		list = Math.max(
-			phases.length,
-			agentCount + (detailLines.length > 0 ? detailLines.length + 1 : 0),
-		)
-	} else {
-		const detailLines =
-			level === 1 && terminalRows >= 20 && phase?.detail
-				? wrapPhaseDetailLines(phase.detail, columns - 4).slice(0, PHASE_DETAIL_LINE_BUDGET)
-				: []
-		list = Math.max(phases.length + detailLines.length, agentCount)
-	}
-	// The lists are never drawn under two rows, so a smaller content would be clipped.
-	return detailChromeRows(sideBySide) + logLines + Math.max(DETAIL_MIN_LIST_ROWS, list)
-}
-
-/** The detail's height: its content, no shorter than {@link DETAIL_FLOOR_ROWS} and no taller than `cap`. */
-export function sizeWorkflowDetail(cap: number, contentRows: number): number {
-	return Math.min(cap, Math.max(DETAIL_FLOOR_ROWS, contentRows))
-}
-
-/**
- * The height for the detail the cockpit is showing: sized to its content when it is a workflow's
- * phases or agents, the `cap` itself when it is the list of workflows or has nothing to size from.
- */
-export function cockpitDetailHeight(
-	agents: readonly SubagentActivity[],
-	runs: readonly WorkflowRunView[],
-	selectedPhaseId: string,
-	focus: AgentCockpitFocus,
-	terminalRows: number,
-	terminalColumns: number,
-	cap: number,
-): number {
-	if (focus === 'workflows') return cap
-	const workflows = agentWorkflows(agents, runs)
-	const workflow = workflows.find((item) =>
-		item.phases.some((phase) => phase.id === selectedPhaseId),
-	)
-	if (!workflow) return cap
-	const index = Math.max(
-		0,
-		workflow.phases.findIndex((phase) => phase.id === selectedPhaseId),
-	)
-	return sizeWorkflowDetail(
-		cap,
-		workflowDetailContentRows(
-			workflow,
-			workflow.phases,
-			index,
-			focus === 'agents' ? 2 : 1,
-			terminalRows,
-			terminalColumns,
-		),
-	)
-}
 const graphemes = new Intl.Segmenter(undefined, { granularity: 'grapheme' })
 
 export interface AgentNarrationBandProps {
@@ -1716,27 +1645,25 @@ export function WorkflowDetail({
 				!isTerminalStatus(selectedAgent.status) &&
 				(!isRun || workflow.runStatus === 'running')
 	// On a run's agents `x` skips that one agent; the run goes on without it.
+	// Only what applies is said, in the words of the keys: moving, stopping, going back.
 	const hint = fitHints(
 		level === 1
 			? [
 					{ text: '↑↓ select', rank: 4 },
-					{ text: 'enter open', rank: 3 },
 					...(canStop ? [{ text: 'x stop workflow', rank: 2 }] : []),
 					{ text: 'esc back', rank: 5 },
-					{ text: 'space close', rank: 1 },
 				]
 			: [
-					{ text: '↑↓ select', rank: 4 },
+					{ text: '↑↓ agent', rank: 4 },
 					{ text: 'enter view', rank: 3 },
 					...(canStop ? [{ text: `x ${isRun ? 'skip' : 'stop'}`, rank: 2 }] : []),
 					{ text: 'esc back', rank: 5 },
-					{ text: 'space close', rank: 1 },
 				],
 		Math.max(1, columns - 2),
 	)
 	const agents = phase?.agents ?? []
 	const agentsTitle = phase
-		? `${oneLine(phaseTitle(phase))} · ${agents.length} ${agents.length === 1 ? 'agent' : 'agents'} · ${agents.filter((agent) => agent.status === 'completed').length} done`
+		? `${oneLine(phaseTitle(phase))} · ${agents.length} ${agents.length === 1 ? 'agent' : 'agents'}`
 		: ''
 	// The phase's failures follow its count, in the error colour.
 	const agentsFailed = agents.filter((agent) => agent.status === 'failed').length
@@ -1800,7 +1727,7 @@ export function WorkflowDetail({
 				{'─'.repeat(columns)}
 			</Text>
 			<Box paddingX={1}>
-				<Text color={theme.text.primary} bold wrap="truncate-end">
+				<Text color={theme.accent.assistant} bold wrap="truncate-end">
 					{title}
 				</Text>
 			</Box>
@@ -1831,7 +1758,7 @@ export function WorkflowDetail({
 	)
 	const footer = (
 		<Box paddingX={1}>
-			<Text color={theme.text.muted} wrap="truncate-end">
+			<Text color={theme.text.muted} dimColor italic wrap="truncate-end">
 				{hint}
 			</Text>
 		</Box>
@@ -1948,16 +1875,9 @@ export function WorkflowDetail({
 		)
 	}
 
-	// Side by side. The detail text the phase declared fills the right pane's
-	// free rows once its agents are listed.
-	const detailLines =
-		level === 1 && phase?.detail
-			? wrapPhaseDetailLines(phase.detail, rightInner - 2).slice(0, PHASE_DETAIL_LINE_BUDGET)
-			: []
-	const showDetail =
-		detailLines.length > 0 && detailLines.length + 1 + agentWindow.items.length <= pageSize
-	// The phase's detail sits under its title, ahead of the agents, then a blank row.
-	const detailRows = showDetail ? detailLines.length + 1 : 0
+	// Side by side. The agents column starts right under its title; the phase's
+	// detail text is not drawn here (the description line above carries the purpose).
+	const detailRows = 0
 	const border = theme.border.default
 	const leftTitle = ' Phases '
 	const rightTitle = ` ${truncateChoiceText(`${agentsTitle}${failedTail}`, Math.max(1, rightInner - 4))} `
@@ -1995,7 +1915,6 @@ export function WorkflowDetail({
 					Math.max(0, ...agentWindow.items.map((value) => stringWidth(agentDetailLabel(value)))),
 					Math.floor(rightInner * 0.45),
 				)
-				const detailRow = showDetail && row < detailLines.length ? row : -1
 				return (
 					<Box key={item?.id ?? `row-${row}`} paddingX={1}>
 						<Text color={border}>│</Text>
@@ -2070,11 +1989,6 @@ export function WorkflowDetail({
 										</Text>
 									</Box>
 								</>
-							) : detailRow >= 0 && detailLines[detailRow] !== undefined ? (
-								<Text color={theme.text.muted} wrap="truncate-end">
-									{'    '}
-									{detailLines[detailRow]}
-								</Text>
 							) : row === detailRows && emptyNote ? (
 								<Text color={theme.text.muted} dimColor wrap="truncate-end">
 									{'  '}

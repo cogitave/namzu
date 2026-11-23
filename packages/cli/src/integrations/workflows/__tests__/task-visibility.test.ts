@@ -79,7 +79,7 @@ it('allows a parent message and cancellation for the exact live workflow child, 
 	)
 	expect(message.success).toBe(true)
 	expect(message.data).toMatchObject({ task_id, status: 'queued' })
-	const cancelled = await h.runtime.cancelAgentTool.execute({ task_id }, h.context)
+	const cancelled = await h.runtime.stopTaskTool.execute({ id: task_id }, h.context)
 	expect(cancelled.success).toBe(true)
 	await h.until(() => h.gate.waiting() === 1)
 	const after = JSON.parse((await h.runtime.agentTaskListTool.execute({}, h.context)).output)
@@ -101,7 +101,7 @@ it('refuses listing, inspection, wait, message and cancellation from another con
 		h.runtime.agentTaskListTool.execute({ task_id, include_output: true }, foreign),
 		h.runtime.waitForTaskTool.execute({ task_id }, foreign),
 		h.runtime.sendMessageTool.execute({ task_id, message: 'Foreign correction' }, foreign),
-		h.runtime.cancelAgentTool.execute({ task_id }, foreign),
+		h.runtime.stopTaskTool.execute({ id: task_id }, foreign),
 	])) {
 		expect(result.success).toBe(false)
 		expect(JSON.stringify(result)).not.toContain('PRIVATE_CHILD_TEXT')

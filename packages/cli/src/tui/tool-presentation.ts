@@ -48,6 +48,17 @@ export function admitToolView(value: unknown): ToolCallView | undefined {
 	}
 }
 
+/** The task or run a `stop_task` call names, as written; a generic word when unreadable. */
+function stopTarget(input: unknown): string {
+	const id = (input as { id?: unknown } | null)?.id
+	return typeof id === 'string' && id.trim() ? id.trim().slice(0, 60) : 'background work'
+}
+
+/** `Stopped <id>` or `Already ended` from the text the model got; failures are drawn from their error. */
+function stopResultLabel(input: unknown, output: string): string {
+	return /already (ended|stopping)/i.test(output) ? 'Already ended' : `Stopped ${stopTarget(input)}`
+}
+
 type OwnedView = {
 	readonly call: (input: unknown) => ToolCallView
 	readonly result: (input: unknown, output: string) => ToolCallView | undefined
@@ -67,6 +78,14 @@ const OWNED_VIEWS: Readonly<Record<string, OwnedView>> = {
 	wait_for_task: {
 		call: () => ({ kind: 'generic', label: WAIT_CALL_LABEL, presentation: 'activity' }),
 		result: (_input, output) => ({ kind: 'generic', label: waitResultLabel(output) }),
+	},
+	stop_task: {
+		call: (input) => ({
+			kind: 'generic',
+			label: `Stopping ${stopTarget(input)}`,
+			presentation: 'activity',
+		}),
+		result: (input, output) => ({ kind: 'generic', label: stopResultLabel(input, output) }),
 	},
 	search_tools: {
 		call: (input) => SearchToolsTool.presentCall?.(input as never) as ToolCallView,

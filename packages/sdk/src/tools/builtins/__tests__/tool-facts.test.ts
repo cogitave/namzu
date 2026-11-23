@@ -162,7 +162,7 @@ describe('read', () => {
 			totalLines: 2,
 			returnedLines: 2,
 		})
-		expect(result.output).toContain('1\t')
+		expect(result.output).toContain('     1→')
 	})
 
 	it('marks a file that is not text and still gives the model its rendering', async () => {

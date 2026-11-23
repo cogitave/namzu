@@ -579,10 +579,23 @@ it('holds a compaction typed mid-reply until the reply has ended', async () => {
 	await submit(harness, 'a running question')
 	await waitUntil(() => sent.length === 1)
 	await submit(harness, '/compact')
-	await frameShows(harness, '/compact · after this reply')
+	await frameShows(harness, '/compact · Queued, runs after this reply')
 	expect(compactCalls, 'the running conversation was summarized from an incomplete snapshot').toBe(
 		0,
 	)
+})
+
+it("shows /context at once while a reply runs, saying the numbers are the last finished reply's", async () => {
+	holdTurn()
+	const harness = render(<App ctx={ctx} />)
+	mounted.push(harness)
+	await frameShows(harness, 'a-model')
+
+	await submit(harness, 'a running question')
+	await waitUntil(() => sent.length === 1)
+	await submit(harness, '/context')
+	await frameShows(harness, 'Numbers are as of the last finished reply')
+	expect(harness.lastFrame()).not.toContain('/context · Queued')
 })
 
 describe('what a command that replaces the conversation does to the terminal', () => {

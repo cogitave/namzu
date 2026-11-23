@@ -1047,7 +1047,7 @@ describe('publishing a picker selection', () => {
 		release.resolve()
 	})
 
-	it('runs an immediate command at once and holds a queued one until the reply ends', async () => {
+	it('runs an immediate command at once, /context among them, and holds a queued one until the reply ends', async () => {
 		const release = deferred<void>()
 		let sends = 0
 		createSession = async () => ({
@@ -1070,13 +1070,17 @@ describe('publishing a picker selection', () => {
 		await frameShows(harness.lastFrame, 'No usage reported yet.')
 
 		await submit(harness, '/context')
+		// Information, so it answers at once, with the note that the running reply is not counted.
+		await frameShows(harness.lastFrame, '/context details for how it was summarised.')
+		expect(harness.lastFrame()).toContain('Numbers are as of the last finished reply')
+
+		await submit(harness, '/unarchive')
 		await tick(80)
-		// Waiting: shown as a queued row, and not answered yet.
-		expect(harness.lastFrame()).toContain('/context')
-		expect(harness.lastFrame()).not.toContain('/context details for how it was summarised.')
+		// A command that changes the conversation waits, shown as a queued row.
+		expect(harness.lastFrame()).toContain('/unarchive · Queued, runs after this reply')
 
 		release.resolve()
-		await frameShows(harness.lastFrame, '/context details for how it was summarised.')
+		await vi.waitFor(() => expect(harness.lastFrame()).not.toContain('Queued, runs after'))
 		// The command ran as a command: the model was not sent it as a message.
 		expect(sends).toBe(1)
 	})
@@ -2420,7 +2424,7 @@ describe('Ctrl+C from a ready conversation', () => {
 		await submit(harness, 'keep working')
 		await started.promise
 		await submit(harness, '/unarchive')
-		expect(harness.lastFrame()).toContain('/unarchive · after this reply')
+		expect(harness.lastFrame()).toContain('/unarchive · Queued, runs after this reply')
 		expect(archivedListCalls).toBe(0)
 		expect(restoredConversationIds).toEqual([])
 		finish.resolve()

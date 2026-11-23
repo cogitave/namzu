@@ -140,6 +140,8 @@ export interface OutcomeLedgerSnapshot {
 	readonly unseen?: boolean
 	/** Absent in a snapshot written before it existed. */
 	readonly pathless?: number
+	/** Background jobs that run a recognised check: job id and command. Absent in an older snapshot. */
+	readonly jobs?: readonly (readonly [string, string])[]
 	readonly checks: readonly {
 		readonly key: string
 		readonly command: string
@@ -369,6 +371,8 @@ export class OutcomeLedger {
 	private couldHaveChangedUnseen = false
 	private writes = 0
 	private readonly checks = new Map<string, CheckState>()
+	/** Background jobs that run a recognised check, by job id: the command they run. */
+	private readonly jobChecks = new Map<string, string>()
 	private unrecorded = false
 	private settled: TurnOutcome | undefined
 
@@ -403,6 +407,8 @@ export class OutcomeLedger {
 		this.writes = parsed.writes
 		this.pathless = parsed.pathless ?? 0
 		this.couldHaveChangedUnseen = parsed.unseen === true
+		this.jobChecks.clear()
+		for (const [id, command] of parsed.jobs ?? []) this.jobChecks.set(id, command)
 		this.checks.clear()
 		for (const check of parsed.checks) {
 			this.checks.set(check.key, { ...check, fingerprint: check.fingerprint })
@@ -419,6 +425,7 @@ export class OutcomeLedger {
 			writes: this.writes,
 			unseen: this.couldHaveChangedUnseen,
 			pathless: this.pathless,
+			jobs: [...this.jobChecks.entries()].slice(-MAX_REMEMBERED_CHECKS),
 			checks: [...this.checks.values()].map((check) => ({
 				key: check.key,
 				command: check.command,
@@ -486,6 +493,21 @@ export class OutcomeLedger {
 		// answers for exactly the state they left.
 		let pending: CheckState[] = []
 		for (const call of calls) {
+			// A check started as a background job is not a result yet; the wait that
+			// reads its exit is. Remember which command the job runs.
+			// A foreground check the time limit moved to the background is a job too,
+			// though the call was not marked `launched`.
+			if (
+				call.toolName === 'bash' &&
+				call.facts?.kind === 'command' &&
+				call.facts.jobId !== undefined &&
+				(call.launched === true || call.facts.background === true)
+			) {
+				const started = commandOf(call.input)
+				if (started !== undefined && runsRecognisedCheck(started, this.config.isCheck)) {
+					this.jobChecks.set(call.facts.jobId, started)
+				}
+			}
 			// A call that did not run, or only started work elsewhere, changed nothing here.
 			if (call.skipped === true || call.notRun === true || call.launched === true) continue
 			const written = WRITING_TOOLS.has(call.toolName)
@@ -498,7 +520,16 @@ export class OutcomeLedger {
 				continue
 			}
 			if (written) continue
-			const command = call.toolName === 'bash' ? commandOf(call.input) : undefined
+			// The exit of a background check, read by `wait_for_job`, is that check's
+			// result: the job's own command, with the exit code the wait reported.
+			const jobCommand =
+				call.toolName === 'wait_for_job' &&
+				call.facts?.kind === 'command' &&
+				call.facts.jobId !== undefined &&
+				call.facts.exitCode !== undefined
+					? this.jobChecks.get(call.facts.jobId)
+					: undefined
+			const command = call.toolName === 'bash' ? commandOf(call.input) : jobCommand
 			if (command !== undefined && runsRecognisedCheck(command, this.config.isCheck)) {
 				this.afterEveryCheck('other')
 				for (const check of pending) check.fingerprint = null
@@ -717,6 +748,19 @@ function parseSnapshot(value: unknown): OutcomeLedgerSnapshot | undefined {
 	if (
 		snap.pathless !== undefined &&
 		(typeof snap.pathless !== 'number' || !Number.isSafeInteger(snap.pathless) || snap.pathless < 0)
+	) {
+		return undefined
+	}
+	if (
+		snap.jobs !== undefined &&
+		(!Array.isArray(snap.jobs) ||
+			!snap.jobs.every(
+				(j) =>
+					Array.isArray(j) &&
+					j.length === 2 &&
+					typeof j[0] === 'string' &&
+					typeof j[1] === 'string',
+			))
 	) {
 		return undefined
 	}

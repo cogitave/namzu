@@ -81,7 +81,9 @@ export function changedSnippet(
 		const rows: string[] = []
 		for (const row of hunk.lines) {
 			if (row.startsWith('\\') || row.startsWith('-')) continue
-			rows.push(`${line}\t${row.slice(1)}`)
+			// Same shape as the read tool's numbered lines: right-aligned number, then an
+			// arrow, so a tab in the file's own indentation is never mistaken for it.
+			rows.push(`${String(line).padStart(6)}→${row.slice(1)}`)
 			line++
 		}
 		return rows.join('\n')

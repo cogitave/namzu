@@ -16,6 +16,7 @@ export type {
 	AutoReviewRequest,
 	AutoReviewStage,
 } from './classifier.js'
+export { describeCheckFailure } from './failure.js'
 export {
 	AUTO_REVIEW_DEFAULTS_MARKER,
 	DEFAULT_ALLOW,

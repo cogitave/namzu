@@ -949,11 +949,20 @@ export interface ReviewPolicyOptions {
 	/**
 	 * Called when the classifier has given no verdict several times in a row
 	 * (`AutoReviewLimits.noVerdict`): it could not be reached, or its answers
-	 * could not be read. The policy refuses the batch and ends the turn, with a
-	 * person to ask or without one, rather than hold back call after call; this
+	 * could not be read. With nobody to ask, the policy refuses the batch and
+	 * ends the turn rather than hold back call after call; with a person to ask,
+	 * the person is asked instead and this is not called. This
 	 * is where a host says so in its own words. `reason` is the last block's.
 	 */
 	readonly onClassifierUnavailable?: (event: { readonly reason: string }) => void
+	/**
+	 * Called when the classifier could not complete a check (or gave an answer
+	 * that was not a verdict) and a person was asked about the call instead.
+	 * Only with a `prompt`; without one the call is refused and
+	 * {@link onClassifierUnavailable} is how a run of them is reported.
+	 * `reason` names the class of failure.
+	 */
+	readonly onClassifierFellBack?: (event: { readonly reason: string }) => void
 }
 
 /**
@@ -1370,8 +1379,19 @@ export function createReviewHandler(options: ReviewPolicyOptions = {}): ResumeHa
 						return askPerson(escapes)
 					}
 					transcriptTooLong = false
-					// A check that keeps giving no verdict ends the turn, person or not:
-					// holding calls back one at a time against it gets nowhere, and
+					// A check that could not be completed says nothing about the call,
+					// so with a person to ask the person is asked, as for a call the
+					// classifier was never going to judge. This is not a refusal and it
+					// does not count toward ending the turn. The host hears why, so it
+					// can say the check is down.
+					if (decision.cause === 'unavailable' || decision.cause === 'unreadable') {
+						if (prompt) {
+							options.onClassifierFellBack?.({ reason: decision.reason })
+							return askPerson(escapes)
+						}
+					}
+					// With nobody to ask, a check that keeps giving no verdict ends the
+					// turn: holding calls back one at a time against it gets nowhere, and
 					// nothing is run unchecked.
 					if (decision.noVerdictLimitReached === true) {
 						options.onClassifierUnavailable?.({ reason: decision.reason })

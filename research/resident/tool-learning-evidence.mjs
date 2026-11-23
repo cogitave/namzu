@@ -13,7 +13,7 @@ export function observesCurrentSource(tools, fixture) {
     if (tool.name === 'read')
       return typeof tool.input?.path === 'string' &&
         resolve(fixture.cwd, tool.input.path) === source &&
-        tool.output.split('\n').some((line) => line.replace(/^\s*\d+\s+/, '').trim() === expectedLine)
+        tool.output.split('\n').some((line) => line.replace(/^\s*\d+[→\s]/, '').trim() === expectedLine)
     if (tool.name !== 'grep') return false
     return tool.output.split('\n').some((line) => {
       const match = /^(.*?)(?::\d+:|-\d+-)(.*)$/.exec(line)

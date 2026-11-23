@@ -119,7 +119,7 @@ every command either way.
   `/status`, `/cost`, `/tasks`, `/permissions`, `/hooks`, `/mcp` (reports only),
   `/btw`, `/exit`, `/rename`, `/skills` (the list), `/plugins`, `/goal`,
   `/workflows`, `/feedback`, `/help`, `/theme`, `/diff`, `/raw`, `/hypermode`,
-  `/doctor`, `/terminal setup`, `/tui`, `/vim`, `/release notes`, `/peers`, `/schedule`, `/loop`, `/abandon`,
+  `/context`, `/doctor`, `/terminal setup`, `/tui`, `/vim`, `/release notes`, `/peers`, `/schedule`, `/loop`, `/abandon`,
   `/copy`, and `/skills save` and `/skills new`, which line themselves up behind
   the reply. `/clear`, `/new`, `/fork` and `/resume` also run at once: they take
   the conversation over and abandon the running reply on purpose.
@@ -128,13 +128,17 @@ every command either way.
 - **Waits.** Anything that changes or reads the conversation itself, a saved
   prompt command or a skill: `/clear`, `/new`, `/fork`, `/resume`, `/copy` and `/run`
   (a command never replaces or stops the conversation under a reply that is
-  still being written), `/compact`, `/context`, `/plan`, `/memory`, `/branch`, `/rewind`, `/undo`,
+  still being written), `/compact`, `/plan`, `/memory`, `/branch`, `/rewind`, `/undo`,
   `/review`, `/init`, `/export`, `/recap`, `/login`, `/logout`, `/auth`, and so on.
-  The line is kept as typed and shown under the reply as `/name · after this
-  reply`. When the reply ends each one runs as a command of its own, in order,
+  The line is kept as typed and shown under the reply as `/name · Queued, runs after this
+  reply` (the dim `ctrl+x ctrl+s to send now` line under it names the key that runs it now). When the reply ends each one runs as a command of its own, in order,
   before any message queued behind it. Up recalls it like a queued message.
   It is never sent to the model as text. Messages queued behind a `/clear` or
   `/new` are kept for the conversation it opens.
+- `/context` answers at once, between your message and the reply, as `/cost` does.
+  While a reply runs it adds the line `Numbers are as of the last finished reply;
+  the running reply is not counted yet.`, because usage, compaction and the
+  history settle when a reply ends.
 - A chooser that an immediate command opens (`/model`, `/effort`,
   `/permissions`, and the rest) sits beside the stream and the composer stays
   visible. Esc and Ctrl+C close only that chooser; they do not interrupt the

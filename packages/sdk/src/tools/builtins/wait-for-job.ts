@@ -328,6 +328,11 @@ export const WaitForJobTool = defineTool({
 				...(outcome.exitCode === undefined ? {} : { exitCode: outcome.exitCode }),
 				...(outcome.error === undefined ? {} : { error: outcome.error }),
 			},
+			// The job's exit, in the typed form a command result has, so the turn's
+			// record can read a background check's result like a foreground one.
+			...(outcome.exitCode === undefined || outcome.error !== undefined
+				? {}
+				: { facts: { kind: 'command' as const, jobId: input.id, exitCode: outcome.exitCode } }),
 		}
 	},
 })
