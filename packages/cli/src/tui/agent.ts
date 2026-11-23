@@ -2560,6 +2560,8 @@ export { DEFERRED_TOOL_GUIDANCE }
  * The tools a turn reaches for when it delegates: they ride the request, not a
  * search, while hypermode is on or an agent or workflow run is still going.
  */
+// `task_create` and `task_update` are left out on purpose: they keep a plan list,
+// they do not delegate, so a turn without delegated work never needs them loaded.
 export const DELEGATION_TOOLS_WHEN_BUSY = [
 	'wait_for_task',
 	'agent_task_list',
@@ -2612,7 +2614,7 @@ const anyDeferred = (toolsets: readonly Toolset[]): boolean =>
  * halves keep `ts`'s own `source` (via `filtered`), so `sourceOf` still
  * resolves the same way regardless of which half actually served a name.
  */
-function deferExceptToolset(ts: Toolset, eager: readonly string[]): readonly Toolset[] {
+export function deferExceptToolset(ts: Toolset, eager: readonly string[]): readonly Toolset[] {
 	const eagerNames = new Set(eager)
 	return [
 		filtered(ts, (tool) => eagerNames.has(tool.name)),

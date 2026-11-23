@@ -4,9 +4,9 @@ import { z } from 'zod'
 import { testToolset } from '../../test-support/toolset.js'
 import { ToolManager } from '../../toolsets/manager.js'
 import { deferred } from '../../toolsets/wrappers.js'
-import type { Message } from '../../types/message/index.js'
+import type { Message, ToolMessage } from '../../types/message/index.js'
 import type { ToolDefinition } from '../../types/tool/index.js'
-import { clearStaleToolResults } from '../tool-result-editing.js'
+import { clearStaleToolResults, clearToolResult } from '../tool-result-editing.js'
 
 /**
  * A model that loaded a tool and then lost the result that said so searched
@@ -50,7 +50,10 @@ describe('an activated tool after clearing', () => {
 	})
 
 	it('stays loaded even when its result is cleared by another rule', () => {
-		const messages = history()
+		const original = history()
+		const cleared = clearToolResult(original[2] as ToolMessage, 'search_tools').message
+		expect(cleared.content).not.toBe((original[2] as ToolMessage).content)
+		const messages = [original[0], original[1], cleared, original[3]] as Message[]
 		const manager = new ToolManager({
 			toolsets: [deferred(testToolset(lateTool))],
 			messages: () => messages,

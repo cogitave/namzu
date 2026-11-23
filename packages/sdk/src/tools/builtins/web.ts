@@ -216,7 +216,7 @@ export const WebFetchTool = defineTool({
 					return {
 						success: true,
 						output:
-							'This URL is a PDF, and web_fetch does not read PDFs. Look for an HTML or abstract page for the same document and fetch that, or download the file and read it with the read tool.',
+							'This URL is a PDF, and web_fetch does not read PDFs. Look for an HTML or abstract page for the same document and fetch that, or, if you have a shell, download the file and read it with the read tool.',
 						data: { url: result.url, status: result.status, contentType: 'application/pdf' },
 					}
 				}

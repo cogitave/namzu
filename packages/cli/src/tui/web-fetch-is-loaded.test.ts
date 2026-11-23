@@ -1,8 +1,11 @@
+import { ToolManager, toolset } from '@namzu/sdk'
+import type { ToolDefinition } from '@namzu/sdk'
 import { describe, expect, it } from 'vitest'
 
 import {
 	DELEGATION_TOOLS_WHEN_BUSY,
 	EAGER_TOOLS_WHEN_DEFERRED,
+	deferExceptToolset,
 	delegationIsBusy,
 	eagerToolsFor,
 } from './agent.js'
@@ -31,5 +34,36 @@ describe('a turn that works with delegated work', () => {
 		expect(delegationIsBusy({ ...idle, hypermode: true })).toBe(true)
 		expect(delegationIsBusy({ ...idle, liveAgents: 1 })).toBe(true)
 		expect(delegationIsBusy({ ...idle, runningWorkflows: 1 })).toBe(true)
+	})
+})
+
+function fakeTool(name: string): ToolDefinition {
+	return {
+		name,
+		description: `Do ${name}.`,
+		inputSchema: { parse: (value: unknown) => value } as unknown as ToolDefinition['inputSchema'],
+		execute: async () => ({ success: true, output: 'ok' }),
+	}
+}
+
+describe('the tool list a deferring session builds', () => {
+	const names = ['web_fetch', 'wait_for_task', 'agent_task_list', 'obscure_tool']
+	const base = toolset('test', names.map(fakeTool))
+	const manager = (eager: readonly string[]) =>
+		new ToolManager({ toolsets: deferExceptToolset(base, eager), messages: () => [] })
+
+	it('holds web_fetch loaded and the delegation tools behind a search', () => {
+		const m = manager(eagerToolsFor({}))
+		expect(m.availability('web_fetch')).toBe('active')
+		expect(m.availability('wait_for_task')).toBe('deferred')
+		expect(m.availability('obscure_tool')).toBe('deferred')
+	})
+
+	it('loads the delegation tools when the turn is busy', () => {
+		const m = manager([...eagerToolsFor({}), ...DELEGATION_TOOLS_WHEN_BUSY])
+		expect(m.availability('web_fetch')).toBe('active')
+		expect(m.availability('wait_for_task')).toBe('active')
+		expect(m.availability('agent_task_list')).toBe('active')
+		expect(m.availability('obscure_tool')).toBe('deferred')
 	})
 })
