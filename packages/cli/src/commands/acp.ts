@@ -125,6 +125,12 @@ import {
 } from '../tui/agent.js'
 import { displayPath } from '../tui/display-path.js'
 import { handoffContinuationNote } from '../tui/turn-interruption.js'
+import {
+	type AcpPaneLink,
+	BROWSER_PANE_SERVED_METHODS,
+	createAcpPaneLink,
+	paneSiteRules,
+} from './acp-browser-pane.js'
 import { createQuestionRelay, routeQuestions } from './acp-desktop-question.js'
 import { withCliHarnesses } from './acp-harness.js'
 import {
@@ -806,6 +812,12 @@ export interface CliAcpRuntimeOptions {
 	readonly announce?: (method: string, params: Record<string, unknown>) => void
 	/** How the desktop app's own preferences are reached; absent when the app did not say. */
 	readonly desktopPreferences?: DesktopPreferences
+	/**
+	 * The desktop application's Browser pane, for the agent's browser. A conversation whose browser
+	 * is on and not set to run without a window drives a tab of the pane when the app offered it at
+	 * `initialize`, and its own browser otherwise or when the pane cannot be driven.
+	 */
+	readonly browserPane?: AcpPaneLink
 }
 
 export function createCliAcpRuntime(
@@ -1204,6 +1216,20 @@ export function createCliAcpRuntime(
 									// A person is here to answer: a sign-in page is put to them, not left to a command.
 									...(questionRelay && !palEnvironment ? { askPersonToSignIn: true } : {}),
 									...(conversationState ? { home: conversationState.root } : {}),
+									// The app's Browser pane first, where it offered one and the rules can be
+									// said as host patterns; a browser set to never show a window stays its own.
+									...(runtimeOptions.browserPane && browserConfig?.headless !== 'always'
+										? (() => {
+												const link = runtimeOptions.browserPane
+												const rules = paneSiteRules(browserSites.sites)
+												return link && rules
+													? {
+															pane: () =>
+																link.available() ? link.channel(sessionId, rules) : undefined,
+														}
+													: {}
+											})()
+										: {}),
 								},
 							}
 						: {}),
@@ -1558,7 +1584,7 @@ export function createCliAcpRuntime(
 							record.retrySettings = { ...original, turnId: event.turnId }
 							// A browser with no window is closed so `namzu browser login` can take its profile.
 							const browser = record.session.browser
-							if (event.handoff && browser?.status().headless)
+							if (event.handoff && browser?.status().headless && browser.status().where !== 'pane')
 								void browser.release().catch(() => {})
 						}
 					}
@@ -1978,12 +2004,8 @@ export function createCliAcpRuntime(
 					// The agent's browser has a window of its own only where a display is; say which, so the
 					// app says how to sign in.
 					const browser = record?.session.browser?.status()
-					return browser
-						? {
-								...status,
-								handoff: { ...status.handoff, window: browser.headless ? 'none' : 'visible' },
-							}
-						: status
+					const window = browser ? handoffWindow(browser) : undefined
+					return window ? { ...status, handoff: { ...status.handoff, window } } : status
 				}
 				const blocked = (notice: string): ProviderRetryStatus => ({
 					notice,
@@ -2518,6 +2540,25 @@ export function acpKernelFacts(desktop: boolean): AcpHostKernelFacts {
 	}
 }
 
+const NO_BROWSER_PANE_EXTENSIONS: Readonly<Record<string, () => null>> = Object.fromEntries(
+	BROWSER_PANE_SERVED_METHODS.map((name) => [name, () => null]),
+)
+
+/**
+ * Where the browser a paused turn waits on runs, for the app's card: a tab of its Browser pane,
+ * a window of the browser's own, or none (the sign-in then needs a window opened by hand). Left
+ * out when the browser has not started in this process, because nothing says which it was.
+ */
+export function handoffWindow(browser: {
+	readonly headless: boolean
+	readonly where?: 'pane' | 'own' | 'unknown'
+	readonly prefersPane?: boolean
+}): 'visible' | 'none' | 'pane' | undefined {
+	if (browser.where === 'pane') return 'pane'
+	if (browser.prefersPane === true && browser.where !== 'own') return undefined
+	return browser.headless ? 'none' : 'visible'
+}
+
 /**
  * Every extension method a host started for the desktop application serves: the
  * project, conversation, provider and Pal methods, plus the terminal methods when
@@ -2532,6 +2573,7 @@ export function desktopServerExtensions(
 	terminals?: Pick<TerminalHost, 'extensions'>,
 	limits?: Pick<LimitsFeed, 'refresh'>,
 	extensions?: Readonly<Record<string, (params: Record<string, unknown>) => unknown>>,
+	browserPane?: Pick<AcpPaneLink, 'extensions'>,
 ): Readonly<Record<string, (params: Record<string, unknown>) => unknown>> {
 	return {
 		...createDesktopHostExtensions(
@@ -2545,6 +2587,9 @@ export function desktopServerExtensions(
 			limits,
 		),
 		...terminals?.extensions,
+		// What the app says about the agent's tab in its Browser pane. Always listed, so the app
+		// can tell this engine takes them; nothing is sent unless the app offered the pane.
+		...(browserPane?.extensions ?? NO_BROWSER_PANE_EXTENSIONS),
 		...(extensions ?? createExtensionsRpc(() => sharedExtensionHost('desktop'))),
 	}
 }
@@ -2578,9 +2623,17 @@ export async function runAcpCommand(ctx: CommandContext, desktop = false): Promi
 				now: () => Date.now(),
 			})
 		: undefined
+	// Desktop only: the app's Browser pane for the agent's browser, over this same connection.
+	const paneLink: AcpPaneLink | undefined = desktop
+		? createAcpPaneLink({
+				offers: (capability) => server.clientOffers(capability),
+				ask: (method, params) => server.askClient(method, params),
+			})
+		: undefined
 	const runtime = withCliHarnesses(
 		createCliAcpRuntime(ctx, DEFAULT_RUNTIME_DEPS, {
 			computerUse: desktop,
+			...(paneLink ? { browserPane: paneLink } : {}),
 			...(desktop
 				? {
 						observeComputer: (id: string, seen: ComputerUseObservation) =>
@@ -2659,6 +2712,8 @@ export async function runAcpCommand(ctx: CommandContext, desktop = false): Promi
 						palInboxStart,
 						terminals,
 						limitsFeed,
+						undefined,
+						paneLink,
 					),
 				}
 			: {}),
@@ -2693,6 +2748,7 @@ export async function runAcpCommand(ctx: CommandContext, desktop = false): Promi
 	} finally {
 		announcing = false
 		announcingUsage = false
+		paneLink?.close('The app closed its connection to this engine.')
 		usageFeed?.close()
 		try {
 			if (desktop) await stopDesktopExtensions()

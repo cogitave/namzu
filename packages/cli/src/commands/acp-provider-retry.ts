@@ -26,7 +26,8 @@ export interface TurnHandoff {
 	profile?: string
 	/** What opens a window to do it when the browser has none. */
 	loginCommand?: string
-	window?: 'visible' | 'none'
+	/** `pane`: a tab of the app's Browser pane, where the person signs in and chooses Continue. */
+	window?: 'visible' | 'none' | 'pane'
 }
 
 const HANDOFF_FIELD_MAX = 400
