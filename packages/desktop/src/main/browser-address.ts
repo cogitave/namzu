@@ -142,3 +142,39 @@ export function resolveAddress(
 	}
 	return { ok: false, reason: REFUSED_KIND }
 }
+
+/**
+ * The sites an agent's tabs may reach, as the engine compiled them from its own permission rules and
+ * passed when the tab was opened. Each entry is a host (`example.com`), a host and everything under it
+ * (`*.example.com`), or `*`. `deny` wins over `allow`; an empty or missing `allow` allows every host.
+ */
+export interface SiteRules {
+	allow?: readonly string[]
+	deny?: readonly string[]
+}
+
+function hostMatches(host: string, pattern: string): boolean {
+	const entry = pattern.trim().toLowerCase()
+	if (entry === '*') return true
+	if (entry.startsWith('*.')) {
+		const base = entry.slice(2)
+		return host === base || host.endsWith(`.${base}`)
+	}
+	return host === entry
+}
+
+/** Whether a web address is open under the site rules. Files and blank pages are not a site. */
+export function siteAllowed(url: string, sites: SiteRules | undefined): boolean {
+	if (!sites) return true
+	let parsed: URL
+	try {
+		parsed = new URL(url)
+	} catch {
+		return false
+	}
+	if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return true
+	const host = parsed.hostname.toLowerCase().replace(/^\[|\]$/g, '')
+	if (sites.deny?.some((pattern) => hostMatches(host, pattern))) return false
+	if (!sites.allow || sites.allow.length === 0) return true
+	return sites.allow.some((pattern) => hostMatches(host, pattern))
+}

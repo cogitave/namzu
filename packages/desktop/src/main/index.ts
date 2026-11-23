@@ -64,10 +64,12 @@ import {
 	parseWorkspaceLayout,
 	workspaceGroups,
 } from '../shared/workspace-layout.js'
+import { AgentPaneRelay } from './agent-pane-relay.js'
+import { shrinkImage } from './agent-pane-shrink.js'
 import { OVERLAY_SIZE, overlayBitmap } from './attention-overlay.js'
 import { AttentionSignals } from './attention-signals.js'
 import { BringBack } from './bring-back.js'
-import { BrowserPaneHost, partitionOf } from './browser-pane.js'
+import { AGENT_PERSISTENT_PARTITION, BrowserPaneHost, partitionOf } from './browser-pane.js'
 import { bundledCliEntry } from './bundled-runtime.js'
 import { ClipboardTextWriter } from './clipboard-text.js'
 import { ConfigSettings } from './config-settings.js'
@@ -268,6 +270,19 @@ const streamProxy = new PalStreamProxy(() =>
 const windows = new WorkspaceWindowRegistry<BrowserWindow>()
 /** Each window's Browser pane pages; see browser-pane.ts for how a page is kept apart from the app. */
 const browserPanes = new Map<string, BrowserPaneHost>()
+/**
+ * The one door between the agent and the pages of the Browser pane's agent tabs (see
+ * `agent-pane-relay.ts`). The engine's requests reach it through the host's connection to the engine.
+ */
+const paneWindows = new Map<string, BrowserWindow>()
+export const agentPaneRelay = new AgentPaneRelay({
+	shrinkImage,
+	preferredHost: () => {
+		const focused = BrowserWindow.getFocusedWindow()
+		for (const [id, host] of browserPanes) if (paneWindows.get(id) === focused) return host
+		return undefined
+	},
+})
 /**
  * "Keep computer awake" for one conversation: a power-save blocker held while it is on. It is
  * released when the person turns it off, when the window that asked closes, and when the
@@ -902,13 +917,17 @@ const settingsStore = new DesktopSettingsStore({
 		if (settings.autoDownloadUpdates !== previous.autoDownloadUpdates) updates.autoDownloadChanged()
 		if (settings.keepEngineUpToDate !== previous.keepEngineUpToDate)
 			engineDelivery?.settingChanged()
+		if (previous.browserCookies !== settings.browserCookies)
+			// The agent's tabs live in a partition the setting picks: they are let go, and re-opened in the new one.
+			agentPaneRelay.releaseAll('browser-cookies-changed', true)
 		if (previous.browserCookies === 'restarts' && settings.browserCookies !== 'restarts')
-			void session
-				.fromPartition(partitionOf('restarts', ''))
-				.clearStorageData()
-				.catch((error) =>
-					diagnostics.record('ipc_failed', { operation: 'clearBrowserSignIns', error }),
-				)
+			for (const partition of [partitionOf('restarts', ''), AGENT_PERSISTENT_PARTITION])
+				void session
+					.fromPartition(partition)
+					.clearStorageData()
+					.catch((error) =>
+						diagnostics.record('ipc_failed', { operation: 'clearBrowserSignIns', error }),
+					)
 		osRowsChanged(settings, previous)
 		if (settings.retrustOnConfigChange && !previous.retrustOnConfigChange)
 			void operator
@@ -2427,31 +2446,31 @@ async function createWindow(
 	})
 	windows.register(windowId, window)
 	applyWindowMode(window, readWindowMode(viewState, windowId))
-	browserPanes.set(
-		windowId,
-		new BrowserPaneHost({
-			window,
-			createView: (partition) =>
-				new WebContentsView({
-					webPreferences: {
-						partition,
-						nodeIntegration: false,
-						contextIsolation: true,
-						sandbox: true,
-						webSecurity: true,
-						allowRunningInsecureContent: false,
-						safeDialogs: true,
-					},
-				}),
-			sessionOf: (partition) => session.fromPartition(partition),
-			workFolder: (sessionId) => operator.browserWorkFolder(sessionId),
-			caseless: process.platform === 'win32',
-			cookieScope: () => settingsStore.get().browserCookies,
-			send: (state) => {
-				if (!window.isDestroyed()) window.webContents.send('namzu:browser-event', state)
-			},
-		}),
-	)
+	const paneHost = new BrowserPaneHost({
+		window,
+		createView: (partition) =>
+			new WebContentsView({
+				webPreferences: {
+					partition,
+					nodeIntegration: false,
+					contextIsolation: true,
+					sandbox: true,
+					webSecurity: true,
+					allowRunningInsecureContent: false,
+					safeDialogs: true,
+				},
+			}),
+		sessionOf: (partition) => session.fromPartition(partition),
+		workFolder: (sessionId) => operator.browserWorkFolder(sessionId),
+		caseless: process.platform === 'win32',
+		cookieScope: () => settingsStore.get().browserCookies,
+		send: (state) => {
+			if (!window.isDestroyed()) window.webContents.send('namzu:browser-event', state)
+		},
+	})
+	browserPanes.set(windowId, paneHost)
+	paneWindows.set(windowId, window)
+	agentPaneRelay.addHost(paneHost)
 	// The header's menu button stands in for the menu bar; keep the native accelerators without
 	// adding the operating system's menu row on Windows and Linux.
 	if (process.platform !== 'darwin') window.setMenuBarVisibility(false)
@@ -2626,8 +2645,11 @@ async function createWindow(
 		localSpeechRouting.cancelWindow(windowId)
 		voiceInput.stopWindow(windowId)
 		terminals.releaseWindow(windowId)
-		browserPanes.get(windowId)?.dispose()
+		const closing = browserPanes.get(windowId)
+		closing?.dispose()
+		if (closing) agentPaneRelay.removeHost(closing)
 		browserPanes.delete(windowId)
+		paneWindows.delete(windowId)
 		releaseAwake((_sessionId, hold) => hold.windowId === windowId)
 		windows.remove(windowId)
 		const timer = closeTimers.get(windowId)

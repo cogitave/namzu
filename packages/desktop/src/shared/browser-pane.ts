@@ -3,6 +3,15 @@
 /** The most tabs a conversation's Browser pane holds; a new one past it is refused. */
 export const MAX_BROWSER_TABS = 8
 
+/** The most tabs the agent holds in one conversation's pane; they never use up the person's own. */
+export const MAX_AGENT_BROWSER_TABS = 4
+
+/** Who opened a tab: the person, or the agent driving the page. */
+export type BrowserTabOwner = 'person' | 'agent'
+
+/** Who holds an agent's tab right now: the agent, or the person who took it over. */
+export type BrowserTabControl = 'agent' | 'person'
+
 export interface BrowserTabView {
 	id: string
 	/** The page's title, or its address while it has none. */
@@ -12,6 +21,10 @@ export interface BrowserTabView {
 	loading: boolean
 	canGoBack: boolean
 	canGoForward: boolean
+	/** Who opened the tab; a tab the agent opened is marked in the strip. */
+	owner: BrowserTabOwner
+	/** Only on an agent's tab: `person` while the person has taken it over, and the agent is paused. */
+	control?: BrowserTabControl
 }
 
 export interface BrowserPaneState {
