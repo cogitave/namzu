@@ -21,6 +21,8 @@ export interface PendingInputItem {
 	readonly attachmentCount?: number
 	/** Singular display noun such as "image"; it is treated as untrusted text. */
 	readonly attachmentLabel?: string
+	/** A slash command typed while a reply ran: it runs on its own after the reply. */
+	readonly command?: boolean
 }
 
 export interface PendingInputPanelProps {
@@ -46,6 +48,9 @@ export const SEND_NOW_HINT = 'ctrl+x ctrl+s to send now'
 
 const MAX_PREVIEW_CODEPOINTS = 400
 const QUEUED_SUFFIX = ' · after this reply'
+/** A queued command says plainly that it is queued; the key to run it now is the hint line below. */
+const QUEUED_COMMAND_SUFFIX = ' · Queued, runs after this reply'
+const QUEUED_COMMAND_SHORT_SUFFIX = ' · Queued'
 
 /** Read at most one short line per prompt, without walking a huge paste on every repaint. */
 function previewText(source: string): string {
@@ -167,8 +172,12 @@ export function PendingInputPanel({
 				const room = Math.max(0, width - choiceDisplayWidth(lead))
 				// The "after this reply" note yields before the message does.
 				const keep = Math.min(choiceDisplayWidth(text), 12) + choiceDisplayWidth(files)
-				const tail =
-					row.queued && room - keep >= choiceDisplayWidth(QUEUED_SUFFIX) ? QUEUED_SUFFIX : ''
+				const suffixes = row.item.command
+					? [QUEUED_COMMAND_SUFFIX, QUEUED_COMMAND_SHORT_SUFFIX]
+					: [QUEUED_SUFFIX]
+				const tail = row.queued
+					? (suffixes.find((suffix) => room - keep >= choiceDisplayWidth(suffix)) ?? '')
+					: ''
 				const shownFiles = truncateChoiceText(files, Math.max(0, room - choiceDisplayWidth(tail)))
 				const shownText = truncateChoiceText(
 					text,

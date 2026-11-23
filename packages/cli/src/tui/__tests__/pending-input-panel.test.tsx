@@ -40,6 +40,35 @@ describe('pending input on the terminal screen', () => {
 		expect(screen.bufferType()).toBe('normal')
 	})
 
+	it('says a queued slash command is queued, and drops the note before the command when narrow', async () => {
+		screen = await renderToScreen(
+			<PendingInputPanel
+				pendingSteers={[]}
+				queued={[{ text: '/compact', command: true }]}
+				columns={80}
+				rows={24}
+				working
+			/>,
+			{ cols: 80, rows: 24 },
+		)
+		expect(lines(screen)).toEqual([
+			' ❯ /compact · Queued, runs after this reply',
+			'   ctrl+x ctrl+s to send now',
+		])
+		await screen.unmount()
+		screen = await renderToScreen(
+			<PendingInputPanel
+				pendingSteers={[]}
+				queued={[{ text: '/compact', command: true }]}
+				columns={24}
+				rows={24}
+				working
+			/>,
+			{ cols: 24, rows: 24 },
+		)
+		expect(lines(screen)[0]).toBe(' ❯ /compact · Queued')
+	})
+
 	it('keeps the send-now hint only while a reply runs', async () => {
 		screen = await renderToScreen(
 			<PendingInputPanel pendingSteers={[]} queued={[{ text: 'later' }]} columns={80} rows={24} />,
