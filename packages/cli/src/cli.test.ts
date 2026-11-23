@@ -323,12 +323,15 @@ describe('runCli', () => {
 			await same(['help', 'computer', 'stop', 'idle'], ['computer', 'stop', 'idle', '--help'])
 		})
 
-		it('gives an unknown command the usual unknown-command error', async () => {
+		it('names an unknown command, which on its own would be the first message', async () => {
 			expect(await invoke(['help', 'definitely-not-a-command'])).toBe(64)
 			expect(stderr).toContain("Unknown command 'definitely-not-a-command'.")
-			stderr = ''
-			expect(await invoke(['definitely-not-a-command'])).toBe(64)
-			expect(stderr).toContain("Unknown command 'definitely-not-a-command'.")
+			expect(stdout).not.toContain('interactive TUI requires a terminal')
+		})
+
+		it('prints the line of a retired name instead of help', async () => {
+			expect(await invoke(['help', 'spaces'])).toBe(64)
+			expect(flat(stderr)).toContain('`namzu spaces` is now `namzu workspaces`.')
 		})
 	})
 
