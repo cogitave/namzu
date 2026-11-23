@@ -288,3 +288,11 @@ export {
 
 export { createPalMessagingTools } from './pals/communication/tools.js'
 export { createPalOperatorMessagingTools } from './pals/communication/operator.js'
+
+// Where the shell finds `node`: the runtime's own directory is appended to a
+// command's PATH only when the user's PATH has none.
+export {
+	nodeDirectoryToAppend,
+	withNodeOnPath,
+	type NodeOnPathOptions,
+} from './utils/node-on-path.js'

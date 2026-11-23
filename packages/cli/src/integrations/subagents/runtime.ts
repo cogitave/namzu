@@ -28,6 +28,12 @@ import { plainChildFailure } from './failure-words.js'
 import { FORK_SUBAGENT, forkDirective, forkSeed, isForkConversation } from './fork.js'
 import { createIdleWatch, describeQuietTask } from './idle-watch.js'
 import { formatChildOperatorAdmission } from './operator-journal.js'
+import {
+	AGENT_LIST_CALL_LABEL,
+	WAIT_CALL_LABEL,
+	agentListLabel,
+	waitResultLabel,
+} from './row-labels.js'
 import { WORKFLOW_STEP_ASSIGNMENT } from './workflow-assignment.js'
 
 /** What the work status read returns. */
@@ -2179,6 +2185,16 @@ export async function createSubagentRuntime(
 		readOnly: true,
 		destructive: false,
 		concurrencySafe: true,
+		// The call's arguments are ids and flags; the body is JSON. A person reads one line.
+		presentCall: () => ({
+			kind: 'generic',
+			label: AGENT_LIST_CALL_LABEL,
+			presentation: 'activity',
+		}),
+		presentResult: (_input, result) => ({
+			kind: 'generic',
+			label: agentListLabel(result.output ?? ''),
+		}),
 		async execute(input, context) {
 			const request = input as {
 				history?: boolean
@@ -2371,6 +2387,12 @@ export async function createSubagentRuntime(
 		destructive: false,
 		concurrencySafe: true,
 		timeoutMs: opts.resolveLimits ? 0 : (opts.timeoutMs ?? CLI_INTERACTIVE_TURN_TIMEOUT_MS),
+		// The agent's answer is drawn by its own rows; this row says how the wait came out.
+		presentCall: () => ({ kind: 'generic', label: WAIT_CALL_LABEL, presentation: 'activity' }),
+		presentResult: (_input, result) => ({
+			kind: 'generic',
+			label: waitResultLabel(result.output ?? ''),
+		}),
 		async execute(input, context) {
 			let gateway = await gatewayForTurn(context.turnId)
 			const asked = (input as { task_id: string }).task_id

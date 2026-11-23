@@ -5,7 +5,7 @@
  * and one `⎿` line under it that says how it is going while it runs
  * (`Searching: query`) and what it came to once it settled
  * (`Found 5 results in 3.2s`, `Did 1 search in 9.0s`). A fetch is the same
- * shape with the address: `Web fetch(https://…)`, `Fetching docs.example.com…`,
+ * shape with the address: `Fetch(https://…)`, `Fetching docs.example.com…`,
  * `Received 7.5KB in 1.2s`. Consecutive web rows sit together without a blank
  * line between them (`Transcript.tsx`), so three searches read as one burst of
  * work rather than three separate events.
@@ -28,6 +28,8 @@ export interface WebActivity {
 	readonly target?: string
 	/** Results the provider or tool reported. Absent means unknown, not zero. */
 	readonly results?: number
+	/** Queries one hosted call ran, when more than one. */
+	readonly searches?: number
 	/** Run inside the provider's own request: there is no local output to show. */
 	readonly hosted?: boolean
 }
@@ -58,11 +60,11 @@ export function webActivityFromInput(toolName: string, input: unknown): WebActiv
 	return target.length > 0 ? { kind, target } : { kind }
 }
 
-/** `Web search("query")`, `Web fetch(https://…)`, or the bare name when nothing is known yet. */
+/** `Web search("query")`, `Fetch(https://…)`, or the bare name when nothing is known yet. */
 export function webCallTitle(activity: WebActivity): string {
 	const target = activity.target ? oneLine(activity.target) : ''
 	if (activity.kind === 'search') return target ? `Web search("${target}")` : 'Web search'
-	return target ? `Web fetch(${target})` : 'Web fetch'
+	return target ? `Fetch(${target})` : 'Fetch'
 }
 
 /** The `⎿` line while the call runs. */
@@ -81,7 +83,9 @@ export function webSettledLine(
 	const took = elapsed !== undefined ? ` in ${elapsed}` : ''
 	if (activity.kind === 'search') {
 		const n = activity.results
-		return n !== undefined ? `Found ${n} result${n === 1 ? '' : 's'}${took}` : `Did 1 search${took}`
+		if (n !== undefined) return `Found ${n} result${n === 1 ? '' : 's'}${took}`
+		const count = activity.searches ?? 1
+		return `Did ${count} search${count === 1 ? '' : 'es'}${took}`
 	}
 	return outcome.bytes !== undefined
 		? `Received ${formatBytes(outcome.bytes)}${took}`

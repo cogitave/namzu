@@ -41,6 +41,7 @@ import {
 	unknownToolNotice,
 } from './tidy-tool-output.js'
 import { clipText } from './truncation.js'
+import { withoutUntrustedFrames } from './untrusted-display.js'
 import {
 	type WebActivity,
 	countListedResults,
@@ -503,6 +504,7 @@ import {
 	markOrphanNoticesDelivered,
 	recoverUnfinishedWorkflows,
 } from '../integrations/workflows/orphans.js'
+import { WorkflowOwners } from '../integrations/workflows/owners.js'
 import type { WorkflowRunEnd } from '../integrations/workflows/registry.js'
 import {
 	type ResumeReview,
@@ -598,7 +600,7 @@ import { projectTurnConversation } from './conversation-history.js'
 import { type ModelSwitchOutcome, buildSwitchModelTool } from './model-switch-tool.js'
 import { type ModelSwitchRequest, resolveModelSwitch } from './model-switch.js'
 import { type FoldOp, classifyCall } from './read-search-group.js'
-import { admitToolView, createCliToolPresenter } from './tool-presentation.js'
+import { admitToolView, createCliToolPresenter, hasOwnedView } from './tool-presentation.js'
 
 /**
  * The kernel's own tools (the task tools, the hand-back tool, the tool search)
@@ -1201,8 +1203,9 @@ export interface SendOptions {
 	 * reminder kept in the conversation, to use the `workflow` tool for
 	 * substantive work: in full the first time, sparsely every few messages, and
 	 * once when it ends (`hypermodeReminders`); a resumed conversation reads
-	 * what was already said from its own history. It changes no effort, no tool list and no
-	 * permission; it creates no roster and starts no delegation by itself.
+	 * what was already said from its own history. It changes no effort and no
+	 * permission, and it loads the agent and workflow tools into the request instead of
+	 * leaving them to a search; it creates no roster and starts no delegation by itself.
 	 */
 	readonly hypermode?: boolean
 	/**
@@ -2532,6 +2535,9 @@ export const EAGER_TOOLS_WHEN_DEFERRED = [
 	'bash',
 	'job',
 	'wait_for_job',
+	// Reading a page is the first step of most web work; a search first would hide
+	// it behind a catalogue line cut short.
+	'web_fetch',
 	// The delegation tool.
 	AGENT_LAUNCH_TOOL,
 	'ask_user_question',
@@ -2551,6 +2557,41 @@ export const EAGER_TOOLS_WHEN_DEFERRED = [
 	'search_tools',
 ] as const
 export { DEFERRED_TOOL_GUIDANCE }
+
+/**
+ * The tools a turn reaches for when it delegates: they ride the request, not a
+ * search, while hypermode is on or an agent or workflow run is still going.
+ */
+// `task_create` and `task_update` are left out on purpose: they keep a plan list,
+// they do not delegate, so a turn without delegated work never needs them loaded.
+export const DELEGATION_TOOLS_WHEN_BUSY = [
+	'wait_for_task',
+	'agent_task_list',
+	'send_message',
+	'cancel_agent',
+] as const
+
+/**
+ * The eager names for a session that can launch an agent or a workflow: the
+ * task tools join them at boot, so a turn that launches its first agent
+ * mid-turn can wait for it without a search, and the list never changes
+ * between turns (a change would break the cached prefix).
+ */
+export function eagerToolsWithDelegation(
+	eager: readonly string[],
+	delegationOffered: boolean,
+): readonly string[] {
+	return delegationOffered ? [...new Set([...eager, ...DELEGATION_TOOLS_WHEN_BUSY])] : eager
+}
+
+/** True when this turn is, or is about to be, working with delegated work. */
+export function delegationIsBusy(state: {
+	readonly hypermode: boolean
+	readonly liveAgents: number
+	readonly runningWorkflows: number
+}): boolean {
+	return state.hypermode || state.liveAgents > 0 || state.runningWorkflows > 0
+}
 
 /**
  * The names that ride every request of a session: {@link EAGER_TOOLS_WHEN_DEFERRED},
@@ -2588,7 +2629,7 @@ const anyDeferred = (toolsets: readonly Toolset[]): boolean =>
  * halves keep `ts`'s own `source` (via `filtered`), so `sourceOf` still
  * resolves the same way regardless of which half actually served a name.
  */
-function deferExceptToolset(ts: Toolset, eager: readonly string[]): readonly Toolset[] {
+export function deferExceptToolset(ts: Toolset, eager: readonly string[]): readonly Toolset[] {
 	const eagerNames = new Set(eager)
 	return [
 		filtered(ts, (tool) => eagerNames.has(tool.name)),
@@ -4234,7 +4275,7 @@ export async function createAgentSession(
 		}
 	>()
 	let workflowHost: WorkflowHost | undefined
-	const workflowOwners = new Map<string, SessionId>()
+	const workflowOwners = new WorkflowOwners()
 	/** What the review showed of each saved script, so the run can refuse a file that changed after approval. */
 	const reviewedScripts = new ReviewedScripts()
 	const workflowEndListeners = new Set<(end: WorkflowRunEnd) => void>()
@@ -4244,9 +4285,7 @@ export async function createAgentSession(
 		jobOwner,
 		activity: () => subagentRuntime?.activity,
 		workflows: (sessionId) =>
-			(workflowHost?.registry.list() ?? []).filter(
-				(run) => workflowOwners.get(run.runId) === sessionId,
-			),
+			workflowOwners.ownedBy(sessionId, workflowHost?.registry.list() ?? []),
 		// The id the agent tools accept, which a continued agent keeps from its first run.
 		agentId: (agent) =>
 			agent.taskId !== undefined
@@ -5030,7 +5069,6 @@ export async function createAgentSession(
 					turnId: runTurnId,
 					release: () => {
 						released ??= (async () => {
-							workflowOwners.delete(runId)
 							liveModeControls.delete(control)
 							delegationScopes.delete(runTurnId)
 							delegationLimits.delete(runTurnId)
@@ -5633,16 +5671,26 @@ export async function createAgentSession(
 	// active for the rest of the session, including after `namzu resume`,
 	// instead of being lost on the very next send.
 	const eagerToolNames = eagerToolsFor({ planApproval: options.planApproval && !options.ephemeral })
-	const sessionToolsets: readonly Toolset[] = toolsets.flatMap((ts) => {
-		const wrapped =
-			withheldTools.size > 0 || options.onlyTools !== undefined
-				? filtered(
-						ts,
-						(tool) => !withheldTools.has(tool.name) && toolOnOffer(options.onlyTools, tool.name),
-					)
-				: ts
-		return toolLoadingDeferred ? deferExceptToolset(wrapped, eagerToolNames) : [wrapped]
-	})
+	const sessionToolsetsWith = (eager: readonly string[]): readonly Toolset[] =>
+		toolsets.flatMap((ts) => {
+			const wrapped =
+				withheldTools.size > 0 || options.onlyTools !== undefined
+					? filtered(
+							ts,
+							(tool) => !withheldTools.has(tool.name) && toolOnOffer(options.onlyTools, tool.name),
+						)
+					: ts
+			return toolLoadingDeferred ? deferExceptToolset(wrapped, eager) : [wrapped]
+		})
+	const delegationOffered =
+		(workflowHost !== undefined && options.workflow?.enabled !== false) ||
+		toolsets.some((ts) => ts.tools().some((tool) => tool.name === 'agent'))
+	const sessionToolsets: readonly Toolset[] = sessionToolsetsWith(
+		eagerToolsWithDelegation(eagerToolNames, delegationOffered),
+	)
+	// The same toolsets with the agent and workflow tools loaded, for a turn that
+	// is running or about to run delegated work. Built only when first needed.
+	let busySessionToolsets: readonly Toolset[] | undefined
 	// The memory section is written only for a session that holds the tool
 	// it teaches: a run that withholds `save_memory` would be told to use it.
 	// The answer is fixed at boot, so the prompt prefix stays byte-stable.
@@ -7367,6 +7415,28 @@ export async function createAgentSession(
 					liveManager()
 					let runToolsets: readonly Toolset[] = sessionToolsets
 					let runManager: ToolManager = manager
+					// A turn that works with delegated work holds its task tools already loaded,
+					// so it never spends a search to read a status or wait for a result.
+					const delegationBusy = delegationIsBusy({
+						hypermode: opts?.hypermode === true,
+						liveAgents: subagentRuntime?.liveChildSessionIds().size ?? 0,
+						// Owners are read against every run (ownedBy forgets a run the
+						// registry no longer holds), then narrowed to the ones still running.
+						runningWorkflows: workflowOwners
+							.ownedBy(scope.sessionId, workflowHost?.registry.list() ?? [])
+							.filter((run) => run.status === 'running').length,
+					})
+					if (delegationBusy && toolLoadingDeferred) {
+						busySessionToolsets ??= sessionToolsetsWith(
+							eagerToolsWithDelegation(eagerToolNames, true),
+						)
+						runToolsets = busySessionToolsets
+						runManager = new ToolManager({
+							toolsets: runToolsets,
+							...(screensConfig !== undefined ? { resultGuardrails: screensConfig } : {}),
+							messages: () => [],
+						})
+					}
 					lastSendInteractive = opts?.onPermission !== undefined
 					const turnScope = { ...scope }
 					// The plan file, when this session has a plan mode: the one write
@@ -7588,7 +7658,9 @@ export async function createAgentSession(
 							// workflow: a deferring session lists it and loads it on request.
 							runToolsets = [
 								...runToolsets,
-								toolLoadingDeferred ? deferred(workflowToolset) : workflowToolset,
+								toolLoadingDeferred && !delegationBusy
+									? deferred(workflowToolset)
+									: workflowToolset,
 							]
 							if (runManager !== manager) runManager.dispose()
 							runManager = new ToolManager({
@@ -7730,6 +7802,7 @@ export async function createAgentSession(
 							)
 						const reminderSource = createCliReminderSource({
 							mode: () => modeControl.current(),
+							memoryTools: memoryGuidance !== undefined,
 							...(quietStretch ? { quietStretch } : {}),
 							...{
 								environment: () => ({
@@ -9756,6 +9829,7 @@ export function toAgentEvent(
 							hosted: true,
 							...(event.tool.query ? { target: event.tool.query } : {}),
 							...(event.tool.results !== undefined ? { results: event.tool.results } : {}),
+							...(event.tool.searches !== undefined ? { searches: event.tool.searches } : {}),
 						}
 			return event.tool.status === 'running'
 				? {
@@ -9921,9 +9995,11 @@ export function toAgentEvent(
 		case 'tool_completed': {
 			// A connector's answer reaches the model inside a frame that marks where it
 			// came from; the person reads what the server said, without the frame.
-			const shown = event.toolName.startsWith('mcp__')
-				? (untrustedEnvelopeBody(event.result) ?? event.result)
-				: withoutJobFooter(event.toolName, event.result)
+			const shown = withoutUntrustedFrames(
+				event.toolName.startsWith('mcp__')
+					? (untrustedEnvelopeBody(event.result) ?? event.result)
+					: withoutJobFooter(event.toolName, event.result),
+			)
 			const presented =
 				admitToolView(event.presentation) ??
 				presenter.presentResult(
@@ -9964,8 +10040,22 @@ export function toAgentEvent(
 				view.kind === 'terminal' && view.output.trim().length > 0
 					? resultToLines(view.output)[0]
 					: undefined
+			// A tool the application owns says how it came out in one line of its own;
+			// the model's body (JSON, a list of descriptions) is not drawn under it.
+			const ownedLine =
+				!event.isError &&
+				hasOwnedView(event.toolName) &&
+				view.kind === 'generic' &&
+				!view.visibility
+					? view.label
+					: ''
 			const summary =
-				unknownTool ?? (first !== undefined ? resultSummaryLine(first) : firstLine(shown))
+				unknownTool ??
+				(ownedLine.length > 0
+					? ownedLine
+					: first !== undefined
+						? resultSummaryLine(first)
+						: firstLine(shown))
 			// A plain failure line replaces the summary row, so the first output
 			// line is no longer said above and stays in the body.
 			const short =
@@ -9982,12 +10072,14 @@ export function toAgentEvent(
 			// the receipt's own first line.
 			const headline = event.isError ? undefined : factsHeadline(event.facts)
 			const withoutRepeatedSummary =
-				plainFailure === undefined &&
-				first !== undefined &&
-				detail?.[0] === first &&
-				summarySaysAll(first, summary)
-					? detail.slice(1)
-					: detail
+				ownedLine.length > 0
+					? undefined
+					: plainFailure === undefined &&
+							first !== undefined &&
+							detail?.[0] === first &&
+							summarySaysAll(first, summary)
+						? detail.slice(1)
+						: detail
 			return {
 				kind: 'tool-end',
 				output: withoutJobFooter(event.toolName, event.result),

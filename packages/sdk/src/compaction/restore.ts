@@ -1,6 +1,7 @@
 import { resolve as resolvePath } from 'node:path'
 
 import { CHARS_PER_TOKEN } from '../constants/limits.js'
+import { LOG_SECRET_PATTERNS } from '../constants/secret-patterns.js'
 import {
 	CARRY_MAX_SKILLS,
 	CARRY_SKILLS_TOTAL_TOKENS,
@@ -94,6 +95,11 @@ export function recordRestorable(
 		)
 		return
 	}
+	if (call.toolName === 'bash') {
+		const command = typeof input.command === 'string' ? input.command : undefined
+		if (command && call.success && isRunnerCommand(command)) manager.recordWorkingCommand(command)
+		return
+	}
 	if (call.toolName === 'read') {
 		const path = typeof input.path === 'string' ? input.path : undefined
 		if (!path || !call.success || call.unchanged) return
@@ -105,6 +111,62 @@ export function recordRestorable(
 		// The body a read showed is behind the file now.
 		if (path && call.success) manager.forgetFileText(resolveAgainst(path, call.workingDirectory))
 	}
+}
+
+/** Heading of the section that carries the commands that worked. */
+export const WORKING_COMMANDS_HEADING = '### Working commands'
+
+/** The first word of a command segment says how code is run, built or tested here, or how a path is converted for a Windows program. */
+const RUNNER_WORD =
+	/^(?:node(?:\.exe)?|npm|npx|pnpm|yarn|bun|deno|python3?|pytest|cargo|rustc|go|make|dotnet|mvn|gradle|wslpath|powershell\.exe|cmd\.exe)$/
+
+/** Shapes that put a credential on a command line, beyond the known token prefixes. */
+const COMMAND_SECRET_SHAPES: readonly RegExp[] = [
+	// An inline VAR=value assignment at the start of a segment.
+	/(?:^|[;&|(]\s*)[A-Za-z_][A-Za-z0-9_]*=/,
+	// Header, auth and credential flags.
+	/(?:^|\s)(?:-H|--header|-u|--user|--proxy-user)(?:\s|=|$)/,
+	/(?:^|\s)--?(?:[\w-]*(?:token|password|passwd|secret|api-?key|auth|credential)[\w-]*)(?:\s|=|$)/i,
+	/\b(?:authorization|bearer|x-api-key)\b/i,
+	// A URL with userinfo, or a token in its query string.
+	/:\/\/[^\s/:@]+:[^\s/@]+@/,
+	/[?&](?:[\w-]*(?:token|key|secret|password|sig|signature)[\w-]*)=/i,
+]
+
+/** True when a command line may carry a credential and so must not be kept. */
+export function commandMayCarrySecret(command: string): boolean {
+	if (COMMAND_SECRET_SHAPES.some((shape) => shape.test(command))) return true
+	return LOG_SECRET_PATTERNS.some(([, pattern]) => {
+		pattern.lastIndex = 0
+		const hit = pattern.test(command)
+		pattern.lastIndex = 0
+		return hit
+	})
+}
+
+/** True for a shell command worth keeping the form of, and safe to carry in a summary. */
+export function isRunnerCommand(command: string): boolean {
+	if (commandMayCarrySecret(command)) return false
+	return command.split(/&&|\|\||[;|\n]/).some((segment) => {
+		const first = segment.trim().replace(/^\(+/, '').split(/\s+/)[0] ?? ''
+		return RUNNER_WORD.test(first)
+	})
+}
+
+/** The commands an earlier summary carried, read back from its restored section. */
+export function carriedWorkingCommands(summary: string): string[] {
+	const start = summary.indexOf(WORKING_COMMANDS_HEADING)
+	if (start < 0) return []
+	const commands: string[] = []
+	for (const line of summary
+		.slice(start + WORKING_COMMANDS_HEADING.length)
+		.split('\n')
+		.slice(1)) {
+		const match = /^- `(.+)`$/.exec(line)
+		if (match?.[1]) commands.push(match[1])
+		else if (line.startsWith('#') || (commands.length > 0 && line.trim() === '')) break
+	}
+	return commands
 }
 
 function fit(text: string, tokens: number): string {
@@ -158,6 +220,13 @@ export function renderRestoredContext(
 		fileBudget -= Math.ceil(text.length / CHARS_PER_TOKEN)
 		files += 1
 		sections.push(`### File: ${file.path}\n\n${text}`)
+	}
+
+	const commands = state.restorable?.commands ?? []
+	if (commands.length > 0) {
+		sections.push(
+			`${WORKING_COMMANDS_HEADING}\n\nThese commands ran successfully in this conversation. Run work the same way instead of searching the machine again.\n\n${commands.map((command) => `- \`${command}\``).join('\n')}`,
+		)
 	}
 
 	const note = options.hostNote?.trim()

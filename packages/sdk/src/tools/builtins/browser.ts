@@ -1039,7 +1039,7 @@ function unavailableLine(caps: BrowserCapabilities): string[] {
 
 function observeDescription(caps: BrowserCapabilities): string {
 	return [
-		`Drives a web browser${caps.headless ? ' with no visible window' : ''}: open pages and read them. Change pages with browser_act.`,
+		`Drives a web browser${caps.headless ? ' with no visible window' : ''}: open pages that need a real browser (a sign-in, a page drawn by script, a page you must click through) and read them. To read what a public page says, such as an article or documentation, try web_fetch first when you have it. Change pages with browser_act.`,
 		'navigate, back, forward and reload return a snapshot of the page when it has something to read, so do not snapshot again straight after. Work from snapshots: "snapshot" returns the page as an accessibility tree, each element with [ref=eN] and, for a control, what it holds (a field\'s text, a select\'s chosen option), under a header "Page: <origin> — <title> (tab tN)". Refs belong to the latest snapshot only; take a new one after the page changes.',
 		'A full snapshot of a big page is costly, so read less when you can: snapshot with view "delta" (what changed since the last one), view "interactive" (only what can be clicked or typed into), view "reading" (the page text, for an article), or query and role to find an element by name or text (also reaches content a menu or long page hides). "value" with a ref reads one control\'s current value without a snapshot; "wait_for" with stable waits for a page that is still loading.',
 		'A page you wrote inside the work folder opens by its path (navigate url); to check how it looks, open it and take a screenshot.',

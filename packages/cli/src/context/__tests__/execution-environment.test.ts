@@ -38,6 +38,22 @@ describe('observed execution environment', () => {
 		expect(prompt).not.toMatch(/Ubuntu|macOS|zsh/)
 	})
 
+	it('says where node comes from only when the user PATH has none', async () => {
+		const none = await readEnvironmentFacts('/repo', now, {
+			...probe([null, null, null, null]),
+			nodeDirectory: () => '/opt/runtime/bin',
+		})
+		const prompt = composeEnvironmentPrompt(none, { stable: true })
+		expect(prompt).toContain("No `node` is on the user's PATH.")
+		expect(prompt).toContain('`/opt/runtime/bin`')
+		const has = await readEnvironmentFacts('/repo', now, {
+			...probe([null, null, null, null]),
+			nodeDirectory: () => undefined,
+		})
+		expect(has.nodeDirectory).toBeUndefined()
+		expect(composeEnvironmentPrompt(has, { stable: true })).not.toContain('No `node`')
+	})
+
 	it('does not present the host shell as the sandbox guest shell', async () => {
 		const facts = await readEnvironmentFacts('/repo', now, probe([null, null, null, null]))
 		const prompt = composeEnvironmentPrompt({

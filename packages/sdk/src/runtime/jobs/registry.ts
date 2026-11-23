@@ -13,6 +13,7 @@ import type {
 } from '../../types/job/index.js'
 import type { MonitorWebSocketTarget } from '../../types/tool/index.js'
 import { subscribeToAbort } from '../../utils/abort.js'
+import { withNodeOnPath } from '../../utils/node-on-path.js'
 import { oneMetadataLine } from '../system-events.js'
 import { stopAtHostExit } from './host-exit-finalizer.js'
 import { createBackgroundJobId } from './job-id.js'
@@ -731,7 +732,7 @@ export class BackgroundJobRegistry {
 			: {
 					child: spawnHostShell(params.command, {
 						cwd: params.workingDirectory,
-						env: { ...inherited.env, ...params.env },
+						env: withNodeOnPath({ ...inherited.env, ...params.env }),
 						// `detached` makes the child the leader of its own process group
 						// off Windows, which is what `killTree` needs to reach the command
 						// and everything it forks rather than only the wrapping shell. See

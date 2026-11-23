@@ -797,7 +797,7 @@ it; a page fetch is the same shape with the address:
 ⎿ Did 1 search in 9.0s
 ● Web search("OpenClaw embedded runtime")
 ⎿ Found 3 results in 4.1s
-● Web fetch(https://docs.openclaw.ai/agent-runtime-architecture)
+● Fetch(https://docs.openclaw.ai/agent-runtime-architecture)
 ⎿ Received 7.5KB in 1.2s (ctrl+o to expand)
 ```
 
@@ -805,7 +805,7 @@ While a call runs, its row under `Working` carries the same `⎿` line as a
 status: `Searching: <query>` (`Searching…` while a provider has not yet said
 what it is searching for) or `Fetching <host>…`. Once it settles the line says
 what it came to: the number of results when the provider or tool reported
-one, `Did 1 search` when it did not, the size of a fetched page, and how long
+one, `Did 1 search` (`Did 4 searches` when one provider call ran several queries) when it did not, the size of a fetched page, and how long
 it took. Consecutive searches and fetches sit together without a blank line
 between them. The row never wraps: a long query or address is cut at the
 terminal's width with an ellipsis. A fetched page or a search's result list
@@ -813,6 +813,38 @@ stays behind Ctrl+O. Provider-hosted searches (see [Web search](web-search.md))
 are named from the query the provider reports; a provider that opens a page
 rather than running a query is shown as a fetch of that page. A failed call
 is drawn like any failed call (below).
+
+## Rows that only ask about work
+
+A call that only reads the state of delegated work leaves one plain line, not
+its arguments or its body:
+
+```text
+● Checking agents
+⎿ 1 agent running · 1 workflow running
+● Waiting for background work
+⎿ Finished
+● Loading tools
+⎿ Loaded tools: workflow, wait_for_task
+```
+
+`agent_task_list` says how many agents and workflow runs are running, or
+`Nothing running`. `wait_for_task` says `Finished`, `Failed`, `Still running`
+or that the id was a workflow run; while a delegated agent matched by task id
+is on screen, the live row reads `Waiting · <agent>` and the agent's own rows
+carry its answer. `search_tools` names the tools it loaded, never their
+descriptions. One function per tool draws these lines, so the live transcript and a resumed
+one read the same, including the `skill` row (`Read skill <name>`). A notice the
+runtime injected for the model reads as one line when a conversation is
+reopened: `Workflow <name> finished · 1m 1s · 2 agents · 127.5k tokens`, or
+`Background command "<command>" finished (exit code 0)`; the frame, the
+standing preamble, the usage block and the result frame are never shown. A tool with no row of its own and no readable argument (an id or
+a flag is not one) shows its name alone, never its arguments as JSON.
+
+Text that reached the model inside a frame marking where it came from, such as
+a delegated agent's answer, is shown without the frame: the opening and closing
+tags are removed from every tool's result, including frames inside a JSON
+string and several in one result. The model's own copy is unchanged.
 
 ## Code blocks
 

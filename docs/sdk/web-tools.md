@@ -29,6 +29,16 @@ follow the WebFetch rules set out here.
 A URL longer than 2000 characters, one with a user name or password, and one
 whose host has no dot (`localhost`, `intranet`) are refused before any request.
 The last message points to a shell command such as `curl` for a local server.
+Reading a page starts with `web_fetch`; the browser tools are for a sign-in, a
+page drawn by script, or a page you must click through. A non-2xx answer, an
+empty body or script-only body points to the browser tools. A PDF (by its
+content type or its first bytes `%PDF-`) is answered with one line saying
+`web_fetch` does not read PDFs and what to do instead, not decoded bytes. In a
+session that defers tools, `web_fetch` always rides the request; the agent and
+workflow tools (`wait_for_task`, `agent_task_list`, `send_message`,
+`cancel_agent`, `workflow`) ride it too while hypermode is on or an agent or
+workflow run is going. A `search_tools` result is never cleared from the
+conversation, so a loaded tool stays loaded.
 The guard's own refusals (a non-web scheme, an address inside the host, a host
 the config blocks) are unchanged, and apply to every redirect hop.
 

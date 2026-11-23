@@ -196,6 +196,40 @@ function cutNote(name: string): string {
 }
 
 /**
+ * A skill's instructions without its worked examples. A section headed
+ * `Example...` (a sample report, a sample call) shows what a result looks like;
+ * the steps around it say what to do, and only those need to survive a pass.
+ * Returns the text unchanged when there is no such section.
+ */
+export function withoutExampleSections(body: string): { text: string; dropped: boolean } {
+	const lines = body.split('\n')
+	const kept: string[] = []
+	let skipping: number | undefined
+	let dropped = false
+	// A `# comment` inside a code fence is not a heading.
+	let fence: string | undefined
+	for (const line of lines) {
+		const fenceMark = /^\s*(`{3,}|~{3,})/.exec(line)
+		if (fenceMark) {
+			const mark = (fenceMark[1] as string)[0] as string
+			if (fence === undefined) fence = mark
+			else if (fence === mark) fence = undefined
+		}
+		const heading = fence === undefined && !fenceMark ? /^(#{1,6})\s+(.*)$/.exec(line) : null
+		if (heading) {
+			const level = (heading[1] as string).length
+			if (skipping !== undefined && level <= skipping) skipping = undefined
+			if (skipping === undefined && /^examples?\b/i.test((heading[2] as string).trim())) {
+				skipping = level
+				dropped = true
+			}
+		}
+		if (skipping === undefined) kept.push(line)
+	}
+	return dropped ? { text: kept.join('\n').trimEnd(), dropped } : { text: body, dropped }
+}
+
+/**
  * Render skills (oldest first in, newest chosen first) inside the caps: a
  * count, a share of the window and a total of tokens, and a cap for each
  * skill, past which it is cut with a line saying how to load it in full. When
@@ -214,7 +248,14 @@ export function renderLoadedSkills(
 	const carried: string[] = []
 	const cut: string[] = []
 	const left: string[] = []
-	for (const skill of [...skills].reverse()) {
+	for (const full of [...skills].reverse()) {
+		const trimmed = withoutExampleSections(full.body)
+		const skill = trimmed.dropped
+			? {
+					name: full.name,
+					body: `${trimmed.text}\n\n[Example sections left out; call the skill tool with name "${full.name}" to read all of it]`,
+				}
+			: full
 		if (carried.length >= CARRY_MAX_SKILLS || budget < MIN_CARRY_TOKENS) {
 			left.push(skill.name)
 			continue

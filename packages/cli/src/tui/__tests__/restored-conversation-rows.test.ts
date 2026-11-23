@@ -396,7 +396,7 @@ describe('a resumed conversation draws its tool calls like the live run', () => 
 		const rows = projectConversation(messages, ids())
 		expect(rows.map((row) => [row.glyph ?? row.role, row.content])).toEqual([
 			['user', 'go'],
-			['●', 'Nope tool({"a":1})'],
+			['●', 'Nope tool'],
 			['○', 'Bash(sleep 99)'],
 			['⎿', 'Interrupted'],
 		])

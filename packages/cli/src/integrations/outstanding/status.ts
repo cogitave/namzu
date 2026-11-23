@@ -59,6 +59,7 @@ export function describeWorkflowStatus(view: WorkflowRunView, now: number) {
 		name: clip(view.name, 120),
 		status: view.status,
 		elapsed_ms: Math.max(0, (view.endedAt ?? now) - view.startedAt),
+		...(view.endedAt !== undefined ? { ended_ms_ago: Math.max(0, now - view.endedAt) } : {}),
 		...(phase
 			? { phase: { index: phase.index, of: phase.total, title: clip(phase.title, 80) } }
 			: {}),

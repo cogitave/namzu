@@ -640,6 +640,7 @@ import {
 } from './model-switch.js'
 import { reducedMotion, useReducedMotion } from './motion.js'
 import { nextTask, nextTaskLine } from './next-task.js'
+import { noticeDisplay } from './notice-display.js'
 import { isRepeatedNotice } from './notices.js'
 import { autoResumeDelayMs, startAutoResume } from './pause-auto-resume.js'
 import {
@@ -1620,14 +1621,24 @@ export function projectConversation(
 				return []
 			}
 			if (message.source?.type === 'runtime-context') {
+				// A notice the runtime wrote for the model reads as one plain line.
+				const shown =
+					typeof message.content === 'string' &&
+					(message.source.kind === 'task-completion' || message.source.kind === 'job-exit')
+						? noticeDisplay(message.content)
+						: undefined
 				return [
 					{
 						id: nextId(),
 						role: 'system',
-						content: runtimeContextRowLabel(message),
+						content: shown?.label ?? runtimeContextRowLabel(message),
 						glyph: SYSTEM_ROW_GLYPH,
 						glyphColor: systemRowStyle('notice').color,
-						detail: [message.content],
+						...(shown
+							? shown.detail.length > 0
+								? { detail: [...shown.detail] }
+								: {}
+							: { detail: [message.content] }),
 					},
 				]
 			}
@@ -11060,11 +11071,7 @@ function AppBody({
 					setState('tool')
 					const waitingAgent =
 						event.toolName === 'wait_for_task' && event.taskId
-							? subagentsRef.current.find(
-									(agent) =>
-										agent.taskId === event.taskId &&
-										(event.turnId === undefined || agent.workflowId === event.turnId),
-								)
+							? subagentsRef.current.find((agent) => agent.taskId === event.taskId)
 							: undefined
 					const tool: RunningTool = {
 						...(waitingAgent
@@ -11181,7 +11188,6 @@ function AppBody({
 						subagentsRef.current.some(
 							(agent) =>
 								agent.taskId === done.taskId &&
-								(event.turnId === undefined || agent.workflowId === event.turnId) &&
 								agent.transcript.some(
 									(row) => row.kind === 'assistant' && row.text.trim().length > 0,
 								),

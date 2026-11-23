@@ -21,7 +21,7 @@ import {
 } from '../../../../compaction/plan.js'
 import type { ContextReducer, ContextReduction } from '../../../../compaction/reducer.js'
 import { createSlidingWindowReducer } from '../../../../compaction/reducer.js'
-import { renderRestoredContext } from '../../../../compaction/restore.js'
+import { carriedWorkingCommands, renderRestoredContext } from '../../../../compaction/restore.js'
 import { findRetainedIndices } from '../../../../compaction/retention.js'
 import { serializeState } from '../../../../compaction/serializer.js'
 import {
@@ -188,6 +188,10 @@ async function emitToolResultClear(
  */
 function adoptLoadedSkills(ctx: IterationContext): void {
 	ctx.workingStateManager?.adoptSkillBodies(adoptableSkills(ctx.recorder.messages))
+	for (const message of ctx.recorder.messages) {
+		if (message.role === 'system' && typeof message.content === 'string')
+			ctx.workingStateManager?.adoptWorkingCommands(carriedWorkingCommands(message.content))
+	}
 }
 
 /**

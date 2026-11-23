@@ -137,6 +137,9 @@ describe('the generic label, field by field', () => {
 		[{ pattern: 'x', query: 'q', description: 'd' }, 'x'],
 		[{ query: 'q', description: 'd' }, 'q'],
 		[{ description: 'd' }, 'd'],
+		[{ url: 'https://x.test', name: 'n' }, 'https://x.test'],
+		[{ name: 'n', title: 't' }, 'n'],
+		[{ select: 'a,b' }, 'a,b'],
 	])('picks in order: %o', (input, expected) => {
 		expect(genericLabel(input)).toBe(expected)
 	})
@@ -145,11 +148,13 @@ describe('the generic label, field by field', () => {
 		expect(genericLabel('just text')).toBe('just text')
 	})
 
-	it('falls through to JSON for an object none of the fields describe', () => {
+	it('is empty, never JSON, for an object none of the fields describe', () => {
 		// The arm `description` was added LAST to reduce: a delegation tool
 		// showing a blob of its own arguments while the model was made to
 		// write a label nothing read.
-		expect(genericLabel({ unknown: 1 })).toBe('{"unknown":1}')
+		expect(genericLabel({ unknown: 1 })).toBe('')
+		expect(genericLabel({ run_id: 'w3wivgp4f' })).toBe('')
+		expect(genericLabel(undefined)).toBe('')
 	})
 
 	it('truncates rather than letting one field own the surface', () => {

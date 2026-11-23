@@ -262,10 +262,18 @@ function codexToolOutput(
 export function toCodexInput(
 	messages: ChatCompletionParams['messages'],
 	targetRoute: ProviderRoute,
+	openingSystemRun = messages.findIndex((message) => message.role !== 'system'),
 ): ResponseInputItem[] {
 	const input: ResponseInputItem[] = []
-	for (const message of messages) {
-		if (message.role === 'system') continue
+	const opening = openingSystemRun < 0 ? messages.length : openingSystemRun
+	for (const [at, message] of messages.entries()) {
+		if (message.role === 'system') {
+			// The opening run is `instructions`; a later one keeps its place.
+			if (at >= opening && message.content) {
+				input.push({ type: 'message', role: 'developer', content: message.content })
+			}
+			continue
+		}
 		if (message.role === 'user') {
 			input.push({
 				type: 'message',
@@ -387,6 +395,7 @@ function buildRequest(
 	model: string,
 	targetRoute: ProviderRoute,
 	supportedEffort: readonly ReasoningEffort[] | undefined,
+	downgrade: SubscriptionDowngrade = NO_DOWNGRADE,
 ): ResponseCreateParamsStreaming {
 	if (
 		params.effort !== undefined &&
@@ -407,8 +416,22 @@ function buildRequest(
 			'CodexProvider: disabling reasoning requires `effort: "none"`; omitting that level would not prove reasoning was disabled.',
 		)
 	}
-	const instructions = params.messages
-		.filter((message) => message.role === 'system')
+	// Only the system messages that open the conversation are the standing
+	// instructions. The runtime places a step's preamble (changing guidance,
+	// skills, turn notes) later in the list; hoisting it into `instructions`
+	// put changing text at the very front of every request, so no request
+	// shared a cache prefix with the one before it. Later system messages stay
+	// where they were, as developer messages in the input.
+	let openingRun = 0
+	while (params.messages[openingRun]?.role === 'system') openingRun++
+	// After the backend refused the new shape, every system message goes back
+	// into `instructions` and none is sent as a developer item.
+	if (downgrade.legacyShape) openingRun = params.messages.length
+	const instructions = (
+		downgrade.legacyShape
+			? params.messages.filter((message) => message.role === 'system')
+			: params.messages.slice(0, openingRun)
+	)
 		.map((message) => message.content)
 		.join('\n\n')
 	const request = {
@@ -416,7 +439,10 @@ function buildRequest(
 		stream: true,
 		store: false,
 		instructions: instructions || undefined,
-		input: toCodexInput(params.messages, targetRoute),
+		input: toCodexInput(params.messages, targetRoute, openingRun),
+		// One key for the whole conversation routes every request to the same
+		// cache; without it the backend keys on the request alone.
+		...(params.cacheKey && !downgrade.noCacheKey ? { prompt_cache_key: params.cacheKey } : {}),
 		// The Codex subscription request schema deliberately has no
 		// `max_output_tokens` member. `ChatCompletionParams.maxTokens` is a public
 		// API control, but projecting it onto this route makes the whole request
@@ -449,6 +475,43 @@ function buildRequest(
 	// vocabulary. The model-specific admission check above is the runtime
 	// boundary; this cast only bridges that declaration lag.
 	return request as ResponseCreateParamsStreaming
+}
+
+/**
+ * What the subscription backend has refused of the newer request shape: the
+ * `developer` input item, the `session_id` header, the `prompt_cache_key` body
+ * field. Set once for the life of the process, by the one resend that the
+ * refusal triggers; later requests go straight to the older shape.
+ */
+interface SubscriptionDowngrade {
+	/** All system text joined into `instructions`, no developer items, no `session_id` header. */
+	legacyShape: boolean
+	/** The refusal named `prompt_cache_key`, so it is left off too. */
+	noCacheKey: boolean
+}
+
+const NO_DOWNGRADE: SubscriptionDowngrade = { legacyShape: false, noCacheKey: false }
+const subscriptionDowngrade: SubscriptionDowngrade = { legacyShape: false, noCacheKey: false }
+
+/** Test seam: forget a downgrade recorded earlier in this process. */
+export function resetSubscriptionDowngrade(): void {
+	subscriptionDowngrade.legacyShape = false
+	subscriptionDowngrade.noCacheKey = false
+}
+
+const REFUSED_SHAPE = /\bdeveloper\b|\brole\b|\binput\[\d*\]|session_id|prompt_cache_key/i
+
+/**
+ * A bad-request answer that names what the newer shape added. Anything else
+ * (a different 400, any other status, a network failure) is not one.
+ */
+function refusedNewShape(error: unknown): { cacheKey: boolean } | undefined {
+	if (typeof error !== 'object' || error === null) return undefined
+	const status = (error as { status?: unknown }).status
+	if (!(error instanceof OpenAI.BadRequestError) && status !== 400) return undefined
+	const message = (error as { message?: unknown }).message
+	if (typeof message !== 'string' || !REFUSED_SHAPE.test(message)) return undefined
+	return { cacheKey: /prompt_cache_key/i.test(message) }
 }
 
 /**
@@ -532,7 +595,8 @@ export class CodexProvider implements LLMProvider {
 			model,
 			chainIndex: 0,
 		}
-		const built = buildRequest(params, model, targetRoute, this.reasoningEffortLevelsFor(model))
+		const effortLevels = this.reasoningEffortLevelsFor(model)
+		const built = buildRequest(params, model, targetRoute, effortLevels, subscriptionDowngrade)
 		// A tier the account's listing does not offer is refused here, before
 		// transport: the backend would drop it and serve standard speed while
 		// the caller believes the request was honoured.
@@ -546,17 +610,45 @@ export class CodexProvider implements LLMProvider {
 						firstPartyEndpoint: true,
 					})
 				: undefined
-		const request = (
-			fast ? { ...built, service_tier: fast.wire } : built
-		) as ResponseCreateParamsStreaming
+		const withTier = (body: ResponseCreateParamsStreaming) =>
+			(fast ? { ...body, service_tier: fast.wire } : body) as ResponseCreateParamsStreaming
 		const requestedSpeed =
 			params.speed === 'fast' || params.speed === 'ultrafast' ? params.speed : undefined
+		const send = (body: ResponseCreateParamsStreaming, sessionHeader: boolean) =>
+			this.client.responses.create(withTier(body), {
+				signal: params.signal,
+				...(fast?.header || (sessionHeader && params.cacheKey)
+					? {
+							headers: {
+								...(fast?.header ?? {}),
+								...(sessionHeader && params.cacheKey ? { session_id: params.cacheKey } : {}),
+							},
+						}
+					: {}),
+			}) as Promise<AsyncIterable<ResponseStreamEvent>>
 		let stream: AsyncIterable<ResponseStreamEvent>
 		try {
-			stream = (await this.client.responses.create(request, {
-				signal: params.signal,
-				...(fast?.header ? { headers: fast.header } : {}),
-			})) as AsyncIterable<ResponseStreamEvent>
+			try {
+				stream = await send(built, !subscriptionDowngrade.legacyShape)
+			} catch (error) {
+				// The backend refusing the newer shape is answered before any
+				// output exists, so one resend in the older shape is safe. It is
+				// remembered, so no later request sends the newer shape and nothing
+				// is resent twice.
+				const refused = subscriptionDowngrade.legacyShape ? undefined : refusedNewShape(error)
+				const newShapeSent =
+					built.input !== undefined &&
+					(Boolean(params.cacheKey) ||
+						(Array.isArray(built.input) &&
+							built.input.some((item) => 'role' in item && item.role === 'developer')))
+				if (!refused || !newShapeSent || params.signal?.aborted) throw error
+				subscriptionDowngrade.legacyShape = true
+				if (refused.cacheKey) subscriptionDowngrade.noCacheKey = true
+				stream = await send(
+					buildRequest(params, model, targetRoute, effortLevels, subscriptionDowngrade),
+					false,
+				)
+			}
 		} catch (error) {
 			if (isCallerAbortError(error, params.signal)) throw params.signal?.reason ?? error
 			if (isProviderRequestError(error)) throw error
@@ -897,7 +989,7 @@ export class CodexProvider implements LLMProvider {
  */
 export function webSearchDetail(item: {
 	readonly action?: unknown
-}): { query?: string; url?: string; results?: number } {
+}): { query?: string; url?: string; results?: number; searches?: number } {
 	const action = item.action as
 		| {
 				readonly type?: unknown
@@ -921,5 +1013,7 @@ export function webSearchDetail(item: {
 		...(query ? { query } : {}),
 		...(url && !query ? { url } : {}),
 		...(Array.isArray(action.sources) ? { results: action.sources.length } : {}),
+		// One hosted item may run several queries; the count says so, the label names the first.
+		...(queries.length > 1 ? { searches: queries.length } : {}),
 	}
 }

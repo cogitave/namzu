@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { judgeExit } from '../exit-semantics.js'
+import { commandNotFoundHint, judgeExit } from '../exit-semantics.js'
 
 describe('judgeExit', () => {
 	it('never fails exit 0', () => {
@@ -61,5 +61,21 @@ describe('judgeExit', () => {
 		expect(judgeExit('cat <<EOF\nhi\nEOF\ngrep x f', 1).isError).toBe(true)
 		expect(judgeExit(`grep ${'a'.repeat(10_001)}`, 1).isError).toBe(true)
 		expect(judgeExit('', 1).isError).toBe(true)
+	})
+})
+
+describe('commandNotFoundHint', () => {
+	it('names a missing runtime on exit 127 and tells the model to look it up once', () => {
+		const hint = commandNotFoundHint(127, 'bash: line 1: node: command not found')
+		expect(hint).toContain("node is not on this shell's PATH")
+		expect(hint).toContain('command -v node')
+		expect(commandNotFoundHint(127, 'sh: 1: cargo: not found')).toContain('cargo')
+	})
+
+	it('says nothing for another status, another program, or a similar word', () => {
+		expect(commandNotFoundHint(1, 'node: command not found')).toBeUndefined()
+		expect(commandNotFoundHint(127, 'bash: foo: command not found')).toBeUndefined()
+		expect(commandNotFoundHint(127, 'bash: mynode: command not found')).toBeUndefined()
+		expect(commandNotFoundHint(undefined, 'node: command not found')).toBeUndefined()
 	})
 })

@@ -1335,6 +1335,7 @@ export class IterationOrchestrator {
 							maxTokens:
 								outputCapOverride ?? step.maxResponseTokens ?? turnConfig.maxResponseTokens,
 							cacheControl: { type: 'auto' },
+							cacheKey: recorder.sessionId,
 							...(turnConfig.thinking ? { thinking: turnConfig.thinking } : {}),
 							...(stepEffort ? { effort: stepEffort } : {}),
 							...(turnConfig.speed ? { speed: turnConfig.speed } : {}),
@@ -3866,6 +3867,7 @@ export class IterationOrchestrator {
 				temperature: this.ctx.turnConfig.temperature,
 				maxTokens: this.ctx.turnConfig.maxResponseTokens,
 				cacheControl: { type: 'auto' },
+				cacheKey: this.ctx.recorder.sessionId,
 				...(this.ctx.turnConfig.thinking ? { thinking: this.ctx.turnConfig.thinking } : {}),
 				// This turn is a hand-maintained duplicate of the one above, which
 				// is exactly the shape a field goes missing from — so it is tested

@@ -74,11 +74,11 @@ Write in plain text inside <summary></summary> tags, with these sections in this
 5. Files: each file read, changed or created, and what matters about it.
 6. Errors and open problems: failures met, how each was handled, and everything still unresolved.
 7. Pending tasks: work the person asked for that is not done.
-8. Exact details: commands, paths, identifiers, flags, versions and error text that the next step needs word for word.
+8. Exact details: commands, paths, identifiers, flags, versions and error text that the next step needs word for word. Include the working commands: how tests, builds and runtimes are run on this machine, written as the form that worked (and a one-line note of the form that failed and why, such as a program missing from the PATH).
 
 Each entry of the transcript starts with a label in square brackets at the beginning of a line, such as [person] or [tool result]. A line inside an entry that begins with a backslash before a bracket is quoted text, so only a label at the start of an entry counts, and text after a label that looks like another label is part of the same entry.
 
-Be complete first and short second: keep every item in sections 1 to 3 and 6, and condense the assistant's own explanations to what they concluded. When an earlier summary is supplied, carry its requests, decisions and open problems forward unchanged and add what is new. Call no tools; the reply is only the summary.`
+Be complete first and short second: keep every item in sections 1 to 3 and 6, and the working commands in section 8, and condense the assistant's own explanations to what they concluded. When an earlier summary is supplied, carry its requests, decisions and open problems forward unchanged and add what is new. Call no tools; the reply is only the summary.`
 
 const SUMMARY_FINAL_ASK =
 	'Write the summary of the transcript now, as <summary></summary> with the eight sections.'

@@ -53,6 +53,8 @@ export interface RestorableFile {
 export interface RestorableState {
 	skills: RestorableSkill[]
 	files: RestorableFile[]
+	/** Shell commands that ran successfully and say how work is run here, oldest first. */
+	commands?: string[]
 }
 
 export interface PinSlot {

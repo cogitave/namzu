@@ -41,10 +41,11 @@ describe('conversation projection', () => {
 		const original = structuredClone(messages)
 		let id = 0
 		const rows = projectConversation(messages, () => String(++id))
-		// The empty assistant messages draw nothing; the call does, as it did live.
+		// The empty assistant messages draw nothing; the call does, as it did live. A call with
+		// no readable argument is headlined by the tool's name alone, never a dump of its input.
 		expect(rows.map((row) => [row.role, row.content])).toEqual([
 			['user', 'inspect'],
-			['tool', 'Read({})'],
+			['tool', 'Read'],
 			['tool', 'exact tool result'],
 			['assistant', '  Done.\n'],
 		])

@@ -1095,7 +1095,8 @@ function projectEvent(record: MutableActivity, event: SessionEvent): void {
 		case 'tool_executing': {
 			record.status = 'working'
 			record.toolCalls = (record.toolCalls ?? 0) + 1
-			const label = `${event.toolName}(${genericLabel(event.input)})`
+			const said = genericLabel(event.input)
+			const label = said ? `${event.toolName}(${said})` : event.toolName
 			record.latestActivity = bounded(label, MAX_AGENT_ACTIVITY_LABEL_CODE_UNITS)
 			pushRow(record, {
 				id: `${record.viewId}:tool:${event.toolUseId}`,

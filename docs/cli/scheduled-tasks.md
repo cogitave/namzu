@@ -214,7 +214,7 @@ there is no default permission set.
 | `--approval-ttl 7d` | How long a parked model run waits for you before it is abandoned; refused for a pure `script` job |
 | `--keep-sessions 20` | Completed-run sessions kept visible before older ones are archived; refused for a pure `script` job, which opens no session |
 | `--pause-after-failures 5` | Failed runs in a row before the job pauses itself (0: never); `check-failed` counts as a failure, a `skipped` run does not |
-| `--add-dir <dir>` | Another directory the file tools may reach |
+| `--add-dir <dir>` | Another directory the file tools may reach. On `edit` it joins the job's stored list; a `--permissions` that names no list (a preset, or a file without `additionalDirectories`) keeps the stored list, and a file that names one replaces it |
 | `--notify-summary` | Put the run's one-line summary in its notification |
 | `--notify-finished true\|false` | Send Namzu's generic notice after a successful run. Default `true`; use `false` for a polling script that sends its own change notification. Failure and approval notices stay on. |
 | `--paused` | Create it paused |

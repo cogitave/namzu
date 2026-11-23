@@ -1,6 +1,6 @@
 ---
 name: document
-description: Write a document or report as one Markdown file. Use when the person wants a write-up to read or send. Not for Word, PDF, slides or sheets.
+description: Write a document or report as one Markdown file. Use when the person asks for a document file; a research or analysis request is answered in the reply. Not for Word, PDF, slides or sheets.
 invocation: both
 ---
 
@@ -20,20 +20,27 @@ pretend a Markdown file is a Word file.
 
 ## Steps
 
+0. **Write a file only when the person asked for one.** A question, a
+   research request or an analysis is answered in the reply. If a write-up
+   would still help, save it under the session's scratch folder and say so,
+   or offer to write it as a file; do not put it in the project.
 1. **Settle the few things that change the document.** Who reads it, what they
    should do after reading it, and how long it should be. If the request
    already says, do not ask. If one answer would change the whole document,
    ask one short question; otherwise pick a sensible default, write the
    document, and list the guesses at the end of the reply.
 2. **Choose the title and the file name.** The title is plain and specific
-   ("Project kickoff: Billing rewrite", not "Document"). The file name is the
-   title in words: `Project kickoff - Billing rewrite.md`. Keep letters,
-   numbers, spaces, hyphens and underscores; no slashes or colons. If a file
+   ("Project kickoff: Billing rewrite", not "Document"). Follow the project's
+   own file naming when it has one. With none, the file name is the title in
+   English words, lowercase, joined by hyphens, with no spaces:
+   `project-kickoff-billing-rewrite.md`. Never turn a title in another
+   language into an ASCII-folded name with spaces; give the file an English
+   name and keep the real title on its first line. No slashes or colons. If a file
    of that name exists and the person did not ask to change it, add a number
    (`... 2.md`) rather than replacing it.
-3. **Choose the folder.** Put it in the project folder, beside the work. If
-   the project already has a folder for documents (`docs`, `documents`),
-   use it. With no project, use the folder this conversation works in. Never
+3. **Choose the folder.** If the project already has a folder for documents
+   (`docs`, `documents`), use it. With none, use a `docs` folder in the
+   project. With no project, use the folder this conversation works in. Never
    write outside those folders.
 4. **Write the whole file with one `write` call.** Use this shape:
    - First line: `# Title`.
@@ -72,7 +79,7 @@ pretend a Markdown file is a Word file.
 Keep it short, and in this order:
 
 1. One sentence that names the document by its title as a link to the file, for
-   example: `I wrote [Project kickoff - Billing rewrite](Project kickoff - Billing rewrite.md).`
+   example: `I wrote [Project kickoff - Billing rewrite](docs/project-kickoff-billing-rewrite.md).`
    Write the link once, in the first sentence. Do not paste the document into
    the reply.
 2. **Assumptions** — a short list of what you took as given.

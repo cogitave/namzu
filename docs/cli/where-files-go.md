@@ -135,3 +135,12 @@ an empty folder or a search that finds nothing is a clause, then the answer;
 a greeting is one short line. The Desktop preview note says to write the file
 and say in a line what it is, and the conversation-search guidance says an
 empty search is not a result to report.
+
+## Files nobody asked for
+
+The model writes no documentation, report or summary file unless the person asks
+for one; an analysis or research request is answered in the reply. When a file is
+asked for, it is named after the project or in lowercase English with hyphens,
+file lists are kept in step with the files, and a file that shows command output
+holds the real output. The built-in `document` skill carries the same rule in its
+description.
