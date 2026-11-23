@@ -26,7 +26,7 @@ export interface SkillListingInput {
 export const SKILL_LISTING_DESCRIPTION_MAX_CHARS = 1536
 
 const FIRST =
-	'These skills are available through the skill tool. When the task matches one, load it by name and follow it. A skill is guidance, not an extra tool: permissions are unchanged.'
+	'These skills are available through the skill tool. When the step you are on matches one, load it by name and follow it; load a skill when that step needs it, not all of them at the start of a turn. A skill is guidance, not an extra tool: permissions are unchanged.'
 
 const NAME_ONLY =
 	'An entry with no description is one whose description did not fit; call the skill tool without a name to list them with descriptions.'

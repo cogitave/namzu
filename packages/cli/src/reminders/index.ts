@@ -9,6 +9,7 @@ import { environmentReminders } from './environment.js'
 import { hypermodeReminders } from './hypermode.js'
 import { type McpInstructionsInput, mcpInstructionsReminders } from './mcp-instructions.js'
 import { type MemoryIndexInput, memoryIndexReminders } from './memory-index.js'
+import { memoryNudge } from './memory-nudge.js'
 import { modeReminders } from './mode.js'
 import { type ModelReminderFacts, modelReminders } from './model.js'
 import { planModeReminders } from './plan-mode.js'
@@ -25,6 +26,7 @@ export { planModeReminders } from './plan-mode.js'
 export { skillListingReminders } from './skills.js'
 export { memoryIndexReminders } from './memory-index.js'
 export { mcpInstructionsReminders } from './mcp-instructions.js'
+export { memoryNudge } from './memory-nudge.js'
 export { taskNudge } from './task-nudge.js'
 export { resolveProgressNudge, type ProgressNudgeSettings } from './progress-nudge.js'
 export { QUIET_STRETCH_CALLS, QUIET_STRETCH_MS, QuietStretch } from './quiet-stretch.js'
@@ -40,6 +42,8 @@ export interface CliReminderOptions {
 	readonly canAsk?: boolean
 	/** The session's tasks, when it has task tools; absent means no nudge. */
 	readonly tasks?: () => Promise<readonly Pick<Task, 'id' | 'status' | 'subject'>[]>
+	/** Whether the memory tools are in this session; set, the memory nudge may speak. */
+	readonly memoryTools?: boolean
 	/** Whether hypermode is on, and whether the `workflow` tool is listed; absent means no hypermode reminders. */
 	readonly hypermode?: () => { readonly on: boolean; readonly toolListed: boolean }
 	/**
@@ -129,6 +133,7 @@ export function createCliReminderSource(options: CliReminderOptions): ReminderSo
 			const nudge = taskNudge(messages, [])
 			if (nudge.length > 0) out.push(...taskNudge(messages, await options.tasks()))
 		}
+		if (options.memoryTools) out.push(...memoryNudge(messages))
 		// Last: it is the newest thing the model reads, and it only fires deep in a long run.
 		if (options.quietStretch) out.push(...options.quietStretch.remind(messages))
 		return out

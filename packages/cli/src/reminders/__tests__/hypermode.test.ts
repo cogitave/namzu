@@ -35,6 +35,8 @@ describe('what the model is told about the standing mode', () => {
 		expect(first).toHaveLength(1)
 		expect(first[0]).toContain('kind="hypermode-on" form="full"')
 		expect(first[0]).toContain('Use the `workflow` tool on every substantive task')
+		expect(first[0]).toContain('do not do the same work yourself')
+		expect(first[0]).toContain('what you applied and what you dropped')
 		const history = withSaid([createUserMessage('go')], first)
 		expect(ask([...history, createAssistantMessage('ok'), createUserMessage('more')])).toEqual([])
 	})

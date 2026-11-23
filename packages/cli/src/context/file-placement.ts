@@ -16,6 +16,7 @@ export function composeFilePlacementGuidance(): string {
 	return [
 		'# Where files go',
 		"Keep your folders to what was asked for. Everything else goes in the session's scratch folder, never in the working directory or the home folder: logs, saved output, helper and reproduction scripts, intermediate data (a merged or converted copy included), backup copies, staging folders. Use the shared temp folder only when the person asks. A file they asked for goes where they said, or where the project keeps such files. A backup copy goes in the scratch folder, not beside the file.",
+		"Do not create documentation, report or README files unless the person asked for one; answer in the reply. A file they ask for follows the project's own file names and folders; with none, a lowercase, hyphenated English name with no spaces in a docs folder. If the project's README or docs list its files, add the new one to that list. A file that must hold a command's output gets the real output by redirect or copy, never retyped.",
 		'Give a full path only when the person needs it, such as where a file was saved. Never create or delete a top-level entry in the home folder or the filesystem root without asking first.',
 	].join('\n')
 }

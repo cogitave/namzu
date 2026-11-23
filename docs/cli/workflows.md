@@ -58,6 +58,23 @@ scheduled run has no one to review a script and no `workflow` tool; with the
 (adversarial verify, judge panel, loop until dry, completeness critic) and
 keeps `Agent` calls with a `workflow` label for small fan-outs.
 
+Hypermode stays a mode for substantial work, and its reminder adds three rules
+for delegating: hand over only independent scopes that the main agent will not
+read itself; once a scope is delegated, do not do the same work in the main
+conversation, wait for the result; and when a result arrives late, say in the
+answer what was applied and what was dropped. The workflow launch notice says
+the same: carry on only with work that does not overlap the run's scopes, or end
+the turn.
+
+### Memory nudge
+
+After the same kind of command failure twice (the same exit status, with a
+"command not found" line counting as exit 127) or once right after a compaction,
+a hidden reminder suggests saving a one- or two-line lesson about the machine or
+project with `save_memory`. It speaks once per failure pair or compaction, a
+memory save closes it, it is read from the conversation alone (a resumed
+conversation needs no counter), and it is not shown to the person.
+
 ## The review
 
 Starting a workflow is reviewed like a destructive call, before anything runs.
@@ -465,7 +482,8 @@ queued and done counts and whether it is progressing, waiting or stalled; it is
 refreshed for each request and is not a completion notification.
 `agent_task_list` with `run_id` reads one run, ended or not: phase, counts, the
 last `log()` lines, previews of what finished agents answered (marked as data)
-and elapsed time, never an estimate of the end. The launch receipt allows one
+and elapsed time, never an estimate of the end. A run that ended in this session
+stays in the listing with `ended_ms_ago`, the milliseconds since it finished. The launch receipt allows one
 such read when the person asks how it is going and still forbids polling in a
 loop.
 
