@@ -243,6 +243,14 @@ A host owns each handler's validation and scope. `namzu acp --desktop` opts into
 CLI's [desktop operator methods](../cli/desktop.md). Ordinary `namzu acp` retains
 its core method set and does not grant folder trust through protocol messages.
 
+A host extension that needs the client to do work asks it with
+`ACPServer.askClient(method, params, signal?)`: one request, named `namzu/...`, and the client's
+answer (it rejects with the client's own words, and when the connection closes before an answer).
+`ACPServer.clientOffers(capability)` says whether the client named a capability in `initialize`
+(false before it), and a host reads it before it asks for anything optional. `namzu acp --desktop`
+uses both for the agent's browser in the app's Browser pane: see
+[The agent's browser in the pane](../cli/desktop.md#the-agents-browser-in-the-pane).
+
 `ACPServer.getSessionCwd(sessionId)` provides a read-only lookup of the absolute
 workspace bound to a session published on that connection. It returns `undefined`
 for unknown IDs, reserved in-flight loads and stopped servers. A newly published

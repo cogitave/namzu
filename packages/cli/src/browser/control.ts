@@ -14,9 +14,11 @@
  */
 
 import type {
+	BrowserContextProvider,
 	BrowserEngineSetting,
 	BrowserHeadlessSetting,
 	BrowserRunMode,
+	PaneChannel,
 	PlaywrightBrowserHost,
 	PlaywrightBrowserHostOptions,
 } from '@namzu/browser'
@@ -59,6 +61,14 @@ export interface BrowserSessionOptions {
 	readonly home?: string
 	/** `unattended` for a scheduled run: nobody at the window. Default `interactive`. */
 	readonly mode?: BrowserRunMode
+	/**
+	 * The desktop application's Browser pane, tried before the browser of this host's own: a
+	 * channel to the app's tabs, made fresh for each host built (a profile switch builds
+	 * another). Returns nothing when the pane is not available, and the host then opens its own
+	 * browser as it always did. Where the pane cannot be driven when the browser starts, the
+	 * host falls back with a one-line note.
+	 */
+	readonly pane?: () => PaneChannel | undefined
 }
 
 /** What `/browser` shows, and what the handoff notice needs. */
@@ -74,6 +84,13 @@ export interface BrowserStatus {
 	readonly warnings: readonly string[]
 	readonly sites: BrowserSitesConfig
 	readonly keepOpen: boolean
+	/**
+	 * Where the browser runs: `pane` is a tab of the desktop application's Browser pane, `own` a
+	 * browser this process opened, `unknown` before the first call that needs one.
+	 */
+	readonly where?: 'pane' | 'own' | 'unknown'
+	/** The host will try the Browser pane when it starts. */
+	readonly prefersPane?: boolean
 }
 
 export interface BrowserControl {
@@ -113,11 +130,19 @@ type HostConstructor = new (options: PlaywrightBrowserHostOptions) => Playwright
 export function createBrowserControl(
 	Host: HostConstructor,
 	options: BrowserSessionOptions,
+	/** Turns a pane channel into a provider; absent where `@namzu/browser` offers none. */
+	paneProvider?: (channel: PaneChannel) => BrowserContextProvider,
 ): BrowserControl {
 	const ownSites = options.sites ?? { '*': 'ask' }
 	let sites = ownSites
-	const build = (profile: string) =>
-		new Host({
+	const build = (profile: string) => {
+		// The pane holds the conversation's own profile only: another profile (a delegated run's,
+		// or one switched to) keeps its own browser, so its cookies stay apart.
+		const channel =
+			paneProvider && profile === (options.profile ?? 'default') ? options.pane?.() : undefined
+		const pane = channel && paneProvider ? paneProvider(channel) : undefined
+		return new Host({
+			...(pane ? { preferredProvider: pane } : {}),
 			profile,
 			mode: options.mode ?? 'interactive',
 			sites,
@@ -128,6 +153,7 @@ export function createBrowserControl(
 			...(options.askPersonToSignIn ? { askPersonToSignIn: options.askPersonToSignIn } : {}),
 			...(options.home ? { home: options.home } : {}),
 		})
+	}
 	let current = build(options.profile ?? 'default')
 	let disposed = false
 
@@ -175,6 +201,8 @@ export function createBrowserControl(
 				warnings: current.warnings,
 				sites,
 				keepOpen: options.keepOpen === true,
+				where: current.where,
+				prefersPane: current.prefersPane,
 			}
 		},
 		async peekSignIn() {
@@ -237,8 +265,12 @@ export function describeBrowserStatus(status: BrowserStatus): string {
 	const sites = Object.entries(status.sites)
 		.map(([site, level]) => `${site} ${level}`)
 		.join(' · ')
+	const engine =
+		status.where === 'pane'
+			? 'Browser: a tab of the Browser pane · running'
+			: `Browser: ${status.engine} (${status.browser}) · ${status.headless ? 'no window' : 'visible window'} · ${status.running ? 'running' : 'not started'}`
 	const rows = [
-		`Browser: ${status.engine} (${status.browser}) · ${status.headless ? 'no window' : 'visible window'} · ${status.running ? 'running' : 'not started'}`,
+		engine,
 		`Profile: ${status.profile}${status.keepOpen ? ' · stays open after the session' : ''}`,
 		`Sites: ${sites}`,
 		...(status.unavailableReason ? [`Unavailable: ${status.unavailableReason}`] : []),

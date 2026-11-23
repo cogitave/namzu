@@ -56,6 +56,7 @@ it('starts on the documented defaults without writing anything', () => {
 		voiceShortcut: '',
 		autoOpenFiles: true,
 		browserCookies: 'conversation',
+		agentBrowser: 'pane',
 		openLinksInBrowser: true,
 		lastSettingsSection: 'general',
 	})
@@ -107,6 +108,7 @@ it('validates a change, saves it atomically, and survives a restart', () => {
 		voiceShortcut: '',
 		autoOpenFiles: true,
 		browserCookies: 'conversation',
+		agentBrowser: 'pane',
 		openLinksInBrowser: true,
 		lastSettingsSection: 'general',
 	})
@@ -150,6 +152,7 @@ it('validates a change, saves it atomically, and survives a restart', () => {
 		voiceShortcut: '',
 		autoOpenFiles: true,
 		browserCookies: 'conversation',
+		agentBrowser: 'pane',
 		openLinksInBrowser: true,
 		lastSettingsSection: 'general',
 	})

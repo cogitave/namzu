@@ -10,6 +10,9 @@
         "permission",
         "namzu/tasks"
       ],
+      "optionalCapabilities": [
+        "namzu/browser-pane"
+      ],
       "clientInfoName": "namzu-desktop"
     },
     "answerFieldsRead": [
@@ -170,6 +173,10 @@
       "namzu/pals/computer/return_control",
       "namzu/pals/computer/input"
     ],
+    "agentBrowserPane": [
+      "namzu/browser/pane/event",
+      "namzu/browser/pane/state"
+    ],
     "limits": [
       "namzu/limits/refresh"
     ],
@@ -274,6 +281,18 @@
       {
         "name": "session/request_permission",
         "from": "sdk ACP_CLIENT_REQUESTS.REQUEST_PERMISSION"
+      },
+      {
+        "name": "namzu/browser/pane/open",
+        "from": "cli BROWSER_PANE_METHODS.open"
+      },
+      {
+        "name": "namzu/browser/pane/cdp",
+        "from": "cli BROWSER_PANE_METHODS.cdp"
+      },
+      {
+        "name": "namzu/browser/pane/close",
+        "from": "cli BROWSER_PANE_METHODS.close"
       }
     ]
   },

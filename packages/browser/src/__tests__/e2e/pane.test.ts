@@ -66,6 +66,58 @@ describe.skipIf(!E2E)('PlaywrightBrowserHost on a pane channel', { timeout: 60_0
 		}
 	})
 
+	it('prefers the pane, and opens its own browser with a note when the pane cannot be driven', async () => {
+		const down = {
+			id: 'pane',
+			open: async () => {
+				throw new Error('There is no Browser pane to open a tab in.')
+			},
+		}
+		const host = new PlaywrightBrowserHost({
+			preferredProvider: down,
+			engine: 'local',
+			headless: 'always',
+			sites: { [server.allowed]: 'act', '*': 'ask' },
+		})
+		try {
+			expect(host.prefersPane).toBe(true)
+			expect(host.where).toBe('unknown')
+			const opened = await host.observe({
+				action: 'navigate',
+				url: `${server.allowed}/index.html`,
+			})
+			expect(opened.page?.title).toBe('Fixture index')
+			expect(opened.message).toContain('The Browser pane could not be used')
+			expect(opened.message).toContain('There is no Browser pane to open a tab in.')
+			expect(host.where).toBe('own')
+		} finally {
+			await host.dispose()
+		}
+	})
+
+	it('reports the pane as where it runs when the preferred provider connects', async () => {
+		const pane = await startChromiumPane({ initialTabs: 1 })
+		const host = new PlaywrightBrowserHost({
+			preferredProvider: createPaneProvider(pane),
+			sites: { [server.allowed]: 'act', '*': 'ask' },
+		})
+		try {
+			await host.observe({
+				action: 'navigate',
+				url: `${server.allowed}/index.html`,
+			})
+			expect(host.where).toBe('pane')
+			const login = await host.observe({
+				action: 'navigate',
+				url: `${server.allowed}/login.html`,
+			})
+			expect(login.message).not.toContain('namzu browser login')
+		} finally {
+			await host.dispose()
+			await pane.shutdown()
+		}
+	})
+
 	it('does not name a terminal login command for a pane tab', async () => {
 		const pane = await startChromiumPane({ initialTabs: 1 })
 		const host = new PlaywrightBrowserHost({

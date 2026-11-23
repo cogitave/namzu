@@ -4220,15 +4220,19 @@ export async function createAgentSession(
 	let browserError: Error | undefined
 	if (options.browser && browserPackage?.state === 'present') {
 		try {
-			const { PlaywrightBrowserHost } = await import('@namzu/browser')
+			const { PlaywrightBrowserHost, createPaneProvider } = await import('@namzu/browser')
 			// Asking the person to sign in names `ask_user_question`, so it is only said while
 			// that tool is mounted (decided further down, once the delegation gateway is up).
-			const control = createBrowserControl(PlaywrightBrowserHost, {
-				...options.browser,
-				...(options.browser.askPersonToSignIn
-					? { askPersonToSignIn: () => questionToolMounted }
-					: {}),
-			})
+			const control = createBrowserControl(
+				PlaywrightBrowserHost,
+				{
+					...options.browser,
+					...(options.browser.askPersonToSignIn
+						? { askPersonToSignIn: () => questionToolMounted }
+						: {}),
+				},
+				(channel) => createPaneProvider(channel),
+			)
 			browserControl = control
 			// With no usable engine every browser call is refused, so the two
 			// schemas (about 940 tokens) are not sent. The host's capabilities

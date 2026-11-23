@@ -210,6 +210,7 @@ export function signInNotice(
 	options: BrowserHumanClassifierOptions = {},
 	loginCommand?: string,
 	askPerson = false,
+	place = 'the browser window',
 ): string | undefined {
 	if (options.signInDetection === 'address') return undefined
 	if (signals.passwordFields === 0 && signals.oneTimeCodeFields === 0) return undefined
@@ -217,7 +218,7 @@ export function signInNotice(
 	if (askPerson)
 		// A person is here and the browser has a window they can use: ask them in the conversation
 		// instead of naming a terminal command.
-		return 'This page asks for a password or a code. You cannot type one: credentials and codes the user must supply are only ever entered by the user, in the browser window, because a model that holds one can be steered into leaking it. The user is here. Use ask_user_question to ask them to sign in in the browser window and to answer when they are done (offer "I signed in" and "Skip this step"), then open the page again and read it before you carry on. Do not tell them to run a command.'
+		return `This page asks for a password or a code. You cannot type one: credentials and codes the user must supply are only ever entered by the user, in ${place}, because a model that holds one can be steered into leaking it. The user is here. Use ask_user_question to ask them to sign in in ${place} and to answer when they are done (offer "I signed in" and "Skip this step"), then open the page again and read it before you carry on. Do not tell them to run a command.`
 	const how = loginCommand ? ` The user can sign in with: ${loginCommand}` : ''
 	return `This page asks for a password or a code. You cannot type one: credentials and codes the user must supply are only ever entered by the user, in the browser window, because a model that holds one can be steered into leaking it. Do the steps that do not need the sign-in, then tell the user what was left undone and why.${how}`
 }

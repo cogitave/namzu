@@ -835,6 +835,25 @@ describe('the relay', () => {
 		expect(pane.events.at(-1)).toMatchObject({ kind: 'tab-closed', conversationId: 'b' })
 	})
 
+	it('lets go of one conversation’s tabs when its engine goes, and leaves the others driven', async () => {
+		const pane = setup()
+		const a = await pane.relay.open({ conversationId: 'a' })
+		const b = await pane.relay.open({ conversationId: 'b' })
+		pane.relay.releaseConversation('a', 'engine-restarted', false)
+		expect((pane.pages[0] as FakePage).dbg.attached).toBe(false)
+		expect((pane.pages[1] as FakePage).dbg.attached).toBe(true)
+		// The tab stays for the next open to reuse; the other conversation is untouched.
+		expect(pane.host.agentTabs('a')).toHaveLength(1)
+		expect((await pane.relay.open({ conversationId: 'a' })).tabId).toBe(a.tabId)
+		await pane.relay.cdp({
+			conversationId: 'b',
+			tabId: b.tabId,
+			method: 'Runtime.enable',
+		})
+		pane.relay.releaseConversation('a', 'engine-restarted', true)
+		expect(pane.host.agentTabs('a')).toHaveLength(0)
+	})
+
 	it('gives up on a call the page never answers', async () => {
 		vi.useFakeTimers()
 		try {

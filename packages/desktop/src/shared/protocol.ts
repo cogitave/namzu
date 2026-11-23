@@ -684,7 +684,8 @@ export interface DesktopTurnHandoff {
 	profile?: string
 	/** What opens a window to do it when the browser has none. */
 	loginCommand?: string
-	window?: 'visible' | 'none'
+	/** `pane`: the agent's browser is a tab of the Browser pane, where the person signs in. */
+	window?: 'visible' | 'none' | 'pane'
 }
 export interface DesktopRetryStatus {
 	retry?: DesktopTurnRetry

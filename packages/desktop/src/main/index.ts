@@ -64,6 +64,7 @@ import {
 	parseWorkspaceLayout,
 	workspaceGroups,
 } from '../shared/workspace-layout.js'
+import { hasDisplay, offersAgentPane } from './agent-pane-acp.js'
 import { AgentPaneRelay } from './agent-pane-relay.js'
 import { shrinkImage } from './agent-pane-shrink.js'
 import { OVERLAY_SIZE, overlayBitmap } from './attention-overlay.js'
@@ -145,6 +146,7 @@ import {
 } from './quick-entry-page.js'
 import { recoveryCardPage, recoveryCardUrl } from './recovery-card.js'
 import { selectRendererPage } from './renderer-page.js'
+import { DESKTOP_BROWSER_PANE_CAPABILITY } from './required-extensions.js'
 import { restoreProjects } from './restore-projects.js'
 import type { RuntimeCommand } from './rpc-client.js'
 import { RunningReplyGuard } from './running-reply-guard.js'
@@ -544,6 +546,15 @@ const command: RuntimeCommand = {
 	// change is asked of the app by notification.
 	extraEnv: { NAMZU_DESKTOP_SETTINGS_FILE: join(app.getPath('userData'), 'desktop-settings.json') },
 	clientVersion: app.getVersion(),
+	// Told to each engine as it starts: it may ask for a tab of the Browser pane to work in.
+	capabilities: () =>
+		offersAgentPane({
+			setting: settingsStore.get().agentBrowser,
+			windows: browserPanes.size,
+			display: hasDisplay(process.platform, process.env),
+		})
+			? [DESKTOP_BROWSER_PANE_CAPABILITY]
+			: [],
 	...(engineDelivery ? { launcher: engineDelivery.launcher() } : {}),
 }
 const palComputerSettings = palComputerSetupSettings(
@@ -830,6 +841,11 @@ const operator = new Operator(
 		},
 		needsMainWindow: () => {
 			bringBack.needed()
+		},
+		// The agent's browser work in the Browser pane, when the setting leaves it there.
+		agentPane: {
+			relay: agentPaneRelay,
+			allowed: () => settingsStore.get().agentBrowser === 'pane',
 		},
 	},
 )

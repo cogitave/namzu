@@ -150,6 +150,13 @@ import { TITLE_NOTIFICATION, readTitleNotice } from '../shared/title-protocol.js
 import { readUndoPreview, readUndoResult, readUndoStatus } from '../shared/undo-protocol.js'
 import type { UpdateBlocker } from '../shared/update-protocol.js'
 import { USAGE_NOTIFICATION, readUsageNotice } from '../shared/usage-protocol.js'
+import {
+	type AgentPaneRelayLike,
+	isAgentPaneRequest,
+	paneNotification,
+	serveAgentPane,
+} from './agent-pane-acp.js'
+import type { RelayEvent } from './agent-pane-relay.js'
 import { AttachmentPreviewBudget } from './attachment-preview-budget.js'
 import {
 	type AdmittedAttachment,
@@ -494,7 +501,10 @@ function validHandoff(value: unknown): value is DesktopTurnHandoff {
 				item[key] === undefined ||
 				(typeof item[key] === 'string' && (item[key] as string).length <= 600),
 		) &&
-		(item.window === undefined || item.window === 'visible' || item.window === 'none')
+		(item.window === undefined ||
+			item.window === 'visible' ||
+			item.window === 'none' ||
+			item.window === 'pane')
 	)
 }
 
@@ -564,6 +574,8 @@ export class Operator {
 	private chatStarting?: Promise<ProjectView>
 	/** Retain shutdown authority even when a disconnected client leaves its UI slot. */
 	private readonly ownedClients = new Set<RuntimeClient>()
+	/** Stops forwarding the Browser pane's events to the engines. */
+	private readonly stopPaneEvents?: () => void
 	private readonly palRecords = new Map<string, PalView>()
 	private readonly computerAuthorityEpochs = new Map<string, number>()
 	private readonly operatorComputers = new Map<string, string>()
@@ -678,6 +690,11 @@ export class Operator {
 			 */
 			needsMainWindow?: (reason: 'approval' | 'question', sessionId: string) => void
 			/**
+			 * The agent's browser in the Browser pane: the relay that owns the tabs, and whether the
+			 * setting still leaves the agent's browser work to it (read at every request).
+			 */
+			agentPane?: { relay: AgentPaneRelayLike; allowed: () => boolean }
+			/**
 			 * What the system notifications need to know. Facts only (a conversation id, how a turn
 			 * ended); never a message, a file or a command.
 			 */
@@ -696,6 +713,7 @@ export class Operator {
 			diagnostics,
 		)
 		streamProxy?.onClosed((id) => this.closePalComputerStream(id))
+		this.stopPaneEvents = options.agentPane?.relay.onEvent((event) => this.sayPaneEvent(event))
 		if (registryDirectory) {
 			this.modelLists = new ModelListStore(registryDirectory, {
 				onError: (error) => diagnostics?.record('ipc_failed', { operation: 'models', error }),
@@ -894,9 +912,61 @@ export class Operator {
 			.filter((item) => projects.has(item.id))
 			.map((item) => item.path)
 	}
+	/**
+	 * An engine's connection ended (a restart, a drop, or the app closing it): the debuggers on the
+	 * agent's tabs in the Browser pane are taken off. The tabs stay, so the page the person was
+	 * looking at is there when the next engine asks for its tab.
+	 */
+	private releasePanes(client: RuntimeClient, reason: string): void {
+		const relay = this.options.agentPane?.relay
+		if (!relay) return
+		for (const session of this.conversations.values())
+			if (session.client === client) relay.releaseConversation(session.view.id, reason, false)
+	}
+	/** A conversation is gone for good: its tabs in the Browser pane close. */
+	private endPanes(ids: Iterable<string>): void {
+		const relay = this.options.agentPane?.relay
+		if (relay) for (const id of ids) relay.conversationEnded(id)
+	}
+	/** One relay event, said to the engine of the conversation that owns it. */
+	private sayPaneEvent(event: RelayEvent): void {
+		const session = this.conversations.get(event.conversationId)
+		if (!session?.runtimeSessionId || !session.client.supportsAgentBrowserPane()) return
+		const said = paneNotification(event, session.runtimeSessionId)
+		if (said) session.client.notify(said.method, said.params)
+	}
+	/** A request of the engine for its conversation's tab in the Browser pane, answered on its own connection. */
+	private servePane(project: Project, frame: Record<string, unknown>): void {
+		const id = frame.id
+		if (typeof id !== 'string' && typeof id !== 'number') return
+		const agentPane = this.options.agentPane
+		const sessionId = (frame.params as { sessionId?: unknown } | undefined)?.sessionId
+		const session =
+			typeof sessionId === 'string' ? this.runtimeSession(project, sessionId) : undefined
+		if (!agentPane || !session || session.view.palId) {
+			project.client.answerError(
+				id,
+				-32000,
+				'There is no Browser pane for this conversation.',
+				'unavailable',
+			)
+			return
+		}
+		void serveAgentPane(
+			agentPane.relay,
+			session.view.id,
+			String(frame.method),
+			frame.params,
+			agentPane.allowed,
+		).then((answer) => {
+			if (answer.ok) project.client.answer(id, answer.result)
+			else project.client.answerError(id, answer.code, answer.message, answer.reason)
+		})
+	}
 	private async closeClient(client: RuntimeClient): Promise<void> {
 		for (const [id, viewer] of this.computerViewers)
 			if (viewer.client === client) this.closePalComputerStream(id)
+		this.releasePanes(client, 'engine-closed')
 		await client.close()
 		this.ownedClients.delete(client)
 	}
@@ -1641,6 +1711,7 @@ export class Operator {
 			for (const sessionId of scope.sessionIds) this.backgroundWork.invalidate(sessionId)
 			for (const projectId of scope.projectIds) this.projects.delete(projectId)
 			for (const projectId of scope.projectIds) this.undoRetries.drop(projectId)
+			this.endPanes(scope.sessionIds)
 			for (const sessionId of scope.sessionIds) {
 				this.conversations.delete(sessionId)
 				this.attachmentPreviews.forget(sessionId)
@@ -2357,6 +2428,7 @@ export class Operator {
 		for (const [attachmentId, file] of this.attachmentFiles)
 			if (retiredOwners.has(file.ownerId)) this.attachmentFiles.delete(attachmentId)
 		this.undoRetries.drop(projectId)
+		this.endPanes(sessionIds)
 		for (const id of sessionIds) {
 			this.conversations.delete(id)
 			this.attachmentPreviews.forget(id)
@@ -2584,6 +2656,7 @@ export class Operator {
 			if (!this.closing && this.projects.get(view.id) === project) this.onFrame(project, frame)
 		})
 		client.on('closed', (error: Error) => {
+			this.releasePanes(client, 'engine-closed')
 			if (this.closing || this.projects.get(view.id) !== project) return
 			this.backgroundWork.invalidateProject(view.id)
 			// A connection that was working and dropped is not an unopenable folder: the
@@ -2975,6 +3048,7 @@ export class Operator {
 			if (archived) this.archivedOwners.set(sessionId, view.projectId)
 			this.pendingConversationRemovals.delete(sessionId)
 			this.backgroundWork.invalidate(sessionId)
+			this.endPanes([sessionId])
 			this.conversations.delete(sessionId)
 			this.undoRetries.forget(view.projectId, sessionId)
 			this.attentionChanged()
@@ -3148,6 +3222,7 @@ export class Operator {
 				if (item.view.projectId === projectId) sessionIds.add(item.view.id)
 			const retiredOwners = new Set(sessionIds)
 			if (this.unreadConversations.forget(sessionIds)) this.unreadChanged()
+			this.endPanes(sessionIds)
 			for (const id of sessionIds) {
 				this.conversations.delete(id)
 				this.attachmentPreviews.forget(id)
@@ -7080,6 +7155,8 @@ export class Operator {
 				)
 					this.trackBackgroundWork(session.view.id)
 			}
+		} else if (isAgentPaneRequest(frame.method)) {
+			this.servePane(project, frame)
 		} else if (
 			frame.method === 'session/request_permission' &&
 			(typeof frame.id === 'string' || typeof frame.id === 'number')
@@ -7210,6 +7287,7 @@ export class Operator {
 	}
 	async close(): Promise<void> {
 		this.closing = true
+		this.stopPaneEvents?.()
 		// Closing ends these replies; the next launch says so instead of a bare "Stopped.".
 		for (const item of this.conversations.values())
 			if (item.running && !item.view.palId) item.view.closedWhileRunning = true
