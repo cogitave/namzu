@@ -19,11 +19,14 @@ export function ComposerHandoff({
 	handoff,
 	onContinue,
 	onStop,
+	onShowTab,
 	disabled = false,
 }: {
 	handoff: DesktopTurnHandoff
 	onContinue: () => unknown
 	onStop: () => unknown
+	/** Reveals and focuses the tab the page is in; given when the page is a tab of the Browser pane. */
+	onShowTab?: () => void
 	disabled?: boolean
 }) {
 	const card = describeHandoff(handoff)
@@ -78,6 +81,18 @@ export function ComposerHandoff({
 				)}
 				<footer className="approval-footer">
 					<div className="approval-actions">
+						{onShowTab && (
+							<button
+								type="button"
+								className="approval-button"
+								data-action="show-tab"
+								aria-describedby={textId}
+								title="Show the tab in the Browser pane"
+								onClick={onShowTab}
+							>
+								Show the tab
+							</button>
+						)}
 						<button
 							type="button"
 							className="approval-button"

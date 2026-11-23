@@ -31,3 +31,15 @@ describe('readBrowserRequest', () => {
 			expect(() => readBrowserRequest(bad)).toThrow()
 	})
 })
+
+it('reads the person’s take-over and hand-back of an agent tab', () => {
+	expect(readBrowserRequest({ kind: 'takeover', tabId: 'a' })).toEqual({
+		kind: 'takeover',
+		tabId: 'a',
+	})
+	expect(readBrowserRequest({ kind: 'handback', tabId: 'a' })).toEqual({
+		kind: 'handback',
+		tabId: 'a',
+	})
+	expect(() => readBrowserRequest({ kind: 'takeover' })).toThrow()
+})

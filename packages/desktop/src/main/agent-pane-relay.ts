@@ -655,6 +655,7 @@ export class AgentPaneRelay {
 		timeoutMs: number,
 	): Promise<unknown> {
 		record.inFlight++
+		record.host.setWorking(record.conversationId, record.tab.id, true)
 		let timer: ReturnType<typeof setTimeout> | undefined
 		try {
 			const call = record.dbg.sendCommand(method, params ?? {}, sessionId)
@@ -672,6 +673,7 @@ export class AgentPaneRelay {
 		} finally {
 			if (timer) clearTimeout(timer)
 			record.inFlight--
+			if (record.inFlight === 0) record.host.setWorking(record.conversationId, record.tab.id, false)
 		}
 	}
 

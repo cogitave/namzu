@@ -143,6 +143,7 @@ import {
 	lostConnectionText,
 	providerName,
 } from './friendly-errors.js'
+import { pickAgentTab } from './handoff-card-model.js'
 import { type EngineSurface, type EngineSurfaceControl, engineLabel } from './harness-picker.js'
 import {
 	ArchiveIcon,
@@ -1313,7 +1314,38 @@ export function App({
 	const browserActRef = useRef(browserPane?.act)
 	browserActRef.current = browserPane?.act
 	const browserTabCountRef = useRef(browserPane?.state?.tabs.length)
-	browserTabCountRef.current = browserPane?.state?.tabs.length
+	// The person's own tabs are the ones the cap counts; the agent's have a cap of their own.
+	browserTabCountRef.current = browserPane?.state?.tabs.filter(
+		(tab) => tab.owner !== 'agent',
+	).length
+	// The first time Namzu opens a tab of its own in a conversation, the Browser pane shows (as the Files
+	// pane does for a page a turn wrote). It is only laid out: nothing takes focus from the composer.
+	const agentTabsSeen = useRef(new Map<string, Set<string>>())
+	const agentTabsRevealed = useRef(new Set<string>())
+	const browserState = browserPane?.state
+	const paneTurnRunning = thread.running
+	// biome-ignore lint/correctness/useExhaustiveDependencies: the pane's state decides; a turn starting is read, not a trigger.
+	useEffect(() => {
+		if (!browserState || browserState.sessionId !== sessionId) return
+		const ids = browserState.tabs.filter((tab) => tab.owner === 'agent').map((tab) => tab.id)
+		const known = agentTabsSeen.current.get(sessionId)
+		// A conversation opened again with agent tabs already there is not news, unless a turn is running.
+		const fresh = known ? ids.filter((id) => !known.has(id)) : paneTurnRunning ? ids : []
+		agentTabsSeen.current.set(sessionId, new Set([...(known ?? []), ...ids]))
+		if (fresh.length === 0) return
+		if (agentTabsRevealed.current.has(sessionId)) return
+		agentTabsRevealed.current.add(sessionId)
+		openPaneRef.current('browser')
+	}, [browserState, sessionId])
+	// Shows the tab Namzu is using, for a card that asks the person to do something in it.
+	const showAgentTab = useCallback((tabId?: string) => {
+		const tab = browserActRef.current && pickAgentTab(browserStateRef.current?.tabs ?? [], tabId)
+		if (!tab) return
+		browserActRef.current?.({ kind: 'select', tabId: tab.id })
+		openPaneRef.current('browser')
+	}, [])
+	const browserStateRef = useRef(browserState)
+	browserStateRef.current = browserState
 	// Off, what a turn writes is remembered as seen but never opened by itself.
 	const autoOpenRef = useRef(true)
 	autoOpenRef.current = desktopSettings.settings?.autoOpenFiles ?? true
@@ -8309,6 +8341,11 @@ export function App({
 									return delivered
 								}}
 								handoff={thread.handoff}
+								onShowHandoffTab={
+									thread.handoff?.window === 'pane'
+										? () => showAgentTab(thread.handoff?.tabId)
+										: undefined
+								}
 								onContinueHandoff={
 									api.retryTurn && thread.handoff
 										? async () => {
