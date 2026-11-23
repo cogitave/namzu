@@ -8342,7 +8342,14 @@ export function App({
 								}}
 								handoff={thread.handoff}
 								onShowHandoffTab={
-									thread.handoff?.window === 'pane'
+									// Nothing to show while the pane already has Namzu's tab in front of the person.
+									thread.handoff?.window === 'pane' &&
+									!(
+										paneOpen.browser &&
+										browserState?.active !== undefined &&
+										browserState.active ===
+											pickAgentTab(browserState.tabs, thread.handoff?.tabId)?.id
+									)
 										? () => showAgentTab(thread.handoff?.tabId)
 										: undefined
 								}

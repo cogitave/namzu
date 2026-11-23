@@ -8,7 +8,7 @@
 // Needs the browser engine the agent drives: set PLAYWRIGHT_BROWSERS_PATH to a folder that holds it.
 // Pictures go to $NAMZU_E2E_SHOTS when set.
 import assert from "node:assert/strict";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -45,6 +45,8 @@ function flow(name, options, body) {
 				: {},
 			...options(site),
 		});
+		// These flows are about the agent's own browser window; the pane is the default, so they ask for the window.
+		writeFileSync(join(world.userData, "desktop-settings.json"), JSON.stringify({ version: 1, agentBrowser: "window" }));
 		let failed = true;
 		try {
 			await launch(world);
