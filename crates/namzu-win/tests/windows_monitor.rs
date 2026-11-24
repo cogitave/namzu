@@ -254,7 +254,7 @@ fn the_monitor_sees_input_without_its_content_and_the_overlay_is_plain_to_captur
     // Characters typed as Unicode units are system packets that raw input does
     // not report as keyboard events; a key press with a virtual key is.
     h.call(Request::Input(InputRequest::Key {
-        keys: "shift".into(),
+        keys: "f13".into(),
     }))
     .expect("key");
     let keys = poll_until(&mut h, Some(base), |p| {
