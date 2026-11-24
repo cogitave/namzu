@@ -1043,7 +1043,8 @@ describe('one machine asks once, however many terminals it has', () => {
 		const waiting = await ask(first, world)
 		const asked = (await leader.until((e) => e.type === 'join-request')) as Requested
 		await first.svc.close()
-		// The machine lost its record of the ask: a new nonce, so a new code.
+		const firstNonce = JSON.parse(readFileSync(attemptFile(first.home), 'utf8')).nonce as string
+		// The machine lost its record of the ask: a new nonce, so a different ask.
 		unlinkSync(attemptFile(first.home))
 		// The member's one-a-minute limit applies to a different ask too.
 		world.clock.advance(JOIN_ADDRESS_WINDOW_MS - 5000)
@@ -1052,8 +1053,13 @@ describe('one machine asks once, however many terminals it has', () => {
 		)
 		const again = await ask(terminal(), world)
 		await settled
-		expect(again.code).not.toBe(waiting.code)
+		// The ask is told apart by its nonce and its request, not by the six-digit code: two different
+		// asks can land on the same code once in a million, and the test must not depend on luck.
+		const secondNonce = JSON.parse(readFileSync(attemptFile(first.home), 'utf8')).nonce as string
+		expect(secondNonce).not.toBe(firstNonce)
+		expect(waiting.code).toMatch(/^\d{6}$/)
 		expect(leader.svc.pendingJoins()).toHaveLength(1)
+		expect(leader.svc.pendingJoins()[0]?.requestId).not.toBe(asked.request.requestId)
 		expect(leader.svc.pendingJoins()[0]?.code).toBe(again.code)
 	})
 
