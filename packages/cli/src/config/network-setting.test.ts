@@ -81,3 +81,17 @@ describe('network settings', () => {
 		expect(findSetting('network.autoAdmit')?.default).toBe('trusted-networks')
 	})
 })
+
+describe('network.sameComputer', () => {
+	it('reads true and false, also as the text the Settings screen saves, and rejects the rest', () => {
+		expect(load('network:\n  sameComputer: false\n').network).toEqual({ sameComputer: false })
+		expect(load('network:\n  sameComputer: "true"\n').network).toEqual({ sameComputer: true })
+		expect(() => load('network:\n  sameComputer: sometimes\n')).toThrow(/sameComputer/u)
+	})
+
+	it('is your own setting, on by default, with a row in Settings', () => {
+		const config = load('network:\n  sameComputer: false\n', 'network:\n  sameComputer: true\n')
+		expect(config.network).toEqual({ sameComputer: false })
+		expect(findSetting('network.sameComputer')?.default).toBe(true)
+	})
+})

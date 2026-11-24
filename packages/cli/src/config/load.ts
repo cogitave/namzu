@@ -1068,11 +1068,17 @@ const CONFIG_READERS: ConfigReaders = {
 		if (!isConfigMapping(v)) return invalidConfigValue(context, [], 'must be a mapping')
 		const raw = v as Record<string, unknown>
 		for (const key of Object.keys(raw)) {
-			if (key !== 'enabled' && key !== 'acceptMail' && key !== 'machineName' && key !== 'autoAdmit')
+			if (
+				key !== 'enabled' &&
+				key !== 'acceptMail' &&
+				key !== 'machineName' &&
+				key !== 'autoAdmit' &&
+				key !== 'sameComputer'
+			)
 				return invalidConfigValue(
 					context,
 					[key],
-					'is not a network setting (enabled, acceptMail, machineName, autoAdmit)',
+					'is not a network setting (enabled, acceptMail, machineName, autoAdmit, sameComputer)',
 				)
 		}
 		// The Settings screen saves its choice as text, so "true" and "false" read as the booleans.
@@ -1098,6 +1104,10 @@ const CONFIG_READERS: ConfigReaders = {
 				['autoAdmit'],
 				'must be "trusted-networks", "always" or "never"',
 			)
+		if (raw.sameComputer === 'true') raw.sameComputer = true
+		else if (raw.sameComputer === 'false') raw.sameComputer = false
+		if (raw.sameComputer !== undefined && typeof raw.sameComputer !== 'boolean')
+			return invalidConfigValue(context, ['sameComputer'], 'must be true or false')
 		if (
 			raw.machineName !== undefined &&
 			(typeof raw.machineName !== 'string' ||
@@ -1114,6 +1124,7 @@ const CONFIG_READERS: ConfigReaders = {
 			...(raw.autoAdmit !== undefined
 				? { autoAdmit: raw.autoAdmit as 'trusted-networks' | 'always' | 'never' }
 				: {}),
+			...(raw.sameComputer !== undefined ? { sameComputer: raw.sameComputer as boolean } : {}),
 		}
 	},
 	teams: (v, context) => {

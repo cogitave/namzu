@@ -4,6 +4,7 @@
  * ```
  * machine.json  machine.key.pem  machine.cert.pem  network.json
  * members.json  peers.json  session-roles.json  trusted-networks.json  join-attempt.json
+ * same-computer.json
  * leader.lock  audit.jsonl
  * ```
  *
@@ -73,7 +74,12 @@ export const PeersFileSchema = z
 		v: z.literal(1),
 		machines: z.record(
 			z.string(),
-			z.object({ name: z.string().max(80), addresses: z.array(AddressSchema).max(4) }).strict(),
+			z
+				.object({
+					name: z.string().max(80),
+					addresses: z.array(AddressSchema).max(4),
+				})
+				.strict(),
 		),
 	})
 	.strict()
@@ -136,6 +142,17 @@ export const JoinAttemptFileSchema = z
 	.strict()
 export type JoinAttemptFile = z.infer<typeof JoinAttemptFileSchema>
 
+/** Machines of this person's own computer that joined (or admitted this one) by proof; the roster marks them while the secret still reads. */
+export const SameComputerFileSchema = z
+	.object({
+		v: z.literal(1),
+		/** Fingerprint of the secret the marks were earned with; marks of another secret are not shown. */
+		fp: z.string().length(16).optional(),
+		machines: z.array(z.string().length(64)).max(64),
+	})
+	.strict()
+export type SameComputerFile = z.infer<typeof SameComputerFileSchema>
+
 export const LeaderLockSchema = z
 	.object({
 		pid: z.number().int().positive(),
@@ -182,6 +199,8 @@ export interface NetworkStore {
 	readJoinAttempt(): Promise<ReadResult<JoinAttemptFile>>
 	writeJoinAttempt(value: JoinAttemptFile): Promise<void>
 	clearJoinAttempt(): Promise<void>
+	readSameComputer(): Promise<ReadResult<SameComputerFile>>
+	writeSameComputer(value: SameComputerFile): Promise<void>
 	/** Forget the network and the identity (a removed machine starts over). The audit log stays. */
 	reset(): Promise<void>
 }
@@ -227,7 +246,9 @@ export function createNetworkStore(options: NetworkStoreOptions): NetworkStore {
 
 	async function writeJson(name: string, value: unknown): Promise<void> {
 		ensure()
-		await atomicWriteFile(file(name), `${JSON.stringify(value, null, 2)}\n`, { mode: FILE_MODE })
+		await atomicWriteFile(file(name), `${JSON.stringify(value, null, 2)}\n`, {
+			mode: FILE_MODE,
+		})
 	}
 
 	return {
@@ -249,7 +270,9 @@ export function createNetworkStore(options: NetworkStoreOptions): NetworkStore {
 		},
 		async writeKey(key) {
 			ensure()
-			await atomicWriteFile(file('machine.key.pem'), exportMachineKeyPem(key), { mode: FILE_MODE })
+			await atomicWriteFile(file('machine.key.pem'), exportMachineKeyPem(key), {
+				mode: FILE_MODE,
+			})
 		},
 		readCertificate: () => readText(file('machine.cert.pem')),
 		async writeCertificate(pem) {
@@ -270,6 +293,8 @@ export function createNetworkStore(options: NetworkStoreOptions): NetworkStore {
 		readJoinAttempt: () => readJson('join-attempt.json', JoinAttemptFileSchema),
 		writeJoinAttempt: (v) => writeJson('join-attempt.json', JoinAttemptFileSchema.parse(v)),
 		clearJoinAttempt: () => rm(file('join-attempt.json'), { force: true }),
+		readSameComputer: () => readJson('same-computer.json', SameComputerFileSchema),
+		writeSameComputer: (v) => writeJson('same-computer.json', SameComputerFileSchema.parse(v)),
 		async reset() {
 			for (const name of [
 				'machine.json',
@@ -280,6 +305,7 @@ export function createNetworkStore(options: NetworkStoreOptions): NetworkStore {
 				'peers.json',
 				'session-roles.json',
 				'join-attempt.json',
+				'same-computer.json',
 			]) {
 				await rm(file(name), { force: true })
 			}

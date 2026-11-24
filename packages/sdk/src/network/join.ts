@@ -86,13 +86,15 @@ export class JoinTable {
 	/** A request that arrived on this machine. Refused when the address asked too recently or the table is full. */
 	addLocal(
 		input: Omit<PendingJoin, 'local' | 'expiresAt' | 'createdAt'>,
+		/** A joiner that proved it holds this computer's secret does not meet the per-address limit. */
+		exemptFromRate = false,
 	): { ok: true; entry: PendingJoin } | { ok: false; reason: 'rate' | 'full' } {
 		const now = this.options.clock.now()
 		const last = this.lastByAddress.get(input.sourceAddr)
-		if (last !== undefined && now - last < JOIN_ADDRESS_WINDOW_MS)
+		if (!exemptFromRate && last !== undefined && now - last < JOIN_ADDRESS_WINDOW_MS)
 			return { ok: false, reason: 'rate' }
 		if (this.localCount() >= MAX_PENDING_JOINS) return { ok: false, reason: 'full' }
-		this.lastByAddress.set(input.sourceAddr, now)
+		if (!exemptFromRate) this.lastByAddress.set(input.sourceAddr, now)
 		return {
 			ok: true,
 			entry: this.insert({

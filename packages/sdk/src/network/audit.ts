@@ -36,6 +36,8 @@ export const AUDIT_EVENTS = [
 	'network_off',
 	'machine_renamed',
 	'connection_refused',
+	'same_computer_unavailable',
+	'same_computer_mismatch',
 ] as const
 export type AuditEventName = (typeof AUDIT_EVENTS)[number]
 
