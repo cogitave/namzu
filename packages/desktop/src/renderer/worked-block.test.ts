@@ -185,3 +185,30 @@ describe('a settled worked turn', () => {
 		expect(turnInputsUnchanged(pick(before, 2), pick(after, 2))).toBe(false)
 	})
 })
+
+describe('a saved skill among folded work', () => {
+	it('stays outside the folded work, so its card and link are seen', () => {
+		let thread = command(begin(), 'a', 2000)
+		const view = {
+			kind: 'terminal' as const,
+			output: 'Saved skill "release-notes" to ~/.namzu/skills/release-notes/SKILL.md. Done.',
+		}
+		thread = update(thread, {
+			kind: 'tool_call',
+			toolCallId: 'save',
+			title: 'save_skill',
+			status: 'completed',
+			view,
+		})
+		thread = command(thread, 'b', 3000)
+		thread = answer(thread, 'Saved.', 4000)
+		const turn = transcriptTurns(thread)[0]
+		const savedId = turn?.answer.find((entry) => entry.kind === 'tool')
+		expect(savedId).toBeDefined()
+		expect(
+			turn?.activity.some(
+				(entry) => entry.kind === 'tool' && entry.id === (savedId as { id: string }).id,
+			),
+		).toBe(false)
+	})
+})

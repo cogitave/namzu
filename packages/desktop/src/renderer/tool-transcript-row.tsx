@@ -13,6 +13,8 @@ import {
 } from './icons.js'
 import { MessageTime, timeDescription } from './message.js'
 import { ShellCell } from './shell-cell-view.js'
+import { savedSkillOfTool } from './skill-save-card-model.js'
+import { SkillSavedCard } from './skill-saved-card.js'
 import { ToolBodyView } from './tool-output-view.js'
 import { type ActionKind, toolTranscriptPresentation } from './tool-transcript-presentation.js'
 import { ToolView } from './tool-view.js'
@@ -100,6 +102,9 @@ export function ToolTranscriptRow({
 	const tool = thread.tools[id]
 	const presentation = toolTranscriptPresentation(thread, id)
 	if (!tool || !presentation) return null
+	// A skill that was saved reads as a card, not as one more action line.
+	const saved = savedSkillOfTool(tool)
+	if (saved) return <SkillSavedCard name={saved.name} path={saved.path} />
 	// What the model saw after this call, when the host sent it and it is among the newest few.
 	const frame = thread.computerFrames?.find((item) => item.toolCallId === tool.toolCallId)
 	const thumb = frame ? <ComputerFrameThumb frame={frame} /> : null

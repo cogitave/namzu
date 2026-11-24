@@ -1969,10 +1969,14 @@ const DECLARED: readonly SettingDescriptor[] = [
 	d(
 		'skills.disabled',
 		'agent',
-		'Turned-off skills',
-		'Skills Namzu will not use, by name. Desktop lists the installed skills with a switch each; a name here that no installed skill has stays listed, with Remove.',
+		'Skills',
+		'Your installed skills. Turn one off and Namzu will not use it. A turned-off name that is no longer installed stays listed, with Remove.',
 		{ kind: 'list', itemLabel: 'skill name', placeholder: 'skill-name', source: 'skills' },
-		{ group: 'learning-skills', keywords: ['disabled skills'], default: [] },
+		{
+			group: 'learning-skills',
+			keywords: ['disabled skills', 'turned-off skills', 'installed skills'],
+			default: [],
+		},
 	),
 	d(
 		'skills.suggest',
