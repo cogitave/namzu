@@ -10,8 +10,16 @@ name in `~/.agents/skills`, `~/.namzu/skills` or the project shadows it.
 - `browser-automation` — the procedure for the `browser` and `browser_act`
   tools; offered only when they exist.
 - `schedule-task` — proposing a scheduled job with the `schedule` tool.
-- `verify-change` — proving a change works by running it, then running the
-  project's own check plainly so the turn's record can read its status.
+- `run` — launching the project's app and using it to see a change work: the
+  project's own run skill first, else a pattern for the kind of project, a
+  probe beside the change, the project's check run plainly so the turn's
+  record can read its status, one verdict. It replaced `verify-change`.
+- `run-skill-generator` — operator only: writes the per-project `run-<unit>`
+  skill after the app has been run, through `save_skill` where it exists.
+- `simplify`, `commit`, `pr`, `update-config`, `fewer-permission-prompts`,
+  `batch`, `debug`, `security-review` — operator only (the person types the
+  command; the model never starts them on its own, and they cost no room in
+  the skill list).
 - `review-changes` — reviewing a change for defects, each finding with its
   failing case and checked before it is reported.
 - `document` — writing a document as one well-structured Markdown file in the

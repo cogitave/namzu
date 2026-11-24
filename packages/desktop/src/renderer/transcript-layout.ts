@@ -1,5 +1,6 @@
 import type { ThreadState, TimelineEntry } from '../shared/projection.js'
 import type { ChatMessage } from '../shared/protocol.js'
+import { savedSkillOfTool } from './skill-save-card-model.js'
 import { daySeparatorLabel } from './time-format.js'
 import type { ActionKind, ToolTranscriptState } from './tool-transcript-presentation.js'
 
@@ -295,7 +296,15 @@ export function transcriptTurns(thread: ThreadState): TranscriptTurn[] {
 				continue
 			}
 			if (entry.kind === 'tool') {
-				if (thread.tools[entry.id]) work.push(entry)
+				const tool = thread.tools[entry.id]
+				if (!tool) continue
+				// A saved skill is a card the person should see, so it stays out of the folded work.
+				if (savedSkillOfTool(tool)) {
+					if (work.length || user.length) append()
+					segments.push({ user: [], activity: [], answer: [entry] })
+					continue
+				}
+				work.push(entry)
 				continue
 			}
 			if (entry.kind === 'reasoning') {

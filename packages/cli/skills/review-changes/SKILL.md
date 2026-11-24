@@ -46,7 +46,7 @@ how many were refuted. Without the tool, do both passes yourself.
 ## Not for
 
 Simplifying or tidying code that works, and not a stand-in for running the
-change: use `verify-change` for that.
+change: use `run` for that.
 
 ## Example report
 

@@ -140,15 +140,24 @@ never affected.
 
 ## Built-in skills
 
-The CLI ships six, in `packages/cli/skills/`:
+The CLI ships fifteen, in `packages/cli/skills/`. Six are offered to the model; the other nine are commands the person types (`invocation: operator`), so the model never starts them and they cost no room in the skill list:
 
 | Skill | Offered to | Needs | What it covers |
 | --- | --- | --- | --- |
-| `skill-creator` | model and operator | — | Interviewing the operator (purpose, trigger phrases, steps, constraints, an example), drafting a `SKILL.md` with a description that says when to use it, and saving it only through `save_skill`. A second mode turns the work just done in the conversation into a skill: generalise the task, replace this run's specifics with placeholders, strip secrets and personal data, never copy tool or page output. Without `save_skill` (a headless run) it shows the draft and tells the operator to run `/skills new` in the TUI. |
+| `skill-creator` | model and operator | — | Interviewing the operator (purpose, trigger phrases, steps, constraints, an example), drafting a `SKILL.md` with a description that says when to use it, and saving it only through `save_skill`. A second mode turns the work just done in the conversation into a skill: generalise the task, replace this run's specifics with placeholders, strip secrets and personal data, never copy tool or page output. Without `save_skill` (a headless run) it shows the full draft and says plainly that saving is not available in this place; it never tells the person to open a terminal. A question about whether it can make skills is answered directly, without exploring the file system, and the draft may be tried on a sample request before it is saved. |
 | `browser-automation` | model only | `browser` | The procedure for the `browser` and `browser_act` tools: snapshot first, act by ref, copy `origin` from the snapshot header, verify with a snapshot, let a sign-in page or CAPTCHA pause the turn for the person and retry the step once it continues, never type credentials, never pick the profile, never route around a declined call, paginate, prefer read-only paths, report what changed. Hidden until the browser tools exist in the session. |
 | `schedule-task` | model and operator | `schedule` | Proposing a scheduled job with the `schedule` tool: choosing presets or rules, `unmatched` park or deny, budgets of one run, `when` and `tz`, a browser grant (`permissions.browser`, the profile signed in with `namzu browser login`, sites at `read`/`ask`/`act`), leaving the defaults unset, and wording a prompt for a run nobody watches. Offered in the TUI, where the `schedule` tool is. |
 | `document` | model and operator | — | Writing a document (a kickoff document, a report, a brief, a plan, notes) as one Markdown file: settle who reads it and what they do next (asking only when one answer would change the whole document), pick a specific title and a file name from it, put the file in the project (its `docs` or `documents` folder when it has one) or the conversation's work folder, and write it in one `write` call as a title, an italic date line, a short opening, `##` sections, lists, tables and task lists where they help. It reads the file back once to check headings, table rows and unmarked gaps, never invents a fact, figure or date (a gap is written as a bracketed open question), never replaces an existing file the person did not name, and ends its reply with one sentence that links the document by its title, then short lists of assumptions and open questions. Word, PDF, slides and spreadsheet files are not made yet: it says so and writes the Markdown file instead. In Desktop the file opens as a page beside the conversation ([Documents as pages](desktop.md#documents-as-pages)). |
-| `verify-change` | model and operator | — | Proving a change works by running the thing that changed: one sentence of what should now be true, how the project is really run, the smallest real exercise, a comparison, then the project's own check as a command of its own (no pipe, no second command, no background run) so the turn's record can see its exit status; one verdict (works, does not, could not be exercised) with the evidence. Never reports success from reading code, weakens a test, calls an unseen check passing, or does anything irreversible (push, install, delete, spend, touch a live service) without asking. Not for edits to documentation or comments. |
+| `run` | model and operator | — | Starting the project's app and using it to see a change working, and not the test suite: one sentence of what should now be true; the project's own run skill first, found by reading the descriptions of the skills in `.agents/skills` from the working folder up to the checkout root and in `<cwd>/.namzu/skills` (by description, not by name; a file the `skill` tool does not know is read directly), followed as written; otherwise a pattern for the kind of project (command line tool, server with a bounded readiness poll and a stop by the recorded pid (`ss` or `fuser` for a port, not `lsof` alone), terminal app through `tmux` or a `node-pty` plus `@xterm/headless` harness, desktop window under a virtual display or the project's own end-to-end harness, web app through the `browser` tool, library through a smoke program), with a scratch home and never the person's own data; drive it until something visible is on screen and look at it; a probe next to the change; the project's own check as a command of its own (no pipe, no second command, no background run) so the turn's record can see its exit status; one verdict (works, does not, could not be exercised) with the evidence, and a recommendation of `/run-skill-generator` only when the fallback needed installs, patches or a hand-written driver. Screenshots go to the person with `present_file`. Never edits project source or tests while running, reports a run it did not do, weakens a test, or does anything irreversible without asking. It replaced `verify-change` ([below](#the-retired-verify-change)). |
+| `run-skill-generator` | operator | — | Writing or refreshing the project skill `run-<unit>` that lets a later session build, start and drive one app. Done only when the app was launched and used on this machine, the driver is saved beside the skill, the `SKILL.md` names the driver as the agent's way first, and every code block in it was run that session. It looks for an existing run skill first and refines it, treats every claim in the README as disprovable, keeps a running `NOTES.md` for the Gotchas, writes the skill through `save_skill` (which saves under the session folder's `.namzu/skills`, so a monorepo unit needs a session started in the unit) or, for `<unit>/.agents/skills/run-<unit>/`, with the write tool after a yes, and checks it cold in a fresh shell. Only `.agents/skills` is read from folders above the working folder; `.namzu/skills` is read from the working folder alone. |
+| `simplify` | operator | — | Tidying the changed code and applying the fixes: reuse, needless parts, cost, level, words; behaviour unchanged, then the project's check as a command of its own. Not a bug hunt (`review-changes`). |
+| `commit` | operator | — | A commit in the repository's own style: reads status, diff and log and the instructions file, stages named paths only (never `git add -A`), ends with the `attribution` text when one is set; never pushes, amends or skips hooks. |
+| `pr` | operator | — | A pull request for the current branch with `gh`: refuses the default branch, reads the template and rules, writes the body from the real changes, pushes this branch only, and reports the address. |
+| `update-config` | operator | — | Changing settings, permissions and hooks in the right layer: `namzu config` for described settings, "whenever X, do Y" as a hook checked with `namzu hooks`, narrow allow rules, the exact change shown before it is made. |
+| `fewer-permission-prompts` | operator | — | Reading the project's recent session logs for read-only commands the person keeps being asked about and proposing a short, narrow allow list (never an interpreter or launcher), written to `.namzu/settings.local.json` only after a yes. |
+| `batch` | operator | — | A large mechanical change split into independent parts, each done by an `Agent` in its own worktree (`workspace: "worktree"`), at most five at once and never more than thirty parts, after the person approves the plan; nothing is pushed or merged. |
+| `debug` | operator | — | Finding why Namzu itself misbehaves: `namzu doctor`, the crash log and the session log, `--debug`, the layers of settings, `namzu hooks`; a cause with its evidence or the best lead. |
+| `security-review` | operator | — | A report-only security review of the branch's changes: input to commands, paths and queries, missing checks of who may do what, secrets, unsafe handling of untrusted data, widened permissions; each finding with its failing case and a rating. |
 | `review-changes` | model and operator | — | Reviewing a change for defects, not style: fix the scope, read each changed function whole with the callers it affects, write the failing case for every suspicion, check each before reporting, report most serious first as file and line, one sentence and the failing case, and say what was not looked at. On a request for a thorough review, with the `Agent` tool present, one sub-agent finds and another tries to refute each finding. Never pads the report, rewrites code, or does anything irreversible without asking. Not for tidying working code and not a substitute for running the change. |
 
 Each is shadowed by a skill of the same name in any other tier, and none is
@@ -161,16 +170,27 @@ loads each with the kernel's loader and checks that every `namzu …` command,
 login` and `--browser-site` included.
 
 Every built-in description says what the skill does, when to use it and, last,
-when not to, where a neighbour is easily confused with it. `verify-change` and
+when not to, where a neighbour is easily confused with it. `run` and
 `review-changes` also trigger on what the model is about to do (before it says
 a change works, before it hands one over), not only on the person's words. The
-six descriptions together cost 2,539 characters of the manifest (each entry
+six descriptions offered to the model together cost 2,612 characters of the manifest (each entry
 counts its fixed markup, its name and an install path of 66 characters), against a budget of
 2,621 at a 32,768-token window, so all six are described in full from a window
-of about 31,800 tokens up; the test checks this. On a window of 16,385 or 8,192
+of about 32,700 tokens up; the test checks this. The nine operator skills are not described to the
+model and cost nothing. On a window of 16,385 or 8,192
 tokens the first ones that fit are described and the rest are only named, and
 stay loadable. `browser-automation` and `schedule-task` are left out when their
 tools are missing, which frees their share.
+
+### The retired verify-change
+
+`verify-change` no longer ships; `run` took its place and keeps its rule that
+the project's own check is run as a command of its own. A person who types
+`/verify-change` sees one line, "verify-change was replaced by /run", and a
+model that asks the `skill` tool for it by that name loads the same line. A skill
+of that name that a person or project wrote is found first and works as before.
+`/run` used to put a command from the latest answer in the prompt; that command
+is now `/paste` ([Slash commands](slash-commands.md)).
 
 ## Making a skill
 
@@ -210,15 +230,52 @@ metadata:
   namzu-created: "2026-09-23T12:00:00.000Z"
 ```
 
-**Only the TUI has it.** The App registers `save_skill` for its own session;
-`namzu exec`, `drain`, a scheduled run, ACP and every
-sub-agent build their tools without it. **Its screen is its own question, not
+**Only the places a person confirms in have it**: the TUI's App registers
+`save_skill` for its own session, and the Desktop host (`namzu acp --desktop`, for a
+conversation that is not a Pal's) registers it with its confirmation drawn as a card
+(see [Skills in Desktop](#skills-in-desktop)). `namzu exec`, `drain`, a scheduled
+run, a plain ACP client and every sub-agent build their tools without it. The tool
+rides every request (it is not behind `search_tools`), and the environment facts tell
+the model what it can do with skills: that they are made with `skill-creator` and saved
+through a confirmation, that a `SKILL.md` is never written by hand into a skills
+folder, and, where the tool is missing, that saving is not available here. **Its screen is its own question, not
 the permission gate's**: in `prompt`, `accept-edits`, `bypass` and `auto` the gate does
 not ask about it, and the screen asks every time, `bypass` and `auto` included. `plan` and
 `strict` refuse it, and a `save_skill` rule in `[permissions]` (`ask` or
 `deny`) still applies (`packages/cli/src/tui/agent.ts` `reviewExemptionFor`).
 A session that can save a skill also carries the `skill` tool, so the saved
 skill is loadable on the next turn.
+
+## Skills in Desktop
+
+The Desktop app makes the same flow a card instead of a screen:
+
+1. **Ways in.** *Settings, Skills, New skill* opens a new conversation with the
+   `skills new` request in its message box, ready to send. The composer's `/` menu has
+   `skills new [what it should do]`, which puts the same request back in the box. The
+   engine also lists a `skills` command in its ACP `initialize` answer
+   (`HostCommandRegistry`, `new [what the skill should do]`).
+2. **The question.** When the model calls `save_skill`, the host sends a question
+   notification (`namzu/session/question`) carrying a `skillSave` payload: name,
+   description, the whole file (invisible characters shown as `<U+XXXX>`), both targets
+   with what each would replace or lose to, the warnings and the suggested target. The
+   question has three options, `user`, `project` and `cancel`, answered with
+   `namzu/session/answer-question`. It is not a permission request: no permission mode
+   and no "allow for this conversation" answers it, and anything but a pick of exactly
+   one place (cancel, an answer that does not read, the turn stopping, a closed stream)
+   saves nothing.
+3. **The card.** *Save the skill "name"?* shows the whole file in a box that
+   scrolls (never a cut of it), both places (the suggested one marked), a warning line for each skill the
+   file would replace and for each tripwire the host raised, and the buttons
+   *Save to my skills*, *Save to this project* and *Cancel* (Esc). Cancel holds the focus when the card opens, so saving takes a click.
+4. **After saving.** The result of a finished `save_skill` call (`Saved skill "name" to <path>`; the same line from any other tool draws nothing) is drawn, outside the folded work, as
+   a saved card: *usable from your next message*, with *Open Skills in Settings*; any
+   open Skills list reads the installed skills again at once and lists the new skill
+   with its on/off switch.
+
+Code: `packages/cli/src/skills/save-card.ts` (payload and the `skills` command),
+`packages/cli/src/commands/acp-desktop-question.ts` (`skillSaveConfirm`),
+`packages/desktop/src/renderer/composer-skill-save.tsx`, `skill-saved-card.tsx`.
 
 ## Learning from a task
 
@@ -419,6 +476,7 @@ returns the same statuses and counts as structured data.
 - `packages/cli/src/skills/audit.ts` — model-loader validation and manifest cost
 - `packages/cli/src/skills/directory.ts` — the directory the model is told for each skill
 - `packages/cli/src/skills/save.ts` — `save_skill`: validation, targets, atomic write
+- `packages/cli/src/skills/save-card.ts` — the Desktop card's payload and the `skills` host command
 - `packages/cli/src/tui/SaveSkillOverlay.tsx` — the confirmation screen
 - `packages/cli/src/tui/skills/learning.ts` — when a turn is proposed as a skill
 - `packages/cli/src/tui/skills/suggestion-ledger.ts` — the unused-proposal count

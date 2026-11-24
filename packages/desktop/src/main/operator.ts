@@ -6952,6 +6952,7 @@ export class Operator {
 				},
 			],
 			question: { questions: notice.questions },
+			...(notice.skillSave ? { skillSave: notice.skillSave } : {}),
 		}
 		this.emit({ kind: 'permission', request })
 	}

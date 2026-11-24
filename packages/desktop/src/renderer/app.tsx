@@ -83,6 +83,7 @@ import { ComputerInputQueue, computerInputOwnerMatches } from './computer-input-
 import { ComputerKeyboardOwners } from './computer-keyboard-owner.js'
 import { createComputerReadScheduler } from './computer-read-pace.js'
 import { computerWorkspaceIds } from './computer-workspace-toolbar.js'
+import { configSettingId } from './config-settings-model.js'
 import { ConfirmRemovalDialog } from './confirm-removal-dialog.js'
 import type { ContextPanelSource } from './context-panel.js'
 import { ConversationActionsMenu } from './conversation-actions-menu.js'
@@ -281,6 +282,7 @@ import {
 } from './sidebar-catalogue.js'
 import { useSidebarSections } from './sidebar-section.js'
 import { type ConversationCollection, Sidebar } from './sidebar.js'
+import { NEW_SKILL_EVENT, OPEN_SKILLS_EVENT, newSkillPrompt } from './skill-create.js'
 import type { SlashHandlers } from './slash-actions.js'
 import {
 	launchSeed,
@@ -2984,6 +2986,8 @@ export function App({
 		restoringTabs,
 		showError,
 	])
+	// The text the next new conversation opens with in its message box, set by "New skill".
+	const pendingSeed = useRef<string | null>(null)
 	const newConversation = useCallback(async () => {
 		abandonTabRestore()
 		const generation = ++navigation.current
@@ -3024,7 +3028,18 @@ export function App({
 					})
 				}
 				setSessionId(view.id)
-			} else setSessionId('')
+				// "New skill" starts here with its request in the box, ready to send.
+				const seed = pendingSeed.current
+				pendingSeed.current = null
+				if (seed) {
+					draftsRef.current[view.id] = seed
+					setDrafts((all) => ({ ...all, [view.id]: seed }))
+					void api.saveDraft(view.id, seed).catch(() => undefined)
+				}
+			} else {
+				pendingSeed.current = null
+				setSessionId('')
+			}
 			setConversationSelection(null)
 			setError('')
 			setPalScreen(undefined)
@@ -5564,6 +5579,24 @@ export function App({
 	}, [railDrawn])
 	const openSettingsRef = useRef(openSettings)
 	openSettingsRef.current = openSettings
+	// Settings > Skills > New skill: a new conversation that opens with the skill request in its box.
+	const newConversationRef = useRef(newConversation)
+	newConversationRef.current = newConversation
+	useEffect(() => {
+		const start = () => {
+			pendingSeed.current = newSkillPrompt('')
+			setSettingsOpen(false)
+			void act(newConversationRef.current)
+		}
+		// The saved-skill card's link: Settings on the Skills list.
+		const openSkills = () => openSettingsRef.current('agent', configSettingId('skills.disabled'))
+		window.addEventListener(NEW_SKILL_EVENT, start)
+		window.addEventListener(OPEN_SKILLS_EVENT, openSkills)
+		return () => {
+			window.removeEventListener(NEW_SKILL_EVENT, start)
+			window.removeEventListener(OPEN_SKILLS_EVENT, openSkills)
+		}
+	}, [act])
 	// A toast about a program that is behind opens Settings ▸ Updates in the pane that was focused last.
 	const engineUpdates = useEngineUpdates()
 	useEffect(
@@ -6677,6 +6710,8 @@ export function App({
 		slashHandlers.theme = () => openSettings('appearance')
 		slashHandlers.login = () => openSettings('models', 'models')
 		slashHandlers['release-notes'] = () => openSettings('updates')
+		// The request goes back into the box, to be read and sent; the skill-creator flow takes it on.
+		if (!externalHarness) slashHandlers['skills-new'] = (argument) => newSkillPrompt(argument)
 		if (conversations.length > 1) slashHandlers.resume = () => setCommandOpen(true)
 		slashHandlers.new = () => {
 			if (!loading) void act(newConversation)

@@ -194,7 +194,7 @@ lines.on('line', (line) => {
 			// The agent asks the person (a notification, not a permission request) and waits for the answer call.
 			const requestId = `question-${params.sessionId}-${id}`
 			questions.set(requestId, { id, sessionId: params.sessionId })
-			send({ method: 'namzu/session/question', params: { sessionId: params.sessionId, requestId, question: JSON.parse(process.env.FIXTURE_QUESTION) } })
+			send({ method: 'namzu/session/question', params: { sessionId: params.sessionId, requestId, question: JSON.parse(process.env.FIXTURE_QUESTION), ...(process.env.FIXTURE_SKILL_SAVE ? { skillSave: JSON.parse(process.env.FIXTURE_SKILL_SAVE) } : {}) } })
 			return
 		}
 		const requestId = `review-${params.sessionId}-${id}`
