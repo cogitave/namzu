@@ -144,11 +144,14 @@ fn poll_until(
     since: Option<u64>,
     ready: impl Fn(&MonitorPollReply) -> bool,
 ) -> MonitorPollReply {
+    let mut tries = 0u32;
     loop {
         let p = poll(h, since);
         if ready(&p) {
             return p;
         }
+        tries += 1;
+        assert!(tries < 1500, "TEMP DIAG: no event; last poll {p:?}");
         std::thread::sleep(std::time::Duration::from_millis(5));
     }
 }
@@ -176,6 +179,7 @@ fn the_monitor_sees_input_without_its_content_and_the_overlay_is_plain_to_captur
         assert!(hi.caps.iter().any(|c| c == cap), "missing cap {cap}");
     }
 
+    eprintln!("section: before the monitor runs");
     // --- before the monitor runs ------------------------------------------------
     let refused = h
         .call(Request::MonitorPoll(MonitorPollRequest { since: None }))
@@ -217,6 +221,7 @@ fn the_monitor_sees_input_without_its_content_and_the_overlay_is_plain_to_captur
     };
     assert_eq!(again, started, "a second start changes nothing");
 
+    eprintln!("section: raw input");
     // --- raw input: the helper's own SendInput arrives as synthesised, by device only -
     let base = poll(&mut h, None).seq;
     let ReplyBody::LeaseBegin(_) = h
@@ -248,6 +253,7 @@ fn the_monitor_sees_input_without_its_content_and_the_overlay_is_plain_to_captur
             .all(|e| e.injected == Some(true)),
         "{mouse:?}"
     );
+    eprintln!("section: mouse seen");
     let typed = "qzxjk";
     h.call(Request::Input(InputRequest::Type { text: typed.into() }))
         .expect("type");
@@ -276,6 +282,7 @@ fn the_monitor_sees_input_without_its_content_and_the_overlay_is_plain_to_captur
     };
     assert_eq!(end.inputs_during, Some(0));
 
+    eprintln!("section: foreground");
     // --- foreground changes arrive --------------------------------------------------
     let mark = poll(&mut h, None).seq;
     let want_b = b.id();
@@ -293,6 +300,7 @@ fn the_monitor_sees_input_without_its_content_and_the_overlay_is_plain_to_captur
             .iter()
             .any(|e| e.kind == Kind::Foreground && e.window_id.as_deref() == Some(want_b.as_str()))
     });
+    eprintln!("section: foreground b seen");
     assert!(seen_b.foreground_changes > 0);
     let mark = seen_b.seq;
     let want_a = a.id();
@@ -306,6 +314,7 @@ fn the_monitor_sees_input_without_its_content_and_the_overlay_is_plain_to_captur
             .any(|e| e.kind == Kind::Foreground && e.window_id.as_deref() == Some(want_a.as_str()))
     });
 
+    eprintln!("section: stopping");
     // --- stopping ----------------------------------------------------------------------
     h.call(Request::MonitorStop).expect("monitor.stop");
     let gone = h
@@ -323,6 +332,7 @@ fn the_monitor_sees_input_without_its_content_and_the_overlay_is_plain_to_captur
     assert!(restarted.foreground && !restarted.input, "{restarted:?}");
     h.call(Request::MonitorStop).expect("monitor.stop");
 
+    eprintln!("section: presence");
     // --- the presence overlay ----------------------------------------------------------
     let (cx, cy) = a.center();
     let ReplyBody::PresenceAct(shown) = h
