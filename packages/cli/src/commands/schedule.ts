@@ -46,8 +46,12 @@ export const SCHEDULE_HELP = [
 	'  e.g. namzu schedule pause nightly --service autodev',
 	'',
 	'The scheduler service',
-	'  service install [--platform auto|systemd-user|launchd|windows-task|wsl-windows-task]',
-	'          [--name <service>] [--at-boot] [--dry-run]',
+	'  service install [<name>] [--platform auto|systemd-user|launchd|windows-task|wsl-windows-task]',
+	'          [--home <dir>] [--at-boot] [--dry-run]',
+	'      With a <name>, the service keeps its home in the Namzu folder: ~/.namzu/services/<name>.',
+	'      Without one, it is the scheduler of the current home.',
+	'  service move <name> [--dry-run] [--wait 10m]   Bring an installed service’s home into',
+	'      ~/.namzu/services/<name> (refused while a run is in progress)',
 	'  service list [--json]         Installed services: name, home, platform, state',
 	'  service uninstall [<name>] [--keep-data | --purge-data] [--wait 10m | --interrupt-runs]',
 	'  service status [<name>] [--json]   Exit 0 healthy, 69 not running, 2 not installed',
@@ -106,8 +110,37 @@ export const scheduleCommand: CommandDef = {
 		const lifecycle = () => import('../schedule/commands/lifecycle.js')
 		const service = () => import('../schedule/commands/service.js')
 		// A job command's `--service <name>` runs it on that service's home.
-		const onService = async (act: (argv: string[]) => Promise<number>) => {
-			const targeted = applyTarget(ctx, rest, 'flag', true)
+		// `byName`: with no `--service` and no `--home`, the job is looked for by name
+		// in this home and in every installed service's home.
+		const onService = async (act: (argv: string[]) => Promise<number>, byName = false) => {
+			let args = rest
+			let found = false
+			const ref = rest[0]
+			if (
+				byName &&
+				ref !== undefined &&
+				!ref.startsWith('--') &&
+				!rest.some((a) => a === '--service' || a.startsWith('--service=')) &&
+				!rest.some((a) => a === '--home' || a.startsWith('--home='))
+			) {
+				const homes = await import('../schedule/service/homes.js')
+				const { resolveNamzuHome } = await import('../integrations/state/home.js')
+				let located: ReturnType<typeof homes.locateJob> | undefined
+				try {
+					located = homes.locateJob(ref, resolveNamzuHome())
+				} catch {
+					// the verb reports the same problem in its own words
+				}
+				if (located?.kind === 'several') {
+					ctx.formatter.error({ message: homes.severalLine(ref, located.at) })
+					return EXIT_USAGE
+				}
+				if (located?.kind === 'found' && located.at.service) {
+					args = [...rest, '--service', located.at.service]
+					found = true
+				}
+			}
+			const targeted = applyTarget(ctx, args, 'flag', true, found)
 			if ('code' in targeted) return targeted.code
 			try {
 				return await act(targeted.argv)
@@ -119,25 +152,25 @@ export const scheduleCommand: CommandDef = {
 			case 'add':
 				return onService(async (a) => (await add()).addCommand(ctx, a))
 			case 'edit':
-				return onService(async (a) => (await add()).editCommand(ctx, a))
+				return onService(async (a) => (await add()).editCommand(ctx, a), true)
 			case 'confirm':
-				return onService(async (a) => (await add()).confirmCommand(ctx, a))
+				return onService(async (a) => (await add()).confirmCommand(ctx, a), true)
 			case 'list':
 			case 'ls':
 				return onService(async (a) => (await list()).listCommand(ctx, a))
 			case 'show':
-				return onService(async (a) => (await list()).showCommand(ctx, a))
+				return onService(async (a) => (await list()).showCommand(ctx, a), true)
 			case 'history':
-				return onService(async (a) => (await list()).historyCommand(ctx, a))
+				return onService(async (a) => (await list()).historyCommand(ctx, a), true)
 			case 'pause':
-				return onService(async (a) => (await lifecycle()).pauseCommand(ctx, a, false))
+				return onService(async (a) => (await lifecycle()).pauseCommand(ctx, a, false), true)
 			case 'resume':
-				return onService(async (a) => (await lifecycle()).pauseCommand(ctx, a, true))
+				return onService(async (a) => (await lifecycle()).pauseCommand(ctx, a, true), true)
 			case 'remove':
 			case 'rm':
-				return onService(async (a) => (await lifecycle()).removeCommand(ctx, a))
+				return onService(async (a) => (await lifecycle()).removeCommand(ctx, a), true)
 			case 'run':
-				return onService(async (a) => (await lifecycle()).runNowCommand(ctx, a))
+				return onService(async (a) => (await lifecycle()).runNowCommand(ctx, a), true)
 			case 'prune':
 				return onService(async (a) => (await lifecycle()).pruneCommand(ctx, a))
 			case 'service':
@@ -174,6 +207,14 @@ export const scheduleCommand: CommandDef = {
 							targeted.restore()
 						}
 					}
+					case 'move': {
+						const [, target, ...more] = rest
+						return (await service()).moveCommand(
+							ctx,
+							more,
+							target !== undefined && !target.startsWith('--') ? target : undefined,
+						)
+					}
 					case 'install':
 						return (await service()).installCommand(ctx, rest.slice(1))
 					case 'daemon':
@@ -183,7 +224,7 @@ export const scheduleCommand: CommandDef = {
 						ctx.formatter.error({
 							message: rest[0]
 								? `unknown schedule service command: ${rest[0]}`
-								: 'a schedule service command is required: install, list, uninstall, status, start, stop, logs or daemon',
+								: 'a schedule service command is required: install, move, list, uninstall, status, start, stop, logs or daemon',
 						})
 						return EXIT_USAGE
 				}

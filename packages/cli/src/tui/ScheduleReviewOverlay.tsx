@@ -23,6 +23,8 @@ export interface ScheduleReviewRequest {
 	/** The entire host-computed confirmation, with invisible characters exposed. */
 	readonly fullText: string
 	readonly permissionsChange?: boolean
+	/** The scheduler service whose home holds the job, when it is not this home. */
+	readonly service?: string
 }
 
 export type ScheduleReviewAnswer = 'cancel' | 'create-paused' | 'create' | 'save'
@@ -80,7 +82,7 @@ export function scheduleReviewSummary(request: ScheduleReviewRequest): readonly 
 	)
 	const findings = new Set(request.promptFindings ?? [])
 	return [
-		`${request.action === 'confirm' ? 'Confirm' : request.action === 'create' ? 'Create' : 'Update'} “${preview.name}” · ${request.action === 'confirm' ? 'review this saved job' : request.proposedByModel === false ? 'requested by you' : 'proposed by the model'} · runs later unattended`,
+		`${request.action === 'confirm' ? 'Confirm' : request.action === 'create' ? 'Create' : 'Update'} “${preview.name}”${request.service ? ` · service ${request.service}` : ''} · ${request.action === 'confirm' ? 'review this saved job' : request.proposedByModel === false ? 'requested by you' : 'proposed by the model'} · runs later unattended`,
 		`When    ${preview.schedule}`,
 		preview.workspace === 'none'
 			? 'Workspace  Private scheduler workspace (no project)'

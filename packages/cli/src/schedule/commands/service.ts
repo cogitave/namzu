@@ -3,8 +3,16 @@
  */
 
 import { randomUUID } from 'node:crypto'
-import { existsSync, readFileSync, realpathSync, rmSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import {
+	existsSync,
+	mkdirSync,
+	readFileSync,
+	realpathSync,
+	renameSync,
+	rmSync,
+	statSync,
+} from 'node:fs'
+import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { CommandContext } from '../../commands/types.js'
 import { loadBootstrapConfigWithProvenance } from '../../config/load.js'
@@ -41,13 +49,27 @@ import {
 } from '../service/index.js'
 import { launchdLabel, launchdPlist } from '../service/launchd.js'
 import { type ServicePlatform, readManifest } from '../service/manifest.js'
+import { writeManifest } from '../service/manifest.js'
+import {
+	filesMentioning,
+	nearestExisting,
+	rewriteJobPaths,
+	sameFileSystem,
+	scratchRootOf,
+} from '../service/move.js'
 import { checkServiceName, defaultServiceName } from '../service/names.js'
 import {
+	defaultNamzuHome,
 	displayName,
+	findService,
+	legacyBaseName,
+	matchService,
 	nameClash,
 	readServiceIndexChecked,
 	recordService,
 	removeServices,
+	serviceHomePath,
+	servicesRoot,
 } from '../service/registry.js'
 import { runCommand } from '../service/runner.js'
 import { systemdUnit, systemdUserAvailable } from '../service/systemd.js'
@@ -84,15 +106,37 @@ export async function installCommand(
 	ctx: CommandContext,
 	argv: readonly string[],
 ): Promise<number> {
-	const args = parseArgs(argv, ['home', 'platform', 'name', 'at-boot!', 'dry-run!'])
-	const platformFlag = flag(args, 'platform') ?? 'auto'
-	if (args.unknown.length > 0 || !PLATFORMS.includes(platformFlag)) {
+	// A retired spelling: one line naming the new one, and nothing runs.
+	if (argv.some((a) => a === '--name' || a.startsWith('--name='))) {
 		ctx.formatter.error({
-			message: `usage: namzu schedule service install [--platform ${PLATFORMS.join('|')}] [--name <n>] [--at-boot] [--dry-run]`,
+			message:
+				'`--name <n>` is now the word right after install: `namzu schedule service install <n>`, which keeps the service in the Namzu folder.',
 		})
 		return EXIT_USAGE
 	}
-	const paths = pathsFor(args)
+	const args = parseArgs(argv, ['home', 'platform', 'at-boot!', 'dry-run!'])
+	const platformFlag = flag(args, 'platform') ?? 'auto'
+	if (args.unknown.length > 0 || args.positionals.length > 1 || !PLATFORMS.includes(platformFlag)) {
+		ctx.formatter.error({
+			message: `usage: namzu schedule service install [<name>] [--platform ${PLATFORMS.join('|')}] [--home <dir>] [--at-boot] [--dry-run]`,
+		})
+		return EXIT_USAGE
+	}
+	const named = args.positionals[0]
+	if (named !== undefined) {
+		try {
+			checkServiceName(named)
+		} catch (error) {
+			ctx.formatter.error({ message: error instanceof Error ? error.message : String(error) })
+			return EXIT_USAGE
+		}
+	}
+	// A named service lives in the Namzu folder unless the person chose a home;
+	// without a name it is the current home's own scheduler, as before.
+	const paths =
+		named !== undefined && flag(args, 'home') === undefined
+			? schedulePaths(serviceHomePath(named))
+			: pathsFor(args)
 	let platform: ServicePlatform
 	if (platformFlag === 'auto') {
 		const detected = detectPlatform({
@@ -104,7 +148,7 @@ export async function installCommand(
 		}
 		platform = detected.platform
 	} else platform = platformFlag as ServicePlatform
-	const name = checkServiceName(flag(args, 'name') ?? defaultServiceName(paths.home))
+	const name = checkServiceName(named ?? defaultServiceName(paths.home))
 	const prog = program(paths)
 	if (has(args, 'dry-run')) {
 		let text: string
@@ -143,13 +187,30 @@ export async function installCommand(
 				)
 				break
 		}
-		ctx.formatter.print({ text, platform, name })
+		ctx.formatter.print({ text, platform, name, home: paths.home })
 		return EXIT_OK
 	}
 	const clash = nameClash(name, paths.home)
 	if (clash) {
-		ctx.formatter.error({ message: clash })
+		const there = findService(name)?.home
+		const legacy =
+			there !== undefined && named !== undefined && resolve(there) !== serviceHomePath(named)
+		ctx.formatter.error({
+			message: legacy
+				? `${clash}; to keep it and bring its home into the Namzu folder: namzu schedule service move ${name}`
+				: clash,
+		})
 		return 1
+	}
+	if (named !== undefined && flag(args, 'home') === undefined) {
+		try {
+			mkdirSync(paths.home, { recursive: true, mode: 0o700 })
+		} catch (error) {
+			ctx.formatter.error({
+				message: `the service home ${paths.home} could not be created: ${error instanceof Error ? error.message : String(error)}`,
+			})
+			return 1
+		}
 	}
 	const existing = readManifest(paths)
 	if (existing && existing.name !== name && existing.platform !== platform) {
@@ -178,7 +239,7 @@ export async function installCommand(
 			return 1
 		}
 		ctx.formatter.print({
-			text: `Installed ${manifest.name} (${manifest.platform}). Check it with \`namzu schedule service status\`.`,
+			text: `Installed ${manifest.name} (${manifest.platform}) for ${paths.home}. Check it with \`namzu schedule service status${named !== undefined ? ` ${named}` : ''}\`.`,
 			platform: manifest.platform,
 			name: manifest.name,
 		})
@@ -627,4 +688,255 @@ export async function fireCommand(
 		}
 	})
 	return runFire(ctx, paths, fire)
+}
+
+/**
+ * `schedule service move <name>`: bring the service's home to
+ * `<default home>/services/<name>`. See `../service/move.ts` for what inside
+ * the home follows it.
+ */
+export async function moveCommand(
+	ctx: CommandContext,
+	argv: readonly string[],
+	/** The name the command line gave. */
+	named: string | undefined,
+): Promise<number> {
+	const args = parseArgs(argv, ['wait', 'dry-run!'])
+	if (args.unknown.length > 0 || args.positionals.length > 0 || named === undefined) {
+		ctx.formatter.error({
+			message: 'usage: namzu schedule service move <name> [--dry-run] [--wait 10m]',
+		})
+		return EXIT_USAGE
+	}
+	const index = readServiceIndexChecked()
+	const entry = matchService(index.services, named)
+	if (!entry) {
+		ctx.formatter.error({
+			message: index.problem
+				? `cannot look up ${named}: ${index.problem}`
+				: `no scheduler service is named ${named}; see namzu schedule service list`,
+		})
+		return index.problem ? 1 : EXIT_USAGE
+	}
+	const refuse = (message: string): number => {
+		ctx.formatter.error({ message })
+		return 1
+	}
+	if (legacyBaseName(entry) !== undefined)
+		return refuse(
+			`${entry.name} was registered by an older namzu under a distro-suffixed name; uninstall it and install it again by name: namzu schedule service uninstall ${displayName(entry)}, then namzu schedule service install ${displayName(entry)}`,
+		)
+	let name: string
+	try {
+		name = checkServiceName(entry.name)
+	} catch (error) {
+		return refuse(
+			`the service index holds a name that is not a service name (${error instanceof Error ? error.message : String(error)}); nothing was changed`,
+		)
+	}
+	const from = resolve(entry.home)
+	const to = serviceHomePath(name)
+	const inside = resolve(servicesRoot())
+	if (dirname(resolve(to)) !== inside)
+		return refuse(`${name} would land outside ${inside}; nothing was changed`)
+	if (from === to) {
+		ctx.formatter.print({
+			text: `${name} is already in the Namzu folder (${to}); nothing to move.`,
+		})
+		return EXIT_OK
+	}
+	const main = defaultNamzuHome()
+	if (from === main || main.startsWith(`${from}/`) || main.startsWith(`${from}\\`))
+		return refuse(
+			`${name} serves ${from}, which is the Namzu home itself or contains it; it is not moved`,
+		)
+	if (to.startsWith(`${from}/`) || to.startsWith(`${from}\\`))
+		return refuse(`${name} serves ${from}, which contains ${to}; it is not moved`)
+	if (!existsSync(from) || !statSync(from).isDirectory())
+		return refuse(`${name} serves ${from}, which does not exist; there is nothing to move`)
+	if (existsSync(to))
+		return refuse(`${to} already exists; move or remove it first, nothing was changed`)
+	const scratchFrom = scratchRootOf(from)
+	const scratchTo = scratchRootOf(to)
+	const hasScratch = existsSync(scratchFrom)
+	if (hasScratch && existsSync(scratchTo))
+		return refuse(`${scratchTo} already exists; move or remove it first, nothing was changed`)
+	for (const [source, target] of [
+		[from, to],
+		...(hasScratch ? [[scratchFrom, scratchTo] as const] : []),
+	] as const) {
+		if (!sameFileSystem(source, target))
+			return refuse(
+				`${source} and ${nearestExisting(target)} are on different file systems, and a move there would copy and delete; stop the service (namzu schedule service stop ${name}), move the folder by hand to ${target} and then run namzu schedule service install ${name}`,
+			)
+	}
+	const paths = schedulePaths(from)
+	const manifest = readManifest(paths)
+	if (!manifest)
+		return refuse(
+			`no scheduler service is installed in ${from}; namzu schedule service install ${name} installs one in the Namzu folder`,
+		)
+	const inFlight = runsInFlight(paths)
+	const jobs = listJobs(paths).jobs
+	const plan = [
+		`Move ${name} (${manifest.platform})`,
+		`  home      ${from}`,
+		`        to  ${to}`,
+		...(hasScratch ? [`  scratch   ${scratchFrom}`, `        to  ${scratchTo}`] : []),
+		`  jobs      ${jobs.length} (${jobs.filter((j) => j.workspace === 'none').length} with a scratch folder that is rewritten and needs confirming again)`,
+		'  then      reinstall the service unit for the new home; start it again if it was running',
+	]
+	if (has(args, 'dry-run')) {
+		ctx.formatter.print({
+			text: [
+				...plan,
+				...(inFlight > 0
+					? [
+							`  blocked   ${inFlight} run(s) in progress; a real move waits for them (--wait) or refuses`,
+						]
+					: []),
+				'Nothing was changed.',
+			].join('\n'),
+		})
+		return EXIT_OK
+	}
+	const context = { paths, run: runCommand, env: process.env, version: CLI_VERSION }
+	const wasRunning = (await probeHealth(paths)).healthy
+	const restart = async (): Promise<void> => {
+		requestStop(paths, !wasRunning)
+		if (wasRunning) await startService(context, manifest)
+	}
+	// Stop the daemon first; a run already started finishes on its own (the
+	// unit leaves runs alone), and a move waits for it or refuses.
+	requestStop(paths, true)
+	const endpoint = readEndpoint(paths.endpoint)
+	if (endpoint) await callEndpoint(endpoint, 'stop')
+	await stopService(context, manifest)
+	const waitMs = parseMs('--wait', flag(args, 'wait')) ?? 0
+	const deadline = Date.now() + waitMs
+	while (runsInFlight(paths) > 0 && Date.now() < deadline) {
+		ctx.formatter.info(`waiting for ${runsInFlight(paths)} run(s) in progress to finish…`)
+		await new Promise((r) => setTimeout(r, 5_000))
+	}
+	const still = runsInFlight(paths)
+	if (still > 0) {
+		await restart()
+		return refuse(
+			`${still} run(s) of ${name} are in progress, and their files would move under them; wait for them to finish (namzu schedule service status ${name}) or pass --wait 10m. Nothing was changed.`,
+		)
+	}
+	const indexBefore = {
+		name,
+		home: from,
+		platform: manifest.platform,
+		installedAt: manifest.installedAt,
+	}
+	// Re-check right before the rename: a run started since the first look
+	// (by hand, or from another process) would have its files move under it.
+	if (runsInFlight(paths) > 0) {
+		await restart()
+		return refuse(
+			`a run of ${name} started while the move was being prepared; wait for it to finish and run the move again. Nothing was changed.`,
+		)
+	}
+	const putBack = (): void => {
+		try {
+			if (hasScratch && existsSync(scratchTo) && !existsSync(scratchFrom))
+				renameSync(scratchTo, scratchFrom)
+		} catch {}
+		try {
+			if (existsSync(to) && !existsSync(from)) renameSync(to, from)
+		} catch {}
+	}
+	try {
+		mkdirSync(servicesRoot(), { recursive: true, mode: 0o700 })
+		renameSync(from, to)
+		if (hasScratch) renameSync(scratchFrom, scratchTo)
+	} catch (error) {
+		putBack()
+		await restart()
+		return refuse(
+			`the folder could not be moved: ${error instanceof Error ? error.message : String(error)}. Nothing was changed.`,
+		)
+	}
+	const moved = schedulePaths(to)
+	const problems: string[] = []
+	// The index and the manifest are the point of no return: if either cannot
+	// be written, the folder goes back and the old unit still serves it.
+	const indexProblem = recordService({ ...indexBefore, home: to })
+	let manifestProblem: string | undefined
+	if (!indexProblem) {
+		try {
+			writeManifest(moved, { ...manifest, namzuHome: to })
+		} catch (error) {
+			manifestProblem = error instanceof Error ? error.message : String(error)
+			recordService(indexBefore)
+		}
+	}
+	if (indexProblem || manifestProblem) {
+		putBack()
+		await restart()
+		return refuse(
+			`the move was undone, ${name} is back in ${from}: ${indexProblem ? `the service index was not updated (${indexProblem})` : `the service manifest was not written (${manifestProblem})`}.`,
+		)
+	}
+	const notes: string[] = []
+	const rewrite = rewriteJobPaths(moved, from, to)
+	problems.push(...rewrite.problems)
+	// A daemon started by the reinstall exits at once when the stop request is
+	// still there: leave it for a service that was stopped, clear it otherwise.
+	requestStop(moved, !wasRunning)
+	try {
+		const reinstalled = await installService(
+			{ paths: moved, run: runCommand, env: process.env, version: CLI_VERSION },
+			{
+				platform: manifest.platform,
+				name,
+				program: program(moved),
+				atBoot: manifest.enabledLinger === true,
+			},
+		)
+		// `enabledLinger` and the first install time say what this service did, not this move.
+		writeManifest(moved, {
+			...reinstalled.manifest,
+			installedAt: manifest.installedAt,
+			...(manifest.enabledLinger !== undefined ? { enabledLinger: manifest.enabledLinger } : {}),
+		})
+		problems.push(...reinstalled.problems)
+		if (!wasRunning) await stopService({ ...context, paths: moved }, reinstalled.manifest)
+	} catch (error) {
+		problems.push(error instanceof Error ? error.message : String(error))
+	}
+	const mentions = filesMentioning(to, from)
+	const lines = [
+		`Moved ${name}: ${from} -> ${to}`,
+		...(hasScratch ? [`Scratch folders: ${scratchFrom} -> ${scratchTo}`] : []),
+		`Service unit reinstalled for the new home; ${wasRunning ? 'it is running again' : 'it was stopped, and stays stopped'}.`,
+		rewrite.rewritten.length > 0
+			? `Rewritten to the new scratch folder: ${rewrite.rewritten.join(', ')}.`
+			: 'No job file needed rewriting.',
+		...(rewrite.needConfirming.length > 0
+			? [
+					`Confirm again (their confirmation covers the old scratch folder): ${rewrite.needConfirming.join(', ')}. Use namzu schedule confirm <job> --service ${name}.`,
+				]
+			: []),
+		rewrite.stillConfirmed.length > 0
+			? `Confirmations still hold for ${rewrite.stillConfirmed.length} job(s): their folders are outside the home.`
+			: rewrite.needConfirming.length === 0
+				? 'No confirmed job was affected.'
+				: 'No other confirmed job.',
+		...(mentions.length > 0
+			? [`Still names the old home (not rewritten): ${mentions.join(', ')}.`]
+			: []),
+		'daemon.env and the other files that may hold secrets moved with the folder unread.',
+	]
+	for (const note of notes) ctx.formatter.info(note)
+	ctx.formatter.print({ text: lines.join('\n') })
+	if (problems.length > 0) {
+		ctx.formatter.error({
+			message: `the folder moved, but not everything followed:\n${problems.join('\n')}\nRun namzu schedule service install ${name} to finish.`,
+		})
+		return 1
+	}
+	return EXIT_OK
 }

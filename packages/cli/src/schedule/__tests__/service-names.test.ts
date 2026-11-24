@@ -61,11 +61,11 @@ async function install(name: string | undefined, home: string, extra: string[] =
 	const r = run([
 		'service',
 		'install',
+		...(name ? [name] : []),
 		'--platform',
 		'systemd-user',
 		'--home',
 		home,
-		...(name ? ['--name', name] : []),
 		...extra,
 	])
 	return { code: await r.code, out: r.out }
@@ -96,7 +96,7 @@ describe('the service index', () => {
 		expect(r.out.errors[0]).toContain(homeB)
 		expect(r.out.errors[0]).toContain(sb.home)
 		expect(r.out.errors[0]).toContain('uninstall')
-		expect(r.out.errors[0]).toContain('--name')
+		expect(r.out.errors[0]).toContain('pick another name')
 		expect(readServiceIndex(sb.osHome)).toHaveLength(1)
 	})
 
@@ -109,7 +109,7 @@ describe('the service index', () => {
 		expect(after[0]?.installedAt >= (first?.installedAt ?? '')).toBe(true)
 	})
 
-	it('records the default name when --name is omitted', async () => {
+	it('records the default name when no name is given', async () => {
 		await install(undefined, homeB)
 		expect(readServiceIndex(sb.osHome)[0]?.name).toBe(defaultServiceName(homeB))
 	})

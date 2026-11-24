@@ -27,10 +27,11 @@ import {
 	runsPerDay,
 } from '../../schedule/build.js'
 import { changesBlock, changesSinceConfirmed } from '../../schedule/changes.js'
+import { displayState } from '../../schedule/commands/list.js'
 import { callEndpoint, readEndpoint } from '../../schedule/daemon/endpoint.js'
 import { callsCount } from '../../schedule/fire/calls.js'
 import { gateLines, gateRefusal } from '../../schedule/gate.js'
-import { schedulePaths } from '../../schedule/paths.js'
+import { type SchedulePaths, schedulePaths } from '../../schedule/paths.js'
 import {
 	allowsCommands,
 	compileJobPolicy,
@@ -40,6 +41,12 @@ import {
 import { parkedRunWords, resumeCommand } from '../../schedule/resume-command.js'
 import { verifyScheduledScript } from '../../schedule/script-check.js'
 import { scriptShellUnavailableReason } from '../../schedule/script-shell.js'
+import {
+	type ScheduleHome,
+	locateJob,
+	scheduleHomes,
+	severalLine,
+} from '../../schedule/service/homes.js'
 import { readManifest } from '../../schedule/service/manifest.js'
 import { appendHistory, readHistory } from '../../schedule/store/history.js'
 import {
@@ -72,12 +79,15 @@ export interface ScheduleCommandContext {
 	) => Promise<ScheduleReviewAnswer>
 }
 
+const LOOKUP_VERBS = new Set(['confirm', 'pause', 'resume', 'run', 'remove', 'show', 'history'])
+
 const USAGE = [
 	'/schedule                          jobs, and what needs you',
 	'/schedule confirm <job>            confirm a job created without a terminal, or held after an edit',
 	'/schedule pause|resume <job>',
 	'/schedule run <job>                run it now through the scheduler',
 	'/schedule remove <job>',
+	'A job of an installed scheduler service is found by name; --service <name> picks one when a name is in several.',
 	'/schedule add <name> "<when>" <read-only|edit-in-folder> <prompt…>',
 	'A run waiting for approval: /resume its conversation (Scheduled: <job> · <time>) in its folder.',
 ].join('\n')
@@ -104,8 +114,8 @@ function when(iso: string | undefined, tz: string): string {
 	}).format(new Date(iso))
 }
 
-export async function listScheduleJobs(ctx: ScheduleCommandContext): Promise<string> {
-	const paths = schedulePaths(ctx.home)
+/** One home's jobs, the way /schedule shows them, then its scheduler line. */
+async function listHome(ctx: ScheduleCommandContext, paths: SchedulePaths): Promise<string> {
 	const { jobs, errors } = listJobs(paths)
 	const lines: string[] = []
 	for (const job of jobs) {
@@ -116,13 +126,9 @@ export async function listScheduleJobs(ctx: ScheduleCommandContext): Promise<str
 				? state.activeRun.handoff
 					? `  [${parkedRunWords(state.activeRun)}]`
 					: '  [waiting for your approval]'
-				: job.state === 'pending-confirmation'
-					? '  [needs confirmation]'
-					: job.state === 'active' && !confirmationHolds(job)
-						? '  [on hold: changed outside namzu]'
-						: state.activeRun?.status === 'running'
-							? '  [running]'
-							: ''
+				: state.activeRun?.status === 'running'
+					? '  [running]'
+					: ''
 		// `agent` (absent) is the common case and stays unmarked; `script`
 		// costs no tokens at all, worth marking the same way `schedule list`
 		// does on the command line.
@@ -135,7 +141,7 @@ export async function listScheduleJobs(ctx: ScheduleCommandContext): Promise<str
 						? '  [gate]'
 						: ''
 		lines.push(
-			`${job.name}  [${job.state}]${kind}${mark}\n    ${describeSchedule(job.schedule, { tz })} · next ${when(nextFireOf(job, state), tz)}${state.lastRun ? ` · last ${state.lastRun.status}${callsCount(state.lastRun) ? ` (${callsCount(state.lastRun)})` : ''} ${when(state.lastRun.endedAt, tz)}` : ''}\n    ${job.workspace === 'none' ? 'Private scheduler workspace (no project)' : job.folder.canonical}`,
+			`${job.name}  [${displayState(job)}]${kind}${mark}\n    ${describeSchedule(job.schedule, { tz })} · next ${when(nextFireOf(job, state), tz)}${state.lastRun ? ` · last ${state.lastRun.status}${callsCount(state.lastRun) ? ` (${callsCount(state.lastRun)})` : ''} ${when(state.lastRun.endedAt, tz)}` : ''}\n    ${job.workspace === 'none' ? 'Private scheduler workspace (no project)' : job.folder.canonical}`,
 		)
 		if (job.delivery?.kind === 'source-conversation')
 			lines.push(`    Results return to source conversation ${job.delivery.sessionId}`)
@@ -161,21 +167,43 @@ export async function listScheduleJobs(ctx: ScheduleCommandContext): Promise<str
 						`${errors.length} job file${errors.length === 1 ? '' : 's'} could not be read; inspect or repair the files under NAMZU_HOME.`,
 					]
 				: []),
-			await schedulerLine(ctx.home),
+			await schedulerLine(paths.home),
 		].join('\n'),
 	)
+}
+
+export async function listScheduleJobs(ctx: ScheduleCommandContext): Promise<string> {
+	const all = scheduleHomes(ctx.home)
+	const current = await listHome(ctx, schedulePaths(ctx.home))
+	if (all.homes.length === 1) return current
+	const indent = (text: string) =>
+		text
+			.split('\n')
+			.map((l) => `  ${l}`)
+			.join('\n')
+	const sections = [`This home (${ctx.home})\n${indent(current)}`]
+	for (const at of all.homes.slice(1)) {
+		const heading = `Service ${at.service} (${at.home})`
+		sections.push(
+			at.unreadable
+				? `${heading}\n  cannot read: ${at.unreadable}`
+				: `${heading}\n${indent(await listHome(ctx, at.paths))}`,
+		)
+	}
+	return visibleScheduleMessage(sections.join('\n\n'))
 }
 
 async function confirmInTui(
 	ctx: ScheduleCommandContext,
 	job: ScheduleJob,
 	verb: string,
+	paths: SchedulePaths = schedulePaths(ctx.home),
+	service?: string,
 ): Promise<'create' | 'create-paused' | 'cancel'> {
 	const say = (message: string) => ctx.say(visibleScheduleMessage(message))
-	const paths = schedulePaths(ctx.home)
 	const layers = readPermissionLayers({
 		cwd: job.folder.canonical,
-		home: ctx.home,
+		home: paths.home,
 		...(job.workspace === 'none' ? { includeProject: false } : {}),
 	})
 	const policy = compileJobPolicy(job.permissions, {
@@ -308,13 +336,16 @@ async function confirmInTui(
 			proposedByModel: false,
 			preview,
 			fullText,
+			...(service ? { service } : {}),
 		})
 		return reviewed === 'create' || reviewed === 'create-paused' ? reviewed : 'cancel'
 	}
 	ctx.say(fullText)
 	const answer = await ctx.ask({
 		questionId: `schedule-confirm:${job.id}`,
-		question: visibleScheduleMessage(`${verb} the scheduled job "${job.name}"? (details above)`),
+		question: visibleScheduleMessage(
+			`${verb} the scheduled job "${job.name}"${service ? ` of the service ${service}` : ''}? (details above)`,
+		),
 		header: 'Scheduled job',
 		options: [
 			{ id: 'cancel', label: 'Cancel', description: 'Change nothing' },
@@ -354,7 +385,47 @@ export async function runScheduleCommand(
 ): Promise<void> {
 	const say = (message: string) => ctx.say(visibleScheduleMessage(message))
 	const paths = schedulePaths(ctx.home)
-	const [verb, ...rest] = args
+	const [verb, ...restAll] = args
+	// `--service <name>` / `--home <this home>` after the verb name where an
+	// existing job is looked up. `add` keeps every word: they are the prompt.
+	let service: string | null | undefined
+	let rest: string[] = [...restAll]
+	if (verb !== undefined && LOOKUP_VERBS.has(verb)) {
+		rest = []
+		for (let i = 0; i < restAll.length; i++) {
+			const word = restAll[i] as string
+			if (word === '--service' || word === '--home') {
+				const value = restAll[i + 1]
+				if (value === undefined || value.startsWith('--')) {
+					say(`${word} needs a value.`)
+					return
+				}
+				i++
+				if (word === '--service') service = value
+				else if (resolve(value) !== resolve(ctx.home)) {
+					say(`--home here means this home (${ctx.home}); use --service <name> for a service.`)
+					return
+				} else service = null
+			} else if (word.startsWith('--service=')) service = word.slice('--service='.length)
+			else rest.push(word)
+		}
+	}
+	/** The job a verb names, in this home or a service's; undefined once the reason has been said. */
+	const locate = (ref: string): { job: ScheduleJob; at: ScheduleHome } | undefined => {
+		const found = locateJob(ref, ctx.home, service)
+		if (found.kind === 'found') {
+			if (found.at.service)
+				say(`Using the scheduler service ${found.at.service} (${found.at.home}).`)
+			return found
+		}
+		if (found.kind === 'several') say(severalLine(ref, found.at))
+		else if (found.kind === 'no-service')
+			say(
+				`No scheduler service is named ${found.name}; ${found.known.length > 0 ? `known: ${found.known.join(', ')}` : 'none is installed'}.`,
+			)
+		else findJob(paths, ref) // the not-found error, in the usual words (throws)
+		return undefined
+	}
 	try {
 		switch (verb) {
 			case undefined:
@@ -365,8 +436,11 @@ export async function runScheduleCommand(
 				say(USAGE)
 				return
 			case 'confirm': {
-				const job = findJob(paths, rest[0] ?? '')
-				const answer = await confirmInTui(ctx, job, 'Confirm')
+				const where = locate(rest[0] ?? '')
+				if (!where) return
+				const { job } = where
+				const paths = where.at.paths
+				const answer = await confirmInTui(ctx, job, 'Confirm', paths, where.at.service)
 				if (answer === 'cancel') {
 					say(`Not confirmed; ${job.name} stays ${job.state}.`)
 					return
@@ -387,7 +461,10 @@ export async function runScheduleCommand(
 			}
 			case 'pause':
 			case 'resume': {
-				const job = findJob(paths, rest[0] ?? '')
+				const where = locate(rest[0] ?? '')
+				if (!where) return
+				const { job } = where
+				const paths = where.at.paths
 				if (verb === 'resume' && !confirmationHolds(job)) {
 					say(`${job.name} changed since it was confirmed: /schedule confirm ${job.name}`)
 					return
@@ -409,7 +486,10 @@ export async function runScheduleCommand(
 				return
 			}
 			case 'run': {
-				const job = findJob(paths, rest[0] ?? '')
+				const where = locate(rest[0] ?? '')
+				if (!where) return
+				const { job } = where
+				const paths = where.at.paths
 				const endpoint = readEndpoint(paths.endpoint)
 				const answer = endpoint
 					? await callEndpoint(endpoint, 'run-now', { jobId: job.id })
@@ -426,7 +506,10 @@ export async function runScheduleCommand(
 				return
 			}
 			case 'remove': {
-				const job = findJob(paths, rest[0] ?? '')
+				const where = locate(rest[0] ?? '')
+				if (!where) return
+				const { job } = where
+				const paths = where.at.paths
 				const blockedRemoval = () => {
 					const state = readState(paths, job.id)
 					if (!state.activeRun && !state.deliveryPending?.length) return false

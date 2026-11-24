@@ -31,12 +31,13 @@ interface Measured {
 }
 
 /** Bytes under `root`, counting files and never following a link. A missing folder is 0. */
-export async function measureTree(root: string): Promise<Measured> {
+export async function measureTree(root: string, skip: readonly string[] = []): Promise<Measured> {
 	let bytes = 0
 	let seen = 0
 	const pending = [root]
 	while (pending.length > 0) {
 		const path = pending.pop() as string
+		if (skip.includes(path)) continue
 		let entry: Awaited<ReturnType<typeof lstat>>
 		try {
 			entry = await lstat(path)
@@ -62,6 +63,8 @@ interface PartDefinition {
 	note: string
 	clearable: boolean
 	roots: string[]
+	/** Folders under the roots that another part counts. */
+	skip?: string[]
 }
 
 export function storageParts(layout: StorageLayout): PartDefinition[] {
@@ -73,6 +76,15 @@ export function storageParts(layout: StorageLayout): PartDefinition[] {
 			note: 'Your conversations, Pals, projects, the trusted folders list and scheduled tasks. Never cleared here.',
 			clearable: false,
 			roots: [layout.namzuHome],
+			// A scheduler service keeps its own home under `services/`: counted as its own part.
+			skip: [join(layout.namzuHome, 'services')],
+		},
+		{
+			id: 'services',
+			label: 'Scheduler services',
+			note: 'The homes of the scheduler services: their jobs, history and conversations. Never cleared here.',
+			clearable: false,
+			roots: [join(layout.namzuHome, 'services')],
 		},
 		{
 			id: 'engine',
@@ -113,13 +125,16 @@ export async function measureStorage(layout: StorageLayout): Promise<StorageRepo
 		let bytes = 0
 		let partial = false
 		for (const root of definition.roots) {
-			const size = await measureTree(root)
+			const size = await measureTree(root, definition.skip)
 			bytes += size.bytes
 			partial ||= size.approximate
 		}
 		// The command line's home is inside the app's folder only when someone pointed it there; then
 		// the folder's own total already holds it.
-		if (definition.id !== 'conversations' || layout.namzuHome.startsWith(layout.userData))
+		if (
+			(definition.id !== 'conversations' && definition.id !== 'services') ||
+			layout.namzuHome.startsWith(layout.userData)
+		)
 			named += bytes
 		parts.push({
 			id: definition.id,
