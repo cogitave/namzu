@@ -104,7 +104,7 @@ import { ProviderSetup } from './ProviderSetup.js'
 import { TranscriptScreen } from './TranscriptScreen.js'
 import { backgroundRows, isRowRunning } from './background-view.js'
 import { DetailedScreen } from './fullscreen/DetailedScreen.js'
-import { createResizeSettler } from './resize-settle.js'
+import { CLEAR_SCREEN, createResizeSettler } from './resize-settle.js'
 import { transcriptPlainText } from './transcript-screen.js'
 
 import {
@@ -1850,7 +1850,14 @@ function AppBody({
 	// a drag keeps resizing, real frames keep being drawn: no black screen.
 	const [fullscreenBlank, setFullscreenBlank] = useState(false)
 	const fullscreenSizeRef = useRef(`${terminal.columns}x${terminal.rows}`)
-	const resizeSettler = useMemo(() => createResizeSettler(setFullscreenBlank), [])
+	const clearScreenRef = useRef<() => void>(() => {})
+	clearScreenRef.current = () => {
+		if (stdout.isTTY) writeStdout(CLEAR_SCREEN)
+	}
+	const resizeSettler = useMemo(
+		() => createResizeSettler(setFullscreenBlank, () => clearScreenRef.current()),
+		[],
+	)
 	useEffect(() => () => resizeSettler.dispose(), [resizeSettler])
 	useEffect(() => {
 		const size = `${terminal.columns}x${terminal.rows}`

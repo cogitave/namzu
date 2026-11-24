@@ -2,8 +2,8 @@
  * Resize settling for the fullscreen view.
  *
  * A resize leaves Ink's line diff out of step with the terminal, so one empty
- * frame is drawn once the size has stopped changing, and the next frame is
- * drawn whole. The empty frame is never drawn while resize events keep
+ * frame and a terminal clear are drawn once the size has stopped changing, and
+ * the next frame is drawn whole. The empty frame is never drawn while resize events keep
  * arriving: a window drag sends them faster than any fixed wait, and blanking
  * on every event would leave the screen black for the whole drag. During the
  * drag the renderer keeps drawing real frames at the new size.
@@ -21,8 +21,12 @@ export interface ResizeSettler {
 	dispose(): void
 }
 
+/** Clear the whole terminal and home the cursor. The alternate screen has no scrollback to lose. */
+export const CLEAR_SCREEN = '\x1b[2J\x1b[H'
+
 export function createResizeSettler(
 	setBlank: (blank: boolean) => void,
+	clearScreen: () => void,
 	timers: {
 		set: (fn: () => void, ms: number) => unknown
 		clear: (handle: unknown) => void
@@ -50,6 +54,10 @@ export function createResizeSettler(
 				handle = timers.set(() => {
 					handle = undefined
 					blank = false
+					// Ink's empty frame erases only the lines it knows of; rows drawn at older
+					// widths can remain. A real clear while the frame is empty leaves nothing
+					// behind, and the next frame is drawn whole onto it.
+					clearScreen()
 					setBlank(false)
 				}, FULLSCREEN_RESIZE_BLANK_MS)
 			}, FULLSCREEN_RESIZE_QUIET_MS)

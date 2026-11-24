@@ -2,7 +2,7 @@
 
 ## 2026-11-24
 
-- **Update** [Terminal design](cli/terminal-design.md): in the fullscreen view a window resize no longer blanks the screen for the length of a drag; the empty clean-slate frame is drawn once, after the size has been quiet for 250 ms, and real frames keep painting at the new size until then. `.changeset/resize-no-black-screen.md`.
+- **Update** [Terminal design](cli/terminal-design.md): in the fullscreen view a window resize no longer blanks the screen for the length of a drag; the empty clean-slate frame and a real terminal clear are drawn once, after the size has been quiet for 250 ms, so no rows from older widths stay behind, and real frames keep painting at the new size until then. `.changeset/resize-no-black-screen.md`.
 
 ## 2026-11-23
 
