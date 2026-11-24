@@ -2837,8 +2837,11 @@ function rowGlyph(row: SubagentActivity['transcript'][number]): string {
  * the row's own glyph (`rowGlyph`), so only the label goes here. Every other
  * row kind keeps its own text unchanged.
  */
-function transcriptRowText(row: SubagentActivity['transcript'][number]): string {
+export function transcriptRowText(row: SubagentActivity['transcript'][number]): string {
 	if (row.kind === 'tool' && row.detail) return `${row.text}\n${row.detail}`
+	// Mail between teammates reads as who wrote it and what, not as the frame the model was given.
+	if (row.kind === 'system' && row.direction === 'to-child' && row.mail?.body !== undefined)
+		return `${row.mail.kind === 'task' ? 'task from' : 'from'} ${row.mail.from}: ${row.mail.body}`
 	if (row.kind === 'system' && row.direction === 'to-child') return `queued from main: ${row.text}`
 	// A failure is its own section: a blank line, the heading, the whole message.
 	if (row.kind === 'system' && row.failure) return `\nError\n${row.text}`

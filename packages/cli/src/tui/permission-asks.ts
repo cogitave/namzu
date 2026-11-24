@@ -179,6 +179,22 @@ export class AskQueue<T> {
 		}
 	}
 
+	/**
+	 * Answer every question of the person's own conversation the same way and leave the ones other
+	 * agents asked open. A turn that ends or is stopped takes back its own questions; a teammate
+	 * or background agent that asked while it was running is still waiting on the person.
+	 */
+	closeOwn(decision: PermissionDecision): void {
+		const own = [...(this.#shown ? [this.#shown] : []), ...this.#waiting].filter(
+			(ask) => !ask.background,
+		)
+		if (own.length === this.open) {
+			this.closeAll(decision)
+			return
+		}
+		for (const ask of own) this.#close(ask, decision)
+	}
+
 	#close(ask: Ask<T>, decision: PermissionDecision): void {
 		if (this.#shown === ask) {
 			this.#settled += 1

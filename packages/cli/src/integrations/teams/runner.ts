@@ -758,7 +758,7 @@ export class TeamRunner {
 					tracked.team,
 					tracked.name,
 					`Task ${claim.task.id} (${JSON.stringify(subject)}) was assigned to you and is now in progress under your name. Read it with task_get, do it, and mark it completed with task_update when it is done. Then check task_list for the next ready one, lowest id first.`,
-					{ kind: 'task', from: TEAM_LEAD_NAME },
+					{ kind: 'task', from: TEAM_LEAD_NAME, body: subject },
 				)
 			} catch (error) {
 				tracked.failedLast = true

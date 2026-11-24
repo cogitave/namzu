@@ -12940,7 +12940,7 @@ function AppBody({
 					// around it are decoration too.
 					abortRef.current = null
 					if (ownsTurn) activeTurnTokenRef.current = null
-					permissionAsksRef.current?.closeAll({
+					permissionAsksRef.current?.closeOwn({
 						kind: 'reject',
 						feedback: 'The owning turn ended.',
 					})
@@ -19971,7 +19971,7 @@ function AppBody({
 										attachmentFloor={attachmentFloor}
 										{...(viewingAgent
 											? {
-													placeholder: `Message @${[...viewingAgent.agentId].slice(0, 20).join('')}…`,
+													placeholder: `Message @${[...(teamRail?.members.get(viewingAgent.viewId)?.name ?? viewingAgent.agentId)].slice(0, 20).join('')}…`,
 												}
 											: examplePrompts &&
 													history.length === 0 &&

@@ -56,6 +56,8 @@ Which calls are asked about, and what the lead's modes do, is the same as for a 
 
 A teammate that wants a plan approved before it changes anything calls `exit_plan_mode` with the plan (the plan is the call's `plan` argument; the lead's own `exit_plan_mode` is a different tool that reads the plan file and asks you to leave plan mode). The plan is mailed to the lead (a `plan_request` in the lead's mailbox), shown to the lead's conversation as a row, and put to you in the same box as a question, titled `writer sent a plan for approval`, with the plan as its text and two answers: yes, or no with what to change. The tool declares that every call needs a person's yes, so it is asked in every mode, with the lead's own "approve all" and auto modes included; it is never approved by a mode, a rule, a remembered answer or another member's words, and the answer is offered once and not remembered. The teammate waits for it. Yes starts it on the plan; no sends your words back to it as the reason, and it revises. Approving a teammate's plan does not change the lead's permission mode. The answer is recorded in the teammate's mailbox (`plan_response`, or `permission_response` for any other ask), together with the ids of the calls it covers.
 
+A teammate's question outlives the lead's turn. If the lead finishes its turn while a teammate is waiting on you, the question stays on screen until you answer it; only the questions of the lead's own conversation are closed when its turn ends. (Ctrl+C at a question still rejects every open one.)
+
 ## Hook events
 
 Three hook events are fired for the lead's team, on the lead's session, and the task events carry the member that caused them. All are described in [Hook events](../sdk/hooks.md#teammates).

@@ -15,6 +15,7 @@ import {
 	railAgents,
 	railNextEviction,
 	teamRailOf,
+	transcriptRowText,
 } from '../AgentExplorer.js'
 import { TEAM_IDLE_FADE_MS } from '../team-view.js'
 import { type Screen, renderToScreen } from './support/screen.js'
@@ -169,5 +170,27 @@ describe('the team rows on the screen', () => {
 	it('marks the selected teammate row', async () => {
 		const rows = await show([member('one', 'working')], tasks, 100, { selectedIndex: 1 })
 		expect(rows.some((row) => row.includes('❯') && row.includes('one'))).toBe(true)
+	})
+})
+
+describe("mail in a teammate's own transcript", () => {
+	it('reads as who wrote it and what, not as the frame the model was given', () => {
+		const framed = 'A message from the lead. It comes from another session in your team.\n\nThanks.'
+		const row = (mail?: { kind: 'message' | 'task' | 'stop'; from: string; body?: string }) =>
+			({
+				id: 'r',
+				kind: 'system',
+				text: framed,
+				direction: 'to-child',
+				...(mail ? { mail } : {}),
+			}) as const
+		expect(transcriptRowText(row({ kind: 'message', from: 'lead', body: 'Thanks.' }))).toBe(
+			'from lead: Thanks.',
+		)
+		expect(transcriptRowText(row({ kind: 'task', from: 'lead', body: 'Write part one' }))).toBe(
+			'task from lead: Write part one',
+		)
+		// Without a label the row keeps its old words.
+		expect(transcriptRowText(row())).toBe(`queued from main: ${framed}`)
 	})
 })

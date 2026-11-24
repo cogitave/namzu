@@ -149,6 +149,35 @@ describe('the questions waiting on the person', () => {
 		expect(asks.count()).toBeUndefined()
 	})
 
+	it("closes the questions of its own conversation and leaves another agent's open", async () => {
+		const { asks, shown } = queue()
+		const own = asks.enqueue('own-a')
+		const teammate = asks.enqueue('mate', { background: true })
+		const own2 = asks.enqueue('own-b')
+		let teammateSettled = false
+		void teammate.then(() => {
+			teammateSettled = true
+		})
+		asks.closeOwn(no)
+		expect(await Promise.all([own, own2])).toEqual([no, no])
+		await Promise.resolve()
+		expect(teammateSettled).toBe(false)
+		// The teammate's question takes the screen once the turn's own are gone.
+		expect(asks.shown).toBe('mate')
+		expect(asks.open).toBe(1)
+		expect(shown.at(-1)).toBe('mate')
+		asks.answer(yes)
+		expect(await teammate).toEqual(yes)
+	})
+
+	it('closes everything when no question belongs to another agent', async () => {
+		const { asks } = queue()
+		const all = [asks.enqueue('a'), asks.enqueue('b')]
+		asks.closeOwn(no)
+		expect(await Promise.all(all)).toEqual([no, no])
+		expect(asks.open).toBe(0)
+	})
+
 	it('ignores a signal that aborts after the question was answered', async () => {
 		const { asks } = queue()
 		const controller = new AbortController()

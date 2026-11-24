@@ -260,7 +260,7 @@ describe('what a screen reads of the members', () => {
 		await flush()
 		const task = t.fake.nextDelivery()
 		await t.tasks.create(taskParams('first'))
-		expect((await task).mail).toEqual({ kind: 'task', from: 'lead' })
+		expect((await task).mail).toEqual({ kind: 'task', from: 'lead', body: 'first' })
 		t.runner.turnEnded(t.team, 'alice', { state: 'completed' })
 		await flush()
 		await t.runner.send({ leadSessionId: LEAD, from: 'lead', to: 'alice', text: 'hello' })
