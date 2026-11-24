@@ -296,7 +296,8 @@ direction, ended by its input closing). Everything it answers is behind the
 platform-neutral `AccessibilityBackend` interface (`a11y/interface.ts`, its
 types free of Windows terms: a window is a `windowId` string, rectangles are
 virtual-desktop physical pixels), so a macOS or a Linux backend only adds a
-file that implements it. The Windows implementation is `WindowsA11yHost`.
+file that implements it. The Windows implementation is `WindowsA11yHost`; the
+macOS one is described in [The macOS helper](#the-macos-helper-windows-the-controls-tree-and-scroll).
 
 | Question | What answers it |
 | --- | --- |
@@ -417,6 +418,122 @@ the wait 350 to 370 ms sooner for a window that changes and takes the same
 time as before for one that does not. A change that already happened when the
 wait starts (the marker was taken before it) is counted: such a wait returns
 after 1 to 2 ms.
+
+## The macOS helper: windows, the controls tree and scroll
+
+On macOS the adapter alone offered a screenshot, a left click, typing and
+keys. With the helper it also offers `list_windows`, `focus_window`, window
+screenshots with window-scoped input, `ui_snapshot` and `ui_act` (press, set a
+value, toggle, select, expand and collapse), `wait_for`, `batch` and scroll,
+through the same SDK tool and the same diff-first behaviour as Windows: the
+SDK part does not know the platform.
+
+### What it is
+
+"Namzu Helper" is a small Swift app (`packages/computer-use/helper-macos/main.swift`,
+no Dock icon) that LaunchServices starts in the person's own desktop session
+with `open -g -a`. The CLI talks to it over a unix socket under the Namzu home
+(`<NAMZU_HOME>/computer-use/macos/h-<hash>.sock`, folder mode 0700, socket
+mode 0600, and the helper checks the peer's user id), one JSON object per line,
+the same protocol and the same client class the Windows helper uses
+(`MacA11yHost extends WindowsA11yHost`), so retries, limits, cancellation and
+restart behave the same. The helper reads the tree with batched attribute reads
+(`AXUIElementCopyMultipleAttributeValues`), acts with AX actions (`AXPress`,
+`AXValue`, `AXExpanded`, `AXSelected`, `AXScrollToVisible`, `AXShowMenu`,
+`AXRaise`), watches a window's process with an `AXObserver` (events, not
+sleeping, so `wait_for` and the settle after an input end when the window is
+quiet), captures one window by id with ScreenCaptureKit (`screencapture -l` is
+the fallback) and posts input to the window's process. It sets
+`AXManualAccessibility` (and `AXEnhancedUserInterface`) on Chromium and
+Electron applications before reading them, and never on any other.
+
+It is an app, and not a command, because macOS gives Accessibility and Screen
+Recording to a signed program: a command started from a terminal or from sshd
+borrows the terminal's or sshd's permission, which is usually none. Started by
+LaunchServices the helper is its own program, so the person turns two switches
+on once, for "Namzu Helper", and every later session works.
+
+### How it is built and shipped
+
+The source travels in the package and is compiled on the person's Mac the
+first time it is needed: `swiftc` (Xcode Command Line Tools), an `Info.plist`
+with `LSUIElement`, and an ad-hoc `codesign`, into
+`<NAMZU_HOME>/computer-use/macos/helper-<source digest>/Namzu Helper.app`. On
+an M-series Mac mini this takes 3 to 4 seconds. The choice against a prebuilt
+binary per architecture: a binary that keeps its permission across versions
+has to be signed with a paid developer identity, and one downloaded from the
+internet has to be notarised to open without a warning; compiling the source
+the person can read needs neither, never needs `sudo`, and costs only the
+Command Line Tools a developer's Mac already has. Without them the adapter
+works as before and says `xcode-select --install` once. A new source is a new
+directory and a new socket, so an old helper still running ends by itself
+after 15 quiet minutes and never answers a newer client.
+
+An ad-hoc signature names the permission by the code's hash, so a rebuilt
+helper (new source, a new package version that changes it) is a new program to
+macOS: the two switches are turned on again, and the old "Namzu Helper" row in
+System Settings can be removed with its minus button.
+
+### What the person must click
+
+Both switches are under System Settings > Privacy & Security, for "Namzu Helper":
+
+- **Accessibility** lets it read and act on other applications' controls and
+  post input to them. Without it `ui_snapshot` and `ui_act` fail with the
+  sentence "Accessibility is off for Namzu Helper. Open System Settings > …".
+- **Screen & System Audio Recording** lets it capture a window and read other
+  applications' window titles. Without it window screenshots fail the same
+  way and `list_windows` lists windows with empty titles.
+
+The adapter reports what is still off in `fallbackReason`
+(`Namzu Helper still needs permission: …`), and the helper answers
+`permissions` with the plain steps. The `selfcheck` command lists each of
+these as a check with a detail, and `selftest` has the helper read, press,
+toggle and set a value on a window of its own once permission is granted.
+
+### Differences from Windows
+
+- Window ids are `CGWindowID`s in decimal (`501`; the hex form is accepted).
+  Rectangles are physical pixels of the main display (points times its
+  backing scale), the capture's unit; a display with another scale is
+  reported with its own `scale` in `displays`.
+- Only windows on screen are listed; a minimised window or one on another
+  Space is not (the OS does not list it), so `minimized` is always false.
+- Controls are named by their role as AX reports it (`AXButton`, `AXTextField`);
+  `role` filters accept it with or without `AX`. A control's `ref` is built from
+  the control's identity inside the helper and stays the same across snapshots
+  while the control exists; once it is rebuilt the helper finds it again by its
+  `AXIdentifier`, or its role and name and place, and says `STALE_REF` or
+  `AMBIGUOUS_TARGET` when it cannot decide.
+- The window's tree ends with the application's menu bar. Menu bar items and
+  menu items show how many children they hide, and a snapshot with `root` set
+  to one opens its menu (`Format > Font`) without reading every menu of the
+  window.
+- Window input is posted to the window's process, not to the front: it needs no
+  raise, and the result says `delivered_unverified` (macOS does not tell the
+  sender whether an app used an event). `delivery_mode: foreground` raises the
+  window first.
+- A wait watches one process: an event from another window of the same program
+  also ends a wait, and `newWindows` lists the windows that appeared.
+- `ui_snapshot` of a Chromium or Electron window reads it with accessibility
+  switched on (the adapter asks the helper for this on every read); the
+  application then builds a larger tree for the rest of its life.
+
+### What it measured
+
+On a Mac mini (macOS 27.2, arm64, 1920 by 1080 at scale 1), the client side
+included, 20 runs, min / median / max in milliseconds:
+
+| Call | min / median / max |
+| --- | --- |
+| first use: compile, sign, launch, greeting | 4 145 (one run) |
+| a client connecting to a running helper | 1 |
+| `windows` (5 windows) | 1.10 / 1.36 / 23.55 |
+| `displays` | 0.17 / 0.20 / 1.03 |
+| `permissions` | 0.10 / 0.14 / 4.98 |
+
+The calls that need a permission (the tree, `act`, capture, input, waiting)
+were not measured on a real desktop until a person turns the two switches on.
 
 ## Windows driver session recovery
 
