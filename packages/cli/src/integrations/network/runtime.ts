@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { networkInterfaces } from 'node:os'
+import { hostname, networkInterfaces } from 'node:os'
 import { join } from 'node:path'
 import {
 	type AuditEntry,
@@ -23,6 +23,7 @@ import { runsUnderAny } from '../peers/process-ancestry.js'
 import { resolvePeerRuntime } from '../peers/runtime.js'
 import type { NetworkLink } from '../peers/runtime.js'
 import { restrictToOwner } from '../providers/credential-store.js'
+import { secretForHome } from './computer-secret.js'
 import {
 	type ControlServer,
 	PERSON_ONLY_OPS,
@@ -77,6 +78,8 @@ export interface NetworkRuntimeOptions {
 	readonly listenPort?: number
 	readonly browseMs?: number
 	readonly hostname?: string
+	/** The OS user's home directory; the default Namzu home is `<osHome>/.namzu`. Tests only. */
+	readonly osHome?: string
 	/** Which local network an address is on; tests pass one so no gateway is read. */
 	readonly networkIdentity?: (address: string) => Promise<string | undefined>
 }
@@ -235,8 +238,17 @@ export function createNetworkRuntime(options: NetworkRuntimeOptions): NetworkRun
 					interfaces: eligible,
 					clock,
 				})
+			const own = await secretForHome(options.home, env, hardenDirectory, options.osHome)
+			const hostName = (options.hostname ?? hostname()).split('.')[0] || 'this-machine'
+			// A service home is a machine of its own: say which one, so a roster of one computer reads.
+			const machineName =
+				options.settings.machineName ??
+				(own.serviceName ? `${hostName} (${own.serviceName})` : undefined)
 			service = createNamzuNetwork({
 				home: options.home,
+				...(own.source ? { machineSecret: own.source } : {}),
+				hardenDirectory,
+				sameComputer: () => options.settings.sameComputer !== false,
 				host,
 				interactive: true,
 				discovery,
@@ -248,7 +260,7 @@ export function createNetworkRuntime(options: NetworkRuntimeOptions): NetworkRun
 				...(options.networkIdentity ? { networkIdentity: options.networkIdentity } : {}),
 				...(options.allowLoopback ? { allowLoopback: true } : {}),
 				...(options.settings.enabled === true ? { anyNetwork: true } : {}),
-				...(options.settings.machineName ? { machineName: options.settings.machineName } : {}),
+				...(machineName ? { machineName } : {}),
 				...(options.listenPort !== undefined ? { listenPort: options.listenPort } : {}),
 				...(options.browseMs !== undefined ? { browseMs: options.browseMs } : {}),
 				...(options.hostname ? { hostname: options.hostname } : {}),
@@ -337,9 +349,11 @@ export function createNetworkRuntime(options: NetworkRuntimeOptions): NetworkRun
 		for (const joined of now.autoJoined)
 			if (!autoBefore.has(`${joined.machineId}:${joined.at}`) && before !== undefined)
 				options.notify(
-					joined.mode === 'always'
-						? `${joined.name} joined your Namzu network automatically (setting network.autoAdmit is always). Set it to trusted-networks to be asked again.`
-						: `${joined.name} joined your Namzu network automatically (trusted network ${joined.network}). \`namzu peers untrust ${joined.network}\` stops that.`,
+					joined.mode === 'same-computer'
+						? `${joined.name} joined from this computer.`
+						: joined.mode === 'always'
+							? `${joined.name} joined your Namzu network automatically (setting network.autoAdmit is always). Set it to trusted-networks to be asked again.`
+							: `${joined.name} joined your Namzu network automatically (trusted network ${joined.network}). \`namzu peers untrust ${joined.network}\` stops that.`,
 				)
 		const heldBefore = new Set(before?.held.map((h) => h.id))
 		for (const held of now.held)

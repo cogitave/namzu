@@ -20,6 +20,8 @@ export interface SessionRow {
 	readonly startedAt?: number
 	/** The machine a session runs on; undefined for this machine. */
 	readonly machine?: string
+	/** That machine is another Namzu home of this person on this computer. */
+	readonly sameComputer?: boolean
 	readonly self?: boolean
 	/** The permission mode in the words a person uses (`auto`, `plan`, ...). */
 	readonly mode?: string
@@ -30,6 +32,8 @@ export interface SessionRow {
 export interface MachineRow {
 	readonly name: string
 	readonly self: boolean
+	/** Another Namzu home of this person on this computer. */
+	readonly sameComputer?: boolean
 	readonly online: boolean
 	/** Epoch ms the machine was last heard from, when it is offline. */
 	readonly seenAt?: number
@@ -96,9 +100,13 @@ export function fit(lines: readonly string[], columns: number): string[] {
 	return out
 }
 
-/** The order of the list: this terminal, then this machine newest first (unknown last), then other machines by name. */
+/**
+ * The order of the list: this terminal, then this machine newest first (unknown last), then the other homes
+ * of this computer, then other machines, each group by machine name.
+ */
 export function sortSessions(rows: readonly SessionRow[]): SessionRow[] {
-	const rank = (row: SessionRow) => (row.self ? 0 : row.machine === undefined ? 1 : 2)
+	const rank = (row: SessionRow) =>
+		row.self ? 0 : row.machine === undefined ? 1 : row.sameComputer ? 2 : 3
 	return [...rows].sort((a, b) => {
 		if (rank(a) !== rank(b)) return rank(a) - rank(b)
 		if (a.machine !== undefined && b.machine !== undefined && a.machine !== b.machine)
@@ -133,6 +141,7 @@ export function rowsFromRoster(
 				state: machine.status === 'offline' ? 'offline' : session.state,
 				...(startedAt !== undefined ? { startedAt } : {}),
 				...(here ? {} : { machine: machine.name }),
+				...(!here && machine.sameComputer ? { sameComputer: true } : {}),
 				self: here && session.ref === options.selfRef,
 				mode: permissionModeWord(session.mode),
 				...(session.role ? { role: session.role } : {}),
@@ -144,13 +153,19 @@ export function rowsFromRoster(
 }
 
 export function machinesFromRoster(view: RosterView): MachineRow[] {
-	return view.machines.map((machine) => ({
-		name: machine.name,
-		self: machine.status === 'self',
-		online: machine.status !== 'offline',
-		...(machine.seenAt ? { seenAt: machine.seenAt } : {}),
-		...(machine.role ? { role: machine.role } : {}),
-	}))
+	// This machine first, then the other homes of this computer, then the machines elsewhere.
+	const rank = (machine: RosterView['machines'][number]) =>
+		machine.status === 'self' ? 0 : machine.sameComputer ? 1 : 2
+	return [...view.machines]
+		.sort((a, b) => rank(a) - rank(b))
+		.map((machine) => ({
+			name: machine.name,
+			self: machine.status === 'self',
+			...(machine.status !== 'self' && machine.sameComputer ? { sameComputer: true } : {}),
+			online: machine.status !== 'offline',
+			...(machine.seenAt ? { seenAt: machine.seenAt } : {}),
+			...(machine.role ? { role: machine.role } : {}),
+		}))
 }
 
 function machinesSection(machines: readonly MachineRow[], now: number): string[] {
@@ -160,7 +175,8 @@ function machinesSection(machines: readonly MachineRow[], now: number): string[]
 	for (const machine of machines) {
 		const fields = [machine.online ? '[online]' : '[offline]', machine.name]
 		if (machine.self) fields.push('this machine')
-		else if (!machine.online && machine.seenAt)
+		else if (machine.sameComputer) fields.push('this computer')
+		if (!machine.self && !machine.online && machine.seenAt)
 			fields.push(`last seen ${ageWord(Math.max(0, now - machine.seenAt))} ago`)
 		if (machine.role) fields.push(`role: ${cutRole(machine.role.replace(/\s+/g, ' ').trim())}`)
 		lines.push(`  ${fields.join(SEP)}`)
@@ -190,7 +206,8 @@ export function sessionListLines(
 			const name = (counts.get(label) ?? 0) > 1 ? `${label} [${row.ref}]` : label
 			const where: string[] = []
 			if (row.self) where.push('this terminal')
-			if (row.machine !== undefined) where.push(row.machine)
+			if (row.machine !== undefined)
+				where.push(row.sameComputer ? `${row.machine} (this computer)` : row.machine)
 			else if (row.startedAt !== undefined)
 				where.push(`started ${ageWord(Math.max(0, now - row.startedAt))} ago`)
 			const extras: string[] = []

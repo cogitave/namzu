@@ -28,6 +28,25 @@ afterEach(() => {
 	removeTempDir(system)
 })
 
+/** The built-ins that ship, in the order the manifest lists them. */
+const ALL_BUILTINS = [
+	'batch',
+	'browser-automation',
+	'commit',
+	'debug',
+	'document',
+	'fewer-permission-prompts',
+	'pr',
+	'review-changes',
+	'run',
+	'run-skill-generator',
+	'schedule-task',
+	'security-review',
+	'simplify',
+	'skill-creator',
+	'update-config',
+]
+
 function skillAt(skillsDir: string, name: string, description: string, extra = ''): void {
 	mkdirSync(join(skillsDir, name), { recursive: true })
 	writeFileSync(
@@ -163,7 +182,7 @@ describe('the session skill catalog', () => {
 		expect((small.manifest ?? []).length).toBeLessThan(described.length)
 	})
 
-	it('offers the shipped built-ins, the two review skills included, in full on a 32k window', async () => {
+	it('offers the shipped built-ins, the run skills included, in full on a 40k window', async () => {
 		const real = await createSessionSkillCatalog({
 			cwd,
 			home,
@@ -176,14 +195,7 @@ describe('the session skill catalog', () => {
 			toolNames: ['browser', 'schedule'],
 			contextWindowTokens: 40_000,
 		})
-		expect(withTools.manifest?.map((s) => s.metadata.name)).toEqual([
-			'browser-automation',
-			'document',
-			'review-changes',
-			'schedule-task',
-			'skill-creator',
-			'verify-change',
-		])
+		expect(withTools.manifest?.map((s) => s.metadata.name)).toEqual(ALL_BUILTINS)
 		expect(withTools.overflow).toEqual([])
 		expect(withTools.overflowNote).toBeNull()
 
@@ -192,17 +204,20 @@ describe('the session skill catalog', () => {
 			toolNames: [],
 			contextWindowTokens: 40_000,
 		})
-		expect(bare.manifest?.map((s) => s.metadata.name)).toEqual([
-			'document',
-			'review-changes',
-			'skill-creator',
-			'verify-change',
-		])
+		expect(bare.manifest?.map((s) => s.metadata.name)).toEqual(
+			ALL_BUILTINS.filter((name) => name !== 'browser-automation' && name !== 'schedule-task'),
+		)
 		const loaded = await callSkillTool(bare.registry!, {
-			name: 'verify-change',
+			name: 'run',
 		})
 		expect(loaded.success).toBe(true)
-		expect(loaded.output).toContain('Proving a change works')
+		expect(loaded.output).toContain('Running the app')
+
+		// A model that asks for the retired built-in by name is told what replaced it.
+		const retired = await callSkillTool(bare.registry!, { name: 'verify-change' })
+		expect(retired.success).toBe(true)
+		expect(retired.output).toContain('replaced by /run')
+		expect(bare.registry!.names()).not.toContain('verify-change')
 	})
 
 	it('describes the highest-precedence tiers first when the budget runs out', async () => {

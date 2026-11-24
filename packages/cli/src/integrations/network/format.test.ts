@@ -663,3 +663,46 @@ describe('the session list', () => {
 		expect(rows[1]).toMatchObject({ named: true, mode: 'auto', state: 'running' })
 	})
 })
+
+describe('the same computer on the lists', () => {
+	it("puts this computer's other homes right after this machine, marked, and says so in JSON", () => {
+		const base = fixture()
+		const view: RosterView = {
+			machines: [
+				base.machines[0] as RosterView['machines'][number],
+				base.machines[1] as RosterView['machines'][number],
+				{
+					machineId: 'c'.repeat(64),
+					name: 'studio-air (autodev)',
+					status: 'online',
+					seenAt: NOW,
+					sameComputer: true,
+					sessions: [
+						{
+							ref: 'cccccc',
+							name: 'watcher',
+							folder: 'namzu',
+							state: 'idle',
+							mode: 'default',
+							acceptsMessages: true,
+						} as RosterView['machines'][number]['sessions'][number],
+					],
+				},
+			],
+		}
+		const lines = renderRosterList(view, { now: NOW }).split('\n')
+		const machines = lines.slice(lines.indexOf('Machines (3):') + 1).filter((l) => l.trim())
+		expect(machines).toEqual([
+			'  [online]  ·  studio-air  ·  this machine',
+			'  [online]  ·  studio-air (autodev)  ·  this computer',
+			'  [online]  ·  desk-linux',
+		])
+		const watcher = lines.find((l) => l.includes('watcher'))
+		expect(watcher).toBe('  [idle]  ·  watcher  ·  studio-air (autodev) (this computer)')
+		// The other homes of this computer come before the machines elsewhere.
+		const desk = lines.findIndex((l) => l.includes('desk-linux') && l.startsWith('  ['))
+		expect(lines.indexOf(watcher as string)).toBeLessThan(desk)
+		expect(rosterJson(view).find((m) => m.name === 'studio-air (autodev)')?.sameComputer).toBe(true)
+		expect(rosterJson(view).find((m) => m.name === 'desk-linux')?.sameComputer).toBeUndefined()
+	})
+})

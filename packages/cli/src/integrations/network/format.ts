@@ -78,6 +78,8 @@ export interface RosterJsonMachine {
 	readonly id: string
 	readonly status: string
 	readonly role?: string
+	/** Another home of the same person on this computer. */
+	readonly sameComputer?: boolean
 	readonly sessions: readonly {
 		readonly name: string
 		readonly ref: string
@@ -100,6 +102,7 @@ export function rosterJson(
 		id: machine.machineId.slice(0, 12),
 		status: machine.status,
 		...(machine.role ? { role: machine.role } : {}),
+		...(machine.sameComputer ? { sameComputer: true } : {}),
 		sessions: machine.sessions.map((session) => ({
 			name: session.name,
 			ref: session.ref,
