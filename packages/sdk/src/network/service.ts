@@ -27,6 +27,13 @@ import { z } from 'zod'
 import { type AuditEntry, type AuditSink, createFileAuditSink, textHash } from './audit.js'
 import { type NetworkClock, systemClock } from './clock.js'
 import {
+	type ComputerSecretSource,
+	computerJoinProof,
+	ensureComputerSecret,
+	readComputerSecret,
+	verifyComputerJoinProof,
+} from './computer.js'
+import {
 	type DiscoveredEndpoint,
 	type ListenAddress,
 	type NetworkDiscovery,
@@ -181,12 +188,12 @@ export type NetworkEvent =
 	  }
 	| { readonly type: 'join-request'; readonly request: PendingJoin }
 	| {
-			/** A join was admitted without asking, on a trusted network or because `network.autoAdmit` is `always`. */
+			/** A join was admitted without asking: a trusted network, `network.autoAdmit` `always`, or another home of the same person on this computer (`same-computer`, proven by the computer secret). */
 			readonly type: 'join-auto'
 			readonly requestId: string
 			readonly name: string
 			readonly machineId: string
-			readonly mode: 'trusted-network' | 'always'
+			readonly mode: 'trusted-network' | 'always' | 'same-computer'
 			/** The name of the trusted network, when that is why. */
 			readonly network?: string
 			readonly at: number
@@ -259,6 +266,15 @@ export interface NetworkServiceOptions {
 	 * network, or never. Read at each request.
 	 */
 	readonly autoAdmit?: () => AutoAdmitSetting
+	/**
+	 * The computer secret this home may use (the host decides; see `resolveComputerSecret`). Absent: this home
+	 * never proves or accepts a same-computer join and asks like any other machine.
+	 */
+	readonly machineSecret?: ComputerSecretSource
+	/** Whether a proof of the same computer admits without asking. Read at each request; default true. */
+	readonly sameComputer?: () => boolean
+	/** Tighten a directory the service creates (the CLI's also restricts a Windows ACL). */
+	readonly hardenDirectory?: (path: string) => void
 	/** Which local network an address is on (see `fingerprint.ts`); undefined when unknown. Tests inject one. */
 	readonly networkIdentity?: (address: string) => Promise<string | undefined>
 	readonly audit?: AuditSink
@@ -307,6 +323,8 @@ const PeerEntrySchema = z
 const AdmittedFrameSchema = z
 	.object({
 		status: z.literal('admitted'),
+		/** Only when the member admitted this machine on the computer proof. */
+		sameComputer: z.literal(true).optional(),
 		netId: z.string().length(16).optional(),
 		admissions: z.array(AdmissionSchema).max(MAX_MEMBERS * 2),
 		revocations: z.array(RevocationSchema).max(MAX_MEMBERS * 2),
@@ -483,6 +501,11 @@ export function createNamzuNetwork(options: NetworkServiceOptions): NetworkServi
 	const peerState = new Map<string, PeerState>()
 	const nearby = new Map<string, DiscoveredEndpoint[]>()
 	const pendingConns = new Map<string, ServerContext>()
+	/** Requests admitted by the computer proof: their `admitted` frame says so. */
+	const proven = new Set<string>()
+	const unavailableSeen = new Set<string>()
+	/** Machines of this computer, by proof, in either direction. */
+	let sameComputerIds: Set<string> | undefined
 	/** Cancels for the timers of requests whose connection dropped. */
 	const orphanTimers = new Map<string, () => void>()
 	/** What a waiting request was made of, so the same machine asking again with the same nonce gets the same code. */
@@ -710,6 +733,73 @@ export function createNamzuNetwork(options: NetworkServiceOptions): NetworkServi
 			machine = { v: 1, machineId: key.machineId, name, createdAt: clock.now() }
 		}
 		await store.writeMachine(machine)
+	}
+
+	// ─── the computer secret ───────────────────────────────────────────────
+
+	/** The secret, read afresh each time (a rotation or a loosened file takes effect at once). Never repaired. */
+	async function computerSecret(): Promise<Buffer | undefined> {
+		const source = options.machineSecret
+		if (!source) return undefined
+		const read = await readComputerSecret(source).catch(
+			() => ({ status: 'unsafe', reason: 'the secret cannot be read' }) as const,
+		)
+		if (read.status === 'ok') return read.secret
+		if (read.status === 'unsafe' && !unavailableSeen.has(read.reason)) {
+			unavailableSeen.add(read.reason)
+			logAudit({ event: 'same_computer_unavailable', reason: read.reason })
+		}
+		return undefined
+	}
+
+	async function ensureSecret(): Promise<void> {
+		const source = options.machineSecret
+		if (!source) return
+		try {
+			await ensureComputerSecret(source, options.hardenDirectory)
+		} catch {
+			// no secret: this home asks like any other
+		}
+	}
+
+	async function sameComputerSet(): Promise<Set<string>> {
+		if (!sameComputerIds) {
+			const r = await store.readSameComputer().catch(() => undefined)
+			sameComputerIds = new Set(r?.status === 'ok' ? r.value.machines : [])
+		}
+		return sameComputerIds
+	}
+
+	async function rememberSameComputer(machineId: string): Promise<void> {
+		const set = await sameComputerSet()
+		if (set.has(machineId)) return
+		set.add(machineId)
+		await store.writeSameComputer({ v: 1, machines: [...set].slice(-64) }).catch(() => undefined)
+	}
+
+	/** Whether this request proves the joiner holds the computer secret, and the person allows acting on it. */
+	async function provesSameComputer(
+		request: Extract<NetRequest, { op: 'join_request' }>,
+		joinerId: string,
+	): Promise<boolean> {
+		if (request.computerProof === undefined) return false
+		if (options.sameComputer?.() === false) return false
+		if ((options.autoAdmit?.() ?? 'trusted-networks') === 'never') return false
+		const secret = await computerSecret()
+		if (!secret) return false
+		const ok = verifyComputerJoinProof(
+			secret,
+			request.computerProof,
+			joinerId,
+			selfId(),
+			request.nonce,
+		)
+		if (!ok)
+			logAudit({
+				event: 'same_computer_mismatch',
+				machine: { id12: shortMachineId(joinerId), name: sanitizeName(request.machineName) },
+			})
+		return ok
 	}
 
 	function defaultName(): string {
@@ -1195,6 +1285,7 @@ export function createNamzuNetwork(options: NetworkServiceOptions): NetworkServi
 			return
 		}
 		await loadIdentity()
+		await ensureSecret()
 		await loadNetwork()
 		await startListeners(list)
 		logAudit({ event: 'network_on' })
@@ -1341,13 +1432,38 @@ export function createNamzuNetwork(options: NetworkServiceOptions): NetworkServi
 			}
 			joinClient = client
 			joinEndpoint = endpoint
-			const first = await client.request({
-				protocol: NET_PROTOCOL,
-				op: 'join_request',
-				machineName: selfName(),
-				publicKey,
-				nonce,
-			})
+			const secret = await computerSecret()
+			const ask = (conn: NetClient, withProof: boolean) =>
+				conn.request({
+					protocol: NET_PROTOCOL,
+					op: 'join_request',
+					machineName: selfName(),
+					publicKey,
+					nonce,
+					...(withProof && secret
+						? {
+								computerProof: computerJoinProof(
+									secret,
+									key?.machineId as string,
+									conn.peer.machineId,
+									nonce,
+								),
+							}
+						: {}),
+				})
+			let first = await ask(client, true)
+			if (
+				secret &&
+				typeof first === 'object' &&
+				first !== null &&
+				(first as { error?: unknown }).error === 'bad_request'
+			) {
+				// An older member does not know the proof field and closed on it: ask again plainly.
+				client.close()
+				client = await dialNet({ identity: tls, host: endpoint.host, port: endpoint.port, clock })
+				joinClient = client
+				first = await ask(client, false)
+			}
 			const pending = PendingFrameSchema.safeParse(first)
 			if (!pending.success) {
 				const reason = EndFrameSchema.safeParse(first)
@@ -1415,6 +1531,8 @@ export function createNamzuNetwork(options: NetworkServiceOptions): NetworkServi
 				})
 			}
 			remember(client.peer.machineId, endpoint)
+			if (admitted.data.sameComputer === true && secret)
+				await rememberSameComputer(client.peer.machineId)
 			setState('ready')
 			emit({ type: 'joined', netId: netId as string, members: verdict.members.size })
 			await advertise()
@@ -1587,22 +1705,31 @@ export function createNamzuNetwork(options: NetworkServiceOptions): NetworkServi
 		}
 		// A different ask is a new request and meets the same one-a-minute limit as any address; check
 		// before the old one is retired, so a refused ask leaves it standing.
-		if (joiners.tooSoon(ctx.sourceAddress))
+		// The proof is the only evidence of the same computer: no address, name or hint is read.
+		const same = await provesSameComputer(request, joinerId).catch(() => false)
+		if (!same && joiners.tooSoon(ctx.sourceAddress))
 			return { status: 'refused', reason: 'Asked again too soon.' }
 		if (prior) retireJoin(prior)
-		const auto = await autoAdmitMode(ctx.sourceAddress).catch(() => undefined)
+		const auto:
+			| { mode: 'trusted-network' | 'always' | 'same-computer'; network?: string }
+			| undefined = same
+			? { mode: 'same-computer' }
+			: await autoAdmitMode(ctx.sourceAddress).catch(() => undefined)
 		const nonceM = randomBytes(16).toString('base64')
 		const code = joinCode(joinerId, selfId(), request.nonce, nonceM)
 		const requestId = randomUUID()
-		const added = joiners.addLocal({
-			requestId,
-			name: sanitizeName(request.machineName),
-			code,
-			sourceAddr: ctx.sourceAddress,
-			viaMachineId: selfId(),
-			joinerMachineId: joinerId,
-			joinerPublicKey: request.publicKey,
-		})
+		const added = joiners.addLocal(
+			{
+				requestId,
+				name: sanitizeName(request.machineName),
+				code,
+				sourceAddr: ctx.sourceAddress,
+				viaMachineId: selfId(),
+				joinerMachineId: joinerId,
+				joinerPublicKey: request.publicKey,
+			},
+			same,
+		)
 		if (!added.ok)
 			return {
 				status: 'refused',
@@ -1623,6 +1750,7 @@ export function createNamzuNetwork(options: NetworkServiceOptions): NetworkServi
 		})
 		if (auto) {
 			try {
+				if (auto.mode === 'same-computer') proven.add(requestId)
 				// Admitted without asking: nobody is shown a request, so the other members are not told of one.
 				emit({
 					type: 'join-auto',
@@ -1636,12 +1764,15 @@ export function createNamzuNetwork(options: NetworkServiceOptions): NetworkServi
 				await decideJoin(
 					requestId,
 					'allow',
-					auto.mode === 'always'
-						? 'automatically (network.autoAdmit is always)'
-						: `automatically (trusted network ${auto.network})`,
+					auto.mode === 'same-computer'
+						? 'automatically (same computer)'
+						: auto.mode === 'always'
+							? 'automatically (network.autoAdmit is always)'
+							: `automatically (trusted network ${auto.network})`,
 				)
 				return undefined
 			} catch {
+				proven.delete(requestId)
 				// fall through: the request waits for a person like any other
 			}
 		}
@@ -1751,7 +1882,13 @@ export function createNamzuNetwork(options: NetworkServiceOptions): NetworkServi
 				conn?.close()
 				return { ok: false }
 			}
-			conn?.write(admittedFrame())
+			if (proven.has(request.requestId)) await rememberSameComputer(a.machineId)
+			conn?.write(
+				proven.has(request.requestId)
+					? { ...admittedFrame(), sameComputer: true }
+					: admittedFrame(),
+			)
+			proven.delete(request.requestId)
 			logAudit({
 				event: 'join_allowed',
 				machine: { id12: shortMachineId(a.machineId), name: entry.name },
@@ -2258,6 +2395,8 @@ export function createNamzuNetwork(options: NetworkServiceOptions): NetworkServi
 		}
 		const now = clock.now()
 		const own = buildSelfRoster()
+		// A live fact: remembered machines count only while this home can still read the secret.
+		const sameSet = (await computerSecret()) ? await sameComputerSet() : new Set<string>()
 		const machines: RosterMachineView[] = [
 			{
 				machineId: selfId(),
@@ -2279,6 +2418,7 @@ export function createNamzuNetwork(options: NetworkServiceOptions): NetworkServi
 				status: online || (opts.refresh === false && p?.online === true) ? 'online' : 'offline',
 				seenAt: p?.seenAt,
 				role: p?.role,
+				...(sameSet.has(id) ? { sameComputer: true } : {}),
 				sessions: p?.sessions
 					? online
 						? p.sessions
