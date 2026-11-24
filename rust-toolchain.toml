@@ -1,7 +1,7 @@
-# `stable` rather than a number: CI and a developer machine both resolve it to
-# whatever stable they have (the lane that added this file ran on 1.99.1).
+# An exact version, so a new stable release cannot turn clippy red on an
+# unchanged tree. Raise it deliberately, in its own change.
 # `rust-version` in Cargo.toml is the oldest compiler the code is written for.
 [toolchain]
-channel = "stable"
+channel = "1.99.1"
 components = ["rustfmt", "clippy"]
 profile = "minimal"

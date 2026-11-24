@@ -14,8 +14,8 @@ use std::sync::Arc;
 use windows::Win32::System::Com::{
     CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED, CoCreateInstance, CoInitializeEx, SAFEARRAY,
 };
-use windows::Win32::System::Ole::{SafeArrayAccessData, SafeArrayDestroy, SafeArrayUnaccessData};
-use windows::Win32::System::Variant::VARIANT;
+use windows::Win32::System::Ole::{SafeArrayAccessData, SafeArrayUnaccessData};
+use windows::Win32::System::Variant::{VARENUM, VARIANT, VT_ARRAY, VT_BOOL, VT_I4};
 use windows::Win32::UI::Accessibility::{
     CUIAutomation, ExpandCollapseState_Collapsed, ExpandCollapseState_Expanded,
     ExpandCollapseState_PartiallyExpanded, IUIAutomation, IUIAutomationCacheRequest,
@@ -161,7 +161,10 @@ fn available(el: &IUIAutomationElement, property: UIA_PROPERTY_ID) -> bool {
     unsafe {
         match el.GetCachedPropertyValue(property) {
             // VT_BOOL true is -1; any non-zero short reads as true.
-            Ok(v) => v.Anonymous.Anonymous.Anonymous.boolVal.0 != 0,
+            Ok(v) if v.vt() == VT_BOOL => v.Anonymous.Anonymous.Anonymous.boolVal.0 != 0,
+            // Not a boolean (a property the element does not support comes back
+            // as a placeholder object): not available.
+            Ok(_) => false,
             Err(_) => false,
         }
     }
@@ -190,12 +193,17 @@ pub fn runtime_id_of(el: &IUIAutomationElement) -> Vec<i32> {
         let Ok(variant) = el.GetCachedPropertyValue(UIA_RuntimeIdPropertyId) else {
             return Vec::new();
         };
+        // An unsupported property is a placeholder object, not an array.
+        if variant.vt() != VARENUM(VT_ARRAY.0 | VT_I4.0) {
+            return Vec::new();
+        }
         let array: *mut SAFEARRAY = variant.Anonymous.Anonymous.Anonymous.parray;
         read_ints(array)
     }
 }
 
-/// Copies a one-dimensional array of 32-bit integers and frees the array.
+/// Copies a one-dimensional array of 32-bit integers. The array stays owned by
+/// the VARIANT it came in, which frees it when dropped.
 unsafe fn read_ints(array: *mut SAFEARRAY) -> Vec<i32> {
     if array.is_null() {
         return Vec::new();
@@ -208,7 +216,6 @@ unsafe fn read_ints(array: *mut SAFEARRAY) -> Vec<i32> {
             out.extend_from_slice(std::slice::from_raw_parts(data as *const i32, count));
             let _ = SafeArrayUnaccessData(array);
         }
-        let _ = SafeArrayDestroy(array);
     }
     out
 }

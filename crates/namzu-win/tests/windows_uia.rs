@@ -304,6 +304,7 @@ fn the_helper_reads_a_real_window() {
     assert_eq!(fp.role, "Button");
     assert_eq!(fp.name_hash, name_hash(BUTTON));
     assert!(fp.process_start > 0);
+    assert!(!fp.runtime_id.is_empty(), "the control has a runtime id");
 
     // an identity of a read that is not the latest is refused
     let stale = h

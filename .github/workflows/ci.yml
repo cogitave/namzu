@@ -589,7 +589,7 @@ jobs:
           fetch-depth: 1
 
       # The channel and components come from rust-toolchain.toml.
-      - run: rustup toolchain install stable --profile minimal --component rustfmt --component clippy
+      - run: rustup toolchain install 1.99.1 --profile minimal --component rustfmt --component clippy
 
       - name: Rust format check
         run: cargo fmt --all --check
@@ -619,7 +619,7 @@ jobs:
         with:
           fetch-depth: 1
 
-      - run: rustup toolchain install stable --profile minimal --component rustfmt --component clippy --target ${{ matrix.target }}
+      - run: rustup toolchain install 1.99.1 --profile minimal --component rustfmt --component clippy --target ${{ matrix.target }}
 
       - name: Build the Windows helper
         run: cargo build --release --locked --target ${{ matrix.target }} -p namzu-win

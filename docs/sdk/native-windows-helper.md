@@ -40,12 +40,12 @@ PowerShell host, and no PowerShell is started for the accessibility reads.
 
 | Path | What it is |
 |---|---|
-| `Cargo.toml`, `rust-toolchain.toml` | The Rust workspace at the repository root (the pnpm workspace does not see it). `rust-toolchain.toml` says `stable` with `rustfmt` and `clippy`; `rust-version` in `Cargo.toml` is the oldest compiler the code is written for. |
+| `Cargo.toml`, `rust-toolchain.toml` | The Rust workspace at the repository root (the pnpm workspace does not see it). `rust-toolchain.toml` pins the exact toolchain `1.99.1` (CI installs the same one) with `rustfmt` and `clippy`; `rust-version` in `Cargo.toml` is the oldest compiler the code is written for. |
 | `crates/namzu-win-core` | Pure Rust that builds and tests on every platform: the codec, the ref table, fingerprints, key names, DPI math, window ids, the walk that turns controls into a snapshot (`tree`) and the wait logic (`events`). |
 | `crates/namzu-win` | The executable. Its loop, the `Backend` and `Responder` that let a slow op answer later, and the executor with its watchdog (`exec`) are platform independent. `src/win/` holds the Windows calls and compiles only on Windows. |
 | `conformance/namzu-win/*.json` | The vectors both the Rust and the TypeScript side are held to. |
 | `packages/computer-use/src/native/protocol.ts` | The TypeScript codec: `encodeRequest`, `decodeReply`, `formatRef`, `parseRef`, `nameHash`. |
-| `packages/computer-use/src/native/process.ts` | `NativeWinProcess`: starts the executable (no shell, no window), greets it, matches replies to requests by id, cancels at the helper on a timeout or an abort, starts it again (up to three times) when it ends. |
+| `packages/computer-use/src/native/process.ts` | `NativeWinProcess`: starts the executable (no shell, no window), greets it, matches replies to requests by id, cancels at the helper on a timeout or an abort, starts it again (up to three times, counted afresh after a run of a minute or more) when it ends. The shipped helper aborts on a panic, so a panic ends it and this restart is the recovery. |
 | `packages/computer-use/src/native/a11y.ts` | `NativeA11yBackend`: the `AccessibilityBackend` interface answered by the helper. |
 
 ## The protocol: `namzu-win/1`

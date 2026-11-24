@@ -140,7 +140,9 @@ fn worker(shared: &Arc<Shared>, generation: u64) {
                 };
             }
         };
-        // A panic in one task must not take the thread, or the queue, with it.
+        // Under the test profile a panic in one task is caught and the queue goes on.
+        // The shipped binary aborts on a panic (see the release profile), so there a
+        // panic ends the helper and the TypeScript side starts it again.
         let _ = catch_unwind(AssertUnwindSafe(task));
         let mut st = locked(shared);
         if st.generation != generation {

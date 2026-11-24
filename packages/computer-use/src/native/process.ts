@@ -43,6 +43,8 @@ export interface NativeWinProcessOptions {
 	readonly startTimeoutMs?: number
 	/** How many times a helper that ended mid-session is started again. Default 3. */
 	readonly maxRestarts?: number
+	/** A helper that ran this long before ending was healthy: the restart count starts again. Default 60 000. */
+	readonly stableAfterMs?: number
 }
 
 /** The client gives up on a reply this long after the helper should have sent it, ms. */
@@ -268,6 +270,7 @@ export class NativeWinProcess {
 			this.channel = channel
 			this.runs += 1
 			let greeted = false
+			let greetedAt = 0
 			const fail = (): void => {
 				this.dead = true
 				this.up = false
@@ -287,6 +290,9 @@ export class NativeWinProcess {
 				this.failAll(new A11yError('helper_exited', 'the native helper ended'))
 				// A helper that was running and ended is started again by the next question,
 				// a few times; one that never came up stays off.
+				// A long, healthy run does not count against the few restarts a session gets.
+				if (greeted && Date.now() - greetedAt >= (this.options.stableAfterMs ?? 60_000))
+					this.restarts = 0
 				if (greeted && !this.closed && this.restarts < (this.options.maxRestarts ?? 3)) {
 					this.restarts++
 					this.channel = undefined
@@ -309,6 +315,7 @@ export class NativeWinProcess {
 					}
 					this.greeting = reply.body
 					this.up = true
+					greetedAt = Date.now()
 					resolve(true)
 				} catch {
 					fail()

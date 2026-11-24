@@ -231,7 +231,7 @@ jobs:
       # helper is not here: it needs a Windows runner, so it is exempted by name
       # in check-workflow-gate-parity.mjs, and nothing this workflow publishes
       # contains the helper yet.
-      - run: rustup toolchain install stable --profile minimal --component rustfmt --component clippy
+      - run: rustup toolchain install 1.99.1 --profile minimal --component rustfmt --component clippy
         if: steps.revalidation.outputs.skip != 'true'
 
       - name: Rust format check

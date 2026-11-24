@@ -83,6 +83,7 @@ function backend(
 	options: {
 		maxRestarts?: number
 		startTimeoutMs?: number
+		stableAfterMs?: number
 		configure?: (helper: FakeHelper) => void
 	} = {},
 ) {
@@ -264,6 +265,18 @@ describe('the native helper process', () => {
 		expect(await client.ready()).toBe(false)
 		expect(helpers).toHaveLength(3)
 		await expect(client.listDisplays()).rejects.toMatchObject({ code: 'unavailable' })
+	})
+
+	it('counts only the runs that ended soon, not one that ran for a long time', async () => {
+		vi.useFakeTimers()
+		const { client, helpers } = backend({ maxRestarts: 1, stableAfterMs: 1_000 })
+		for (let run = 0; run < 4; run++) {
+			expect(await client.ready()).toBe(true)
+			await vi.advanceTimersByTimeAsync(2_000)
+			helpers[run]?.exits()
+		}
+		expect(await client.ready()).toBe(true)
+		expect(helpers).toHaveLength(5)
 	})
 
 	it('says quit and lets go when closed', async () => {
