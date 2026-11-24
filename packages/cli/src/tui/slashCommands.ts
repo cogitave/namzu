@@ -85,6 +85,7 @@ import {
 } from '../permissions/mode.js'
 import { sandboxRunsShellUnasked } from '../permissions/sandbox-shell.js'
 import { readChangelog, renderReleaseNotes } from '../release-notes.js'
+import { retiredSkillNotice } from '../skills/retired.js'
 import { SKILL_NAME_MAX_CHARS, SKILL_NAME_PATTERN } from '../skills/save.js'
 import { ARGUMENTS_TOKEN, type UserCommand, expandCommand } from '../user-commands/store.js'
 import { timeLeft } from './background-view.js'
@@ -902,6 +903,8 @@ function commandHelp(ctx: SlashContext, args: readonly string[]): SlashAction {
 			].join('\n'),
 		}
 	}
+	const retiredName = retiredSkillNotice(name)
+	if (retiredName) return { kind: 'message', role: 'system', content: retiredName }
 	return {
 		kind: 'message',
 		role: 'system',
@@ -1912,7 +1915,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 		action: () => ({ kind: 'copy' }),
 	},
 	{
-		name: 'run',
+		name: 'paste',
 		modelRun: 'confirm',
 		// Finds the shell commands in the latest finished answer and puts the one you
 		// choose in the prompt after `!`: nothing runs until you press Enter.
@@ -3379,6 +3382,8 @@ export function runSlash(
 			: { kind: 'message', role: 'system', content: expanded.reason }
 	}
 
+	const retiredParsed = retiredSkillNotice(parsed.name)
+	if (retiredParsed) return { kind: 'message', role: 'system', content: retiredParsed }
 	return {
 		kind: 'message',
 		role: 'system',

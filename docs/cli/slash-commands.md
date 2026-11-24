@@ -68,7 +68,7 @@ spelling.
 | `/plan [description]` | Switch this conversation to plan mode (the same as choosing it in `/permissions`). With a description, it is sent as your next message once the mode is on. In plan mode already, `/plan` says so. |
 | `/recap` | Write a short recap of this conversation now (the [away recap](terminal-design.md#focus-and-the-away-recap) shown on its own after a few minutes away is switched with `/config recap on\|off`). |
 | `/copy` | Choose the whole latest answer, a code block, or a quote to copy. It goes through the machine's clipboard tool first and the terminal's clipboard request after, the same way a selection in the [workspaces screen](workspaces.md#selecting-and-copying-text) does. |
-| `/run` | Put a shell command from the latest answer in the prompt after `!`, to run it. It looks for fenced blocks written as `sh`, `bash`, `zsh`, `shell`, `console` or with no language (a transcript-style block loses its `$ ` prompts); one command goes straight into the prompt, several open a picker. Nothing runs until you press Enter, and you can edit the line first. The line is a [`!` line](composer-prefixes.md): it runs in this session with your own authority, with no keyboard, so a command that asks for a password belongs in another terminal. |
+| `/paste` | Put a shell command from the latest answer in the prompt after `!`, to run it. It looks for fenced blocks written as `sh`, `bash`, `zsh`, `shell`, `console` or with no language (a transcript-style block loses its `$ ` prompts); one command goes straight into the prompt, several open a picker. Nothing runs until you press Enter, and you can edit the line first. The line is a [`!` line](composer-prefixes.md): it runs in this session with your own authority, with no keyboard, so a command that asks for a password belongs in another terminal. |
 | `/raw` | Toggle copy-friendly plain transcript rendering: /raw [on\|off]. |
 | `/export` | Export this verified conversation to the clipboard or a Markdown file. |
 | `/status` | Show model, permissions, files and latest cost, with the folder written from `~` or its last folders. The card leaves out the conversation id and the tool count; `/status details` adds the full conversation id, expands rules and isolation; `/status config` shows setting sources; `/status tools` lists callable tools. |
@@ -126,7 +126,7 @@ every command either way.
   `/config`, `/settings` and `/add dir` run at once only with an argument;
   `/browser` only without one.
 - **Waits.** Anything that changes or reads the conversation itself, a saved
-  prompt command or a skill: `/clear`, `/new`, `/fork`, `/resume`, `/copy` and `/run`
+  prompt command or a skill: `/clear`, `/new`, `/fork`, `/resume`, `/copy` and `/paste`
   (a command never replaces or stops the conversation under a reply that is
   still being written), `/compact`, `/plan`, `/memory`, `/branch`, `/rewind`, `/undo`,
   `/review`, `/init`, `/export`, `/recap`, `/login`, `/logout`, `/auth`, and so on.
@@ -186,7 +186,7 @@ built-in or from the kernel, declares no class.
 | Class | What happens | Commands |
 |---|---|---|
 | `run` | The model runs it at once and the answer is shown as if you had typed it. | `help`, `status`, `cost`, `context`, `doctor`, `release notes`, `hooks`, `diff`, `workflows`, `tasks list`, `mcp` (not its prompt and resource forms), `copy`, and the read forms below |
-| `confirm` | You are asked first, with the exact line (“Do you want to run /goal write the changelog?”). On no, nothing runs. | `goal`, `schedule`, `loop`, `fast`, `ultrafast`, `effort`, `hypermode`, `orchestrate`, `model`, `plan`, `compact`, `clear`, `new`, `branch`, `fork`, `worktree`, `rewind`, `undo`, `checkpoint`, `restore`, `memory`, `skills`, `resume`, `abandon`, `review`, `init`, `run`, `export`, `recap`, `btw`, `theme`, `tui`, `vim`, `raw`, `rename` |
+| `confirm` | You are asked first, with the exact line (“Do you want to run /goal write the changelog?”). On no, nothing runs. | `goal`, `schedule`, `loop`, `fast`, `ultrafast`, `effort`, `hypermode`, `orchestrate`, `model`, `plan`, `compact`, `clear`, `new`, `branch`, `fork`, `worktree`, `rewind`, `undo`, `checkpoint`, `restore`, `memory`, `skills`, `resume`, `abandon`, `review`, `init`, `paste`, `export`, `recap`, `btw`, `theme`, `tui`, `vim`, `raw`, `rename` |
 | `never` | The model does not run it and does not ask. It tells you to type the command yourself, naming it. | `setup`, `config`, `settings`, `peers`, `browser`, `feedback`, `archive`, `unarchive`, `exit`, `add dir`, `plugins`, `login`, `auth`, `logout`, `terminal setup`, `permissions` |
 
 A command that both reads and changes takes the class of the form that was

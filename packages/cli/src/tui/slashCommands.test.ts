@@ -385,6 +385,25 @@ describe('runSlash', () => {
 		if (r?.kind === 'message') expect(r.content).toContain('Unknown command')
 	})
 
+	it('answers /verify-change with one line that names /run, not "Unknown command"', () => {
+		const r = runSlash('/verify-change', ctx)
+		expect(r?.kind).toBe('message')
+		if (r?.kind === 'message') {
+			expect(r.content).toContain('/run')
+			expect(r.content).not.toContain('Unknown command')
+			expect(r.content).not.toContain('\n')
+		}
+		const help = runSlash('/help verify-change', ctx)
+		expect(help?.kind === 'message' ? help.content : '').toContain('replaced by /run')
+	})
+
+	it('no longer has a /run command of its own: /paste puts an answer command in the prompt', () => {
+		const names = CLI_LOCAL_COMMANDS.map((command) => command.name)
+		expect(names).not.toContain('run')
+		expect(names).toContain('paste')
+		expect(runSlash('/paste', ctx)).toEqual({ kind: 'run' })
+	})
+
 	it('has /workflows but no /workflow command', () => {
 		const names = CLI_LOCAL_COMMANDS.map((command) => command.name)
 		expect(names).toContain('workflows')
