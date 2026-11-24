@@ -206,6 +206,12 @@ export interface ForegroundMonitor {
 		 */
 		readonly raise?: string
 		/**
+		 * Window handle (hex) the burst is for, nothing raised: a monitor that
+		 * can refuse input checks that a window of this window's program is in
+		 * front for every input it is sent. Ignored when `raise` is given.
+		 */
+		readonly watch?: string
+		/**
 		 * The user must have been still this long (ms). Checked before anything
 		 * is raised; when they were not, nothing is moved and `refused` is true.
 		 */

@@ -7,6 +7,7 @@ import {
 	wslChildEnv,
 	wslPowerShellPath,
 } from '../adapters/wsl.js'
+import { NativeForegroundMonitor } from '../native/foreground-monitor.js'
 import { ForegroundLadder, type LadderTiming } from './ladder.js'
 import type { ForegroundApprover } from './types.js'
 import { WindowsInputMonitor } from './windows-monitor.js'
@@ -21,6 +22,8 @@ export interface WindowsLadderOptions {
 	readonly approve?: ForegroundApprover
 	readonly session?: string
 	readonly timing?: Partial<LadderTiming>
+	/** The native helper (`namzu-win.exe`); default `NAMZU_WIN_HELPER`. Named, the monitor is the helper and no PowerShell runs. */
+	readonly helper?: string
 }
 
 /** `<NAMZU_HOME>/computer-use/screen.lease`, `NAMZU_HOME` defaulting to `~/.namzu`. */
@@ -48,12 +51,16 @@ export function createWindowsForegroundLadder(
 	const platform = options.platform ?? process.platform
 	const probes = options.wslProbes ?? realWslProbes
 	const wsl = isWsl(env, platform, probes)
-	const powershell = wsl
-		? wslPowerShellPath(probes)
-		: platform === 'win32'
-			? 'powershell.exe'
-			: undefined
-	if (!powershell) return undefined
+	const native = (options.helper ?? env.NAMZU_WIN_HELPER)?.trim()
+	const powershell = native
+		? undefined
+		: wsl
+			? wslPowerShellPath(probes)
+			: platform === 'win32'
+				? 'powershell.exe'
+				: undefined
+	if (!native && !powershell) return undefined
+	if (native && !wsl && platform !== 'win32') return undefined
 	const clean: NodeJS.ProcessEnv = {}
 	for (const [name, value] of Object.entries(env)) if (!SECRET_NAME.test(name)) clean[name] = value
 	const helperEnv = wsl ? wslChildEnv(clean, [], probes) : clean
@@ -61,11 +68,17 @@ export function createWindowsForegroundLadder(
 	return new ForegroundLadder({
 		leasePath,
 		createMonitor: () =>
-			new WindowsInputMonitor({
-				powershell,
-				env: helperEnv,
-				toWindowsPath: (path) => windowsPathFor(path, env),
-			}),
+			native
+				? new NativeForegroundMonitor({
+						executable: native,
+						env: helperEnv,
+						toHelperPath: (path) => windowsPathFor(path, env),
+					})
+				: new WindowsInputMonitor({
+						powershell: powershell as string,
+						env: helperEnv,
+						toWindowsPath: (path) => windowsPathFor(path, env),
+					}),
 		...(options.approve ? { approve: options.approve } : {}),
 		...(options.session ? { session: options.session } : {}),
 		...(options.timing ? { timing: options.timing } : {}),

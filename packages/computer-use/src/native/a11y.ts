@@ -30,7 +30,7 @@ import {
 	type AccessibilityBackend,
 } from '../a11y/interface.js'
 import { NativeWinProcess, type NativeWinProcessOptions } from './process.js'
-import type { NativeNode } from './protocol.js'
+import type { NativeActReply, NativeActRequest, NativeNode } from './protocol.js'
 
 /** Tokens carry the helper run they came from, so one from before a restart is refused, not misread. */
 const EPOCH_SPAN = 2 ** 40
@@ -65,6 +65,22 @@ const num = (value: number | undefined, fallback = 0): number =>
 function toNode(n: NativeNode): A11yNode {
 	const { ref: _ref, ...node } = n
 	return node as A11yNode
+}
+
+/** What `act` takes: a window by the id callers hold, and the control by ref or by fingerprint. */
+export type NativeActInput = Omit<NativeActRequest, 'op'>
+
+/**
+ * The typed failure a ref that could not be acted on stands for, from the
+ * helper's own error code: the control is gone or the ref is out of date
+ * (`STALE_REF`), or several controls fit (`AMBIGUOUS_TARGET`). Anything else
+ * is not one of the two, and nothing is said about it here.
+ */
+export function actFailureCode(error: unknown): 'STALE_REF' | 'AMBIGUOUS_TARGET' | undefined {
+	if (!(error instanceof A11yError)) return undefined
+	if (error.code === 'not_found' || error.code === 'stale_snapshot') return 'STALE_REF'
+	if (error.code === 'ambiguous') return 'AMBIGUOUS_TARGET'
+	return undefined
 }
 
 export class NativeA11yBackend implements AccessibilityBackend {
@@ -208,6 +224,24 @@ export class NativeA11yBackend implements AccessibilityBackend {
 				fingerprint: request.fingerprint,
 			},
 			DEFAULT_SNAPSHOT_MS,
+			signal,
+		)
+	}
+
+	/**
+	 * Does one thing to one control through the pattern it offers (see the
+	 * helper's `act`): nothing is clicked and no key is sent. A control that
+	 * offers no pattern for the action is refused (`background_unavailable`), as
+	 * is one that is turned off (`disabled`); a ref or fingerprint that no longer
+	 * names one control fails with {@link actFailureCode}'s codes. In every
+	 * refusal nothing was sent.
+	 */
+	async act(request: NativeActInput, signal?: AbortSignal): Promise<NativeActReply> {
+		const handle = handleOf(request.windowId)
+		const { windowId: _windowId, ...rest } = request
+		return this.process.request(
+			{ op: 'act', windowId: this.helperIdOf(handle), ...rest },
+			request.timeoutMs ?? DEFAULT_SNAPSHOT_MS,
 			signal,
 		)
 	}
