@@ -129,7 +129,10 @@ function rowLines(rows: readonly JobListing[]): string {
 						: ''
 		return [
 			`${r.name}  [${r.state}]  ${r.schedule}${tzWarning}${kind}`,
-			`  ${[active, next, last].filter(Boolean).join(' · ')}`,
+			// A job that has never run and has no next fire yet has nothing to say here.
+			...([active, next, last].some(Boolean)
+				? [`  ${[active, next, last].filter(Boolean).join(' · ')}`]
+				: []),
 			`  ${r.workspace === 'none' ? 'workspace: none (private scratch directory)' : r.folder}`,
 			...(r.activeRun?.resumeCommand
 				? [

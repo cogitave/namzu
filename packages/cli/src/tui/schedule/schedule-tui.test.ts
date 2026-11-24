@@ -1851,12 +1851,13 @@ describe('/schedule across the installed scheduler services', () => {
 		const reviewed: string[] = []
 		const { said, context: c } = context({
 			review: async (request) => {
-				reviewed.push(request.preview.name)
+				reviewed.push(`${request.preview.name} ${request.service ?? '(this home)'}`)
 				return 'create'
 			},
 		})
 		await runScheduleCommand(['confirm', 'autodev-scout'], c)
-		expect(reviewed).toEqual(['autodev-scout'])
+		// The review says whose job it is, so a person never confirms a service's job unknowingly.
+		expect(reviewed).toEqual(['autodev-scout autodev'])
 		const stored = readJob(svc.paths, original.id)
 		expect(stored?.state).toBe('active')
 		expect(stored?.confirmation?.surface).toBe('tui')

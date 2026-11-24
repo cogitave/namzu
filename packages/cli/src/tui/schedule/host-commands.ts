@@ -27,6 +27,7 @@ import {
 	runsPerDay,
 } from '../../schedule/build.js'
 import { changesBlock, changesSinceConfirmed } from '../../schedule/changes.js'
+import { displayState } from '../../schedule/commands/list.js'
 import { callEndpoint, readEndpoint } from '../../schedule/daemon/endpoint.js'
 import { callsCount } from '../../schedule/fire/calls.js'
 import { gateLines, gateRefusal } from '../../schedule/gate.js'
@@ -125,13 +126,9 @@ async function listHome(ctx: ScheduleCommandContext, paths: SchedulePaths): Prom
 				? state.activeRun.handoff
 					? `  [${parkedRunWords(state.activeRun)}]`
 					: '  [waiting for your approval]'
-				: job.state === 'pending-confirmation'
-					? '  [needs confirmation]'
-					: job.state === 'active' && !confirmationHolds(job)
-						? '  [on hold: changed outside namzu]'
-						: state.activeRun?.status === 'running'
-							? '  [running]'
-							: ''
+				: state.activeRun?.status === 'running'
+					? '  [running]'
+					: ''
 		// `agent` (absent) is the common case and stays unmarked; `script`
 		// costs no tokens at all, worth marking the same way `schedule list`
 		// does on the command line.
@@ -144,7 +141,7 @@ async function listHome(ctx: ScheduleCommandContext, paths: SchedulePaths): Prom
 						? '  [gate]'
 						: ''
 		lines.push(
-			`${job.name}  [${job.state}]${kind}${mark}\n    ${describeSchedule(job.schedule, { tz })} · next ${when(nextFireOf(job, state), tz)}${state.lastRun ? ` · last ${state.lastRun.status}${callsCount(state.lastRun) ? ` (${callsCount(state.lastRun)})` : ''} ${when(state.lastRun.endedAt, tz)}` : ''}\n    ${job.workspace === 'none' ? 'Private scheduler workspace (no project)' : job.folder.canonical}`,
+			`${job.name}  [${displayState(job)}]${kind}${mark}\n    ${describeSchedule(job.schedule, { tz })} · next ${when(nextFireOf(job, state), tz)}${state.lastRun ? ` · last ${state.lastRun.status}${callsCount(state.lastRun) ? ` (${callsCount(state.lastRun)})` : ''} ${when(state.lastRun.endedAt, tz)}` : ''}\n    ${job.workspace === 'none' ? 'Private scheduler workspace (no project)' : job.folder.canonical}`,
 		)
 		if (job.delivery?.kind === 'source-conversation')
 			lines.push(`    Results return to source conversation ${job.delivery.sessionId}`)
@@ -201,6 +198,7 @@ async function confirmInTui(
 	job: ScheduleJob,
 	verb: string,
 	paths: SchedulePaths = schedulePaths(ctx.home),
+	service?: string,
 ): Promise<'create' | 'create-paused' | 'cancel'> {
 	const say = (message: string) => ctx.say(visibleScheduleMessage(message))
 	const layers = readPermissionLayers({
@@ -338,13 +336,16 @@ async function confirmInTui(
 			proposedByModel: false,
 			preview,
 			fullText,
+			...(service ? { service } : {}),
 		})
 		return reviewed === 'create' || reviewed === 'create-paused' ? reviewed : 'cancel'
 	}
 	ctx.say(fullText)
 	const answer = await ctx.ask({
 		questionId: `schedule-confirm:${job.id}`,
-		question: visibleScheduleMessage(`${verb} the scheduled job "${job.name}"? (details above)`),
+		question: visibleScheduleMessage(
+			`${verb} the scheduled job "${job.name}"${service ? ` of the service ${service}` : ''}? (details above)`,
+		),
 		header: 'Scheduled job',
 		options: [
 			{ id: 'cancel', label: 'Cancel', description: 'Change nothing' },
@@ -439,7 +440,7 @@ export async function runScheduleCommand(
 				if (!where) return
 				const { job } = where
 				const paths = where.at.paths
-				const answer = await confirmInTui(ctx, job, 'Confirm', paths)
+				const answer = await confirmInTui(ctx, job, 'Confirm', paths, where.at.service)
 				if (answer === 'cancel') {
 					say(`Not confirmed; ${job.name} stays ${job.state}.`)
 					return
