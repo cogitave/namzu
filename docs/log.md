@@ -1,5 +1,9 @@
 # Documentation update log
 
+## 2026-11-24
+
+- **Update** [Terminal design](cli/terminal-design.md): in the fullscreen view a window resize no longer blanks the screen for the length of a drag; the empty clean-slate frame is drawn once, after the size has been quiet for 250 ms, and real frames keep painting at the new size until then. `.changeset/resize-no-black-screen.md`.
+
 ## 2026-11-23
 
 - **Update** [Handing a file to the person](sdk/present-file.md), [Task tracking](sdk/task-tracking.md): after the five lanes met, the standing git line names the code host instead of a product, the browser ask-first line makes an exception for a step the person asked for exactly (and a scheduled run decides), the document skill hands scratch files and edited copies over with `present_file`, the `present_file` catalogue line leads with its rule, and `task_create` loads `task_list` with it. `.changeset/sdk-batch-1123b-text.md`, `.changeset/cli-batch-1123b-text.md`.
