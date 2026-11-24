@@ -1,6 +1,8 @@
 import type { AccessibilityBackend } from '../a11y/interface.js'
 import { guardForeground } from '../foreground/guard.js'
 import type { ForegroundLadder } from '../foreground/ladder.js'
+import { windowsPathFor } from '../foreground/windows.js'
+import type { NativeWinProcessOptions } from '../native/process.js'
 import type { Presence } from '../presence/presence.js'
 import { CuaDriverAdapter } from './cua-driver/adapter.js'
 import {
@@ -9,6 +11,7 @@ import {
 	resolveCuaDriver,
 } from './cua-driver/provision.js'
 import { type Adapter, AdapterUnavailableError } from './types.js'
+import { NativeWin32Adapter } from './win32-native.js'
 import { Win32PowerShellAdapter } from './win32-powershell.js'
 import { type WslProbes, isWsl, realWslProbes, wslChildEnv } from './wsl.js'
 
@@ -17,9 +20,14 @@ import { type WslProbes, isWsl, realWslProbes, wslChildEnv } from './wsl.js'
  *
  * - `auto` (the default): cua-driver — the pinned build, downloaded and
  *   checked on first use — and, when it cannot be had or does not answer,
- *   the per-action PowerShell path, with the reason on `fallbackReason`.
+ *   the per-action path, with the reason on `fallbackReason`.
  * - `cua-driver`: cua-driver or nothing; its failure is the adapter's.
  * - `powershell`: never cua-driver.
+ *
+ * The per-action path is the native helper (`namzu-win`) when one is
+ * configured (`NAMZU_WIN_HELPER`, or the `helper` option) and PowerShell
+ * otherwise. With a helper configured there is no PowerShell fallback: a
+ * helper that does not start is an error, not a reason to run scripts.
  */
 export type Win32Backend = 'auto' | 'cua-driver' | 'powershell'
 
@@ -33,6 +41,14 @@ export interface Win32AdapterOptions {
 	readonly download?: boolean
 	/** Told once, in plain words, before the pinned build is downloaded. */
 	readonly onNotice?: (notice: string) => void
+	/**
+	 * The path of the native helper, `namzu-win.exe`. Default: the
+	 * `NAMZU_WIN_HELPER` variable. Set, the helper is the per-action path and
+	 * PowerShell is never started for display input or capture.
+	 */
+	readonly helper?: string
+	/** Where the helper writes its pictures. Default: a private temporary directory. */
+	readonly captureDir?: string
 	readonly env?: NodeJS.ProcessEnv
 	readonly platform?: NodeJS.Platform
 	/**
@@ -49,6 +65,8 @@ export interface Win32AdapterOptions {
 	readonly wslProbes?: WslProbes
 	/** For tests. */
 	readonly resolve?: typeof resolveCuaDriver
+	/** For tests: starts the native helper's process. */
+	readonly spawnHelper?: NativeWinProcessOptions['spawnHelper']
 	/** For tests. */
 	readonly createCuaDriverAdapter?: (
 		options: ConstructorParameters<typeof CuaDriverAdapter>[0],
@@ -84,6 +102,19 @@ export function cuaDriverEnvironment(
 	return wsl ? wslChildEnv(base, Object.keys(CUA_DRIVER_SETTINGS), probes) : base
 }
 
+/** The environment the native helper runs with: the caller's minus anything named like a secret; under WSL, with a working `WSL_INTEROP`. */
+export function nativeHelperEnvironment(
+	env: NodeJS.ProcessEnv,
+	wsl: boolean,
+	probes: WslProbes = realWslProbes,
+): NodeJS.ProcessEnv {
+	const base: NodeJS.ProcessEnv = {}
+	for (const [name, value] of Object.entries(env)) {
+		if (!SECRET_NAME.test(name)) base[name] = value
+	}
+	return wsl ? wslChildEnv(base, [], probes) : base
+}
+
 /**
  * `NAMZU_CUA_DRIVER`: `off` keeps cua-driver out (the PowerShell path);
  * a path names the `cua-driver.exe` to run instead of the pinned build.
@@ -106,8 +137,23 @@ export class Win32Adapter {
 		const ladder = options.foreground
 		const guard = (adapter: Adapter): Adapter =>
 			ladder ? guardForeground(adapter, ladder) : adapter
-		const powershell = async (fallbackReason?: string) =>
-			guard(
+		const helper = (options.helper ?? env.NAMZU_WIN_HELPER)?.trim()
+		// The per-action path: the native helper when one is named, else PowerShell.
+		// A helper that does not start throws; it never turns into PowerShell.
+		const perAction = async (fallbackReason?: string) => {
+			if (helper) {
+				const wsl = isWsl(env, platform, probes)
+				return guard(
+					await NativeWin32Adapter.create({
+						executable: helper,
+						env: nativeHelperEnvironment(env, wsl, probes),
+						...(options.captureDir ? { captureDir: options.captureDir } : {}),
+						...(wsl ? { toHelperPath: (path: string) => windowsPathFor(path, env) } : {}),
+						...(options.spawnHelper ? { spawnHelper: options.spawnHelper } : {}),
+					}),
+				)
+			}
+			return guard(
 				await Win32PowerShellAdapter.create({
 					env,
 					platform,
@@ -115,7 +161,8 @@ export class Win32Adapter {
 					fallbackReason,
 				}),
 			)
-		if (backend === 'powershell') return powershell()
+		}
+		if (backend === 'powershell') return perAction()
 
 		const cuaDriverPath = options.cuaDriverPath ?? configured.path
 		let adapter: Adapter | undefined
@@ -149,7 +196,7 @@ export class Win32Adapter {
 			if (backend === 'cua-driver') {
 				throw new AdapterUnavailableError(`Win32Adapter: cua-driver is not usable: ${reason}`)
 			}
-			return powershell(reason)
+			return perAction(reason)
 		}
 	}
 }

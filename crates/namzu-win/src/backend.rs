@@ -127,6 +127,9 @@ pub trait Backend: Send + Sync {
     /// Stops request `target` if it has not been answered; it is then
     /// answered `cancelled`. A request already answered is left alone.
     fn cancel(&self, _target: u64) {}
+    /// The loop ended (`quit`, or the caller went away): undo what the backend
+    /// holds on the caller's behalf. Runs once, on the loop's thread.
+    fn shutdown(&self) {}
 }
 
 /// The backend of a build that cannot touch the platform (any non-Windows target).

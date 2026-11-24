@@ -151,8 +151,15 @@ pub fn run(
     backend: Arc<dyn Backend>,
 ) -> std::io::Result<()> {
     let mut session = Session::new(info, backend, Arc::new(Sink::new(output)));
+    let mut result = Ok(());
     for line in input.lines() {
-        let line = line?;
+        let line = match line {
+            Ok(line) => line,
+            Err(e) => {
+                result = Err(e);
+                break;
+            }
+        };
         if line.trim().is_empty() {
             continue;
         }
@@ -160,7 +167,9 @@ pub fn run(
             break;
         }
     }
-    Ok(())
+    // Whether the caller said `quit`, closed the pipe or the pipe failed.
+    session.backend.shutdown();
+    result
 }
 
 #[cfg(test)]
@@ -265,6 +274,28 @@ mod tests {
         let lines = out.lines();
         assert_eq!(lines.len(), 1);
         assert!(lines[0].contains(r#""ok":true"#));
+    }
+
+    /// A backend that only counts how often it was shut down.
+    #[derive(Default)]
+    struct Counting(std::sync::atomic::AtomicU32);
+
+    impl Backend for Counting {
+        fn start(&self, _request: Request, responder: Responder) {
+            responder.fail(ErrorCode::Unsupported, "no");
+        }
+        fn shutdown(&self) {
+            self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        }
+    }
+
+    #[test]
+    fn the_backend_is_shut_down_once_however_the_loop_ends() {
+        for input in [&b"{\"id\":1,\"op\":\"quit\"}\n"[..], &b""[..]] {
+            let backend = Arc::new(Counting::default());
+            run(input, Capture::default(), info(), backend.clone()).unwrap();
+            assert_eq!(backend.0.load(std::sync::atomic::Ordering::SeqCst), 1);
+        }
     }
 
     /// A backend that answers later, from another thread, and records cancels.

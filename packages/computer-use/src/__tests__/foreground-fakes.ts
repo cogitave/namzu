@@ -89,7 +89,7 @@ export class FakeMonitor implements ForegroundMonitor {
 		this.calls.push('state')
 		return this.state_(this.stateCalls++, query)
 	}
-	begins: { raise?: string; idleMs?: number }[] = []
+	begins: { raise?: string; watch?: string; idleMs?: number }[] = []
 	/** How many of the next `begin` calls the monitor refuses because the user is not idle. */
 	refuseBegins = 0
 	/** `end` fails (the helper died after the burst). */
@@ -98,11 +98,13 @@ export class FakeMonitor implements ForegroundMonitor {
 	endExtra: Partial<MonitorBurstEnd> = {}
 	async begin(args?: {
 		raise?: string
+		watch?: string
 		idleMs?: number
 	}): Promise<MonitorState & { refused?: boolean }> {
 		this.calls.push('begin')
 		this.begins.push({
 			...(args?.raise !== undefined ? { raise: args.raise } : {}),
+			...(args?.watch !== undefined ? { watch: args.watch } : {}),
 			...(args?.idleMs !== undefined ? { idleMs: args.idleMs } : {}),
 		})
 		const state = this.beginState ? this.beginState() : this.state_(this.stateCalls, undefined)

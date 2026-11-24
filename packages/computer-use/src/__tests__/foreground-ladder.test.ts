@@ -26,7 +26,16 @@ describe('the foreground ladder', () => {
 		const { ladder, monitor } = makeLadder()
 		await ladder.run({ subject: { ...SUBJECT, hwnd: '0x3dc09a0' } }, async () => 1)
 		await ladder.run({ subject: SUBJECT }, async () => 1)
-		expect(monitor.begins).toEqual([{ raise: '0x3dc09a0', idleMs: 2_000 }, { idleMs: 2_000 }])
+		expect(monitor.begins).toEqual([
+			{ raise: '0x3dc09a0', idleMs: 2_000 },
+			{ watch: '0x10', idleMs: 2_000 },
+		])
+	})
+
+	it('names the window in front as the one to watch when the burst is for the desktop, and raises nothing', async () => {
+		const { ladder, monitor } = makeLadder()
+		await ladder.run({ subject: { app: 'the desktop' } }, async () => 1)
+		expect(monitor.begins).toEqual([{ watch: '0x10', idleMs: 2_000 }])
 	})
 
 	it('leaves the cursor where a mouse_move put it', async () => {
