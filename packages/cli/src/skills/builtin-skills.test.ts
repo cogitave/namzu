@@ -131,6 +131,24 @@ describe('the built-in skills', () => {
 		expect(review.metadata?.['namzu-requires-tools']).toBeUndefined()
 	})
 
+	it('run and its generator match how skills are discovered and stay read-only', () => {
+		const run = readFileSync(join(SKILLS, 'run', 'SKILL.md'), 'utf8')
+		const gen = readFileSync(join(SKILLS, 'run-skill-generator', 'SKILL.md'), 'utf8')
+		// `.namzu/skills` is read from the working folder alone, never walked up.
+		expect(run).not.toMatch(/\$d"\/\.namzu\/skills/)
+		expect(run).toMatch(/read that `SKILL\.md` with\s+the read tool/)
+		expect(gen).toMatch(/`save_skill` cannot be used/)
+		expect(gen).not.toMatch(/is fixed by installing it/)
+		// A server is stopped by a recorded pid, with a fallback when `lsof` is missing.
+		expect(run).toMatch(/Record the pid/)
+		expect(run).toMatch(/ss -ltnp/)
+		expect(run).not.toMatch(/Stop it by the process that holds the port \(`lsof/)
+		expect(run).toMatch(/Edit, add or delete project source or tests while running/)
+		expect(run).toMatch(/never swap them for\s+placeholders/)
+		const config = readFileSync(join(SKILLS, 'update-config', 'SKILL.md'), 'utf8')
+		expect(config).toMatch(/a deny anywhere wins/)
+	})
+
 	it('run tells the model to run the check plainly, as the turn record reads it', async () => {
 		const body = (await loadSkill(join(SKILLS, 'run'), 'full')).skill.body ?? ''
 		expect(body).toMatch(/no pipe/)

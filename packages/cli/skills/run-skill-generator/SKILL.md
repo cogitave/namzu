@@ -46,7 +46,8 @@ the README.
    scripts, the Dockerfile, the Makefile, the CI workflows (often the most
    accurate) and the contributing guide. Then test what they say:
    - "Only on another operating system": try it here anyway. A crash for a
-     missing shared library is fixed by installing it, and you note the line.
+     missing shared library: propose the install line and ask first; note it in
+     `NOTES.md` once approved.
    - "Needs a GPU": try software rendering.
    - "Needs a paid plan or a flag": read where the check is, and patch it for the
      local run only; write the patch down.
@@ -61,12 +62,13 @@ the README.
    internals, direct calls are the main entry and the full launch is secondary).
    Do one real user flow from start to finish and look at the result. Run the
    tests once as a sanity check. Stop the app cleanly.
-5. **Write the skill.** Put it in `<unit>/.namzu/skills/run-<unit>/SKILL.md`,
-   or in `<unit>/.agents/skills/run-<unit>/` when the person wants other coding
-   agents to read it too. Save it as the person's saved skills are saved: where
-   the `save_skill` tool is among your tools, use it, so the person sees the
-   whole file and where it goes and confirms. Without it, show the file and
-   its path and write it only once they say yes. A driver goes in the same
+5. **Write the skill.** `save_skill` writes `<session folder>/.namzu/skills/run-<unit>/SKILL.md`
+   (or the user folder), so for a unit inside a monorepo the session has to
+   start in the unit; where it is among your tools, use it, so the person sees
+   the whole file and where it goes and confirms. For
+   `<unit>/.agents/skills/run-<unit>/` (when other coding agents should read it
+   too) `save_skill` cannot be used: show the file and its path and write it
+   with the write tool only once they say yes. Without `save_skill`, do the same. A driver goes in the same
    folder; when the project's own tests want it, offer to move it to `scripts/`
    or `e2e/` and point the skill at the new place.
 6. **Check it cold.** In a fresh shell, from inside the unit, follow the
@@ -83,8 +85,9 @@ it, take a screenshot of its screen, or use the running app. Not for ...".
 Body, in this order, short:
 1. One paragraph naming the handle (the driver) and the paths it writes.
 2. A line saying paths are relative to the unit, and that a session should
-   start inside the unit, because project skills are read from the folders
-   above the working folder and not from those below it.
+   start inside the unit, because only `.agents/skills` is read from the
+   folders above the working folder; `.namzu/skills` is read from the working
+   folder alone, and neither is read from folders below it.
 3. **Prerequisites**: the exact install line that worked.
 4. **Setup**: environment variables, the scratch home, accounts that are safe.
 5. **Build**, with any patch you needed.

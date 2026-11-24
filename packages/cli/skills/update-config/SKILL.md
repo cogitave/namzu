@@ -11,7 +11,9 @@ $ARGUMENTS
 
 ## Where a setting lives
 
-Settings are read in layers; the later ones in this list win:
+Settings are read in layers; the later ones in this list win. The exception is
+`permissions`: rules from every layer are combined and a deny anywhere wins, so
+a project allow never overrides a user deny.
 
 | Layer | File | Who it belongs to |
 | --- | --- | --- |

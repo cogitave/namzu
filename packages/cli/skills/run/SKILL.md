@@ -22,20 +22,26 @@ $ARGUMENTS
    Everything below is measured against it.
 2. **Look for the project's own run skill first.** Your skill list may already
    show one. To be sure, list the descriptions of the project skills from the
-   current folder up to the checkout root (the folder holding `.git`):
+   current folder up to the checkout root (the folder holding `.git`). Only
+   `.agents/skills` is read from the folders above the working folder;
+   `.namzu/skills` is read from the working folder alone:
 
    ```sh
    d=$PWD; while :; do
-     for f in "$d"/.namzu/skills/*/SKILL.md "$d"/.agents/skills/*/SKILL.md; do
+     for f in "$d"/.agents/skills/*/SKILL.md; do
        [ -f "$f" ] && { printf '%s\n  ' "$f"; grep -m1 '^description:' "$f"; }
      done
      [ -e "$d/.git" ] || [ "$d" = / ] && break; d=$(dirname "$d")
+   done
+   for f in "$PWD"/.namzu/skills/*/SKILL.md; do
+     [ -f "$f" ] && { printf '%s\n  ' "$f"; grep -m1 '^description:' "$f"; }
    done
    ```
 
    Judge by the description, not the name: people call these skills different
    things. If one is about starting or driving this app, load it with the
-   `skill` tool and **follow it as written**: do not paraphrase it and do not
+   `skill` tool (if the tool does not know the name, read that `SKILL.md` with
+   the read tool) and **follow it as written**: do not paraphrase it and do not
    skip a patch it asks for. If several fit and none is clearly the one (a
    repository holding many apps), ask which. If it fails on something that has
    nothing to do with your task, say it is out of date and offer
@@ -72,7 +78,10 @@ $ARGUMENTS
    would have to do. Do not round an unclear result up. If the fallback needed
    installs, environment variables, a patch or a driver you wrote by hand, say
    so and recommend `/run-skill-generator`, so that work is kept for the next
-   run; if it just worked, do not.
+   run; if it just worked, do not. When you describe or write such a skill,
+   keep the exact commands, ports and paths that worked and never swap them for
+   placeholders (`<port>`); point the person to `/run-skill-generator` for the
+   saved version.
 
 ## Patterns by kind of project
 
@@ -88,10 +97,12 @@ global install of an older version.
 - Wait for readiness with a bounded poll of a health route or the port, never a
   fixed sleep: `for i in $(seq 1 60); do curl -fsS localhost:PORT/health && break; sleep 0.5; done`.
 - Hit the route the change touches with `curl` and read the body.
-- Stop it by the process that holds the port (`lsof -ti:PORT -sTCP:LISTEN`,
-  then kill that pid). The id of a `npm run dev &` is only the wrapper, and
-  killing it can leave the server running. Never `pkill -f` with a broad
-  pattern: it can match your own command line.
+- Record the pid when you start it (`$!` of the real server command, or of the
+  node child, not of an `npm run dev` wrapper) and kill that pid. If you only
+  have the port, find the listener with `ss -ltnp 'sport = :PORT'` (`lsof` is
+  often not installed) or stop it with `fuser -k PORT/tcp`. Then confirm the
+  port is closed. Never `pkill -f` with a broad pattern: it can match your own
+  command line.
 - If launch, poll and request take more than a few lines, put them in a small
   script in the scratch folder.
 
@@ -142,6 +153,9 @@ If they cannot open files on this machine, give them screenshots with
 
 ## Never
 
+- Edit, add or delete project source or tests while running. Write only scratch
+  files and a driver in the scratch folder; if a fix seems needed, report it.
+  The generator is the only path that saves files into the project, after a yes.
 - Report a run you did not do, or call a launch a success because it did not
   crash.
 - Weaken, skip or delete a test to get a pass, or call a check passing when you
