@@ -1,5 +1,9 @@
 # Documentation update log
 
+## 2026-11-24
+
+- **Update** [Extensions](cli/extensions.md): an extension shows as running only after its query endpoint accepts a connection (one that does not open within 10 seconds is restarted), so a query right after "running" no longer finds nothing there. `.changeset/cli-extension-query-ready.md`.
+
 ## 2026-11-23
 
 - **Update** [Handing a file to the person](sdk/present-file.md), [Task tracking](sdk/task-tracking.md): after the five lanes met, the standing git line names the code host instead of a product, the browser ask-first line makes an exception for a step the person asked for exactly (and a scheduled run decides), the document skill hands scratch files and edited copies over with `present_file`, the `present_file` catalogue line leads with its rule, and `task_create` loads `task_list` with it. `.changeset/sdk-batch-1123b-text.md`, `.changeset/cli-batch-1123b-text.md`.

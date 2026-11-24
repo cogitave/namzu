@@ -193,7 +193,11 @@ describe('a call that is still put to a person in an allowed application', () =>
 	})
 })
 
-describe('what the person is shown of a call', () => {
+// Each call here decodes, scales and re-encodes a 1600x1000 PNG in plain
+// JavaScript. Locally a test takes well under a second; under the coverage
+// run on a shared CI runner the same CPU work has taken more than five, so the
+// limit is raised for this group only. Nothing here waits on a clock.
+describe('what the person is shown of a call', { timeout: 30_000 }, () => {
 	it('is the picture the model got, made small, with the click point as fractions', async () => {
 		const seen: ComputerUseObservation[] = []
 		const tool = createComputerUseTool(makeHost(), {
