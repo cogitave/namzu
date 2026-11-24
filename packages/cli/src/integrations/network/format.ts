@@ -76,9 +76,14 @@ export function rosterLines(view: RosterView, options: RosterTextOptions): strin
 	const { columns, now } = options
 	const narrow = columns !== undefined && columns < 60
 	const lines: string[] = []
-	for (const machine of view.machines) {
+	// This machine first, then the other homes of this computer, then the machines elsewhere.
+	const rank = (m: RosterView['machines'][number]) =>
+		m.status === 'self' ? 0 : m.sameComputer ? 1 : 2
+	const ordered = [...view.machines].sort((a, b) => rank(a) - rank(b))
+	for (const machine of ordered) {
 		const head = [machine.name]
 		if (machine.status === 'self') head.push('this machine')
+		else if (machine.sameComputer) head.push('this computer')
 		head.push(machineState(machine, now))
 		const heading = head.join(' · ')
 		if (machine.role && !narrow) {
@@ -127,6 +132,8 @@ export interface RosterJsonMachine {
 	readonly id: string
 	readonly status: string
 	readonly role?: string
+	/** Another home of the same person on this computer. */
+	readonly sameComputer?: boolean
 	readonly sessions: readonly {
 		readonly name: string
 		readonly ref: string
@@ -145,6 +152,7 @@ export function rosterJson(view: RosterView): RosterJsonMachine[] {
 		id: machine.machineId.slice(0, 12),
 		status: machine.status,
 		...(machine.role ? { role: machine.role } : {}),
+		...(machine.sameComputer ? { sameComputer: true } : {}),
 		sessions: machine.sessions.map((session) => ({
 			name: session.name,
 			ref: session.ref,

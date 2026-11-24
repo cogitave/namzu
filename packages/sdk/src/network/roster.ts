@@ -79,6 +79,11 @@ export interface RosterMachineView {
 	/** Epoch ms of the last answer; absent for this machine. */
 	readonly seenAt?: number
 	readonly role?: string
+	/**
+	 * True when this machine is another home of the same person on this computer: it joined, or let this one
+	 * in, by proving the computer secret, and the secret still reads. A live fact, not part of any signed record.
+	 */
+	readonly sameComputer?: boolean
 	readonly sessions: readonly RosterSession[]
 }
 

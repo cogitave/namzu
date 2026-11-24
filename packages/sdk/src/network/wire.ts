@@ -110,6 +110,11 @@ export const JoinRequestSchema = z
 			.max(MAX_NAME_LENGTH * 2),
 		publicKey: z.string().min(1).max(256),
 		nonce: z.string().min(16).max(64),
+		/**
+		 * Proof that the joiner holds this computer's secret (base64 HMAC; see `computer.ts`). Optional: an
+		 * older member rejects the field, so a joiner that gets `bad_request` asks again without it.
+		 */
+		computerProof: z.string().length(44).optional(),
 	})
 	.strict()
 export type JoinRequest = z.infer<typeof JoinRequestSchema>

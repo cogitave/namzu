@@ -1,6 +1,7 @@
 /** Message a live Namzu terminal, and see and manage your Namzu network, from a command line. */
 
 import { readFileSync } from 'node:fs'
+import { rm } from 'node:fs/promises'
 import { networkInterfaces } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -8,6 +9,7 @@ import {
 	type RosterView,
 	derivePeerRef,
 	generateSessionId,
+	hardenPeerRuntimeDir,
 	parseHostPort,
 } from '@namzu/sdk'
 import { planSettingChange } from '../config/setting-cli.js'
@@ -20,6 +22,7 @@ import {
 	EXIT_UNAVAILABLE,
 	EXIT_USAGE,
 } from '../exit-codes.js'
+import { secretForHome } from '../integrations/network/computer-secret.js'
 import {
 	ControlError,
 	createControlClient,
@@ -35,6 +38,7 @@ import {
 	listProjectTerminals,
 	sendToTerminal,
 } from '../integrations/peers/send-once.js'
+import { restrictToOwner } from '../integrations/providers/credential-store.js'
 import { resolveNamzuHome } from '../integrations/state/home.js'
 import { planLaunchMode } from '../permissions/launch.js'
 import type { PermissionSettings } from '../permissions/settings.js'
@@ -54,6 +58,7 @@ Usage:
   namzu peers allow <code|name> [--trust [--as <name>]] | deny <code|name>
   namzu peers networks [rename <name> <new name>] [--json]
   namzu peers untrust <name>
+  namzu peers same computer reset
   namzu peers remove <machine> [--and-its-admissions]
   namzu peers rename <new name...>
   namzu peers role <session|machine/> <text...> | --clear
@@ -76,6 +81,10 @@ networks    The networks you trust: a new machine on one joins without asking. \
         A network counts only when its gateway can be read; otherwise it is unknown and never trusted.
         The setting network.autoAdmit changes this: trusted-networks (default), always, never.
 untrust     Stop trusting a network, so its new machines ask for an Allow again.
+same computer reset  Your Namzu homes on this computer (terminal, Desktop, WSL, scheduled services) join
+        without asking because they share a secret of yours. This deletes that secret: the next one made
+        is new for all of them, and until they all read it new homes ask again. The setting
+        network.sameComputer: false turns the automatic join off.
 remove  Take a machine out of your network. --and-its-admissions also removes the machines it let in.
 rename  Rename this machine; the others show the new name.
 role    Describe what a session (or a machine, written machine/) is for. The role is shown in
@@ -129,6 +138,7 @@ export type PeersArgs =
 			readonly rename?: readonly [string, string]
 	  }
 	| { readonly verb: 'untrust'; readonly json: boolean; readonly name: string }
+	| { readonly verb: 'same'; readonly json: boolean }
 	| {
 			readonly verb: 'remove'
 			readonly json: boolean
@@ -158,6 +168,7 @@ const VERBS = [
 	'deny',
 	'networks',
 	'untrust',
+	'same',
 	'remove',
 	'rename',
 	'role',
@@ -276,6 +287,10 @@ export function parsePeersArgs(rawArgs: readonly string[]): PeersArgs {
 			if (operands.length === 0) return { error: 'untrust needs the name of a network.' }
 			return { verb, json, name: operands.join(' ') }
 		}
+		case 'same':
+			return operands.join(' ') === 'computer reset'
+				? { verb, json }
+				: { error: 'same is used as: same computer reset.' }
 		case 'remove': {
 			if (operands.length === 0) return { error: 'remove needs the name of a machine.' }
 			return { verb, json, machine: operands.join(' '), cascade }
@@ -438,6 +453,8 @@ export interface PeersDeps {
 	readonly now: () => number
 	/** `os.networkInterfaces`; tests supply their own. */
 	readonly interfaces?: () => ReturnType<typeof networkInterfaces>
+	/** Delete the computer secret this home uses. Resolves false when this home uses none. */
+	readonly resetComputerSecret?: () => Promise<boolean>
 }
 
 const NO_TERMINAL = 'No Namzu terminal is running here; the network needs one open.'
@@ -680,6 +697,17 @@ export async function executePeers(
 				)
 				return EXIT_OK
 			}
+			case 'same': {
+				const reset = deps.resetComputerSecret ?? (() => resetHomeSecret(deps.home, deps.env))
+				const done = await reset()
+				io.print(
+					{ reset: done },
+					done
+						? 'The secret your Namzu homes on this computer share is deleted. The next one made is new; new homes ask for an Allow until each has read it. Machines already in your network stay in it.'
+						: 'This home uses no shared secret: nothing to reset.',
+				)
+				return EXIT_OK
+			}
 			case 'untrust': {
 				const gone = await deps.control.untrust(parsed.name)
 				io.print(
@@ -830,4 +858,14 @@ export const peersCommand: CommandDef = {
 			)
 		}
 	},
+}
+
+async function resetHomeSecret(home: string, env: NodeJS.ProcessEnv): Promise<boolean> {
+	const { source } = await secretForHome(home, env, (dir) => {
+		hardenPeerRuntimeDir(dir, process.getuid?.())
+		restrictToOwner(dir)
+	})
+	if (!source) return false
+	await rm(source.path, { force: true })
+	return true
 }
