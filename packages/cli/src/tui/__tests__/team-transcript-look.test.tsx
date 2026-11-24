@@ -79,6 +79,20 @@ describe('an opened teammate transcript', () => {
 			'on it',
 		)
 	})
+
+	it('shows the call that switched tools on but not the list of tools it printed', () => {
+		const row: SubagentActivity['transcript'][number] = {
+			id: 't1',
+			kind: 'tool',
+			text: 'search_tools(select:task_update)',
+			status: 'completed',
+			detail: 'Activated 1 tool(s):\n- task_update: Update task fields',
+		}
+		expect(teammateRowText(row)).toBe('search_tools(select:task_update)')
+		expect(teammateRowText({ ...row, text: 'bash(ls)', detail: '(no output)' })).toBe(
+			'bash(ls)\n(no output)',
+		)
+	})
 })
 
 describe('the task block of a team', () => {

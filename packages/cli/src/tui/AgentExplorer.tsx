@@ -2914,6 +2914,8 @@ export function teammateRowText(row: SubagentActivity['transcript'][number]): st
 		if (row.mail === undefined || row.mail.from === 'lead') return body
 		return `@${row.mail.from}: ${body}`
 	}
+	// The list of tools a `search_tools` call switched on is the model's own plumbing, not a thing said.
+	if (row.kind === 'tool' && /^search_tools\b/.test(row.text)) return row.text
 	return transcriptRowText(row)
 }
 
