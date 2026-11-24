@@ -359,6 +359,14 @@ function runsRecognisedCheck(line: string, hostIsCheck?: (command: string) => bo
 	return false
 }
 
+/** Tools that only write to the task list or to the mail between agents. */
+const COORDINATION_TOOLS: ReadonlySet<string> = new Set([
+	'task_create',
+	'task_update',
+	'send_message',
+	'stop_task',
+])
+
 export class OutcomeLedger {
 	private readonly config: TurnOutcomeConfig
 	private started = false
@@ -446,6 +454,9 @@ export class OutcomeLedger {
 	 */
 	private couldChange(call: PendingOutcomeCall): boolean {
 		if (call.readOnly === true) return false
+		// These keep the plan and the team's mail: they write to the task list and the mailboxes, never to
+		// the workspace, so a turn that only used them has nothing it could have changed unseen.
+		if (COORDINATION_TOOLS.has(call.toolName)) return false
 		if (call.toolName === 'bash') {
 			const command = commandOf(call.input)
 			if (command !== undefined && isReadOnlyCommandLine(command)) return false
