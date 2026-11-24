@@ -1892,4 +1892,30 @@ describe('/schedule across the installed scheduler services', () => {
 		await runScheduleCommand(['pause', 'twin', '--service', 'autodev'], second.context)
 		expect(readJob(svc.paths, twin.id)?.state).toBe('paused')
 	})
+
+	it('keeps --service and --home words in an added job prompt', async () => {
+		const prompts: string[] = []
+		const { context: c } = context({
+			model: { provider: 'deepseek', model: 'deepseek-chat' },
+			review: async (request) => {
+				prompts.push(request.preview.prompt)
+				return 'cancel'
+			},
+		})
+		await runScheduleCommand(
+			['add', 'x', '"every 5m"', 'read-only', 'explain', 'the', '--home', 'flag', '--service=a'],
+			c,
+		)
+		expect(prompts).toEqual(['explain the --home flag --service=a'])
+	})
+
+	it('refuses --home that is not this home, and a flag without a value', async () => {
+		const there = confirmedJob(svc, { name: 'autodev-scout' })
+		const { said, context: c } = context()
+		await runScheduleCommand(['pause', 'autodev-scout', '--home', svc.home], c)
+		await runScheduleCommand(['pause', 'autodev-scout', '--service'], c)
+		expect(said.join('\n')).toContain('--home here means this home')
+		expect(said.join('\n')).toContain('--service needs a value')
+		expect(readJob(svc.paths, there.id)?.state).toBe('active')
+	})
 })

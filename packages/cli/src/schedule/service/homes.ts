@@ -65,13 +65,20 @@ export function scheduleHomes(currentHome: string): ScheduleHomes {
 	const index = readServiceIndexChecked()
 	const seen = new Set<string>([current])
 	const others: ScheduleHome[] = []
+	// Two entries that show the same name (a legacy `x-wsl-<distro>` and `x`)
+	// are told apart by their exact registered names, so `--service` can pick one.
+	const shown = new Map<string, number>()
+	for (const entry of index.services) {
+		const name = displayName(entry)
+		shown.set(name, (shown.get(name) ?? 0) + 1)
+	}
 	for (const entry of index.services) {
 		const home = resolve(entry.home)
 		if (seen.has(home)) continue
 		seen.add(home)
 		const unreadable = whyUnreadable(home)
 		others.push({
-			service: displayName(entry),
+			service: (shown.get(displayName(entry)) ?? 0) > 1 ? entry.name : displayName(entry),
 			home,
 			paths: schedulePaths(home),
 			entry,
@@ -141,9 +148,10 @@ export function locateJob(ref: string, currentHome: string, service?: string | n
 			// not here, or a file there that cannot be read: not this home's job to act on
 		}
 	}
+	// An ambiguous or unreadable reference here is never settled by another home.
+	if (currentError) throw currentError
 	if (found.length === 1) return { kind: 'found', ...(found[0] as (typeof found)[number]) }
 	if (found.length > 1) return { kind: 'several', at: found.map((f) => f.at) }
-	if (currentError) throw currentError
 	return { kind: 'none' }
 }
 

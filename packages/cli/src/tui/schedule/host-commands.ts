@@ -78,6 +78,8 @@ export interface ScheduleCommandContext {
 	) => Promise<ScheduleReviewAnswer>
 }
 
+const LOOKUP_VERBS = new Set(['confirm', 'pause', 'resume', 'run', 'remove', 'show', 'history'])
+
 const USAGE = [
 	'/schedule                          jobs, and what needs you',
 	'/schedule confirm <job>            confirm a job created without a terminal, or held after an edit',
@@ -383,17 +385,29 @@ export async function runScheduleCommand(
 	const say = (message: string) => ctx.say(visibleScheduleMessage(message))
 	const paths = schedulePaths(ctx.home)
 	const [verb, ...restAll] = args
-	// `--service <name>` anywhere after the verb names the service's home.
+	// `--service <name>` / `--home <this home>` after the verb name where an
+	// existing job is looked up. `add` keeps every word: they are the prompt.
 	let service: string | null | undefined
-	const rest: string[] = []
-	for (let i = 0; i < restAll.length; i++) {
-		const word = restAll[i] as string
-		if (word === '--service' && i + 1 < restAll.length) service = restAll[++i]
-		else if (word.startsWith('--service=')) service = word.slice('--service='.length)
-		else if (word === '--home' && i + 1 < restAll.length) {
-			service = null // this home only
-			i++
-		} else rest.push(word)
+	let rest: string[] = [...restAll]
+	if (verb !== undefined && LOOKUP_VERBS.has(verb)) {
+		rest = []
+		for (let i = 0; i < restAll.length; i++) {
+			const word = restAll[i] as string
+			if (word === '--service' || word === '--home') {
+				const value = restAll[i + 1]
+				if (value === undefined || value.startsWith('--')) {
+					say(`${word} needs a value.`)
+					return
+				}
+				i++
+				if (word === '--service') service = value
+				else if (resolve(value) !== resolve(ctx.home)) {
+					say(`--home here means this home (${ctx.home}); use --service <name> for a service.`)
+					return
+				} else service = null
+			} else if (word.startsWith('--service=')) service = word.slice('--service='.length)
+			else rest.push(word)
+		}
 	}
 	/** The job a verb names, in this home or a service's; undefined once the reason has been said. */
 	const locate = (ref: string): { job: ScheduleJob; at: ScheduleHome } | undefined => {

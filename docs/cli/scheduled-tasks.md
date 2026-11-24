@@ -1101,7 +1101,12 @@ home's jobs first (`This home (<home>)`), then each service's jobs under
 `Service <name> (<home>)`; a service home that cannot be opened reads
 `cannot read: <reason>` instead of failing the list, and `--json` adds a `services`
 array (`name`, `home`, and `jobs` or `unreadable`) after `jobs`. A service's
-`daemon.env` and other secret files are never opened.
+`daemon.env` and other secret files are never opened. A reference that is ambiguous
+or unreadable in the current home is reported as that, never settled by a service's
+job; two services that show one name are listed under their registered names. In the
+TUI, `--service <name>` and `--home` are read for confirm, pause, resume, run, remove,
+show and history only (an added job's prompt keeps them), and `--home` must name the
+current home.
 
 `remove` refuses a job with a run in progress, waiting for approval or holding
 a result not yet delivered unless you pass `--force`. A forced removal leaves

@@ -6,7 +6,7 @@
  * stubbed to a temporary folder, so the real index is never read.
  */
 
-import { chmodSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -200,5 +200,28 @@ describe('locateJob', () => {
 		expect(locateJob('missing', sb.home).kind).toBe('none')
 		expect(locateJob('both', sb.home, 'nope').kind).toBe('no-service')
 		expect(scheduleHomes(sb.home).homes).toHaveLength(2)
+	})
+
+	it('never settles an ambiguous local reference with a service job', () => {
+		// Two local jobs of one name make the reference ambiguous here; the
+		// service's job of that name must not be acted on instead.
+		const first = confirmedJob(sb, { name: 'nightly' })
+		const second = confirmedJob(sb, { name: 'nightly-2' })
+		const file = sb.paths.job(second.id)
+		writeFileSync(
+			file,
+			readFileSync(file, 'utf8').replace('"name": "nightly-2"', '"name": "nightly"'),
+		)
+		expect(first.name).toBe('nightly')
+		confirmedJob(svc, { name: 'nightly' })
+		expect(() => locateJob('nightly', sb.home)).toThrow()
+	})
+
+	it('tells two services with one shown name apart by their registered names', () => {
+		const other = join(sb.osHome, 'other-home')
+		mkdirSync(other, { recursive: true })
+		register('autodev-wsl-ubuntu', other)
+		const names = scheduleHomes(sb.home).homes.flatMap((h) => (h.service ? [h.service] : []))
+		expect(new Set(names).size).toBe(names.length)
 	})
 })
