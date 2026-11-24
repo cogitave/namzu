@@ -15,6 +15,11 @@ import type {
  */
 export interface AcpPermissionRequest {
 	readonly sessionId: string
+	/**
+	 * Set when a teammate of the session's team is the one asking. The client shows the member's
+	 * name with the question; the answer goes back to that teammate's call only.
+	 */
+	readonly teammate?: { readonly name: string; readonly team: string }
 	readonly toolCalls: readonly (ToolCallSummary & {
 		/** Rides to the client untouched; see {@link AcpFileChangePreview}. */
 		readonly preview?: AcpFileChangePreview

@@ -40,7 +40,7 @@
  *   on `pre_compact` it is instructions for the summariser.
  * - `2` — **block**, read per event: before a tool (`pre_tool_use`) the call is
  *   skipped and the model is told why, with the hook's stderr as the reason;
- *   on `user_prompt_submit` the turn ends; on `turn_end` and `subagent_stop`
+ *   on `user_prompt_submit` the turn ends; on `turn_end`, `subagent_stop` and `teammate_idle`
  *   the stderr is fed back to the model and the turn goes on; on
  *   `pre_compact` a compaction the context did not force is cancelled; on
  *   `post_tool_use` and `post_tool_use_failure` the stderr is shown to the
@@ -191,6 +191,9 @@ export type ShellHookEvent = Extract<
 	| 'user_prompt_expansion'
 	| 'task_created'
 	| 'task_completed'
+	| 'teammate_idle'
+	| 'teammate_start'
+	| 'teammate_stop'
 >
 
 export const SHELL_HOOK_EVENTS: readonly ShellHookEvent[] = [
@@ -224,6 +227,9 @@ export const SHELL_HOOK_EVENTS: readonly ShellHookEvent[] = [
 	'user_prompt_expansion',
 	'task_created',
 	'task_completed',
+	'teammate_idle',
+	'teammate_start',
+	'teammate_stop',
 ]
 
 /** What a failed hook does to the action it guards. */
@@ -757,6 +763,9 @@ export interface ShellHookInput {
 	readonly expansion?: PluginPromptExpansionInfo
 	/** On `task_created` and `task_completed`. Sent as `task_id`, `task_subject` and `task_description`. */
 	readonly task?: PluginTaskInfo
+	/** On `teammate_idle`, `teammate_start`, `teammate_stop`, and on a task event a teammate caused. Sent as `teammate_name` and `team_name`. */
+	readonly teammateName?: string
+	readonly teamName?: string
 	/**
 	 * The file this hook may append `export NAME=value` lines to. Sent as
 	 * `NAMZU_ENV_FILE`; on every other event the variable is not set at all.
@@ -885,6 +894,8 @@ export function shellHookPayload(input: ShellHookInput): string {
 						: {}),
 				}
 			: {}),
+		...(input.teammateName !== undefined ? { teammate_name: input.teammateName } : {}),
+		...(input.teamName !== undefined ? { team_name: input.teamName } : {}),
 		...(input.compaction !== undefined ? compactionFields(input.event, input.compaction) : {}),
 		...(input.toolName !== undefined
 			? { tool_name: shellHookToolName(input.toolName, input.toolNames) }
@@ -1263,6 +1274,9 @@ export const SHELL_HOOK_PASCAL_EVENT_NAMES: Readonly<Partial<Record<ShellHookEve
 	user_prompt_expansion: 'UserPromptExpansion',
 	task_created: 'TaskCreated',
 	task_completed: 'TaskCompleted',
+	teammate_idle: 'TeammateIdle',
+	teammate_start: 'TeammateStart',
+	teammate_stop: 'TeammateStop',
 }
 
 /** What a hook's stdout JSON said, before it is mapped to a verdict for an event. */
@@ -1612,6 +1626,8 @@ export function shellHookVerdict(
 			case 'user_prompt_expansion':
 			case 'task_created':
 			case 'task_completed':
+			// A teammate that is about to go idle is sent back to work with the hook's words.
+			case 'teammate_idle':
 				return { action: 'skip', reason }
 			// The child is starting regardless; what the hook said is its context.
 			case 'subagent_start':
@@ -1831,6 +1847,7 @@ export function shellHookVerdict(
 			}
 		}
 		case 'turn_end':
+		case 'teammate_idle':
 		case 'subagent_stop': {
 			// A stop request outranks keeping the turn going.
 			if (reading.halt) {
@@ -2168,7 +2185,10 @@ export function createShellHook(
 				event === 'session_start' ||
 				event === 'session_end' ||
 				event === 'directory_added' ||
-				event === 'instructions_loaded'
+				event === 'instructions_loaded' ||
+				event === 'teammate_idle' ||
+				event === 'teammate_start' ||
+				event === 'teammate_stop'
 			)
 			const subject =
 				event === 'directory_added'
@@ -2181,11 +2201,15 @@ export function createShellHook(
 								? context.compaction?.trigger
 								: event === 'subagent_start' || event === 'subagent_stop'
 									? context.agentType
-									: event === 'session_start'
-										? context.source
-										: event === 'session_end'
-											? context.endReason
-											: context.toolName
+									: event === 'teammate_idle' ||
+											event === 'teammate_start' ||
+											event === 'teammate_stop'
+										? context.teammateName
+										: event === 'session_start'
+											? context.source
+											: event === 'session_end'
+												? context.endReason
+												: context.toolName
 			// An event that has no name to match (`turn_end`, `user_prompt_submit`,
 			// `turn_start`, `post_tool_batch`) ignores the matcher and the hook
 			// fires: a matcher cannot be read against a name that is not there, and
@@ -2245,6 +2269,8 @@ export function createShellHook(
 				...(context.instructions !== undefined ? { instructions: context.instructions } : {}),
 				...(context.expansion !== undefined ? { expansion: context.expansion } : {}),
 				...(context.task !== undefined ? { task: context.task } : {}),
+				...(context.teammateName !== undefined ? { teammateName: context.teammateName } : {}),
+				...(context.teamName !== undefined ? { teamName: context.teamName } : {}),
 				...(options.projectDir !== undefined ? { projectDir: options.projectDir } : {}),
 				...(options.plugin !== undefined ? { plugin: options.plugin } : {}),
 				sessionId: String(context.sessionId),

@@ -48,6 +48,8 @@ export interface ToolingBootstrapConfig {
 	allowedTools?: readonly string[]
 	invocationState?: InvocationState
 	pluginManager?: PluginLifecycleManager
+	/** Set for a teammate's turn: the task hooks name it. */
+	teammate?: { readonly name: string; readonly team: string }
 	toolTimeoutMs?: number
 	/** Host-owned and shared; the executor binds it to this turn. */
 	backgroundJobs?: BackgroundJobRegistry
@@ -126,6 +128,7 @@ export class ToolingBootstrap {
 				invocationState: config.invocationState,
 				captureSessionEvidence: config.captureSessionEvidence,
 				pluginManager: config.pluginManager,
+				...(config.teammate ? { teammate: config.teammate } : {}),
 				...(config.backgroundJobs ? { backgroundJobs: config.backgroundJobs } : {}),
 				...(config.backgroundJobOwner ? { backgroundJobOwner: config.backgroundJobOwner } : {}),
 				...(config.onJobAwaited ? { onJobAwaited: config.onJobAwaited } : {}),

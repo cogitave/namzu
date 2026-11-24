@@ -135,7 +135,16 @@ async function runTaskHook(
 	const results = await awaitWithAbort(
 		manager.executeHooks(
 			event,
-			{ sessionId: host.config.sessionId, turnId: host.config.turnId, task, signal },
+			{
+				sessionId: host.config.sessionId,
+				turnId: host.config.turnId,
+				task,
+				// A task a teammate makes or completes names the teammate and its team.
+				...(host.config.teammate
+					? { teammateName: host.config.teammate.name, teamName: host.config.teammate.team }
+					: {}),
+				signal,
+			},
 			host.emitEvent,
 		),
 		signal,

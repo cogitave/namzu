@@ -43,8 +43,11 @@ A hook is a function an extension registers on the plugin lifecycle manager, or 
 | `directory_added` | by the host, after `/add dir` added a folder to the conversation | `directory` (absolute), `directorySource` (`slash_command`) | nothing |
 | `instructions_loaded` | by the host, the first time an instruction file (`AGENTS.md`, a rule, a file it includes) is read into the conversation | `instructions`: `filePath`, `memoryType` (`User`, `Project` or `Local`), `loadReason` (`session_start`, `nested_traversal` or `include`), `parentFilePath`, `triggerFilePath` | nothing |
 | `user_prompt_expansion` | by the host, when a command the person typed (`/name args`) expanded into a prompt, before that prompt goes on | `expansion`: `expansionType`, `commandName`, `commandArgs`, `commandSource`; `prompt`: what it expanded to | `skip` stops the command; `annotate` adds text the model reads beside the prompt |
-| `task_created` | by the kernel, before `task_create` runs and after `pre_tool_use` let the call through | `task`: `subject`, `description` (no `id` yet) | `skip` refuses the task and gives the model the reason |
-| `task_completed` | by the kernel, before a `task_update` that sets the status to `completed` runs | `task`: `id`, and `subject` or `description` when the call carries them | `skip` refuses and gives the model the reason |
+| `task_created` | by the kernel, before `task_create` runs and after `pre_tool_use` let the call through | `task`: `subject`, `description` (no `id` yet); `teammateName` and `teamName` when a teammate makes the task | `skip` refuses the task and gives the model the reason |
+| `task_completed` | by the kernel, before a `task_update` that sets the status to `completed` runs | `task`: `id`, and `subject` or `description` when the call carries them; `teammateName` and `teamName` when a teammate completes it | `skip` refuses and gives the model the reason |
+| `teammate_idle` | by the host, when a teammate has finished its turn and is about to go idle (see [Teammates](#teammates)) | `teammateName`, `teamName` | `skip` keeps the teammate working: the reason is sent to it as feedback; anything else lets it go idle |
+| `teammate_start` | by the host, once a teammate has started | `teammateName`, `teamName` | nothing |
+| `teammate_stop` | by the host, once a teammate has left the team: shut down, stopped, or the team ended | `teammateName`, `teamName` | nothing |
 | `subagent_start` | once at the start of each child turn, before the child's `user_prompt_submit` | `parentSessionId`, `parentTurnId` (the parent turn whose tool call spawned it), `agentType` (the child's agent name: `reviewer` for an agent file called `reviewer`; a host that runs agents through `QueryAgent` names them with `QueryAgentConfig.agentType`, and without it `agentType` is the agent class's `type`) | `error` fails the child turn; `annotate` adds text to the child's context for its turn, as on `user_prompt_submit`; a root session never fires it |
 | `subagent_stop` | after a child session's own `turn_end` | `parentSessionId`, `parentTurnId` (the parent turn whose tool call spawned it), `agentType`, `stopHookActive`, `lastAssistantMessage` | `error` fails the child turn's finalization; `skip` keeps the child working, as on `turn_end` |
 
@@ -151,6 +154,7 @@ Before `@namzu/sdk` 44 the turn id was called the run id in both places, and `su
 | `elicitation`, `elicitation_result` | the question is declined (an answer already given becomes a decline) |
 | `user_prompt_expansion` | the command is stopped, naming the reason |
 | `task_created`, `task_completed` | the task is refused and the model is told why |
+| `teammate_idle` | stderr is sent to the teammate as feedback and it keeps working |
 | every other event | logged and ignored |
 
 Any other exit, a timeout, or a command that could not start is logged and the turn goes on: a hook that could not answer has not answered no. JSON on stdout is read only on exit `0`.
@@ -339,7 +343,7 @@ The `hooks` key reads the shape other hook files are written in, beside ours, in
 - **Both shapes in one file.** Our events (`pre_tool_use`) hold flat entries and the PascalCase ones hold groups; either spelling may hold either, and the same event may be written both ways in one file: the entries join, in the order they are written. An entry of ours under `PreToolUse` and a group under `pre_tool_use` are read too. Two entries that read the same (the same event, and every option the same, `toolNames` included) run once, as they do across files, whichever shape they were written in.
 - **The answer needs no switch.** An answer is read the same whichever shape the entry was written in; `hookSpecificOutput.hookEventName` takes either spelling of the event.
 - **Nothing is dropped in silence.** What cannot be loaded or acted on is said in plain words, naming the file, the event and what will not happen, three ways: once at launch (a warning), under `/hooks`, and in the `runtime.hooks` row of `namzu doctor`.
-  - An event name with no counterpart here (`TeammateIdle`, `ConfigChange`, any other PascalCase name that is not in the list above): none of its hooks will run. It is a **problem**: the row warns.
+  - An event name with no counterpart here (`ConfigChange`, `Setup`, any other PascalCase name that is not in the list above): none of its hooks will run. It is a **problem**: the row warns.
   - A hook kind we do not have (`agent`, `mcp_tool`, anything but `command`, `http` and `prompt`), a hook with no `command`, `url` or `prompt` it needs, an `http` `url` that is not an `http` or `https` address, `args` that are not a list of text, an entry that is not a mapping: that hook will not run. It is a **problem** when its event can guard something (`PreToolUse`, `PostToolUse`, `PostToolUseFailure`, `PermissionRequest`, `UserPromptSubmit`, `PreCompact`, `Stop`, `SubagentStart`, `SubagentStop`), and the line says what it was meant to guard is not checked; elsewhere it is a **note**.
   - A key this kernel does not act on (a group's other keys, `shell`, `asyncRewake`, `model` and so on) is a **note**; the hook still loads and runs without it.
   - **An unreadable setting never switches a hook off.** A `timeout`, `if`, `once`, `statusMessage`, `onFailure`, `headers`, `allowedEnvVars`, `async`, `env` (or a name or value inside it) or group `matcher` of the wrong type is left off, with a note, and the hook runs, for more calls and with the default deadline, never fewer.
@@ -594,7 +598,7 @@ A project's hooks, as for every command, run only once the folder is trusted: `n
 
 ## Model switches, tool-server questions, folders, instruction files, commands and tasks
 
-These events are fired by the host (or, for the two task events, by the kernel) when it does the thing, and are read as shell hooks in both spellings: `PreModelSwitch`, `PostModelSwitch`, `Elicitation`, `ElicitationResult`, `DirectoryAdded`, `InstructionsLoaded`, `UserPromptExpansion`, `TaskCreated` and `TaskCompleted`. The shell fields are the snake_case spellings of the context fields.
+These events are fired by the host (or, for the two task events, by the kernel) when it does the thing, and are read as shell hooks in both spellings: `PreModelSwitch`, `PostModelSwitch`, `Elicitation`, `ElicitationResult`, `DirectoryAdded`, `InstructionsLoaded`, `UserPromptExpansion`, `TaskCreated`, `TaskCompleted`, `TeammateIdle`, `TeammateStart` and `TeammateStop`. The shell fields are the snake_case spellings of the context fields.
 
 ### Model switches
 
@@ -618,9 +622,17 @@ A tool server may ask the person for a form's worth of input. `elicitation` runs
 
 `user_prompt_expansion` runs when a command the person typed (a file command, or a skill) expanded into a prompt, before the prompt goes on: `expansion_type`, `command_name`, `command_args`, `command_source` and `prompt`. Exit `2` or `decision: "block"` stops the command and tells the person why; `additionalContext` is added to the prompt the model reads. The prompt is not sent to the `user_prompt_submit` hooks until this one has answered. Built-in commands that do not expand into a prompt fire nothing.
 
-`task_created` and `task_completed` run in the tool step, after `pre_tool_use` allowed `task_create` or a `task_update` with `status: "completed"`. Exit `2` refuses the call and the model reads the reason as the tool's refusal. `task_created` carries no `task_id`, because the task does not exist yet. Their matcher is ignored; a `pre_tool_use` hook on `TaskCreate` or `TaskUpdate` still sees the same calls.
+`task_created` and `task_completed` run in the tool step, after `pre_tool_use` allowed `task_create` or a `task_update` with `status: "completed"`. Exit `2` refuses the call and the model reads the reason as the tool's refusal. `task_created` carries no `task_id`, because the task does not exist yet. Their matcher is ignored; a `pre_tool_use` hook on `TaskCreate` or `TaskUpdate` still sees the same calls. When the call is a teammate's they also carry `teammate_name` and `team_name` (the context fields `teammateName` and `teamName`); on the lead's own calls and in a session with no teams both are absent.
 
-In a skill or an agent file, an entry on any of the first seven events is set aside with a note: they are fired for the conversation the host runs, never inside a delegated agent.
+### Teammates
+
+With [teammates](../cli/teams.md) on, three events are fired for the members of the lead's team, on the lead's session. All three carry `teammate_name` and `team_name` (`teammateName` and `teamName` in the context), read in both spellings (`TeammateIdle`, `TeammateStart`, `TeammateStop`), and read their matcher against the teammate's name (`writer`, `writer|reviewer`, `*`).
+
+`teammate_idle` runs when a teammate's turn has ended and it is about to go idle, before the lead is told it is idle. Exit `2` (a shell hook), or `skip` in code, sends the hook's words to the teammate as feedback and starts another turn for it: the teammate is not idle until a run of this hook lets it go. The words reach the teammate framed as coming from a hook of the project, never as the person or another teammate. A hook that refuses every time is overridden after `limits.maxHookRefusals` times in a row (8 by default) so a team cannot be kept going without end; the lead is told once, and the teammate goes idle. Any other exit, a timeout or a script that cannot start is logged and the teammate goes idle. The hook runs only for a turn that completed: a turn that failed or was interrupted goes idle without it.
+
+`teammate_start` runs after a teammate was reserved in the team and started, and `teammate_stop` once, when it leaves the team (it approved a shutdown, was stopped, or the lead's conversation ended the team); an idle teammate that ends after `teams.idleExitMinutes` is not leaving and fires nothing, because mail resumes it. Neither can refuse anything: a 2 is logged and ignored.
+
+In a skill or an agent file, an entry on any of the first seven events, and on `teammate_idle`, `teammate_start` and `teammate_stop`, is set aside with a note: they are fired for the conversation the host runs, never inside a delegated agent.
 
 ## Request context inventory
 

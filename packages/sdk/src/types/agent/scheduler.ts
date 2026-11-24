@@ -42,6 +42,8 @@ export interface CreateTaskOptions {
 	readonly taskStore?: import('../task/index.js').TaskStore
 	/** The member name this child's task tools claim under when the list is shared by a team. */
 	readonly taskMember?: string
+	/** The team that member belongs to: with `taskMember` it names the teammate on the task hooks. */
+	readonly taskTeam?: string
 	/**
 	 * Continue a child conversation under a NEW task, with this invocation's
 	 * parent authority, budget and configuration. Local managers accept only

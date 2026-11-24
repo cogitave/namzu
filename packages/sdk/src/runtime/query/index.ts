@@ -838,6 +838,9 @@ export interface QueryParams {
 	/** The member name the task tools claim under when `taskStore` is a list a team shares. */
 	taskMember?: string
 
+	/** The team a teammate belongs to; with `taskMember` it names the teammate on the task hooks. */
+	taskTeam?: string
+
 	runtimeToolOverrides?: RuntimeToolOverrides
 
 	runtimeContext?: AgentRuntimeContext
@@ -1717,6 +1720,9 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 				allowedTools: effectiveAllowedTools,
 				invocationState: params.invocationState,
 				pluginManager: params.pluginManager,
+				...(params.taskTeam !== undefined && params.taskMember !== undefined
+					? { teammate: { name: params.taskMember, team: params.taskTeam } }
+					: {}),
 				...(params.backgroundJobs ? { backgroundJobs: params.backgroundJobs } : {}),
 				...(params.backgroundJobOwner ? { backgroundJobOwner: params.backgroundJobOwner } : {}),
 				...(awaitedJobs ? { onJobAwaited: (id: string) => awaitedJobs.expect(id) } : {}),

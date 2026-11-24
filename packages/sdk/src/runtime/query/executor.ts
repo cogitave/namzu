@@ -485,6 +485,8 @@ export interface ToolExecutorConfig {
 	web?: ToolContext['web']
 	invocationState?: InvocationState
 	pluginManager?: PluginLifecycleManager
+	/** Set for a teammate's turn: the task hooks name it. */
+	teammate?: { readonly name: string; readonly team: string }
 	/** Turn-level default deadline; per-tool `timeoutMs` overrides it. */
 	toolTimeoutMs?: number
 	/**

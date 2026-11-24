@@ -137,6 +137,7 @@ export class LocalTaskScheduler implements TaskScheduler {
 					workingDirectory: options.workingDirectory,
 					taskStore: options.taskStore ?? this.parentInput?.taskStore,
 					...(options.taskMember !== undefined ? { taskMember: options.taskMember } : {}),
+					...(options.taskTeam !== undefined ? { taskTeam: options.taskTeam } : {}),
 					runtimeToolOverrides: this.parentInput?.runtimeToolOverrides,
 					runtimeContext: options.runtimeContext ?? this.parentInput?.runtimeContext,
 				},

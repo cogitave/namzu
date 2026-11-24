@@ -404,6 +404,9 @@ export interface AgentInput {
 	/** The member name the task tools claim under when `taskStore` is a list a team shares. */
 	taskMember?: string
 
+	/** The team a teammate belongs to; with `taskMember` it names the teammate on the task hooks. */
+	taskTeam?: string
+
 	runtimeToolOverrides?: RuntimeToolOverrides
 
 	runtimeContext?: AgentRuntimeContext

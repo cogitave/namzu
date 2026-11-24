@@ -1015,6 +1015,44 @@ describe('a transport that fails', () => {
 		})
 	})
 
+	it('names the teammate on a permission request a teammate raised, and only then', async () => {
+		const fixture = build({
+			gateway: {
+				prompt: async ({ ask, sessionId }) => {
+					await ask({
+						sessionId,
+						teammate: { name: 'writer', team: 'team-ab12' },
+						toolCalls: [
+							{ id: 'theirs', name: 'bash', input: { command: 'ls' }, isDestructive: false },
+						],
+					})
+					await ask({
+						sessionId,
+						toolCalls: [
+							{ id: 'mine', name: 'bash', input: { command: 'ls' }, isDestructive: false },
+						],
+					})
+					return { stopReason: 'end_turn' }
+				},
+			},
+		})
+		await handshake(fixture)
+		fixture.deliver({
+			jsonrpc: '2.0',
+			id: 3,
+			method: 'session/prompt',
+			params: { sessionId: '7532c215-cbb2-46ec-9aaf-02bc9c60d6af', prompt: 'go' },
+		})
+		await settle()
+		const first = fixture.sent.find((frame) => frame.method === 'session/request_permission')
+		expect(first?.params).toMatchObject({ teammate: { name: 'writer', team: 'team-ab12' } })
+		fixture.deliver({ jsonrpc: '2.0', id: first?.id, result: { outcome: 'approve' } })
+		await settle()
+		const asks = fixture.sent.filter((frame) => frame.method === 'session/request_permission')
+		expect(asks).toHaveLength(2)
+		expect((asks[1]?.params as { teammate?: unknown }).teammate).toBeUndefined()
+	})
+
 	it('does not request or assume approval after an admitted update fails', async () => {
 		let approved = false
 		const fixture = build({

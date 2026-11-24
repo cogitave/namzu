@@ -53,6 +53,10 @@ Every change runs under lock files (the shared `file-lock` protocol: created exc
 
 The task tools use it when they are built over it (`buildTaskTools(store, { member })`; a query takes the member from `QueryParams.taskMember`, a task from `CreateTaskOptions.taskMember`): `task_get` is added (a task in full, with what it waits on), `task_update` to `in_progress` claims under the member name and says why a claim failed, a refused dependency is a plain refusal, and `task_list` shows every task of the list, not only the current turn. Over any other store the tools are exactly as before. `CreateTaskOptions.taskStore` and `taskMember` give one child its own list and member name in place of the scheduler's, which is how each teammate gets the team's list under its own name. In the CLI, `SubagentRuntimeOptions.childTaskStore` still hands a list to every child of a turn.
 
+## Members on hooks and on permission requests
+
+`CreateTaskOptions.taskTeam` (and `QueryParams.taskTeam`, `AgentInput.taskTeam`) names the team a member belongs to. With `taskMember` it makes the kernel's `task_created` and `task_completed` hooks carry `teammateName` and `teamName` (`teammate_name` and `team_name` in a shell hook) for that member's own task calls; without it, and on the lead's calls, they are absent. The events a team fires itself, `teammate_idle`, `teammate_start` and `teammate_stop`, are described with the other [hook events](hooks.md#teammates). The ACP permission request (`AcpPermissionRequest`, sent as `AcpRequestPermissionParams`) takes an optional `teammate: { name, team }`: a host that routes a teammate's ask to the person sets it, and a client names the member in the question; the answer is still the person's, to that request only.
+
 ## Removing teams
 
 `deleteTeam` removes a team's directory (never through a symlink). `sweepOrphans` removes the directories of teams whose lead process no longer exists, and directories with no readable config more than a minute after their last change (so one being created is left alone); a team that records no lead process is never removed by it. Tasks and transcripts live elsewhere and are not touched.

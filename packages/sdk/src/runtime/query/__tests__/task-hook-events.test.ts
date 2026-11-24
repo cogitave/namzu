@@ -43,7 +43,10 @@ describe('task hook events', () => {
 	let seen: { event: string; context: Partial<PluginHookContext> }[]
 	let ran: ReturnType<typeof vi.fn>
 
-	function executor(answer: (event: string) => PluginHookResult[]) {
+	function executor(
+		answer: (event: string) => PluginHookResult[],
+		teammate?: { name: string; team: string },
+	) {
 		seen = []
 		ran = vi.fn(async () => ({ success: true, output: 'done' }))
 		const tools = {
@@ -69,6 +72,7 @@ describe('task hook events', () => {
 				env: {},
 				abortSignal: new AbortController().signal,
 				pluginManager,
+				...(teammate ? { teammate } : {}),
 			},
 			new ActivityStore(turnId, { enabled: true, trackToolCalls: true, trackLlmTurns: true }),
 			async () => undefined,
@@ -103,6 +107,23 @@ describe('task hook events', () => {
 		seen.length = 0
 		await exec.executeBatch(call('task_update', { id: 't1', status: 'in_progress' }))
 		expect(seen.some((e) => e.event === 'task_completed')).toBe(false)
+	})
+
+	it('a task a teammate makes or completes names the teammate and its team; the lead names none', async () => {
+		const mate = executor(() => [], { name: 'writer', team: 'team-ab12' })
+		await mate.executeBatch(call('task_create', { subject: 'S' }))
+		await mate.executeBatch(call('task_update', { id: '2', status: 'completed' }))
+		for (const event of ['task_created', 'task_completed']) {
+			expect(seen.find((e) => e.event === event)?.context).toMatchObject({
+				teammateName: 'writer',
+				teamName: 'team-ab12',
+			})
+		}
+		const lead = executor(() => [])
+		await lead.executeBatch(call('task_create', { subject: 'S' }))
+		const context = seen.find((e) => e.event === 'task_created')?.context
+		expect(context?.teammateName).toBeUndefined()
+		expect(context?.teamName).toBeUndefined()
 	})
 
 	it('a refusal keeps the tool from running and says why', async () => {
