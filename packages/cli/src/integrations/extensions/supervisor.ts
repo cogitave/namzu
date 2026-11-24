@@ -61,6 +61,13 @@ export interface SupervisorOptions {
 	 * without `indicator.shown: true` stop it as failed (indicator-hidden) and a restart needs the person.
 	 */
 	readonly requireIndicator?: boolean
+	/**
+	 * Resolves true once the process's query endpoint accepts connections. When given, the first status of
+	 * a start does not report `collecting` (shown as running) until it has: a status is the process saying
+	 * it works, and the socket it serves queries on opens a moment after, so a query issued the instant the
+	 * state turned running could find nothing there. False fails the start like a missing hello.
+	 */
+	readonly endpointReady?: (signal: AbortSignal) => Promise<boolean>
 }
 
 export class Supervisor {
@@ -82,6 +89,10 @@ export class Supervisor {
 	private indicatorMisses = 0
 	private expectedStop = false
 	private stopWaiters: (() => void)[] = []
+	private endpointUp = false
+	private endpointWait: 'none' | 'waiting' = 'none'
+	private endpointAbort: AbortController | undefined
+	private pendingState: RunState = 'collecting'
 
 	constructor(private readonly o: SupervisorOptions) {}
 
@@ -123,6 +134,8 @@ export class Supervisor {
 		this.badStatus = 0
 		this.indicatorMisses = 0
 		this.lastStatus = undefined
+		this.endpointUp = false
+		this.cancelEndpointWait()
 		this.set('starting')
 		const gen = ++this.generation
 		let child: ChildLike
@@ -159,6 +172,15 @@ export class Supervisor {
 		if (this.beatTimer) clearInterval(this.beatTimer)
 		this.helloTimer = undefined
 		this.beatTimer = undefined
+		// Every path that ends or replaces a start (stop, fail, deny, kill, restart) comes through here, so the
+		// endpoint wait of that start ends with it and can never publish a state afterwards.
+		this.cancelEndpointWait()
+	}
+
+	private cancelEndpointWait(): void {
+		this.endpointAbort?.abort()
+		this.endpointAbort = undefined
+		this.endpointWait = 'none'
 	}
 
 	private strike(why: string): void {
@@ -266,7 +288,7 @@ export class Supervisor {
 		if (bad) {
 			this.badStatus++
 			this.o.audit('message-refused', 'a status the manifest did not declare')
-			this.set('degraded')
+			this.publish('degraded')
 			return
 		}
 		this.badStatus = 0
@@ -277,7 +299,35 @@ export class Supervisor {
 				return
 			}
 		}
-		this.set(m.state === 'degraded' ? 'degraded' : 'collecting')
+		this.publish(m.state === 'degraded' ? 'degraded' : 'collecting')
+	}
+
+	/** Report a state a status produced; the first one of a start waits until the query endpoint is up. */
+	private publish(next: RunState): void {
+		if (this.endpointUp || !this.o.endpointReady || this.state !== 'starting') {
+			this.set(next)
+			return
+		}
+		this.pendingState = next
+		if (this.endpointWait === 'waiting') return
+		this.endpointWait = 'waiting'
+		const gen = this.generation
+		const abort = new AbortController()
+		this.endpointAbort = abort
+		void this.o.endpointReady(abort.signal).then((up) => {
+			// A stop, failure or restart since the wait began aborted it; the state check is a second guard.
+			if (abort.signal.aborted || gen !== this.generation) return
+			if (this.endpointAbort === abort) this.endpointAbort = undefined
+			this.endpointWait = 'none'
+			if (this.state !== 'starting' || !this.child) return
+			if (!up) {
+				this.o.audit('failed', 'query endpoint did not open')
+				this.fail('query endpoint did not open', true)
+				return
+			}
+			this.endpointUp = true
+			this.set(this.pendingState)
+		})
 	}
 
 	private onExit(code: number | null, signal: string | null): void {

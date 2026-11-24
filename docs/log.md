@@ -3,6 +3,7 @@
 ## 2026-11-24
 
 - **Update** [Terminal design](cli/terminal-design.md): in the fullscreen view a window resize no longer blanks the screen for the length of a drag; the empty clean-slate frame and a real terminal clear are drawn once, after the size has been quiet for 250 ms, so no rows from older widths stay behind, and real frames keep painting at the new size until then. `.changeset/resize-no-black-screen.md`.
+- **Update** [Extensions](cli/extensions.md): an extension shows as running only after its query endpoint accepts a connection (one that does not open within 10 seconds is restarted), so a query right after "running" no longer finds nothing there. `.changeset/cli-extension-query-ready.md`.
 
 ## 2026-11-23
 
