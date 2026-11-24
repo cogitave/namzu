@@ -1,6 +1,6 @@
 ---
 name: deep-research
-description: Research a question across many web sources and write a cited report. Use when the person wants options compared, a topic, market or literature surveyed, or any report with sources. Not for a single fact, a question the conversation or the project files already answer, or code questions.
+description: Research a question across many web sources and write a cited report. Use when a sourced report is wanted. Not for a single fact.
 invocation: both
 argument-hint: the question to research
 metadata:
@@ -10,7 +10,8 @@ metadata:
 # Deep research
 
 Fan a question out to a few researchers, then write one report in which every
-claim points at a page that was read in this run. It costs more than a normal
+claim points at a page a researcher reported reading in this run, and spot-check
+those pages yourself before saving. It costs more than a normal
 answer; say so in one sentence, with the number of researchers, before you
 start. If one search or one page settles the question (a single fact), answer
 it plainly and do not use this. A request for a "short" report is not that
@@ -33,8 +34,10 @@ case: keep the researchers and shorten the report, not the research.
    without `task_id` is refused. A researcher never starts researchers of its
    own.
 4. **Gather.** Keep only what a researcher returned. A result with no URLs or
-   no quotes goes back once through `send_message` asking for them; if it comes
-   back the same, drop it.
+   no quotes is dropped; if that leaves a sub-question empty, launch one
+   replacement researcher for it (it counts against the cap of 9). A researcher
+   that returns more than 10 distinct URLs went over its fetch budget: keep
+   only its first 10.
 5. **One gap round, optional.** List the sub-questions with fewer than two
    supported claims, or with sources that disagree. Launch at most 2 more
    researchers for them. Skip the round when the first one answered the goal,
@@ -49,7 +52,13 @@ case: keep the researchers and shorten the report, not the research.
    researcher's returned list from this run. Numbers and quotes match that
    list. Drop what has no source, or mark it "unverified". No URL appears that
    no researcher returned, and none that was only seen in a search result:
-   a URL counts only when its page was fetched.
+   a URL counts only when its page was fetched. Compare the report's URLs
+   against the returned lists one by one and drop any that is not in them.
+   Then check the researchers' word yourself: `web_fetch` at least the 3
+   cited pages that carry the report's most important claims (all of them
+   when there are 5 or fewer) and confirm each quote is on the page. A
+   quote that is not there, or a page that will not load, means the claim is
+   dropped or marked "unverified". The reply says how many pages you checked.
 8. **Save and show.** Write the report as one Markdown file in the project's
    `docs` or `documents` folder if it has one, else the folder the person
    named, else the conversation's work folder. Name the file from the title.
@@ -58,7 +67,8 @@ case: keep the researchers and shorten the report, not the research.
    name. A reply that only offers to write the file is not finished. Read it back once, then call
    `present_file` (load it first if it is not in your tool list); in a run where that is refused, give the path instead.
 9. **Reply.** The answer in 3 to 5 lines, the file, your assumptions, what
-   could not be verified, and how many researchers ran.
+   could not be verified, how many researchers ran and how many pages you
+   re-fetched.
 
 ## The brief for each researcher
 
@@ -69,7 +79,8 @@ The researcher sees nothing of this conversation, so the brief stands alone:
   independent sources for a contested claim; skip content farms and pages with
   no author or owner.
 - A budget: about 8 `web_search` calls and 10 `web_fetch` calls, and stop
-  sooner when two good sources agree.
+  sooner when two good sources agree. Fetches are counted, so the writer can
+  check that the returned URLs fit: at most 10 per researcher.
 - What to return: a list, one claim per line as
   `claim | URL fetched | short quote | date`, then "not found" lines and any
   conflict between sources.
@@ -88,4 +99,4 @@ a sub-question came back empty.
 - Say a page was read when only its snippet was seen.
 - Open pages that need a sign-in, or send credentials anywhere.
 - Launch researchers from a researcher, or run a second gap round.
-- Keep a claim whose source this run did not fetch.
+- Keep a claim whose source no researcher returned, or whose quote a page you re-fetched does not contain.

@@ -304,6 +304,46 @@ describe('the built-in skills', () => {
 		expect(body).toMatch(/only seen in a search result/)
 		expect(body).toMatch(/only offers to write the file is not finished/)
 		expect(body).toMatch(/load it first if it is not in your tool list/)
+		// the researchers' word is checked, not trusted: the writer re-fetches
+		expect(body).toMatch(/`web_fetch` at least the 3\s+cited pages/)
+		expect(body).toMatch(/confirm each quote is on the page/)
+		expect(body).toMatch(/Compare the report's URLs\s+against the returned lists/)
+		// a finished researcher cannot be messaged: the replacement counts against the cap
+		expect(body).not.toMatch(/send_message/)
+		expect(body).toMatch(/counts against the cap of 9/)
+		expect(body).toMatch(/more than 10 distinct URLs/)
+	})
+
+	it('deep-research has a short description and agrees with the document skill', async () => {
+		const research = await loadSkill(join(SKILLS, 'deep-research'), 'full')
+		expect(research.skill.metadata.description.length).toBeLessThanOrEqual(160)
+		const doc = await loadSkill(join(SKILLS, 'document'), 'full')
+		// document says a research request is answered in the reply; it must name
+		// deep-research as the exception, in the description and in step 0
+		expect(doc.skill.metadata.description).toMatch(/except by deep-research/)
+		expect(doc.skill.body ?? '').toMatch(/`deep-research` skill[\s\S]*saves its own report file/)
+		expect(research.skill.body ?? '').toMatch(/Markdown file/)
+	})
+
+	it('with deep-research offered too, the seven descriptions overflow at 32k and name which ones are only named', async () => {
+		const installedPath = `/usr/local/lib/node_modules/@namzu/cli/skills/${'x'.repeat(20)}`
+		const budget = skillManifestBudget(32_768)
+		let spent = 0
+		const described: string[] = []
+		const named: string[] = []
+		for (const dir of builtinSkillDirs()) {
+			const { skill } = await loadSkill(join(SKILLS, dir), 'metadata')
+			if (!isInvocableBy(skill, 'model')) continue
+			const cost = manifestEntryChars({ ...skill, dirPath: installedPath })
+			if (named.length === 0 && spent + cost <= budget) {
+				spent += cost
+				described.push(dir)
+			} else named.push(dir)
+		}
+		// Overflow is a documented outcome, not a silent one: the listing keeps
+		// the earlier entries and names the rest, and every one stays loadable.
+		expect(described.length + named.length).toBe(7)
+		expect(named.length).toBeLessThanOrEqual(2)
 	})
 
 	it('declares the invocation and gating the design gives each', async () => {
@@ -409,5 +449,6 @@ describe('the document skill description', () => {
 	it('sends a research or analysis request back to the reply', () => {
 		const text = readFileSync(join(SKILLS, 'document', 'SKILL.md'), 'utf8')
 		expect(text).toContain('a research or analysis request is answered in the reply')
+		expect(text).toContain('except by deep-research')
 	})
 })
