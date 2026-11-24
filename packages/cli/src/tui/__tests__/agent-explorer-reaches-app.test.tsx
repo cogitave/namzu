@@ -4976,7 +4976,7 @@ describe('teammates on the rail', () => {
 		await waitUntil(screen, () => painted(screen).includes('#2 □ test the parser'), 'no task list')
 	})
 
-	it('writes what the team mails to the lead as the reference screen does: folded lines and a finished line', async () => {
+	it('writes what the team mails to the lead as folded lines and a finished line', async () => {
 		idleTeammate()
 		const screen = await mount()
 		teamState.mail({ summary: 'first', text: 'one body' })

@@ -1,6 +1,6 @@
 /**
- * What the team looks like in the lead's transcript and the opened teammate's: the reference's
- * wording and order in Namzu's plain style, each teammate in its own colour. Rows are checked as
+ * What the team looks like in the lead's transcript and the opened teammate's: plain wording
+ * in a fixed order, each teammate in its own colour. Rows are checked as
  * data (words, glyph, colour tokens) and the lists on a real screen.
  */
 
