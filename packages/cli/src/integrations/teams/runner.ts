@@ -682,6 +682,10 @@ export class TeamRunner {
 			}
 			tracked.state = 'idle'
 		}
+		// A wake is already handing this member something (a claimed task, earlier mail). The engine takes
+		// one resume at a time and refuses a second, so the sender would see an error for mail that is
+		// safely written. The entry stays unread; the member's next look hands it over when its turn ends.
+		if (tracked.waking) return
 		const text = mail ? framedMail(mail.from, mail.text, mail.kind) : ''
 		// A wake that reads the mailbox now would hand the same entry over a second time.
 		tracked.waking = true

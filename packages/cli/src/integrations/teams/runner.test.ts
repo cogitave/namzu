@@ -413,6 +413,49 @@ describe('mail', () => {
 		).resolves.toBeDefined()
 	})
 
+	it('keeps mail for a teammate that is being resumed, and hands it over when that turn ends', async () => {
+		const t = setup()
+		await t.spawn('alice')
+		await t.spawn('bob')
+		t.runner.turnEnded(t.team, 'alice', { state: 'completed' })
+		t.runner.turnEnded(t.team, 'bob', { state: 'completed' })
+		await flush()
+		// The engine resumes one conversation at a time and refuses a second message while one is starting.
+		let starting: (() => void) | undefined
+		let resuming = false
+		const deliver = t.fake.engine.deliver.bind(t.fake.engine)
+		t.fake.engine.deliver = async (team, name, text) => {
+			if (name === 'alice' && resuming) throw new Error('alice is already being resumed')
+			if (name === 'alice') {
+				resuming = true
+				await new Promise<void>((resolve) => {
+					starting = resolve
+				})
+				resuming = false
+			}
+			await deliver(team, name, text)
+		}
+		const claimed = await t.tasks.create(taskParams('first'))
+		const wake = t.clock.advance(IDLE_POLL_MS)
+		await flush()
+		expect(resuming).toBe(true)
+		// Bob writes to alice in that window: no error for him, the mail waits unread.
+		await t.runner.send({ leadSessionId: LEAD, from: 'bob', to: 'alice', text: 'v2 api please' })
+		expect(t.store.readMail(t.team, 'alice', { unreadOnly: true }).map((m) => m.text)).toEqual([
+			'v2 api please',
+		])
+		starting?.()
+		await wake
+		await flush()
+		expect((await t.tasks.get(claimed.id))?.owner).toMatch(/alice|bob/)
+		t.fake.engine.deliver = deliver
+		const next = t.fake.nextDelivery()
+		t.runner.turnEnded(t.team, 'alice', { state: 'completed' })
+		const entry = await next
+		expect(entry.text).toContain('v2 api please')
+		expect(t.store.readMail(t.team, 'alice', { unreadOnly: true })).toEqual([])
+	})
+
 	it('hands unread mail to an idle teammate at its next look, once', async () => {
 		const t = setup()
 		await t.spawn('alice')
