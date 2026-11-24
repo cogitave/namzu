@@ -212,9 +212,7 @@ const MAX_REFS = 4_000
 /** The most refs one read creates; a quarter of the budget, so one read cannot evict the rest. */
 const NEW_REFS_PER_READ = 1_000
 /** The driver's click count, sent only above 1 so a single click is the call it always was. */
-function clickCount(action: { readonly count?: 1 | 2 | 3 }): {
-	count?: number
-} {
+function clickCount(action: { readonly count?: 1 | 2 | 3 }): { count?: number } {
 	return action.count !== undefined && action.count > 1 ? { count: action.count } : {}
 }
 
@@ -929,10 +927,7 @@ export class CuaDriverAdapter implements Adapter {
 			...(second.blocked !== undefined ? { blocked: second.blocked } : {}),
 		})
 		if (again.delivery === 'delivered_verified')
-			return {
-				...again,
-				detail: [finalDetail, again.detail].filter(Boolean).join(' '),
-			}
+			return { ...again, detail: [finalDetail, again.detail].filter(Boolean).join(' ') }
 		return { ...again, detail: finalDetail }
 	}
 
@@ -1270,11 +1265,7 @@ export class CuaDriverAdapter implements Adapter {
 						await burst.checkpoint()
 						try {
 							return inputDelivery(
-								await dispatch(name, {
-									...args,
-									...onScreenArgs,
-									delivery_mode: 'foreground',
-								}),
+								await dispatch(name, { ...args, ...onScreenArgs, delivery_mode: 'foreground' }),
 							)
 						} catch (error) {
 							if (isDeliveredPointerAction(error)) return foregroundLostDelivery()
@@ -2031,10 +2022,7 @@ export class CuaDriverAdapter implements Adapter {
 		if (!ladder) return undefined
 		const accelerator = menuAcceleratorOf(keys)
 		if (accelerator === undefined) return undefined
-		const result = await ladder.menuCommand({
-			hwnd: frame.window.id,
-			accelerator,
-		})
+		const result = await ladder.menuCommand({ hwnd: frame.window.id, accelerator })
 		if (!result?.found) return undefined
 		this.showPresence(frame, frame.window.bounds, 'hotkey', {})
 		return {
@@ -2082,10 +2070,7 @@ export class CuaDriverAdapter implements Adapter {
 		const windows = await this.windowIdsOf(target.pid)
 		// Each read of the window replaces the driver's handles: click through the refreshed one.
 		const current = this.uiRefs.get(uiRef.ref) ?? facts
-		const sent = await this.clickRef(current, {
-			ref: uiRef.ref,
-			facts: current,
-		})
+		const sent = await this.clickRef(current, { ref: uiRef.ref, facts: current })
 		if (!sent.ok || sent.delivery !== 'delivered_unverified' || !before) return sent
 		const seen = await this.verifyByReading(target, {
 			typed: undefined,
@@ -2118,10 +2103,7 @@ export class CuaDriverAdapter implements Adapter {
 		const windows = await this.windowIdsOf(target.pid)
 		// Each read of the window replaces the driver's handles: click through the refreshed one.
 		const current = this.uiRefs.get(uiRef.ref) ?? facts
-		const sent = await this.clickRef(current, {
-			ref: uiRef.ref,
-			facts: current,
-		})
+		const sent = await this.clickRef(current, { ref: uiRef.ref, facts: current })
 		if (!sent.ok || sent.delivery === 'not_delivered') return sent
 		const what = describeEvidence(current)
 		const unverified = (detail: string): UiActResult => ({
@@ -2144,15 +2126,9 @@ export class CuaDriverAdapter implements Adapter {
 			const gone = windows ? await this.windowGone(target.pid, windows) : false
 			if (want === 'expand') {
 				const shown = newWindow?.title.trim() || change.added[0]
-				return {
-					shown,
-					held: newWindow !== undefined || change.added.length > 0,
-				}
+				return { shown, held: newWindow !== undefined || change.added.length > 0 }
 			}
-			return {
-				shown: change.removed[0],
-				held: gone || change.removed.length > 0,
-			}
+			return { shown: change.removed[0], held: gone || change.removed.length > 0 }
 		}
 		await this.settle(EXPAND_WAITS_MS[0])
 		const first = await readState()

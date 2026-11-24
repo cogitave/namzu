@@ -516,7 +516,7 @@ describe('createComputerUseTool', { timeout: 30_000 }, () => {
 			expect(textOf(result)).toContain('Screenshot s2: 1280x800 pixels')
 			// The fake desktop never changes, so the click shows nothing.
 			expect(result.output).toBe(
-				'Click left at (10, 10): done\nNo visible change: the screen is the same as in s1 before the click, so it may have missed, or the control reacts without showing it. Try another way (a control by ref, a different point, a key) before repeating the same click.\nScreenshot s2 (1280x800).',
+				'Click left at (10, 10): done\nNo visible change: the screen looks the same after the settle wait as in s1. The click may have landed without showing it, or it may have missed; check with a fresh look or a control by ref.\nScreenshot s2 (1280x800).',
 			)
 			expect(result.workingState?.[0]?.text).toContain('screenshot s2')
 		})

@@ -372,4 +372,43 @@ describe('a window that opened during a batch', () => {
 		expect(text(result)).toContain('0x99')
 		expect(text(result)).toContain('Really delete?')
 	})
+
+	it('does not name a window that was open before the batch, even when the last list is old', async () => {
+		const { host, fixture } = makeHost()
+		const tool = createComputerUseTool(host, { settleMs: 0 })
+		await run(tool, { type: 'ui_snapshot', window_id: '0x10' })
+		await run(tool, { type: 'screenshot', window_id: '0x10' })
+		await run(tool, { type: 'ui_snapshot', window_id: '0x10' })
+		await tool.execute(tool.inputSchema.parse({ type: 'list_windows' }), context())
+		// Opened after the model's last list, before the batch.
+		fixture.listed = [{ ...BASE, id: '0x77', title: 'Opened earlier', app: 'Forms' }, BASE]
+		const result = await run(tool, {
+			type: 'batch',
+			actions: [{ type: 'ui_act', ref: 'e2', action: 'invoke' }],
+		})
+		expect(text(result)).not.toContain('A new window opened during the batch')
+		expect(text(result)).not.toContain('Opened earlier')
+	})
+
+	it('leaves out a window of an application that is off limits', async () => {
+		const { host, fixture } = makeHost()
+		const tool = createComputerUseTool(host, { settleMs: 0, deniedApps: ['Vault'] })
+		await run(tool, { type: 'ui_snapshot', window_id: '0x10' })
+		await run(tool, { type: 'screenshot', window_id: '0x10' })
+		await run(tool, { type: 'ui_snapshot', window_id: '0x10' })
+		host.uiAct = async () => {
+			fixture.listed = [
+				{ ...BASE, id: '0x98', title: 'Secret', app: 'Vault' },
+				{ ...BASE, id: '0x99', title: 'Really delete?', app: 'Forms' },
+				BASE,
+			]
+			return { ok: true }
+		}
+		const result = await run(tool, {
+			type: 'batch',
+			actions: [{ type: 'ui_act', ref: 'e2', action: 'invoke' }],
+		})
+		expect(text(result)).toContain('Really delete?')
+		expect(text(result)).not.toContain('Secret')
+	})
 })

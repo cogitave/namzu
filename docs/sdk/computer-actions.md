@@ -100,7 +100,10 @@ from the fitted model image back to the driver's exact window PNG, then use
 window-scoped input. This matters when the driver already shrank the window
 and the SDK fits it a second time. The tool refuses an older window frame,
 and the host refuses one after the window moves, is minimized, is replaced,
-or its driver session restarts. A window id may be written however the model has it
+or its driver session restarts. On top of that, the tool checks the window list
+just before a click, drag or scroll on a window screenshot and refuses when the window moved,
+was resized, was minimized or closed; this check is best effort (a list that fails lets the
+click through, and a click on a display screenshot is not checked against moved windows). A window id may be written however the model has it
 (`0x2b040a`, `2819082`, a bare number, or an object such as `{ "hwnd": 2819082 }`):
 the tool remembers a window by its number, so a read of its controls, a screenshot
 and a click agree whichever spelling each used. Post-action screenshots of a window frame
@@ -126,8 +129,9 @@ wait is the host's: a host that can tell when the window stopped changing
 `settleMs`, and the description tells the model to add no `wait` of its own
 after an action. A pixel click, drag or scroll whose result picture is
 identical to the one before it adds `No visible change: …` to the text (and
-`noVisibleChange` to the data), so the model tries another way rather than
-repeating the click. `screenshotAfterActions: false` turns this off. If only that screenshot fails,
+`noVisibleChange` to the data). The line compares the whole batch's start and
+end and only says the screen looks the same, so the model checks with a fresh
+look; it does not tell the model to avoid repeating a click. `screenshotAfterActions: false` turns this off. If only that screenshot fails,
 the action still reports success and the text says to take one.
 
 ## Actions
@@ -288,7 +292,7 @@ Window "Hesap Makinesi"
 - A window read before comes back as what changed since that read, by default:
   `+` lines for controls that appeared, `~` for ones whose text, value or state
   changed, `-` for ones that went, or `no change since u3` when nothing did.
-  Every ref from the earlier read still works. `ui_snapshot { full: true }`
+  Refs from the earlier read are used while the host still has them. `ui_snapshot { full: true }`
   lists the whole tree; a region, a filtered read, a read that was cut, and a
   window that mostly changed (the diff would not be shorter than the tree) are
   shown whole. The tool keeps the last whole read of each window for this.

@@ -2422,8 +2422,8 @@ export function createComputerUseTool(
 		const counts = `${shown} controls shown${snapshot.total !== undefined ? ` of the ${snapshot.total} the window holds` : ''}, ${refs.size} with a ref you can pass to ui_act`
 		const summaryLine = changes
 			? noChange
-				? `UI snapshot ${id}${where}: no change since ${before ? before.id : 'the last read'} (${counts}). Every ref from that read still works.`
-				: `UI snapshot ${id}${where}: ${changes.added.length} added (+), ${changes.changed.length} changed (~), ${changes.removed.length} gone (-) since ${before ? before.id : 'the last read'}; ${counts}. Refs from that read still work. ui_snapshot {full: true} lists the whole tree.`
+				? `UI snapshot ${id}${where}: no change since ${before ? before.id : 'the last read'} (${counts}). Refs from that read are used while the host still has them.`
+				: `UI snapshot ${id}${where}: ${changes.added.length} added (+), ${changes.changed.length} changed (~), ${changes.removed.length} gone (-) since ${before ? before.id : 'the last read'}; ${counts}. Refs from that read are used while the host still has them. ui_snapshot {full: true} lists the whole tree.`
 			: `UI snapshot ${id}${where}: ${counts}. A ref names its control and stays usable after later snapshots; if the control has gone or several fit, ui_act says so (STALE_REF, AMBIGUOUS_TARGET) and nothing is sent.${mode.filter && shown <= 1 ? ' Nothing matched the filter.' : ''}`
 		const header = [
 			...preface,
@@ -2952,7 +2952,22 @@ export function createComputerUseTool(
 		const actionFrame = frameId ? frames.get(frameId) : frames.latest()
 		// What the model last saw, to tell afterwards whether a pixel action changed it.
 		const frameBefore = frames.latest()
-		const windowsBefore = knownWindows
+		// The baseline for "a new window opened" is the host's list right now, never the last list the
+		// model asked for, which may be old. A list that fails leaves no baseline, so no note.
+		let windowsBefore: readonly WindowInfo[] = []
+		if (
+			typeof host.listWindows === 'function' &&
+			typeof host.uiSnapshot === 'function' &&
+			toPlan.length > 0 &&
+			toPlan.every((item) => TREE_ENDING_STEPS.has(item.type)) &&
+			[...treeUsable.values()].includes(true)
+		) {
+			try {
+				windowsBefore = rememberWindows(await host.listWindows(callSignal))
+			} catch {
+				if (callSignal?.aborted) throw new Error('cancelled')
+			}
+		}
 		const explicitDisplayFrame =
 			frameId !== undefined && actionFrame !== undefined && !actionFrame.window
 		if (
@@ -3147,7 +3162,9 @@ export function createComputerUseTool(
 					try {
 						const listed = rememberWindows(await host.listWindows(callSignal))
 						newWindows = listed.filter(
-							(window) => !windowsBefore.some((old) => old.id === window.id),
+							(window) =>
+								!windowsBefore.some((old) => old.id === window.id) &&
+								!deniedKeys.has(deniedAppKey(window.app)),
 						)
 					} catch {
 						// A list that fails says nothing; the tree above stands.
@@ -3201,7 +3218,7 @@ export function createComputerUseTool(
 			frameDigest.get(frameBefore.id) !== undefined &&
 			frameDigest.get(frameBefore.id) === frameDigest.get(shot.frame.id)
 		const noChangeLine = noVisibleChange
-			? `No visible change: the screen is the same as in ${frameBefore?.id} before the click, so it may have missed, or the control reacts without showing it. Try another way (a control by ref, a different point, a key) before repeating the same click.`
+			? `No visible change: the screen looks the same after the settle wait as in ${frameBefore?.id}. The click may have landed without showing it, or it may have missed; check with a fresh look or a control by ref.`
 			: undefined
 
 		const summary = (record: StepRecord, index: number): string => {
