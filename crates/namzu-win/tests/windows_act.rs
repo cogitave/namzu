@@ -32,12 +32,12 @@ use windows::Win32::UI::HiDpi::{
     DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, SetProcessDpiAwarenessContext,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    CS_DBLCLKS, CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetMessageW,
-    GetWindowTextW, HMENU, LB_ADDSTRING, LB_GETTOPINDEX, MSG, PostThreadMessageW, RegisterClassExW,
-    SW_MINIMIZE, SW_RESTORE, SendMessageW, ShowWindow, TranslateMessage, WINDOW_EX_STYLE,
-    WINDOW_STYLE, WM_COMMAND, WM_LBUTTONDBLCLK, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEWHEEL,
-    WM_QUIT, WM_RBUTTONDOWN, WNDCLASSEXW, WS_BORDER, WS_CHILD, WS_DISABLED, WS_OVERLAPPEDWINDOW,
-    WS_TABSTOP, WS_VISIBLE, WS_VSCROLL,
+    CS_DBLCLKS, CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetDlgItem,
+    GetMessageW, GetWindowTextW, HMENU, LB_ADDSTRING, LB_GETTOPINDEX, MSG, PostThreadMessageW,
+    RegisterClassExW, SW_MINIMIZE, SW_RESTORE, SendMessageW, ShowWindow, TranslateMessage,
+    WINDOW_EX_STYLE, WINDOW_STYLE, WM_COMMAND, WM_LBUTTONDBLCLK, WM_LBUTTONDOWN, WM_LBUTTONUP,
+    WM_MOUSEWHEEL, WM_QUIT, WM_RBUTTONDOWN, WM_SETTEXT, WNDCLASSEXW, WS_BORDER, WS_CHILD,
+    WS_DISABLED, WS_OVERLAPPEDWINDOW, WS_TABSTOP, WS_VISIBLE, WS_VSCROLL,
 };
 use windows::core::w;
 
@@ -48,7 +48,7 @@ const ID_EDIT: usize = 104;
 const EN_CHANGE: usize = 0x0300;
 
 /// What reached the window, and a signal for the test to wake on.
-#[derive(Default, Debug)]
+#[derive(Default)]
 struct Seen {
     invoked: u32,
     checked: u32,
@@ -421,37 +421,6 @@ fn the_helper_acts_on_a_real_window() {
         let _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
     }
     let window = TestWindow::open();
-    // DIAGNOSTIC (temporary): say where a hang is, then end the process.
-    let parent_raw = window.parent;
-    std::thread::spawn(move || {
-        std::thread::sleep(std::time::Duration::from_secs(120));
-        let mut p = POINT::default();
-        let fg = unsafe {
-            let _ = windows::Win32::UI::WindowsAndMessaging::GetCursorPos(&mut p);
-            windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow()
-        };
-        let mut r = windows::Win32::Foundation::RECT::default();
-        unsafe {
-            let _ = windows::Win32::UI::WindowsAndMessaging::GetWindowRect(
-                HWND(parent_raw as *mut std::ffi::c_void),
-                &mut r,
-            );
-        }
-        use std::io::Write;
-        let _ = writeln!(
-            std::io::stderr(),
-            "WATCHDOG seen={:?} cursor=({},{}) fg={:?} ours={parent_raw:#x} rect=({},{},{},{})",
-            *seen(),
-            p.x,
-            p.y,
-            fg.0,
-            r.left,
-            r.top,
-            r.right,
-            r.bottom
-        );
-        std::process::exit(3);
-    });
     let mut h = Helper::start();
     hello(&mut h);
 
@@ -684,7 +653,21 @@ fn the_helper_acts_on_a_real_window() {
     wait_until(|s| s.wheel.len() > wheels);
     assert_eq!(seen().wheel.last().copied(), Some(-360));
 
-    // Typing goes where the pointer clicked: into the text box.
+    // Typing goes where the pointer clicked: into the text box. A plain edit
+    // control does not take ctrl+a as select-all on every system, so the box is
+    // emptied by the window itself and the key is only checked to be delivered.
+    unsafe {
+        SendMessageW(
+            GetDlgItem(
+                Some(HWND(window.parent as *mut std::ffi::c_void)),
+                ID_EDIT as i32,
+            )
+            .expect("the text box"),
+            WM_SETTEXT,
+            None,
+            Some(LPARAM(w!("").as_ptr() as isize)),
+        );
+    }
     click(&mut h, center(edit));
     input(
         &mut h,
