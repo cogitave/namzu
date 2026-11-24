@@ -9,7 +9,7 @@ argument-hint: '[base branch, or what to stress]'
 
 Typing `/pr` is the person's request to push this branch and open a pull
 request for it, and nothing beyond that. This works in a Git repository with
-a remote; the pull request itself needs the GitHub command line, `gh`.
+a remote; the pull request itself needs the code host's command line (`gh`).
 
 $ARGUMENTS
 
