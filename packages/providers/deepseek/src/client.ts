@@ -751,6 +751,11 @@ export class DeepSeekProvider implements LLMProvider {
 		return IMAGE_MODELS.has(model)
 	}
 
+	/** The model to select when `model` reads text only. */
+	imageModelFor(model: string): string | undefined {
+		return IMAGE_MODELS.has(model) ? undefined : CURRENT_FLASH_MODEL
+	}
+
 	/**
 	 * `none` (thinking off) plus the levels the models endpoint lists for the
 	 * model, or the vendor's documented low, high and max until it has been read.

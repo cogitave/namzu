@@ -37,6 +37,13 @@ export interface LLMProvider {
 	supportsImageInputFor?(model: string): boolean
 
 	/**
+	 * A model of this driver that reads images, offered to a person whose own
+	 * attachment `model` cannot read ("Select 'x'"). Absent, or `undefined`, when
+	 * the driver has none to name; the refusal then names no model.
+	 */
+	imageModelFor?(model: string): string | undefined
+
+	/**
 	 * Retry behaviour this DRIVER wants, when the generic default is wrong
 	 * for the vendor behind it.
 	 *

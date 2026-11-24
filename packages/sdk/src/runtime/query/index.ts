@@ -1449,6 +1449,28 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 			})
 		}
 
+		// The person's own picture, on a model known to read text only, is refused
+		// before anything is sent: leaving it out would answer a question about a
+		// picture the model never saw, with nothing on screen to say so. Images a
+		// tool returned are another matter (they are left out quietly beside the
+		// text the tool gave), and so is a driver that declares no vision at all.
+		if (textOnlyModel && latestUser !== undefined && carries(latestUser, 'image')) {
+			const alternative = params.provider.imageModelFor?.(turnConfig.model)
+			throw new NamzuError({
+				code: 'capability_unavailable',
+				message: `Model '${turnConfig.model}' does not accept image input. ${
+					alternative
+						? `Select '${alternative}' or remove the images.`
+						: 'Select a model that reads images or remove the images.'
+				}`,
+				details: {
+					providerId: params.provider.id,
+					capability: 'vision',
+					model: turnConfig.model,
+				},
+			})
+		}
+
 		if (attachmentMessageCount > 0) {
 			const message = textOnlyModel
 				? `Model '${turnConfig.model}' on provider '${params.provider.id}' reads text only but ${attachmentMessageCount} user message(s) carry image attachments — they are left out of its requests, so the model never sees the images. Pass strictCapabilities: true to fail instead, or use a model that reads images.`

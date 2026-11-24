@@ -223,6 +223,9 @@ export function withStreamIdleTimeout(
 					supportsImageInputFor: (model: string) => provider.supportsImageInputFor?.(model) ?? true,
 				}
 			: {}),
+		...(provider.imageModelFor
+			? { imageModelFor: (model: string) => provider.imageModelFor?.(model) }
+			: {}),
 		...(provider.acceptsForcedToolChoiceFor
 			? {
 					acceptsForcedToolChoiceFor: (
