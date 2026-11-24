@@ -1,0 +1,32 @@
+{
+"about": "ref spelling: r<revision>.<index>, both plain decimal numbers with no sign, no leading zeros and no spaces. valid: the pair a ref names. invalid: strings that name nothing.",
+"valid": [
+{"ref":"r1.0","revision":1,"index":0},
+{"ref":"r3.17","revision":3,"index":17},
+{"ref":"r0.0","revision":0,"index":0},
+{"ref":"r10.100","revision":10,"index":100},
+{"ref":"r4294967295.4294967295","revision":4294967295,"index":4294967295}
+],
+"invalid": [
+"",
+"r",
+"r3",
+"r3.",
+"r.3",
+"3.17",
+"r03.1",
+"r3.01",
+"r-1.2",
+"r+1.2",
+"r3.1 ",
+" r3.1",
+"R3.1",
+"r3.1.2",
+"r3,1",
+"r1e2.0",
+"r0x1.0",
+"r1.4294967296",
+"r9007199254740992.0",
+"r1.2x"
+]
+}

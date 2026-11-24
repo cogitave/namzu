@@ -1,0 +1,4 @@
+# The Windows helper links the C runtime statically, so the one file runs on a
+# machine without the Visual C++ redistributable.
+[target.'cfg(all(windows, target_env = "msvc"))']
+rustflags = ["-C", "target-feature=+crt-static"]

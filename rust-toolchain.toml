@@ -1,0 +1,7 @@
+# An exact version, so a new stable release cannot turn clippy red on an
+# unchanged tree. Raise it deliberately, in its own change.
+# `rust-version` in Cargo.toml is the oldest compiler the code is written for.
+[toolchain]
+channel = "1.99.1"
+components = ["rustfmt", "clippy"]
+profile = "minimal"

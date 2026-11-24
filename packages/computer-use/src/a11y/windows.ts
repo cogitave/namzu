@@ -5,6 +5,7 @@ import {
 	wslChildEnv,
 	wslPowerShellPath,
 } from '../adapters/wsl.js'
+import { NativeA11yBackend } from '../native/a11y.js'
 import { WindowsA11yHost } from './a11y.js'
 import type { AccessibilityBackend } from './interface.js'
 
@@ -22,6 +23,19 @@ export interface WindowsA11yFactoryOptions {
 	readonly enabled?: boolean
 }
 
+/**
+ * The path of the native helper (`namzu-win.exe`). While the helper is not
+ * delivered with the product, naming it here is how it is chosen over the
+ * PowerShell host; unset, nothing changes.
+ */
+export const WIN_HELPER_ENV = 'NAMZU_WIN_HELPER'
+
+function withoutSecrets(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+	const clean: NodeJS.ProcessEnv = {}
+	for (const [name, value] of Object.entries(env)) if (!SECRET_NAME.test(name)) clean[name] = value
+	return clean
+}
+
 /** Whether the environment asks for the accessibility host to be off. */
 export function a11yDisabledByEnv(env: NodeJS.ProcessEnv): boolean {
 	const value = env[A11Y_ENV]
@@ -30,8 +44,13 @@ export function a11yDisabledByEnv(env: NodeJS.ProcessEnv): boolean {
 
 /**
  * The accessibility host for this machine's Windows desktop (WSL included),
- * or undefined when it is turned off or there is no Windows PowerShell to run
- * it in. Nothing is started until it is first used or warmed.
+ * or undefined when it is turned off or there is neither a native helper nor
+ * a Windows PowerShell to run it in. Nothing is started until it is first
+ * used or warmed.
+ *
+ * With `NAMZU_WIN_HELPER` naming an executable, the host is the native helper
+ * and no PowerShell is involved. The variable is the only way to choose it
+ * for now.
  */
 export function createWindowsA11yHost(
 	options: WindowsA11yFactoryOptions = {},
@@ -41,14 +60,20 @@ export function createWindowsA11yHost(
 	const platform = options.platform ?? process.platform
 	const probes = options.wslProbes ?? realWslProbes
 	const wsl = isWsl(env, platform, probes)
+	const clean = withoutSecrets(env)
+	const helper = env[WIN_HELPER_ENV]?.trim()
+	if (helper && (wsl || platform === 'win32')) {
+		return new NativeA11yBackend({
+			executable: helper,
+			env: wsl ? wslChildEnv(clean, [], probes) : clean,
+		})
+	}
 	const powershell = wsl
 		? wslPowerShellPath(probes)
 		: platform === 'win32'
 			? 'powershell.exe'
 			: undefined
 	if (!powershell) return undefined
-	const clean: NodeJS.ProcessEnv = {}
-	for (const [name, value] of Object.entries(env)) if (!SECRET_NAME.test(name)) clean[name] = value
 	return new WindowsA11yHost({
 		powershell,
 		env: wsl ? wslChildEnv(clean, [], probes) : clean,

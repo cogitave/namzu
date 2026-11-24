@@ -9,6 +9,7 @@ This folder is not a workspace package. It holds data and this page; the generat
 | Folder | Module | Generator |
 |---|---|---|
 | `glob-segment/` | `packages/sdk/src/sandbox/glob-segment.ts`, the compiler for one path segment of a glob | `scripts/generate-conformance-vectors.mjs` |
+| `namzu-win/` | the `namzu-win/1` protocol of the native Windows helper: `crates/namzu-win-core` (Rust) and `packages/computer-use/src/native/protocol.ts` | none: written by hand, see below |
 
 ## Shape of `glob-segment/vectors.json`
 
@@ -39,3 +40,7 @@ node --import tsx scripts/generate-conformance-vectors.mjs --check   # fail if t
 ```
 
 A change to the behaviour of a module with a vector set regenerates its vectors in the same commit, and the diff of the file is the review of what changed. The SDK test `glob-segment-vectors.test.ts`, which runs with the SDK suite in CI, fails when the committed file differs from what the implementation produces. A port that fails a case after a regeneration is told what changed by the diff, not by guessing.
+
+## `namzu-win/`
+
+This set runs the other way round: the Rust crate `crates/namzu-win-core` is the reference, the files are written by hand, and there is no generator or drift test. Both the crate (`crates/namzu-win-core/tests/conformance.rs`) and the TypeScript codec (`packages/computer-use/src/__tests__/native-protocol.test.ts`) read the same files, so changing the wire format means changing the vectors in the same commit. `docs/sdk/native-windows-helper.md` says what each file holds and which side reads it. Numbers are compared as numbers (`1` equals `1.0`) and object keys have no order. The TypeScript `native-a11y.test.ts` also replays the reply lines through a fake helper, so the process and the accessibility backend read the exact lines the Rust side writes.

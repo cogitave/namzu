@@ -79,6 +79,8 @@ const DIRECT_PUSH_EXEMPT = new Map([
 	['SDK coverage floor gate', 'reads the summary the step above produces, so it goes with it'],
 	['Process-level regression tests', 'spawns real processes one at a time, deliberately unparallelised'],
 	['Pre-publish consumer install check', 'already runs in release.yml, gated to the version commit'],
+	['Build the Windows helper', 'needs a windows-latest runner and builds two targets; release.yml is one ubuntu job, and the Rust format, lint and test gates above do run on both paths'],
+	['Test the Windows helper', 'runs the helper on a windows-latest runner; same reason as the build'],
 ])
 
 /** Steps that are setup rather than a gate. */

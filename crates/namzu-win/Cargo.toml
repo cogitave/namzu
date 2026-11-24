@@ -1,0 +1,39 @@
+[package]
+name = "namzu-win"
+description = "The native Windows helper for Namzu computer use: speaks namzu-win/1 over stdio."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+namzu-win-core = { path = "../namzu-win-core" }
+serde_json.workspace = true
+
+# The calls into Windows. Nothing below is compiled on any other platform, so
+# the portable parts of the helper build and test on Linux without it.
+[target.'cfg(windows)'.dependencies]
+# `#[implement]` writes `::windows_core::...` into the code it generates, so the
+# crate must be a direct dependency, at the version `windows` already uses.
+windows-core = "0.61"
+windows = { version = "0.61", features = [
+    "Wdk_System_SystemServices",
+    "Win32_Foundation",
+    "Win32_Graphics_Dwm",
+    "Win32_Graphics_Gdi",
+    "Win32_Media",
+    "Win32_System_Com",
+    "Win32_System_Ole",
+    "Win32_System_SystemInformation",
+    "Win32_System_Threading",
+    "Win32_System_Variant",
+    "Win32_UI_Accessibility",
+    "Win32_UI_HiDpi",
+    "Win32_UI_WindowsAndMessaging",
+] }
+
+[[bin]]
+name = "namzu-win"
+path = "src/main.rs"
