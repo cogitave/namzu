@@ -1,5 +1,5 @@
 /**
- * `/run` puts a command from the latest answer in the prompt after `!`. The person
+ * `/paste` puts a command from the latest answer in the prompt after `!`. The person
  * reads it, may change it, and presses Enter: nothing runs on its own. These drive
  * the rendered App, because the command, the picker and the composer draft have to
  * agree end to end.
@@ -165,13 +165,13 @@ async function answered(text: string) {
 
 it('says so when the latest answer has no command', async () => {
 	const harness = await answered('Nothing to run here, only prose.')
-	await submit(harness, '/run')
+	await submit(harness, '/paste')
 	await frameShows(harness, 'No command to run in the latest answer')
 })
 
 it('puts the one command of the answer in the prompt after `!`, and runs nothing until Enter', async () => {
 	const harness = await answered('Run this:\n\n```bash\nprintf run-ok\n```\n')
-	await submit(harness, '/run')
+	await submit(harness, '/paste')
 	await frameShows(harness, 'The command is in the prompt: press Enter to run it')
 	await frameShows(harness, '!printf run-ok')
 	expect(harness.frames.join('\n')).not.toContain('exit 0')
@@ -186,7 +186,7 @@ it('offers a picker when the answer has several, and puts the chosen one in the 
 	const harness = await answered(
 		'First:\n\n```sh\nprintf one\n```\n\nA config, not a command:\n\n```json\n{"a":1}\n```\n\nThen:\n\n```bash\nprintf two\n```\n',
 	)
-	await submit(harness, '/run')
+	await submit(harness, '/paste')
 	await frameShows(harness, 'Run from response')
 	// Two entries: the sh block and the bash one; the json block is not a command.
 	await frameShows(harness, '1/2')
