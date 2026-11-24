@@ -76,6 +76,7 @@ export type {
 	ComputerSecretCheck,
 	ComputerSecretRead,
 	ComputerSecretSource,
+	ReadSecretOptions,
 	ResolveSecretDeps,
 	ResolveSecretInput,
 } from './computer.js'

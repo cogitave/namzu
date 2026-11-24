@@ -779,6 +779,7 @@ export type {
 	ListenAddress,
 	ComputerSecretRead,
 	ComputerSecretSource,
+	ReadSecretOptions,
 	LocalSession,
 	MailDecision,
 	MailDecisionInput,
