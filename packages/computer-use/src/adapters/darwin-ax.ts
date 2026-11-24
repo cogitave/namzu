@@ -1,4 +1,6 @@
 import { createHash } from 'node:crypto'
+import { homedir } from 'node:os'
+import { basename } from 'node:path'
 import type {
 	ActionDelivery,
 	FocusWindowResult,
@@ -72,6 +74,8 @@ export interface MacAxSurfaceOptions {
 	readonly keyEvent: (combo: string) => { readonly code: number; readonly flags: readonly string[] }
 	/** For tests. */
 	readonly now?: () => number
+	/** Waits between looks at a panel that is still listing a folder; for tests. */
+	readonly wait?: (ms: number) => Promise<void>
 }
 
 const stripAx = (role: string): string => role.replace(/^AX/i, '').toLowerCase()
@@ -162,7 +166,7 @@ export class MacAxSurface {
 		return (await this.host.listWindows({ includeOwned: true })).map(windowInfo)
 	}
 
-	async focusWindow(id: string): Promise<FocusWindowResult> {
+	async focusWindow(id: string | number): Promise<FocusWindowResult> {
 		const result = await this.host.focus(String(cgWindowId(id)))
 		return {
 			ok: result.ok,
@@ -175,7 +179,7 @@ export class MacAxSurface {
 		}
 	}
 
-	private async windowById(id: string): Promise<WindowInfo> {
+	private async windowById(id: string | number): Promise<WindowInfo> {
 		const wanted = String(cgWindowId(id))
 		const found = (await this.listWindows()).find((w) => w.id === wanted)
 		if (!found)
@@ -321,7 +325,7 @@ export class MacAxSurface {
 		return ref
 	}
 
-	private async pickWindow(requested: string | undefined): Promise<WindowInfo> {
+	private async pickWindow(requested: string | number | undefined): Promise<WindowInfo> {
 		if (requested !== undefined) return this.windowById(requested)
 		const windows = await this.listWindows()
 		const front = windows.find((w) => w.focused) ?? windows[0]
@@ -329,7 +333,10 @@ export class MacAxSurface {
 		return front
 	}
 
-	async uiSnapshot(requested?: string, options: UiSnapshotOptions = {}): Promise<UiSnapshot> {
+	async uiSnapshot(
+		requested?: string | number,
+		options: UiSnapshotOptions = {},
+	): Promise<UiSnapshot> {
 		let windowId = requested === undefined ? undefined : String(cgWindowId(requested))
 		let rootEntry: RefEntry | undefined
 		if (options.root !== undefined) {
@@ -534,9 +541,281 @@ export class MacAxSurface {
 		}
 	}
 
+	/**
+	 * Picks a file in the open or save panel that is in front, through the
+	 * panel's accessibility tree: no key shortcut (Cmd+Shift+G does not reach a
+	 * panel through posted key events). It uses, in this order, a "Go to the
+	 * folder" sheet that is already open; the panel's own path or name field (a
+	 * save panel has one); and the panel's "Go to Folder" button when it has
+	 * one. It then presses the panel's default button (Open, Choose, Select or
+	 * Save) unless `confirm` is false.
+	 */
+	async pickFile(
+		path: string,
+		options: {
+			readonly windowId?: string | number
+			readonly confirm?: boolean
+			/** For `~` and for the sidebar's home row; default the current user's home. */
+			readonly home?: string
+		} = {},
+	): Promise<PickFileResult> {
+		const wanted = path.trim()
+		if (wanted.length === 0) return { ok: false, detail: 'pickFile needs a path' }
+		const read = async (query?: string): Promise<readonly Located[]> => {
+			const snap = await this.uiSnapshot(options.windowId, {
+				...(query === undefined ? { role: PANEL_ROLES } : { query }),
+			})
+			return flatten(snap.root)
+		}
+		let elements = await read()
+		if (!findPanel(elements.map((e) => e.element)))
+			return {
+				ok: false,
+				detail:
+					'no open or save panel is in that window; open it first (its Open, Save or Choose button and Cancel button show it)',
+			}
+		const confirm = options.confirm !== false
+		let sheet = findGoSheet(elements)
+		if (!sheet) {
+			const field = findPathField(elements)
+			if (field) {
+				const set = await this.uiAct(field.ref, 'set_value', wanted)
+				if (!set.ok)
+					return {
+						ok: false,
+						detail: set.detail ?? 'the path field refused the path',
+						via: 'path_field',
+					}
+				return this.confirmPick(read, confirm, 'path_field')
+			}
+			const goButton = elements.find(
+				(e) =>
+					e.element.ref &&
+					isRole(e.element, 'button', 'menuitem', 'menubutton') &&
+					GO_TO_FOLDER.test(e.element.name),
+			)
+			if (!goButton) return this.browseTo(wanted, options.home ?? homedir(), read, confirm)
+			const opened = await this.uiAct(goButton.element.ref, 'invoke')
+			if (!opened.ok)
+				return { ok: false, detail: opened.detail ?? 'Go to Folder did not open', via: 'go_sheet' }
+			elements = await read()
+			sheet = findGoSheet(elements)
+			if (!sheet)
+				return {
+					ok: false,
+					detail: 'Go to Folder was pressed but its sheet did not appear',
+					via: 'go_sheet',
+				}
+		}
+		const set = await this.uiAct(sheet.field.ref, 'set_value', wanted)
+		if (!set.ok)
+			return {
+				ok: false,
+				detail: set.detail ?? 'the Go to Folder field refused the path',
+				via: 'go_sheet',
+			}
+		const go = await this.uiAct(sheet.go.ref, 'invoke')
+		if (!go.ok)
+			return { ok: false, detail: go.detail ?? 'the Go button did not press', via: 'go_sheet' }
+		return this.confirmPick(read, confirm, 'go_sheet')
+	}
+
+	/**
+	 * An open panel that offers no field for a path (the usual one): start at the sidebar's home (or the
+	 * startup disk) and select each folder of the path in the browser, then the file.
+	 */
+	private async browseTo(
+		wanted: string,
+		home: string,
+		read: (query?: string) => Promise<readonly Located[]>,
+		confirm: boolean,
+	): Promise<PickFileResult> {
+		const via = 'browse' as const
+		const absolute = wanted === '~' || wanted.startsWith('~/') ? home + wanted.slice(1) : wanted
+		if (!absolute.startsWith('/'))
+			return { ok: false, detail: `${wanted} is not an absolute path`, via }
+		const underHome = absolute === home || absolute.startsWith(`${home}/`)
+		const start = underHome ? basename(home) : 'Macintosh HD'
+		const parts = (underHome ? absolute.slice(home.length) : absolute).split('/').filter(Boolean)
+		const row = (await read(start)).find(
+			(e) => e.inSidebar && isRole(e.element, 'statictext') && e.element.name === start,
+		)
+		const sidebarRow = row && lastOf(row.ancestors, (a) => isRole(a, 'row') && a.ref !== '')
+		if (!sidebarRow)
+			return { ok: false, detail: `the panel's sidebar has no "${start}" entry to start from`, via }
+		const first = await this.uiAct(sidebarRow.ref, 'select')
+		if (!first.ok) return { ok: false, detail: first.detail ?? `${start} did not open`, via }
+		for (const [index, part] of parts.entries()) {
+			const last = index === parts.length - 1
+			const hit = await this.waitForEntry(read, part)
+			if (!hit) return { ok: false, detail: `"${part}" is not in the folder the panel shows`, via }
+			const act = isRole(hit.element, 'group', 'row') ? 'select' : 'invoke'
+			const done = await this.uiAct(hit.element.ref, act)
+			if (!done.ok) {
+				// Opening the file closes the panel under the call, and macOS answers that call with an error.
+				if (last && (await this.panelGone(read)))
+					return { ok: true, detail: 'the panel opened the file', via }
+				return { ok: false, detail: done.detail ?? `${part} did not open`, via }
+			}
+			if (!last && hit.element.actions?.includes('expand') && act === 'select')
+				await this.uiAct(hit.element.ref, 'expand')
+		}
+		return this.confirmPick(read, confirm, via)
+	}
+
+	private async panelGone(read: (query?: string) => Promise<readonly Located[]>): Promise<boolean> {
+		try {
+			return !findPanel((await read()).map((e) => e.element))
+		} catch {
+			return true
+		}
+	}
+
+	/** The browser entry named `name`, in the rightmost column; the panel needs a moment to list a folder. */
+	private async waitForEntry(
+		read: (query?: string) => Promise<readonly Located[]>,
+		name: string,
+	): Promise<{ readonly element: UiElement } | undefined> {
+		for (let attempt = 0; attempt < 8; attempt++) {
+			const found = (await read(name)).filter(
+				(e) =>
+					!e.inSidebar &&
+					isRole(e.element, 'textfield', 'statictext') &&
+					(e.element.value === name || e.element.name === name),
+			)
+			const hit = found.at(-1)
+			// The entry is the row (a list) or the item (a column) that holds the name; `select` picks it. A name
+			// whose holder is not in the tree is pressed itself.
+			const entry =
+				hit &&
+				(lastOf(hit.ancestors, (a) => a.ref !== '' && isRole(a, 'group', 'row')) ??
+					(hit.element.ref !== '' ? hit.element : undefined))
+			if (entry) return { element: entry }
+			await (
+				this.options.wait ?? ((ms) => new Promise<void>((resolve) => setTimeout(resolve, ms)))
+			)(150)
+		}
+		return undefined
+	}
+
+	private async confirmPick(
+		read: (query?: string) => Promise<readonly Located[]>,
+		confirm: boolean,
+		via: PickFileResult['via'],
+	): Promise<PickFileResult> {
+		if (!confirm) return { ok: true, detail: 'the path is entered; the panel is still open', via }
+		const elements = await read().catch(() => undefined)
+		if (!elements || !findPanel(elements.map((e) => e.element)))
+			return { ok: true, detail: 'the panel closed with the file chosen', via }
+		const button = findDefaultButton(elements)
+		if (!button)
+			return {
+				ok: true,
+				detail:
+					'the path is entered; the panel has no Open, Choose or Save button in view to press',
+				via,
+			}
+		const pressed = await this.uiAct(button.ref, 'invoke')
+		if (!pressed.ok)
+			return { ok: false, detail: pressed.detail ?? `${button.name} did not press`, via }
+		return { ok: true, detail: `pressed ${button.name}`, via }
+	}
+
 	forgetRefs(): void {
 		this.refs.clear()
 	}
+}
+
+// ---------------------------------------------------------------------------
+// Open and save panels
+// ---------------------------------------------------------------------------
+
+export interface PickFileResult {
+	readonly ok: boolean
+	readonly detail: string
+	/** Which part of the panel took the path. */
+	readonly via?: 'go_sheet' | 'path_field' | 'browse'
+}
+
+const PANEL_ROLES =
+	'AXSheet,AXWindow,AXButton,AXMenuItem,AXMenuButton,AXTextField,AXComboBox,AXSearchField'
+const GO_TO_FOLDER = /^go to( the)? folder/i
+const DEFAULT_BUTTON = /^(open|choose|select|save)$/i
+
+function lastOf<T>(items: readonly T[], test: (item: T) => boolean): T | undefined {
+	for (let i = items.length - 1; i >= 0; i--) if (test(items[i] as T)) return items[i]
+	return undefined
+}
+
+/** An element with the elements above it, and whether it sits in the panel's sidebar. */
+interface Located {
+	readonly element: UiElement
+	readonly ancestors: readonly UiElement[]
+	readonly inSidebar: boolean
+}
+
+function flatten(root: UiElement): Located[] {
+	const out: Located[] = []
+	const walk = (element: UiElement, ancestors: readonly UiElement[]): void => {
+		out.push({
+			element,
+			ancestors,
+			inSidebar: ancestors.some((a) => a.name === 'sidebar'),
+		})
+		for (const child of element.children ?? []) walk(child, [...ancestors, element])
+	}
+	walk(root, [])
+	return out
+}
+
+const isRole = (element: UiElement, ...roles: string[]): boolean =>
+	roles.includes(stripAx(element.role))
+
+/** A panel shows as a Cancel button beside an Open, Choose, Select or Save one. */
+function findPanel(elements: readonly UiElement[]): boolean {
+	const buttons = elements.filter((e) => isRole(e, 'button'))
+	return (
+		buttons.some((b) => /^cancel$/i.test(b.name)) &&
+		buttons.some((b) => DEFAULT_BUTTON.test(b.name))
+	)
+}
+
+function findDefaultButton(elements: readonly Located[]): UiElement | undefined {
+	return elements.find(
+		(e) => e.element.ref && isRole(e.element, 'button') && DEFAULT_BUTTON.test(e.element.name),
+	)?.element
+}
+
+/** The sheet "Go to the folder:" holds a text field and a Go button. */
+function findGoSheet(
+	elements: readonly Located[],
+): { readonly field: UiElement; readonly go: UiElement } | undefined {
+	for (const sheet of elements.filter((e) => isRole(e.element, 'sheet'))) {
+		const inside = flatten(sheet.element).map((e) => e.element)
+		const field = inside.find((e) => e.ref && isRole(e, 'textfield', 'combobox'))
+		const go = inside.find((e) => e.ref && isRole(e, 'button') && /^go$/i.test(e.name))
+		if (field && go) return { field, go }
+	}
+	return undefined
+}
+
+/**
+ * A save panel's name field takes a full path. Never the search field (it holds a search button), and
+ * never a name inside the file browser, where every file's name is a text field.
+ */
+function findPathField(elements: readonly Located[]): UiElement | undefined {
+	const fields = elements.filter(
+		(e) =>
+			e.element.ref &&
+			isRole(e.element, 'textfield', 'combobox') &&
+			!e.ancestors.some((a) => isRole(a, 'browser', 'outline', 'table', 'list', 'row')) &&
+			!/search/i.test(e.element.name) &&
+			!(e.element.children ?? []).some((c) => /search/i.test(c.name)),
+	)
+	return (
+		fields.find((f) => /save as|name|path|go to|folder|where/i.test(f.element.name)) ??
+		(fields.length === 1 ? fields[0] : undefined)
+	)?.element
 }
 
 // ---------------------------------------------------------------------------

@@ -457,43 +457,89 @@ on once, for "Namzu Helper", and every later session works.
 
 The source travels in the package and is compiled on the person's Mac the
 first time it is needed: `swiftc` (Xcode Command Line Tools), an `Info.plist`
-with `LSUIElement`, and an ad-hoc `codesign`, into
-`<NAMZU_HOME>/computer-use/macos/helper-<source digest>/Namzu Helper.app`. On
-an M-series Mac mini this takes 3 to 4 seconds. The choice against a prebuilt
-binary per architecture: a binary that keeps its permission across versions
-has to be signed with a paid developer identity, and one downloaded from the
-internet has to be notarised to open without a warning; compiling the source
-the person can read needs neither, never needs `sudo`, and costs only the
-Command Line Tools a developer's Mac already has. Without them the adapter
-works as before and says `xcode-select --install` once (checked with `xcode-select -p`, since without the tools `swiftc` is only a shim). A new source is a new
-directory and a new socket, so an old helper still running ends by itself
-after 15 quiet minutes and never answers a newer client.
+with `LSUIElement`, and a `codesign` with a local identity (below), into one
+stable path, `<NAMZU_HOME>/computer-use/macos/Namzu Helper.app`. A newer source
+replaces the app in place and moves the old one to
+`<NAMZU_HOME>/computer-use/macos/replaced/<old digest>-<time>/` (a helper still
+running from it keeps its files). What was built and how it was signed is in
+`helper-build.json` beside it. On an M-series Mac mini the build takes 3 to 4
+seconds. The choice against a prebuilt binary per architecture: a binary that
+keeps its permission across versions has to be signed with a paid developer
+identity, and one downloaded from the internet has to be notarised to open
+without a warning; compiling the source the person can read needs neither,
+never needs `sudo`, and costs only the Command Line Tools a developer's Mac
+already has. Without them the adapter works as before and says
+`xcode-select --install` once (checked with `xcode-select -p`, since without the
+tools `swiftc` is only a shim). The socket is keyed by the source digest
+(`h-<digest>.sock`), so an old helper still running ends by itself after 15
+quiet minutes and never answers a newer client.
 
-An ad-hoc signature names the permission by the code's hash, so a rebuilt
-helper (new source, a new package version that changes it) is a new program to
-macOS: the two switches are turned on again, and the old "Namzu Helper" row in
-System Settings can be removed with its minus button.
+**Why a local signing identity, and not an ad-hoc signature.** macOS keeps the
+Accessibility switch against the signed app's *designated requirement*. An
+ad-hoc signature has none that outlives a build (it is the code's own hash), so
+every rebuild is a new program and the switches are turned on again; and on
+macOS 27, where Accessibility is named "Device Control and Data Access", an
+ad-hoc app is not trusted at all even with its switch on (measured on macOS
+27.2: the switch was on and `AXIsProcessTrusted` stayed false). So the first
+build makes one self-signed code-signing identity for this Namzu home: an
+`openssl` certificate with the code-signing extended key usage, imported with
+`security import -T /usr/bin/codesign` into a keychain of its own,
+`<NAMZU_HOME>/computer-use/macos/signing/namzu-signing.keychain-db`, opened with
+a random password kept 0600 next to it (`kc.pw`; `cert.pem` is the public
+certificate; the loose private key is deleted after the import).
+`set-key-partition-list` lets `codesign` use the key without a prompt. The
+login keychain is never read or written, and the person's keychain search list
+is put back as it was if `create-keychain` changed it. The requirement is then
+`identifier "com.namzu.helper" and certificate leaf = H"<sha1>"`, the same for
+every build signed with this identity, so the grant outlives rebuilds and
+version upgrades, and the app stays at one path. The identity is made once and
+reused. If it cannot be made (no `openssl`, a locked-down keychain), the build
+says so in a plain sentence and signs ad hoc, as a macOS before 27 accepts; the
+helper then retries the identity once a day and rebuilds when it can be made.
 
 ### What the person must click
 
 Both switches are under System Settings > Privacy & Security, for "Namzu Helper":
 
-- **Accessibility** lets it read and act on other applications' controls and
-  post input to them. Without it `ui_snapshot` and `ui_act` fail with the
-  sentence "Accessibility is off for Namzu Helper. Open System Settings > …".
+- **Accessibility** (on macOS 27, **Device Control and Data Access**; the helper
+  picks the name from the OS version) lets it read and act on other
+  applications' controls and post input to them. Without it `ui_snapshot` and
+  `ui_act` fail with the sentence "Accessibility is off for Namzu Helper. Open
+  System Settings > …".
 - **Screen & System Audio Recording** lets it capture a window and read other
   applications' window titles. Without it window screenshots fail the same
   way and `list_windows` lists windows with empty titles.
+
+Each step also tells the person to remove an older "Namzu Helper" row first
+if the list has one (a row left by an earlier build of another identity stays
+in the list and shadows the new app).
 
 The adapter reports what is still off in `fallbackReason`
 (`Namzu Helper still needs permission: …`), and the helper answers
 `permissions` with the plain steps. The `selfcheck` command lists each of
 these as a check with a detail, and `selftest` has the helper read, press,
-toggle and set a value on a window of its own once permission is granted.
+toggle and set a value on a window of its own (it needs no grant). The helper's own windows are read on its main thread, because AppKit answers accessibility calls about a process's own windows on the calling thread; every request also has a time limit after which the client gets an `op_timeout` answer, so one stuck request never silences the rest.
+
+### Open and save panels
+
+A file panel is not reached by posted key events (its shortcuts, such as
+Cmd+Shift+G, go to the application, and the panel is another process). The
+adapter's `uiPickFile(path)` (`DarwinAdapter.uiPickFile`) drives it through its
+accessibility tree instead, trying in order: a "Go to the folder" sheet that is
+open (path field and Go button); a path or name field of the panel itself (a
+save panel's "Save As:"; the search field and the file names inside the browser
+are never used); a "Go to Folder" control; and otherwise it walks the browser,
+selecting the sidebar's home (or the startup disk) and then each folder and the
+file by its name, because an open panel has no field that takes a path. It then
+presses the default button (Open, Choose, Select or Save) unless `confirm:
+false`; when selecting the file already opened it, which closes the panel under
+the call, that is reported as done. It returns `{ ok, detail, via }` with `via`
+one of `go_sheet`, `path_field`, `browse`. Measured on macOS 27.2 with TextEdit's
+Open panel: `browse`, a file three folders deep, about 6 seconds.
 
 ### Differences from Windows
 
-- Window ids are `CGWindowID`s in decimal (`501`; the hex form is accepted).
+- Window ids are `CGWindowID`s in decimal (`501`; the hex form is accepted, and so is a number, everywhere a window id is taken).
   Rectangles are physical pixels of the main display (points times its
   backing scale), the capture's unit; a display with another scale is
   reported with its own `scale` in `displays`.

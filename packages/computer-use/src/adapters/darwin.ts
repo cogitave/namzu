@@ -22,7 +22,7 @@ import type {
 } from '@namzu/sdk'
 import type { MacA11yHandle } from '../a11y/macos.js'
 import { hasExecutable, runCommand, runCommandOrThrow } from '../util/spawn.js'
-import { MacAxSurface } from './darwin-ax.js'
+import { MacAxSurface, type PickFileResult } from './darwin-ax.js'
 import { ActionCapabilityError, type Adapter, AdapterUnavailableError } from './types.js'
 
 // ---------------------------------------------------------------------------
@@ -336,12 +336,20 @@ export class DarwinAdapter implements Adapter {
 		return this.ax?.settleAfterInput(request, signal)
 	}
 
-	async uiSnapshot(windowId?: string, options?: UiSnapshotOptions): Promise<UiSnapshot> {
+	async uiSnapshot(windowId?: string | number, options?: UiSnapshotOptions): Promise<UiSnapshot> {
 		return this.requireAx().uiSnapshot(windowId, options)
 	}
 
 	async uiAct(ref: string, action: UiElementAction, value?: string): Promise<UiActResult> {
 		return this.requireAx().uiAct(ref, action, value)
+	}
+
+	/** Picks a file in the open or save panel in front, through its accessibility tree. macOS only. */
+	async uiPickFile(
+		path: string,
+		options?: { readonly windowId?: string | number; readonly confirm?: boolean },
+	): Promise<PickFileResult> {
+		return this.requireAx().pickFile(path, options)
 	}
 
 	private requireAx(): MacAxSurface {

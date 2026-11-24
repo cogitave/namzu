@@ -61,12 +61,34 @@ func num(_ v: Any?, _ fallback: Double = 0) -> Double {
 
 func intOf(_ v: Any?) -> Int? {
     if let n = v as? NSNumber { return n.intValue }
+    // A window id may arrive as text, decimal or 0x…
+    if let t = (v as? String)?.trimmingCharacters(in: .whitespaces).lowercased(), !t.isEmpty {
+        if t.hasPrefix("0x") { return Int(t.dropFirst(2), radix: 16) }
+        return Int(t)
+    }
     return nil
 }
 
 /// Runs on the main thread (AppKit's screens and workspace are read there), without waiting on itself.
-func onMain<T>(_ body: () -> T) -> T {
-    Thread.isMainThread ? body() : DispatchQueue.main.sync(execute: body)
+func onMain<T>(_ body: () throws -> T) rethrows -> T {
+    try Thread.isMainThread ? body() : DispatchQueue.main.sync(execute: body)
+}
+
+/// Window ids of windows this helper draws itself (the self-test's demo window).
+/// AppKit answers an accessibility call about its own windows on the calling thread, so a call made from a
+/// request thread would touch AppKit views off the main thread and can lock up the main thread behind it.
+/// Anything that reads or acts on such a window runs on the main thread.
+let ownWindows = OwnWindows()
+final class OwnWindows {
+    private let lock = NSLock()
+    private var ids = Set<Int>()
+    func add(_ id: Int) { lock.lock(); ids.insert(id); lock.unlock() }
+    func remove(_ id: Int) { lock.lock(); ids.remove(id); lock.unlock() }
+    func contains(_ id: Int?) -> Bool {
+        guard let id = id else { return false }
+        lock.lock(); defer { lock.unlock() }
+        return ids.contains(id)
+    }
 }
 
 /// Pixels per point of the main display, as a capture sees it.
@@ -91,16 +113,23 @@ func screenCaptureAllowed(prompt: Bool) -> Bool {
     return CGPreflightScreenCaptureAccess()
 }
 
+/// macOS 27 renamed the Accessibility switch "Device Control and Data Access".
+func accessibilityPaneName() -> String {
+    ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 27 ? "Device Control and Data Access" : "Accessibility"
+}
+
 func permissionsReply(prompt: Bool) -> Json {
     let ax = accessibilityTrusted(prompt: prompt)
     let sc = screenCaptureAllowed(prompt: prompt)
     let appName = (Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String) ?? "Namzu Helper"
     var steps: [String] = []
+    let axPane = accessibilityPaneName()
+    let remove = " If an older \"\(appName)\" row is already in the list, remove it first with the minus button, then add this one."
     if !ax {
-        steps.append("System Settings > Privacy & Security > Accessibility: turn on \"\(appName)\".")
+        steps.append("System Settings > Privacy & Security > \(axPane): turn on \"\(appName)\".\(remove)")
     }
     if !sc {
-        steps.append("System Settings > Privacy & Security > Screen & System Audio Recording: turn on \"\(appName)\".")
+        steps.append("System Settings > Privacy & Security > Screen & System Audio Recording: turn on \"\(appName)\".\(remove)")
     }
     return [
         "accessibility": ax,
@@ -580,7 +609,7 @@ func requireAccessibility(pid: pid_t? = nil) throws {
         let name = (Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String) ?? "Namzu Helper"
         throw HelperError(
             code: "accessibility_denied",
-            message: "Accessibility is off for \(name). Open System Settings > Privacy & Security > Accessibility and turn on \"\(name)\", then try again.")
+            message: "Accessibility is off for \(name). Open System Settings > Privacy & Security > \(accessibilityPaneName()) and turn on \"\(name)\", then try again.")
     }
 }
 
@@ -891,6 +920,30 @@ func axErrorText(_ e: AXError) -> String {
     }
 }
 
+/// "Press" a control that is not a button: AXPress, else the action it offers instead (AXOpen, AXConfirm, AXPick),
+/// else select it (the items of a file panel's columns take only that).
+func pressLike(_ el: AXUIElement) -> AXError {
+    var err = perform(el, "AXPress")
+    if err == .success { return err }
+    var names: CFArray?
+    let offered = (AXUIElementCopyActionNames(el, &names) == .success ? (names as? [String]) : nil) ?? []
+    for alt in ["AXOpen", "AXConfirm", "AXPick"] where offered.contains(alt) {
+        err = perform(el, alt)
+        if err == .success { return err }
+    }
+    if isSettable(el, kAXSelectedAttribute as String) {
+        return AXUIElementSetAttributeValue(el, kAXSelectedAttribute as CFString, kCFBooleanTrue)
+    }
+    // A list or column takes its selection as a whole: the items it lists are the "selected children".
+    if let parentRef = attr(el, kAXParentAttribute as String), CFGetTypeID(parentRef) == AXUIElementGetTypeID() {
+        let parent = parentRef as! AXUIElement
+        if isSettable(parent, "AXSelectedChildren") {
+            return AXUIElementSetAttributeValue(parent, "AXSelectedChildren" as CFString, [el] as CFArray)
+        }
+    }
+    return err
+}
+
 func actReply(_ req: Json) throws -> Json {
     let (fp, windowId, pid) = try fingerprintFromRequest(req)
     try requireAccessibility(pid: pid)
@@ -908,14 +961,7 @@ func actReply(_ req: Json) throws -> Json {
     var err: AXError = .success
     switch action {
     case "invoke", "press":
-        err = perform(el, "AXPress")
-        if err == .actionUnsupported {
-            let alt = ["AXOpen", "AXConfirm", "AXPick"].first { name in
-                var names: CFArray?
-                return AXUIElementCopyActionNames(el, &names) == .success && ((names as? [String]) ?? []).contains(name)
-            }
-            if let alt = alt { err = perform(el, alt) }
-        }
+        err = pressLike(el)
     case "show_menu": err = perform(el, "AXShowMenu")
     case "raise": err = perform(el, "AXRaise")
     case "increment": err = perform(el, "AXIncrement")
@@ -940,7 +986,7 @@ func actReply(_ req: Json) throws -> Json {
             err = AXUIElementSetAttributeValue(el, kAXSelectedAttribute as CFString, kCFBooleanTrue)
             expected = "selected"
         } else {
-            err = perform(el, "AXPress")
+            err = pressLike(el)
         }
     case "expand", "collapse":
         let want = action == "expand"
@@ -1338,7 +1384,7 @@ func selfcheckReply() -> Json {
     func add(_ name: String, _ ok: Bool, _ detail: String = "") {
         checks.append(["name": name, "ok": ok, "detail": detail])
     }
-    add("accessibility_trusted", AXIsProcessTrusted(), AXIsProcessTrusted() ? "" : "turn on Namzu Helper in Privacy & Security > Accessibility")
+    add("accessibility_trusted", AXIsProcessTrusted(), AXIsProcessTrusted() ? "" : "turn on Namzu Helper in Privacy & Security > \(accessibilityPaneName())")
     add("screen_capture_allowed", CGPreflightScreenCaptureAccess(), "")
     let wins = listWindowEntries()
     add("cgwindowlist", !wins.isEmpty, "\(wins.count) windows")
@@ -1379,6 +1425,8 @@ func ensureDemoWindow() -> Int? {
                 contentRect: NSRect(x: 220, y: 220, width: 420, height: 240),
                 styleMask: [.titled, .closable], backing: .buffered, defer: false)
             w.title = "Namzu Helper Demo"
+            demo.status.stringValue = "idle"
+            demo.field.stringValue = ""
             w.isReleasedWhenClosed = false
             let content = NSView(frame: NSRect(x: 0, y: 0, width: 420, height: 240))
             let button = NSButton(title: "Press me", target: demo, action: #selector(DemoState.pressed(_:)))
@@ -1406,6 +1454,7 @@ func ensureDemoWindow() -> Int? {
     }
     for _ in 0..<60 {
         if let e = listWindowEntries().first(where: { $0.pid == ProcessInfo.processInfo.processIdentifier && $0.title == "Namzu Helper Demo" }) {
+            ownWindows.add(e.id)
             return e.id
         }
         Thread.sleep(forTimeInterval: 0.05)
@@ -1414,7 +1463,11 @@ func ensureDemoWindow() -> Int? {
 }
 
 func closeDemoWindow() {
-    onMain { demo.window?.orderOut(nil) }
+    // Closed and dropped, so the next self-test starts from a window in its first state.
+    onMain {
+        demo.window?.close()
+        demo.window = nil
+    }
 }
 
 func selftestReply() -> Json {
@@ -1428,7 +1481,7 @@ func selftestReply() -> Json {
     }
     check("demo_window", true, "window \(wid)")
     func read() throws -> [Json] {
-        let r = try snapshotReply(["hwnd": wid, "maxNodes": 300, "allowChromium": true])
+        let r = try onMain { try snapshotReply(["hwnd": wid, "maxNodes": 300, "allowChromium": true]) }
         return (r["nodes"] as? [Json]) ?? []
     }
     func find(_ nodes: [Json], role: String, name: String? = nil, id: String? = nil) -> Json? {
@@ -1450,10 +1503,12 @@ func selftestReply() -> Json {
         check("field_offers_value", ((field?["actions"] as? [String]) ?? []).contains("value"), "\(field?["actions"] ?? "none")")
         let menuBar = nodes.contains { ($0["role"] as? String) == "AXMenuBar" }
         let menuItem = find(nodes, role: "AXMenuBarItem", name: "Format")
-        check("menu_bar_in_window_tree", menuBar && menuItem != nil, "menu bar \(menuBar) Format item \(menuItem != nil) childCount \(menuItem?["childCount"] ?? "none")")
+        // A background app (this helper has no Dock icon) is not in front, and macOS then lists only its Apple and
+        // app menus; the menu bar itself is what must be there. A real app's menu is proven by the real check.
+        check("menu_bar_in_window_tree", menuBar, "menu bar \(menuBar); Format item \(menuItem != nil ? "listed" : "not listed while the helper is in the background")")
 
         if let button = button, let fp = button["fp"] as? Json {
-            let r = try actReply(["hwnd": wid, "fingerprint": fp, "action": "invoke"])
+            let r = try onMain { try actReply(["hwnd": wid, "fingerprint": fp, "action": "invoke"]) }
             check("act_invoke_button", (r["done"] as? Bool) == true, "\(r)")
             let after = try read()
             check("button_press_visible_in_tree", find(after, role: "AXStaticText", name: "pressed") != nil, "status label now reads pressed")
@@ -1462,27 +1517,27 @@ func selftestReply() -> Json {
             check("runtime_id_survives_snapshot", same, "\(fp["runtimeId"] ?? "")")
             var stale = fp
             stale["runtimeId"] = "0:0"
-            let found = try resolveReply(["hwnd": wid, "fingerprint": stale])
+            let found = try onMain { try resolveReply(["hwnd": wid, "fingerprint": stale]) }
             check("resolve_by_automation_id", (found["found"] as? Bool) == true && (found["via"] as? String) == "automationId", "\(found)")
             var renamed = fp
             renamed["runtimeId"] = "0:0"
             renamed["automationId"] = ""
-            let byName = try resolveReply(["hwnd": wid, "fingerprint": renamed])
+            let byName = try onMain { try resolveReply(["hwnd": wid, "fingerprint": renamed]) }
             check("resolve_by_name", (byName["found"] as? Bool) == true && (byName["via"] as? String) == "name", "\(byName)")
         }
         if let c = check1, let fp = c["fp"] as? Json {
             let seq0 = try seqReply(["hwnd": wid])
-            let r = try actReply(["hwnd": wid, "fingerprint": fp, "action": "toggle"])
+            let r = try onMain { try actReply(["hwnd": wid, "fingerprint": fp, "action": "toggle"]) }
             check("act_toggle_checkbox", (r["done"] as? Bool) == true && (r["verified"] as? Bool) == true, "\(r)")
             let waited = try waitReply(["hwnd": wid, "since": seq0["seq"] ?? 0, "timeoutMs": 1500, "quietMs": 100])
             check("wait_change_sees_toggle", (waited["changed"] as? Bool) == true, "\(waited)")
         }
         if let f = field, let fp = f["fp"] as? Json {
-            let r = try actReply(["hwnd": wid, "fingerprint": fp, "action": "set_value", "value": "hello namzu"])
+            let r = try onMain { try actReply(["hwnd": wid, "fingerprint": fp, "action": "set_value", "value": "hello namzu"]) }
             check("act_set_value", (r["done"] as? Bool) == true && (r["verified"] as? Bool) == true, "\(r)")
         }
         if let item = menuItem, let fp = item["fp"] as? Json {
-            let r = try snapshotReply(["hwnd": wid, "root": fp, "maxNodes": 50, "maxDepth": 3])
+            let r = try onMain { try snapshotReply(["hwnd": wid, "root": fp, "maxNodes": 50, "maxDepth": 3]) }
             let sub = ((r["nodes"] as? [Json]) ?? []).contains { ($0["name"] as? String) == "Make Plain Text" }
             check("menu_item_opens_by_root", sub, "nodes \((r["nodes"] as? [Json])?.count ?? 0)")
         }
@@ -1497,7 +1552,17 @@ func selftestReply() -> Json {
 
 // MARK: - Server
 
+/// Commands that read or act on one window's controls. For a window of the helper's own they run on the main thread.
+let controlCommands: Set<String> = ["snapshot", "act", "resolve", "identity", "scroll", "click", "type", "key"]
+
 func dispatch(_ cmd: String, _ req: Json) throws -> Json {
+    if controlCommands.contains(cmd), ownWindows.contains(intOf(req["hwnd"])) {
+        return try onMain { try dispatchNow(cmd, req) }
+    }
+    return try dispatchNow(cmd, req)
+}
+
+func dispatchNow(_ cmd: String, _ req: Json) throws -> Json {
     switch cmd {
     case "permissions": return permissionsReply(prompt: (req["prompt"] as? Bool) == true)
     case "windows": return windowsReply()
@@ -1517,6 +1582,29 @@ func dispatch(_ cmd: String, _ req: Json) throws -> Json {
     case "selfcheck": return selfcheckReply()
     case "selftest": return selftestReply()
     default: throw HelperError(code: "unknown_command", message: "unknown command \(cmd)")
+    }
+}
+
+/// Lets exactly one of the answer and the timeout reply to a request.
+final class ReplyOnce {
+    private let lock = NSLock()
+    private var done = false
+    func claim() -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        if done { return false }
+        done = true
+        return true
+    }
+}
+
+/// How long one request may take before the client is told so.
+func opLimitSeconds(_ cmd: String, _ req: Json) -> Double {
+    switch cmd {
+    case "wait_change": return Double(min(intOf(req["timeoutMs"]) ?? 2000, 10_000)) / 1000 + 8
+    case "selftest": return 20
+    case "capture_window": return 25
+    case "type": return 15 + Double((req["text"] as? String)?.count ?? 0) * 0.01
+    default: return 12
     }
 }
 
@@ -1562,6 +1650,9 @@ final class Connection {
                     send(["id": id, "ok": true])
                     exit(0)
                 }
+                // No request may leave its client without an answer: whatever one is stuck on, the client
+                // gets `op_timeout` when the limit passes, and the loop above keeps reading.
+                let once = ReplyOnce()
                 queue.async {
                     var reply: Json
                     do {
@@ -1573,7 +1664,12 @@ final class Connection {
                         reply = ["ok": false, "code": "error", "message": "\(error)"]
                     }
                     reply["id"] = id
-                    self.send(reply)
+                    if once.claim() { self.send(reply) }
+                }
+                DispatchQueue.global().asyncAfter(deadline: .now() + opLimitSeconds(cmd, obj)) {
+                    if once.claim() {
+                        self.send(["id": id, "ok": false, "code": "op_timeout", "message": "the helper did not finish \(cmd) in time; it is still running, and other requests are answered"])
+                    }
                 }
             }
         }

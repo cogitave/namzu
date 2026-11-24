@@ -49,7 +49,9 @@ export interface MacTree {
 	readonly selectedText?: string
 }
 
-export interface MacTreeRequest extends A11ySnapshotRequest {
+export interface MacTreeRequest extends Omit<A11ySnapshotRequest, 'windowId'> {
+	/** A window id as a number, or as a string in decimal or `0x` form. */
+	readonly windowId: string | number
 	/** Read only the subtree of this control. */
 	readonly root?: A11yFingerprint
 }
@@ -103,8 +105,15 @@ const num = (value: unknown, fallback = 0): number =>
 	typeof value === 'number' && Number.isFinite(value) ? value : fallback
 const str = (value: unknown): string => (typeof value === 'string' ? value : '')
 
-/** A window id as the helper knows it (a CGWindowID); accepts the decimal or `0x` form. */
-export function cgWindowId(windowId: string): number {
+/** A window id as the helper knows it (a CGWindowID); accepts a number, or a string in decimal or `0x` form. */
+export function cgWindowId(windowId: string | number): number {
+	if (typeof windowId === 'number') {
+		if (!Number.isSafeInteger(windowId) || windowId <= 0)
+			throw new A11yError('bad_window_id', 'not a window id this backend handed out')
+		return windowId
+	}
+	if (typeof windowId !== 'string')
+		throw new A11yError('bad_window_id', 'not a window id this backend handed out')
 	const text = windowId.trim().toLowerCase()
 	const value = /^0x[0-9a-f]+$/.test(text)
 		? Number.parseInt(text.slice(2), 16)
@@ -210,7 +219,7 @@ export class MacA11yHost extends WindowsA11yHost {
 
 	async act(
 		request: {
-			readonly windowId: string
+			readonly windowId: string | number
 			readonly fingerprint: A11yFingerprint
 			readonly action: MacControlAction
 			readonly value?: string
@@ -241,7 +250,7 @@ export class MacA11yHost extends WindowsA11yHost {
 
 	/** Brings a window forward; the window that is in front afterwards, as an id, or null. */
 	async focus(
-		windowId: string,
+		windowId: string | number,
 		signal?: AbortSignal,
 	): Promise<{ ok: boolean; focusedId: string | null }> {
 		const reply = await this.request('focus', { hwnd: cgWindowId(windowId) }, 8_000, signal)
@@ -254,7 +263,7 @@ export class MacA11yHost extends WindowsA11yHost {
 	/** Wheel scroll in lines, posted to the window's process; `at` is a global point in physical pixels. */
 	async scroll(
 		request: {
-			readonly windowId?: string
+			readonly windowId?: string | number
 			readonly direction: 'up' | 'down' | 'left' | 'right'
 			readonly amount: number
 			/** Global screen points (not pixels). */
@@ -278,7 +287,7 @@ export class MacA11yHost extends WindowsA11yHost {
 	/** Clicks, double-clicks or drags at global screen points, posted to the window's process. */
 	async click(
 		request: {
-			readonly windowId?: string
+			readonly windowId?: string | number
 			readonly x: number
 			readonly y: number
 			readonly button?: 'left' | 'right'
@@ -303,7 +312,7 @@ export class MacA11yHost extends WindowsA11yHost {
 	}
 
 	async typeText(
-		request: { readonly windowId?: string; readonly text: string },
+		request: { readonly windowId?: string | number; readonly text: string },
 		signal?: AbortSignal,
 	): Promise<void> {
 		await this.request(
@@ -319,7 +328,7 @@ export class MacA11yHost extends WindowsA11yHost {
 
 	async pressKey(
 		request: {
-			readonly windowId?: string
+			readonly windowId?: string | number
 			readonly code: number
 			readonly flags: readonly string[]
 		},
@@ -338,7 +347,7 @@ export class MacA11yHost extends WindowsA11yHost {
 	}
 
 	/** One window as a PNG, whatever is in front of it. Needs Screen Recording. */
-	async captureWindow(windowId: string, signal?: AbortSignal): Promise<MacCapture> {
+	async captureWindow(windowId: string | number, signal?: AbortSignal): Promise<MacCapture> {
 		if (!this.captureDir)
 			throw new A11yError('unavailable', 'the accessibility host has no capture folder')
 		const reply = await this.request(

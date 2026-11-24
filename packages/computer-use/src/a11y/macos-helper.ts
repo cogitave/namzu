@@ -8,6 +8,12 @@ import { fileURLToPath } from 'node:url'
 import { hasExecutable, runCommand } from '../util/spawn.js'
 import type { A11yProcess } from './a11y.js'
 import { A11yError } from './interface.js'
+import {
+	type MacSigningIdentity,
+	ensureSigningIdentity,
+	macSigningDir,
+	unlockSigningKeychain,
+} from './macos-signing.js'
 
 /**
  * The macOS accessibility helper: a small Swift app, "Namzu Helper", that
@@ -21,14 +27,18 @@ import { A11yError } from './interface.js'
  *
  * How it is shipped: the Swift source travels in this package
  * (`helper-macos/main.swift`) and is compiled on first use with `swiftc`
- * (Xcode Command Line Tools, which a Mac used for development has), signed
- * ad hoc, and kept under `<NAMZU_HOME>/computer-use/macos/helper-<hash>/`
- * where `<hash>` is the source's digest. A prebuilt binary per architecture
- * would have to be signed with a paid identity to carry a permission across
- * versions and notarised to open without a warning; building on the person's
- * Mac needs neither and makes the binary one that was compiled from the
- * source they can read. The cost is the Command Line Tools and a few seconds
- * the first time (3 to 4 seconds on an M-series Mac mini). A new helper version is a new directory and a new socket,
+ * (Xcode Command Line Tools, which a Mac used for development has) and kept at
+ * a stable path, `<NAMZU_HOME>/computer-use/macos/Namzu Helper.app`, which a
+ * new build replaces in place (the old app is moved to `replaced/`). It is
+ * signed with a per-user local identity (see `macos-signing.ts`) so that the
+ * permission the person gave survives every rebuild; on macOS 27 an ad-hoc
+ * signature is not trusted at all, and it is used only when the identity
+ * cannot be made. A prebuilt binary per architecture would have to be signed
+ * with a paid identity to carry a permission across versions and notarised to
+ * open without a warning; building on the person's Mac needs neither and
+ * makes the binary one that was compiled from the source they can read. The
+ * cost is the Command Line Tools and a few seconds the first time (3 to 4
+ * seconds on an M-series Mac mini). The socket is keyed by the source's digest,
  * so an old helper still running is left to end by itself (it exits after 15
  * quiet minutes) and never answers a newer client. Nothing needs sudo.
  */
@@ -46,12 +56,16 @@ export interface MacHelperPaths {
 	/** `<NAMZU_HOME>/computer-use/macos` */
 	readonly root: string
 	readonly hash: string
-	/** `…/helper-<hash>/Namzu Helper.app` */
+	/** `…/Namzu Helper.app`: one path for every build, so the person's grant keeps pointing at it. */
 	readonly bundle: string
 	readonly executable: string
 	readonly socket: string
 	/** Where window captures are written for the client to read; owner only. */
 	readonly captures: string
+	/** What was built and how it was signed. */
+	readonly state: string
+	/** Where the local signing identity lives. */
+	readonly signing: string
 }
 
 export function macHelperSourcePath(): string {
@@ -68,7 +82,7 @@ function namzuHome(env: NodeJS.ProcessEnv): string {
 
 export function macHelperPaths(env: NodeJS.ProcessEnv, hash: string): MacHelperPaths {
 	const root = join(namzuHome(env), 'computer-use', 'macos')
-	const bundle = join(root, `helper-${hash}`, `${MAC_HELPER_NAME}.app`)
+	const bundle = join(root, `${MAC_HELPER_NAME}.app`)
 	let socket = join(root, `h-${hash.slice(0, 8)}.sock`)
 	if (Buffer.byteLength(socket) >= SOCKET_PATH_LIMIT) {
 		socket = join(tmpdir(), `namzu-${process.getuid?.() ?? 0}-${hash.slice(0, 8)}`, 'h.sock')
@@ -80,6 +94,8 @@ export function macHelperPaths(env: NodeJS.ProcessEnv, hash: string): MacHelperP
 		executable: join(bundle, 'Contents', 'MacOS', EXECUTABLE),
 		socket,
 		captures: join(root, 'captures'),
+		state: join(root, 'helper-build.json'),
+		signing: macSigningDir(root),
 	}
 }
 
@@ -123,6 +139,39 @@ export interface EnsureMacHelperOptions {
 const NO_COMPILER_TEXT =
 	'the macOS accessibility helper is built on this Mac the first time, and the Swift compiler is missing. Run `xcode-select --install` once (Xcode Command Line Tools), then try again.'
 
+/** What the last build left, kept beside the app. */
+interface BuildState {
+	readonly hash: string
+	readonly signing: 'identity' | 'adhoc'
+	readonly identity?: string
+	/** For an ad-hoc build: when to try to make the identity again, ms since the epoch. */
+	readonly retryAfter?: number
+}
+
+const RETRY_IDENTITY_MS = 24 * 60 * 60 * 1000
+
+function readState(path: string): BuildState | undefined {
+	try {
+		const value = JSON.parse(readFileSync(path, 'utf8')) as Partial<BuildState>
+		if (typeof value.hash !== 'string') return undefined
+		return {
+			hash: value.hash,
+			signing: value.signing === 'identity' ? 'identity' : 'adhoc',
+			...(typeof value.identity === 'string' ? { identity: value.identity } : {}),
+			...(typeof value.retryAfter === 'number' ? { retryAfter: value.retryAfter } : {}),
+		}
+	} catch {
+		return undefined
+	}
+}
+
+function writeState(path: string, state: BuildState): void {
+	writeFileSync(path, `${JSON.stringify(state)}\n`, { mode: 0o600 })
+}
+
+const NO_IDENTITY_NOTICE = (reason: string): string =>
+	`Namzu could not make its local signing identity (${reason.slice(0, 200)}), so the macOS helper is signed ad hoc. macOS 27 does not trust an ad-hoc app even with its switch on, and an older macOS asks for the switches again after every rebuild.`
+
 /**
  * The helper's paths, compiling and signing it first when this source has
  * not been built on this machine. Throws {@link A11yError} (`no_compiler`,
@@ -131,8 +180,20 @@ const NO_COMPILER_TEXT =
 export async function ensureMacHelper(options: EnsureMacHelperOptions): Promise<MacHelperPaths> {
 	const source = readFileSync(options.sourcePath ?? macHelperSourcePath(), 'utf8')
 	const paths = macHelperPaths(options.env, macHelperSourceHash(source))
-	if (existsSync(paths.executable)) return paths
 	const run = options.run ?? runCommand
+	const env = cleanEnv(options.env)
+	const state = readState(paths.state)
+	let identity: MacSigningIdentity | undefined
+	if (existsSync(paths.executable) && state?.hash === paths.hash) {
+		if (state.signing === 'identity') return paths
+		if (Date.now() < (state.retryAfter ?? 0)) return paths
+		// Built ad hoc earlier: try the identity again once a day, and rebuild only if it can be made now.
+		identity = await ensureSigningIdentity({ root: paths.root, env, run })
+		if (!identity) {
+			writeState(paths.state, { ...state, retryAfter: Date.now() + RETRY_IDENTITY_MS })
+			return paths
+		}
+	}
 	const has = options.hasTool ?? hasExecutable
 	const noCompiler = new A11yError('no_compiler', NO_COMPILER_TEXT)
 	if (!(await has('swiftc'))) throw noCompiler
@@ -140,17 +201,17 @@ export async function ensureMacHelper(options: EnsureMacHelperOptions): Promise<
 	// that opens an install dialog, so presence on PATH proves nothing.
 	const developerDir = await run('xcode-select', ['-p'], {
 		timeoutMs: 5_000,
-		env: cleanEnv(options.env),
+		env,
 	}).catch(() => undefined)
 	if (!developerDir || developerDir.exitCode !== 0) throw noCompiler
 	options.onNotice?.(
 		`Namzu is building its macOS helper (${MAC_HELPER_NAME}) from source, once. It takes a few seconds.`,
 	)
+	mkdirSync(paths.root, { recursive: true, mode: 0o700 })
 	const stage = join(paths.root, `build-${paths.hash}-${process.pid}`)
 	const app = join(stage, `${MAC_HELPER_NAME}.app`)
 	mkdirSync(join(app, 'Contents', 'MacOS'), { recursive: true, mode: 0o700 })
 	writeFileSync(join(app, 'Contents', 'Info.plist'), macHelperInfoPlist(paths.hash))
-	const env = cleanEnv(options.env)
 	const compile = await run(
 		'swiftc',
 		[
@@ -177,24 +238,63 @@ export async function ensureMacHelper(options: EnsureMacHelperOptions): Promise<
 			`the macOS helper did not compile: ${compile.stderr.trim().slice(0, 600)}`,
 		)
 	}
-	const sign = await run(
-		'codesign',
-		['--force', '--sign', '-', '--identifier', MAC_HELPER_BUNDLE_ID, app],
-		{ timeoutMs: 60_000, env },
-	)
-	if (sign.exitCode !== 0) {
-		rmSync(stage, { recursive: true, force: true })
-		throw new A11yError(
-			'build_failed',
-			`the macOS helper did not sign: ${sign.stderr.trim().slice(0, 600)}`,
-		)
-	}
-	mkdirSync(join(paths.root, `helper-${paths.hash}`), {
-		recursive: true,
-		mode: 0o700,
+	let why = ''
+	identity ??= await ensureSigningIdentity({
+		root: paths.root,
+		env,
+		run,
+		onFailure: (reason) => {
+			why = reason
+		},
 	})
+	let signedBy: MacSigningIdentity | undefined
+	if (identity && (await unlockSigningKeychain(identity, env, run))) {
+		const sign = await run(
+			'codesign',
+			[
+				'--force',
+				'--keychain',
+				identity.keychain,
+				'--sign',
+				identity.identity,
+				'--identifier',
+				MAC_HELPER_BUNDLE_ID,
+				app,
+			],
+			{ timeoutMs: 60_000, env },
+		)
+		if (sign.exitCode === 0) signedBy = identity
+		else why = sign.stderr.trim()
+	} else if (identity) why = 'the signing keychain would not open'
+	if (!signedBy) {
+		options.onNotice?.(NO_IDENTITY_NOTICE(why || 'the tools it needs are missing'))
+		const sign = await run(
+			'codesign',
+			['--force', '--sign', '-', '--identifier', MAC_HELPER_BUNDLE_ID, app],
+			{ timeoutMs: 60_000, env },
+		)
+		if (sign.exitCode !== 0) {
+			rmSync(stage, { recursive: true, force: true })
+			throw new A11yError(
+				'build_failed',
+				`the macOS helper did not sign: ${sign.stderr.trim().slice(0, 600)}`,
+			)
+		}
+	}
 	try {
+		// The old app is moved aside, not deleted: a helper still running from it keeps its files.
+		if (existsSync(paths.bundle)) {
+			const aside = join(paths.root, 'replaced', `${state?.hash ?? 'old'}-${Date.now()}`)
+			mkdirSync(aside, { recursive: true, mode: 0o700 })
+			renameSync(paths.bundle, join(aside, `${MAC_HELPER_NAME}.app`))
+		}
 		renameSync(app, paths.bundle)
+		writeState(
+			paths.state,
+			signedBy
+				? { hash: paths.hash, signing: 'identity', identity: signedBy.identity }
+				: { hash: paths.hash, signing: 'adhoc', retryAfter: Date.now() + RETRY_IDENTITY_MS },
+		)
 	} catch (error) {
 		// Another process finished the same build first.
 		if (!existsSync(paths.executable)) throw error

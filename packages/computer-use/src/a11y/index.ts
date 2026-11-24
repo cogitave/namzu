@@ -43,3 +43,9 @@ export {
 	macHelperSourceHash,
 } from './macos-helper.js'
 export type { MacHelperPaths } from './macos-helper.js'
+export {
+	ensureSigningIdentity,
+	macSigningDir,
+	parseFingerprint,
+} from './macos-signing.js'
+export type { MacSigningIdentity } from './macos-signing.js'

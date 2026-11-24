@@ -5,7 +5,15 @@
  * stands where the helper app answers; the helper itself is proven on a real
  * Mac (see docs/sdk/computer-use-host.md).
  */
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import {
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	readdirSync,
+	statSync,
+	writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
@@ -160,6 +168,7 @@ function setup(handlers: Record<string, Handler>) {
 		host,
 		scale: async () => 2,
 		keyEvent: keyEventOf,
+		wait: async () => undefined,
 	})
 	return { helper, host, surface }
 }
@@ -216,6 +225,23 @@ describe('the host speaking to the helper', () => {
 		expect(cgWindowId('501')).toBe(501)
 		expect(cgWindowId('0x1f5')).toBe(501)
 		expect(() => cgWindowId('abc')).toThrow(A11yError)
+	})
+
+	it('accepts a window id as a number as well, everywhere', async () => {
+		expect(cgWindowId(501)).toBe(501)
+		expect(() => cgWindowId(0)).toThrow(A11yError)
+		expect(() => cgWindowId(1.5)).toThrow(A11yError)
+		const { surface, helper, host } = setup({
+			snapshot: () => simpleTree(),
+			act: () => ({ done: true }),
+		})
+		const snap = await surface.uiSnapshot(501)
+		expect(snap.windowId).toBe('501')
+		expect(helper.asked.find((r) => r.cmd === 'snapshot')).toMatchObject({ hwnd: 501 })
+		expect((await host.readTree({ windowId: 501 })).windowId).toBe('501')
+		expect(await host.focus(502).catch(() => 'no')).toBeDefined()
+		await host.seq(501)
+		expect(helper.asked.filter((r) => r.cmd === 'seq').at(-1)).toMatchObject({ hwnd: 501 })
 	})
 
 	it('reads a capture the helper wrote and removes the file; refuses a path outside its folder', async () => {
@@ -540,6 +566,44 @@ describe('input to a captured window', () => {
 	})
 })
 
+/** Stand-ins for swiftc, openssl, security and codesign that leave what the real ones leave. */
+function toolbox(options: { failIdentity?: boolean } = {}) {
+	const calls: string[][] = []
+	const run = (async (command: string, args: readonly string[]) => {
+		calls.push([command, ...args])
+		const ok = (stdout = '') => ({
+			exitCode: 0,
+			stdout: Buffer.from(stdout),
+			stderr: '',
+			timedOut: false,
+			signal: null,
+		})
+		if (command === 'swiftc') {
+			const out = args[args.indexOf('-o') + 1] as string
+			mkdirSync(dirname(out), { recursive: true })
+			writeFileSync(out, 'binary')
+		}
+		if (command === 'openssl' && args[0] === 'req') {
+			if (options.failIdentity)
+				return { ...ok(), exitCode: 1, stderr: 'openssl: cannot make a key' }
+			writeFileSync(args[args.indexOf('-keyout') + 1] as string, 'KEY')
+			writeFileSync(args[args.indexOf('-out') + 1] as string, 'CERT')
+		}
+		if (command === 'openssl' && args[0] === 'pkcs12')
+			writeFileSync(args[args.indexOf('-out') + 1] as string, 'P12')
+		if (command === 'openssl' && args[0] === 'x509')
+			return ok(
+				`SHA1 Fingerprint=${'2DE953B1FAC53DB03456E6D4BC358CF84713CDA4'.match(/../g)?.join(':')}\n`,
+			)
+		if (command === 'security' && args[0] === 'create-keychain')
+			writeFileSync(args.at(-1) as string, 'KEYCHAIN')
+		if (command === 'security' && args[0] === 'list-keychains' && args.length === 3)
+			return ok('    "/Users/x/Library/Keychains/login.keychain-db"\n')
+		return ok()
+	}) as never
+	return { calls, run }
+}
+
 describe('the helper build', () => {
 	it('keys the helper by a digest of its source and keeps the socket path short', () => {
 		const a = macHelperSourceHash('one')
@@ -547,7 +611,8 @@ describe('the helper build', () => {
 		expect(macHelperSourceHash('two')).not.toBe(a)
 		const short = macHelperPaths({ NAMZU_HOME: '/h' }, a)
 		expect(short.socket).toBe(`/h/computer-use/macos/h-${a.slice(0, 8)}.sock`)
-		expect(short.bundle).toBe(`/h/computer-use/macos/helper-${a}/Namzu Helper.app`)
+		expect(short.bundle).toBe('/h/computer-use/macos/Namzu Helper.app')
+		expect(macHelperPaths({ NAMZU_HOME: '/h' }, 'other').bundle).toBe(short.bundle)
 		const long = macHelperPaths({ NAMZU_HOME: `/${'x'.repeat(120)}` }, a)
 		expect(Buffer.byteLength(long.socket)).toBeLessThan(100)
 	})
@@ -624,16 +689,19 @@ describe('the helper build', () => {
 			onNotice: (n) => notices.push(n),
 		})
 		expect(existsSync(first.executable)).toBe(true)
-		expect(calls.map((c) => c[0])).toEqual(['xcode-select', 'swiftc', 'codesign'])
-		expect(calls[2]).toEqual(
+		// The stand-in tools leave no certificate behind, so the identity is not made and the build is ad hoc.
+		expect(calls.map((c) => c[0]).slice(0, 3)).toEqual(['xcode-select', 'swiftc', 'openssl'])
+		expect(calls.at(-1)).toEqual(
 			expect.arrayContaining(['--sign', '-', '--identifier', MAC_HELPER_BUNDLE_ID]),
 		)
-		expect(notices).toHaveLength(1)
+		expect(notices).toHaveLength(2)
+		expect(notices[1]).toContain('ad hoc')
 		const bundle = calls[1]?.[calls[1].indexOf('-o') + 1] ?? ''
 		expect(bundle).toContain('NamzuHelper')
 		expect(existsSync(join(first.bundle, 'Contents', 'Info.plist'))).toBe(true)
+		const count = calls.length
 		await ensureMacHelper({ env, run, hasTool: async () => true })
-		expect(calls).toHaveLength(3)
+		expect(calls).toHaveLength(count)
 	})
 
 	it('says the tools are missing when swiftc is only the shim', async () => {
@@ -690,6 +758,123 @@ describe('the helper build', () => {
 			code: 'build_failed',
 			message: expect.stringContaining('boom'),
 		})
+	})
+})
+
+describe('the helper build, signed with a local identity', () => {
+	const sourcePath = join(
+		dirname(new URL(import.meta.url).pathname),
+		'..',
+		'..',
+		'helper-macos',
+		'main.swift',
+	)
+
+	it('makes one identity in its own keychain, signs with it, and reuses both', async () => {
+		const home = mkdtempSync(join(tmpdir(), 'mac-home-'))
+		const { calls, run } = toolbox()
+		const notices: string[] = []
+		const env = { NAMZU_HOME: home }
+		const first = await ensureMacHelper({
+			env,
+			run,
+			hasTool: async () => true,
+			onNotice: (n) => notices.push(n),
+		})
+		expect(notices).toHaveLength(1)
+		expect(first.bundle).toBe(join(home, 'computer-use', 'macos', 'Namzu Helper.app'))
+		const sign = calls.find((c) => c[0] === 'codesign') ?? []
+		expect(sign).toEqual(
+			expect.arrayContaining([
+				'--keychain',
+				join(first.signing, 'namzu-signing.keychain-db'),
+				'--sign',
+				'2DE953B1FAC53DB03456E6D4BC358CF84713CDA4',
+				'--identifier',
+				MAC_HELPER_BUNDLE_ID,
+			]),
+		)
+		expect(sign).not.toContain('-')
+		// Never the login keychain, and the search list is put back as it was.
+		expect(calls.flat().some((a) => a.includes('login.keychain'))).toBe(true)
+		const create = calls.find((c) => c[1] === 'create-keychain') ?? []
+		expect(create.at(-1)).toContain('signing-make-')
+		expect(
+			calls.some(
+				(c) => c[0] === 'security' && c[1] === 'import' && c.includes('/usr/bin/codesign'),
+			),
+		).toBe(true)
+		expect(calls.some((c) => c[1] === 'set-key-partition-list')).toBe(true)
+		// The loose private key is gone; the password sits next to the keychain, owner only.
+		expect(existsSync(join(first.signing, 'key.pem'))).toBe(false)
+		expect(existsSync(join(first.signing, 'namzu-signing.keychain-db'))).toBe(true)
+		expect(statSync(join(first.signing, 'kc.pw')).mode & 0o777).toBe(0o600)
+		expect(JSON.parse(readFileSync(first.state, 'utf8'))).toMatchObject({ signing: 'identity' })
+		const count = calls.length
+		await ensureMacHelper({ env, run, hasTool: async () => true })
+		expect(calls).toHaveLength(count)
+		// A new build, from other source, reuses the identity and replaces the app in place at the same path.
+		const other = join(home, 'other.swift')
+		writeFileSync(other, `${readFileSync(sourcePath, 'utf8')}\n// changed\n`)
+		const second = await ensureMacHelper({ env, run, hasTool: async () => true, sourcePath: other })
+		expect(second.bundle).toBe(first.bundle)
+		expect(second.hash).not.toBe(first.hash)
+		expect(calls.filter((c) => c[0] === 'openssl' && c[1] === 'req')).toHaveLength(1)
+		expect(calls.filter((c) => c[0] === 'codesign')).toHaveLength(2)
+		expect(readFileSync(join(second.bundle, 'Contents', 'Info.plist'), 'utf8')).toContain(
+			second.hash,
+		)
+		const aside = readdirSync(join(second.root, 'replaced'))
+		expect(aside).toHaveLength(1)
+		expect(existsSync(join(second.root, 'replaced', aside[0] as string, 'Namzu Helper.app'))).toBe(
+			true,
+		)
+	})
+
+	it('falls back to an ad-hoc signature, says so in a plain sentence, and tries the identity again later', async () => {
+		const home = mkdtempSync(join(tmpdir(), 'mac-home-'))
+		const { calls, run } = toolbox({ failIdentity: true })
+		const notices: string[] = []
+		const env = { NAMZU_HOME: home }
+		const paths = await ensureMacHelper({
+			env,
+			run,
+			hasTool: async () => true,
+			onNotice: (n) => notices.push(n),
+		})
+		expect(notices[1]).toMatch(/signed ad hoc.*macOS 27/)
+		expect(calls.filter((c) => c[0] === 'codesign')[0]).toEqual(
+			expect.arrayContaining(['--sign', '-']),
+		)
+		expect(existsSync(join(paths.signing, 'namzu-signing.keychain-db'))).toBe(false)
+		const state = JSON.parse(readFileSync(paths.state, 'utf8')) as {
+			signing: string
+			retryAfter: number
+		}
+		expect(state.signing).toBe('adhoc')
+		// Reused at once; after the retry time it tries again and, still failing, stays and waits longer.
+		const count = calls.length
+		await ensureMacHelper({ env, run, hasTool: async () => true })
+		expect(calls).toHaveLength(count)
+		writeFileSync(paths.state, JSON.stringify({ ...state, retryAfter: 1 }))
+		await ensureMacHelper({ env, run, hasTool: async () => true })
+		expect(calls.filter((c) => c[0] === 'openssl' && c[1] === 'req')).toHaveLength(2)
+		expect(calls.filter((c) => c[0] === 'swiftc')).toHaveLength(1)
+		expect(
+			(JSON.parse(readFileSync(paths.state, 'utf8')) as { retryAfter: number }).retryAfter,
+		).toBeGreaterThan(Date.now())
+	})
+
+	it('names the macOS 27 pane and the old row in the permission sentences, and guards every request', () => {
+		const source = readFileSync(sourcePath, 'utf8')
+		expect(source).toContain('Device Control and Data Access')
+		expect(source).toContain('majorVersion >= 27')
+		expect(source).toContain('remove it first')
+		expect(source).toContain('Screen & System Audio Recording')
+		// A request that cannot finish is answered, and the helper's own windows are read on the main thread.
+		expect(source).toContain('op_timeout')
+		expect(source).toContain('ownWindows')
+		expect(source).toContain('onMain { try snapshotReply(')
 	})
 })
 
@@ -759,5 +944,197 @@ describe('the factory and the adapter', () => {
 		expect(adapter.capabilities.uiTree).toBeUndefined()
 		expect(adapter.fallbackReason).toContain('swiftc is missing')
 		await expect(adapter.uiSnapshot?.()).rejects.toThrow('swiftc is missing')
+	})
+})
+
+describe('picking a file in an open or save panel through the tree', () => {
+	const WIN = (name: string) => node(0, -1, 'AXWindow', name)
+	const panelNodes = (extra: ReturnType<typeof node>[]) => [
+		WIN('Open'),
+		node(1, 0, 'AXButton', 'Cancel', { actions: ['invoke'] }),
+		node(2, 0, 'AXButton', 'Open', { actions: ['invoke'] }),
+		node(3, 0, 'AXTextField', 'Search', { actions: ['value'] }),
+		...extra,
+	]
+	const tree = (nodes: ReturnType<typeof node>[]) => simpleTree({ nodes, total: nodes.length })
+
+	it('types the path into a Go to the folder sheet that is open, presses Go, then Open', async () => {
+		const sheet = [
+			node(4, 0, 'AXSheet', 'Go to the folder:'),
+			node(5, 4, 'AXTextField', 'Go to the folder:', { actions: ['value'] }),
+			node(6, 4, 'AXButton', 'Go', { actions: ['invoke'] }),
+		]
+		let step = 0
+		const { surface, helper } = setup({
+			snapshot: () => tree(step === 0 ? panelNodes(sheet) : panelNodes([])),
+			act: (request) => {
+				if (
+					request.action === 'invoke' &&
+					(request.fingerprint as { nameHash: string }).nameHash === '6'
+				)
+					step = 1
+				return { done: true, verified: true }
+			},
+		})
+		const result = await surface.pickFile('/Users/me/notes.txt', { windowId: 501 })
+		expect(result).toMatchObject({ ok: true, via: 'go_sheet', detail: 'pressed Open' })
+		const acts = helper.asked.filter((r) => r.cmd === 'act')
+		expect(acts.map((a) => [a.action, (a.fingerprint as { nameHash: string }).nameHash])).toEqual([
+			['set_value', '5'],
+			['invoke', '6'],
+			['invoke', '2'],
+		])
+		expect(acts[0]).toMatchObject({ value: '/Users/me/notes.txt' })
+		// No key was posted: the panel does not receive posted key events.
+		expect(helper.asked.some((r) => r.cmd === 'key' || r.cmd === 'type')).toBe(false)
+	})
+
+	it('uses a save panel’s name field, which takes a full path, and presses Save', async () => {
+		const nodes = [
+			WIN('Save'),
+			node(1, 0, 'AXButton', 'Cancel', { actions: ['invoke'] }),
+			node(2, 0, 'AXButton', 'Save', { actions: ['invoke'] }),
+			node(3, 0, 'AXTextField', 'Save As:', { actions: ['value'] }),
+		]
+		const { surface, helper } = setup({ snapshot: () => tree(nodes), act: () => ({ done: true }) })
+		const result = await surface.pickFile('/tmp/out.txt')
+		expect(result).toMatchObject({ ok: true, via: 'path_field', detail: 'pressed Save' })
+		expect(helper.asked.filter((r) => r.cmd === 'act').map((a) => a.action)).toEqual([
+			'set_value',
+			'invoke',
+		])
+	})
+
+	it('opens Go to Folder through the tree when the panel offers it and no sheet is open', async () => {
+		const goButton = node(4, 0, 'AXButton', 'Go to Folder…', { actions: ['invoke'] })
+		const sheet = [
+			node(5, 0, 'AXSheet', 'Go to the folder:'),
+			node(6, 5, 'AXTextField', '', { actions: ['value'] }),
+			node(7, 5, 'AXButton', 'Go', { actions: ['invoke'] }),
+		]
+		let opened = false
+		const { surface, helper } = setup({
+			snapshot: () => tree(panelNodes([goButton, ...(opened ? sheet : [])])),
+			act: (request) => {
+				if ((request.fingerprint as { nameHash: string }).nameHash === '4') opened = true
+				return { done: true }
+			},
+		})
+		const result = await surface.pickFile('~/Documents/a.txt', { confirm: false })
+		expect(result).toMatchObject({ ok: true, via: 'go_sheet' })
+		expect(
+			helper.asked
+				.filter((r) => r.cmd === 'act')
+				.map((a) => (a.fingerprint as { nameHash: string }).nameHash),
+		).toEqual(['4', '6', '7'])
+	})
+
+	it('says what is missing instead of guessing', async () => {
+		const { surface } = setup({ snapshot: () => simpleTree() })
+		expect(await surface.pickFile('/x')).toMatchObject({
+			ok: false,
+			detail: expect.stringContaining('no open or save panel'),
+		})
+		const { surface: bare } = setup({ snapshot: () => tree(panelNodes([])) })
+		expect(await bare.pickFile('/x')).toMatchObject({
+			ok: false,
+			via: 'browse',
+			detail: expect.stringContaining('sidebar'),
+		})
+		expect(await bare.pickFile('docs/a.txt')).toMatchObject({
+			ok: false,
+			detail: expect.stringContaining('absolute'),
+		})
+		expect(await bare.pickFile('  ')).toMatchObject({ ok: false })
+	})
+
+	it('walks the browser by name when the panel has no field for a path (the usual open panel)', async () => {
+		let state = -1
+		const nodes = () => {
+			const base = [
+				WIN('Open'),
+				node(1, 0, 'AXButton', 'Cancel', { actions: ['invoke'] }),
+				node(2, 0, 'AXButton', 'Open', { actions: ['invoke'] }),
+				node(3, 0, 'AXTextField', '', { actions: ['value'] }),
+				node(4, 3, 'AXButton', 'search', { actions: ['invoke'] }),
+				node(5, 0, 'AXOutline', 'sidebar'),
+				node(6, 5, 'AXRow', '', { actions: ['selectionItem'] }),
+				node(7, 6, 'AXStaticText', 'me'),
+				node(8, 0, 'AXBrowser', 'column view'),
+				node(9, 8, 'AXList', ''),
+				node(10, 9, 'AXGroup', '', { actions: ['invoke'] }),
+				node(11, 10, 'AXTextField', '', { value: 'docs', actions: ['value'] }),
+			]
+			if (state >= 1)
+				base.push(
+					node(12, 8, 'AXList', ''),
+					node(13, 12, 'AXGroup', '', { actions: ['invoke'] }),
+					node(14, 13, 'AXTextField', '', { value: 'a.txt', actions: ['value'] }),
+				)
+			return base
+		}
+		const { surface, helper } = setup({
+			snapshot: () => tree(nodes()),
+			act: (request) => {
+				const id = (request.fingerprint as { nameHash: string }).nameHash
+				if (id === '6') state = 0
+				if (id === '10') state = 1
+				return { done: true }
+			},
+		})
+		const result = await surface.pickFile('/Users/me/docs/a.txt', {
+			windowId: 501,
+			home: '/Users/me',
+		})
+		expect(result).toMatchObject({ ok: true, via: 'browse', detail: 'pressed Open' })
+		const acts = helper.asked.filter((r) => r.cmd === 'act')
+		expect(acts.map((a) => [a.action, (a.fingerprint as { nameHash: string }).nameHash])).toEqual([
+			['select', '6'],
+			['select', '10'],
+			['select', '13'],
+			['invoke', '2'],
+		])
+		// The panel's search field was never typed into.
+		expect(acts.some((a) => a.action === 'set_value')).toBe(false)
+		expect(helper.asked.some((r) => r.cmd === 'key' || r.cmd === 'type')).toBe(false)
+		state = -1
+		expect(await surface.pickFile('/Users/me/missing/a.txt', { home: '/Users/me' })).toMatchObject({
+			ok: false,
+			detail: expect.stringContaining('"missing" is not in the folder'),
+		})
+	})
+
+	it('counts the file as picked when the panel closes under the last press', async () => {
+		let closed = false
+		const panel = [
+			WIN('Open'),
+			node(1, 0, 'AXButton', 'Cancel', { actions: ['invoke'] }),
+			node(2, 0, 'AXButton', 'Open', { actions: ['invoke'] }),
+			node(5, 0, 'AXOutline', 'sidebar'),
+			node(6, 5, 'AXRow', '', { actions: ['selectionItem'] }),
+			node(7, 6, 'AXStaticText', 'me'),
+			node(9, 0, 'AXList', ''),
+			node(10, 9, 'AXGroup', '', { actions: ['invoke'] }),
+			node(11, 10, 'AXTextField', '', { value: 'a.txt', actions: ['value'] }),
+		]
+		const { surface } = setup({
+			snapshot: () => (closed ? simpleTree() : tree(panel)),
+			act: (request) => {
+				if ((request.fingerprint as { nameHash: string }).nameHash === '10') {
+					closed = true
+					throw Object.assign(new Error('the control does not have that property'), {
+						code: 'error',
+					})
+				}
+				return { done: true }
+			},
+		})
+		expect(
+			await surface.pickFile('/Users/me/a.txt', { windowId: 501, home: '/Users/me' }),
+		).toMatchObject({
+			ok: true,
+			via: 'browse',
+			detail: 'the panel opened the file',
+		})
 	})
 })

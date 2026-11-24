@@ -106,8 +106,13 @@ interface Pending {
 /** The helper's window id (an HWND) → the host's string, the same `0x…` form the adapter uses. */
 const windowIdOf = (hwnd: number): string => `0x${hwnd.toString(16)}`
 
-function hwndOf(windowId: string): number {
-	const text = windowId.trim().toLowerCase()
+function hwndOf(windowId: string | number): number {
+	if (typeof windowId === 'number') {
+		if (!Number.isSafeInteger(windowId) || windowId <= 0)
+			throw new A11yError('bad_window_id', 'not a window id this backend handed out')
+		return windowId
+	}
+	const text = String(windowId).trim().toLowerCase()
 	const value = /^0x[0-9a-f]+$/.test(text)
 		? Number.parseInt(text.slice(2), 16)
 		: /^\d+$/.test(text)
@@ -243,7 +248,7 @@ export class WindowsA11yHost implements AccessibilityBackend {
 		}
 	}
 
-	async seq(windowId?: string, signal?: AbortSignal): Promise<A11ySeq> {
+	async seq(windowId?: string | number, signal?: AbortSignal): Promise<A11ySeq> {
 		const reply = await this.request(
 			'seq',
 			windowId === undefined ? {} : { hwnd: hwndOf(windowId) },
