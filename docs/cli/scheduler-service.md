@@ -302,6 +302,13 @@ A service installed before this change keeps its home wherever it was created.
 3. `daemon.env` and every other file that may hold a secret move with the folder and are
    never opened or printed.
 4. `--dry-run` prints the plan and changes nothing.
+5. The move is undone if it cannot finish its first half: when the index or the
+   manifest cannot be written, the folders are renamed back and the old unit keeps
+   serving them (exit 1). If only the unit reinstall fails afterwards, the home and
+   the index already agree on the new place and the line says to run
+   `install <name>`. A run is re-checked right before the rename; a manual
+   `schedule run now` started in that last instant is not covered, so do not start
+   runs while a move is in progress.
 
 What inside the home stores the home's path, and what the move does with it:
 

@@ -726,9 +726,19 @@ export async function moveCommand(
 		return refuse(
 			`${entry.name} was registered by an older namzu under a distro-suffixed name; uninstall it and install it again by name: namzu schedule service uninstall ${displayName(entry)}, then namzu schedule service install ${displayName(entry)}`,
 		)
-	const name = entry.name
+	let name: string
+	try {
+		name = checkServiceName(entry.name)
+	} catch (error) {
+		return refuse(
+			`the service index holds a name that is not a service name (${error instanceof Error ? error.message : String(error)}); nothing was changed`,
+		)
+	}
 	const from = resolve(entry.home)
 	const to = serviceHomePath(name)
+	const inside = resolve(servicesRoot())
+	if (dirname(resolve(to)) !== inside)
+		return refuse(`${name} would land outside ${inside}; nothing was changed`)
 	if (from === to) {
 		ctx.formatter.print({
 			text: `${name} is already in the Namzu folder (${to}); nothing to move.`,
@@ -815,36 +825,64 @@ export async function moveCommand(
 			`${still} run(s) of ${name} are in progress, and their files would move under them; wait for them to finish (namzu schedule service status ${name}) or pass --wait 10m. Nothing was changed.`,
 		)
 	}
+	const indexBefore = {
+		name,
+		home: from,
+		platform: manifest.platform,
+		installedAt: manifest.installedAt,
+	}
+	// Re-check right before the rename: a run started since the first look
+	// (by hand, or from another process) would have its files move under it.
+	if (runsInFlight(paths) > 0) {
+		await restart()
+		return refuse(
+			`a run of ${name} started while the move was being prepared; wait for it to finish and run the move again. Nothing was changed.`,
+		)
+	}
+	const putBack = (): void => {
+		try {
+			if (hasScratch && existsSync(scratchTo) && !existsSync(scratchFrom))
+				renameSync(scratchTo, scratchFrom)
+		} catch {}
+		try {
+			if (existsSync(to) && !existsSync(from)) renameSync(to, from)
+		} catch {}
+	}
 	try {
 		mkdirSync(servicesRoot(), { recursive: true, mode: 0o700 })
 		renameSync(from, to)
 		if (hasScratch) renameSync(scratchFrom, scratchTo)
 	} catch (error) {
-		// The home itself is renamed first: if only the scratch rename failed, put the home back.
-		if (existsSync(to) && !existsSync(from)) {
-			try {
-				renameSync(to, from)
-			} catch {}
-		}
+		putBack()
 		await restart()
 		return refuse(
 			`the folder could not be moved: ${error instanceof Error ? error.message : String(error)}. Nothing was changed.`,
 		)
 	}
 	const moved = schedulePaths(to)
-	const notes: string[] = []
 	const problems: string[] = []
+	// The index and the manifest are the point of no return: if either cannot
+	// be written, the folder goes back and the old unit still serves it.
+	const indexProblem = recordService({ ...indexBefore, home: to })
+	let manifestProblem: string | undefined
+	if (!indexProblem) {
+		try {
+			writeManifest(moved, { ...manifest, namzuHome: to })
+		} catch (error) {
+			manifestProblem = error instanceof Error ? error.message : String(error)
+			recordService(indexBefore)
+		}
+	}
+	if (indexProblem || manifestProblem) {
+		putBack()
+		await restart()
+		return refuse(
+			`the move was undone, ${name} is back in ${from}: ${indexProblem ? `the service index was not updated (${indexProblem})` : `the service manifest was not written (${manifestProblem})`}.`,
+		)
+	}
+	const notes: string[] = []
 	const rewrite = rewriteJobPaths(moved, from, to)
 	problems.push(...rewrite.problems)
-	// The new place is the truth from here: the index, then the manifest and the unit.
-	const indexProblem = recordService({
-		name,
-		home: to,
-		platform: manifest.platform,
-		installedAt: manifest.installedAt,
-	})
-	if (indexProblem) notes.push(`The service index was not updated: ${indexProblem}.`)
-	writeManifest(moved, { ...manifest, namzuHome: to })
 	// A daemon started by the reinstall exits at once when the stop request is
 	// still there: leave it for a service that was stopped, clear it otherwise.
 	requestStop(moved, !wasRunning)

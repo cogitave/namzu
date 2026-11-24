@@ -6,6 +6,7 @@
  */
 
 import {
+	chmodSync,
 	existsSync,
 	mkdirSync,
 	readFileSync,
@@ -14,7 +15,7 @@ import {
 	statSync,
 	writeFileSync,
 } from 'node:fs'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const supervisor = vi.hoisted(() => ({ calls: [] as string[] }))
@@ -30,7 +31,7 @@ import { buildJob, confirmJob } from '../build.js'
 import { checkJobFolder, checkScratchFolder, plannedScratchFolder } from '../folder.js'
 import { schedulePaths } from '../paths.js'
 import { readManifest } from '../service/manifest.js'
-import { readServiceIndex, serviceHomePath } from '../service/registry.js'
+import { readServiceIndex, serviceHomePath, serviceIndexPath } from '../service/registry.js'
 import { confirmationHolds, createJob, findJob } from '../store/jobs.js'
 import { readState, writeState } from '../store/state.js'
 import { type Sandbox, confirmedJob, jobRequest, recordingContext, sandbox } from './fixtures.js'
@@ -258,6 +259,37 @@ describe('service move', () => {
 		const same = run(['service', 'move', 'fresh'])
 		expect(await same.code).toBe(0)
 		expect(said(same.out)).toContain('already in the Namzu folder')
+	})
+
+	it('puts the folder back when the service index cannot be written', async () => {
+		await legacy()
+		const to = serviceHomePath('autodev', sb.osHome)
+		const dir = dirname(serviceIndexPath(sb.osHome))
+		chmodSync(dir, 0o555)
+		try {
+			const r = run(['service', 'move', 'autodev'])
+			const code = await r.code
+			expect(code).toBe(1)
+			expect(r.out.errors.join('\n')).toContain('the move was undone')
+			expect(existsSync(to)).toBe(false)
+			expect(existsSync(sb.home)).toBe(true)
+			expect(readServiceIndex(sb.osHome)[0]?.home).toBe(sb.home)
+		} finally {
+			chmodSync(dir, 0o755)
+		}
+	})
+
+	it('refuses an index entry whose name would leave the services folder', async () => {
+		await legacy()
+		const file = serviceIndexPath(sb.osHome)
+		const doc = JSON.parse(readFileSync(file, 'utf8'))
+		const list = Array.isArray(doc) ? doc : doc.services
+		list[0].name = '../../x'
+		writeFileSync(file, JSON.stringify(doc))
+		const r = run(['service', 'move', '../../x'])
+		expect(await r.code).toBe(1)
+		expect(existsSync(sb.home)).toBe(true)
+		expect(existsSync(join(sb.osHome, 'x'))).toBe(false)
 	})
 
 	it('names an unknown service, and needs a name', async () => {
