@@ -63,6 +63,11 @@ export interface PermissionOverlayProps {
 	 */
 	readonly from?: string
 	/**
+	 * The teammate that is asking, by name. The title then reads "<name> wants to run ..." (or says it
+	 * sent a plan), so the person knows whose call this is. Host-resolved from the call's own id.
+	 */
+	readonly teammate?: string
+	/**
 	 * The person is typing why they refuse: the text so far. Absent, the
 	 * answers are shown.
 	 */
@@ -274,6 +279,36 @@ export function permissionTitle(toolCalls: readonly PermissionToolCall[], cwd?: 
 	return `${toolCalls.length} tool calls`
 }
 
+/** The name of the tool a teammate calls to send its plan for approval. */
+const PLAN_TOOL = 'exit_plan_mode'
+
+/** What the box is called when a teammate is the one asking: its name first. */
+export function teammateTitle(
+	name: string,
+	toolCalls: readonly PermissionToolCall[],
+	cwd?: string,
+): string {
+	const first = toolCalls[0]
+	if (toolCalls.length === 1 && first) {
+		if (first.name === PLAN_TOOL) return `${name} sent a plan for approval`
+		const asked = pathOf(first.input)
+		const path = asked !== undefined && cwd !== undefined ? displayPath(asked, cwd) : asked
+		switch (first.name) {
+			case 'bash':
+				return `${name} wants to run a command`
+			case 'edit':
+				return `${name} wants to edit ${path ?? 'a file'}`
+			case 'write':
+				return `${name} wants to write ${path ?? 'a file'}`
+			case 'Agent':
+				return `${name} wants to start an agent`
+			default:
+				return `${name} wants to run ${browserTitle(first)?.toLowerCase() ?? connectorToolLabel(first.name)}`
+		}
+	}
+	return `${name} wants to run ${toolCalls.length} tool calls`
+}
+
 /** Whether a `workflow` call continues an earlier run instead of starting a new one. */
 function resumesWorkflow(call: PermissionToolCall | undefined): boolean {
 	const input = call?.input
@@ -313,6 +348,8 @@ export function permissionQuestion(toolCalls: readonly PermissionToolCall[]): st
 		const browser = browserQuestion(first)
 		if (browser) return browser
 		switch (first.name) {
+			case PLAN_TOOL:
+				return 'Do you want to approve this plan?'
 			case 'bash':
 				return 'Do you want to proceed?'
 			case 'edit':
@@ -440,8 +477,15 @@ export function permissionAnswers(
 				? 'Start this agent'
 				: `Start these ${toolCalls.length} agents`
 			: 'Yes'
-	const reject = agents ? 'Do not start' : 'No, and tell Namzu what to do differently (esc)'
-	const extra = options.batchOnly || options.withheld ? undefined : extraAnswer(toolCalls, options)
+	const plan = toolCalls.length === 1 && toolCalls[0]?.name === PLAN_TOOL
+	const reject = agents
+		? 'Do not start'
+		: plan
+			? 'No, and send it back with what to change (esc)'
+			: 'No, and tell Namzu what to do differently (esc)'
+	// A plan is approved one at a time: nothing about it is remembered.
+	const extra =
+		options.batchOnly || options.withheld || plan ? undefined : extraAnswer(toolCalls, options)
 	return [
 		{ label: approve, kind: 'approve' },
 		...(extra ? [extra] : []),
@@ -547,6 +591,7 @@ export function PermissionOverlay({
 	choice = 0,
 	count,
 	from,
+	teammate,
 	reason,
 	columns,
 	rows: terminalRows,
@@ -607,7 +652,11 @@ export function PermissionOverlay({
 			: 'Exact prepared input'
 		: sharing
 			? 'Share your screen'
-			: terminalDisplayText(permissionTitle(toolCalls, cwd))
+			: terminalDisplayText(
+					teammate !== undefined
+						? teammateTitle(teammate, toolCalls, cwd)
+						: permissionTitle(toolCalls, cwd),
+				)
 	const destructiveText = destructive
 		? toolCalls.every((call) => call.name === 'write')
 			? summary.text.includes('New file')

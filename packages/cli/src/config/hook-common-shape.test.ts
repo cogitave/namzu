@@ -140,13 +140,13 @@ describe('a hooks block in the common shape', () => {
 describe('nothing is dropped in silence', () => {
 	it('says an event with no counterpart, loads the rest, and counts it a problem', () => {
 		const config = load({
-			TeammateIdle: [{ hooks: [{ command: 'x.sh' }] }],
+			ConfigChange: [{ hooks: [{ command: 'x.sh' }] }],
 			Stop: [{ hooks: [{ command: 'ok.sh' }] }],
 		})
 		expect(config.hooks?.turn_end).toHaveLength(1)
 		const problems = hookConfigProblems()
 		expect(problems).toHaveLength(1)
-		expect(problems[0]).toMatchObject({ event: 'TeammateIdle', severity: 'problem' })
+		expect(problems[0]).toMatchObject({ event: 'ConfigChange', severity: 'problem' })
 		expect(problems[0]?.file).toContain('namzu.config.json')
 		expect(problems[0]?.message).toContain('none of its hooks will run')
 		expect(takeConfigWarnings().join('\n')).toContain('Hook problem in')

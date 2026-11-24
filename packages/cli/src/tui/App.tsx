@@ -19139,11 +19139,14 @@ function AppBody({
 	const permissionOwner = permissionSource
 		? subagents.find((agent) => agent.sessionId === permissionSource)
 		: undefined
-	const permissionSourceLabel = permissionSource
-		? permissionOwner
-			? `from the ${permissionOwner.description} agent`
-			: 'from another agent'
-		: undefined
+	// A teammate's ask is named by the member, in the title; nothing else is said about where it came from.
+	const permissionTeammate = permission ? session?.teammateAsking?.(permission) : undefined
+	const permissionSourceLabel =
+		permissionSource && permissionTeammate === undefined
+			? permissionOwner
+				? `from the ${permissionOwner.description} agent`
+				: 'from another agent'
+			: undefined
 	const displayedPermissionMode = permissionMode
 	const highestEffort = highestReasoningEffort(session?.reasoningEffortLevels)
 	const composerTriggers: ComposerTriggerSettings | undefined = composerTriggersOn
@@ -19546,6 +19549,7 @@ function AppBody({
 									choice={permissionChoice}
 									{...(permissionCount ? { count: permissionCount } : {})}
 									{...(permissionSourceLabel ? { from: permissionSourceLabel } : {})}
+									{...(permissionTeammate ? { teammate: permissionTeammate.name } : {})}
 									{...(permissionReason !== null ? { reason: permissionReason } : {})}
 									endsTurn={endsTurnOnNo(permission)}
 									cwd={ctx.cwd}

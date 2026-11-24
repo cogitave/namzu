@@ -808,6 +808,16 @@ function summarizeKnownCall(
 		}
 	}
 
+	// A teammate's plan, as the plan itself and nothing else: one row per line of what it wrote.
+	if (name === 'exit_plan_mode' && isRecord(input)) {
+		const keys = Object.keys(input)
+		if (keys.length === 1 && typeof input.plan === 'string') {
+			const lines = input.plan.split('\n')
+			if (lines.at(-1) === '') lines.pop()
+			return { lines, complete: true }
+		}
+	}
+
 	if (name === 'edit' && isRecord(input)) {
 		const summary = summarizeEdit(input, context)
 		if (summary) return summary

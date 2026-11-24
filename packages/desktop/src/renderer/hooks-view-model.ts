@@ -44,6 +44,9 @@ const WHEN: readonly [event: string, when: string][] = [
 	['user_prompt_expansion', 'When a command you typed expands'],
 	['task_created', 'When a task is created'],
 	['task_completed', 'When a task is completed'],
+	['teammate_idle', 'When a teammate is about to go idle'],
+	['teammate_start', 'When a teammate starts'],
+	['teammate_stop', 'When a teammate leaves the team'],
 	['session_end', 'When a conversation ends'],
 ]
 
@@ -75,6 +78,9 @@ const WRITTEN: Record<string, string> = {
 	UserPromptExpansion: 'user_prompt_expansion',
 	TaskCreated: 'task_created',
 	TaskCompleted: 'task_completed',
+	TeammateIdle: 'teammate_idle',
+	TeammateStart: 'teammate_start',
+	TeammateStop: 'teammate_stop',
 }
 
 /** The kernel's name for an event written either way. */

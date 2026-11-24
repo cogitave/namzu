@@ -1,7 +1,7 @@
 ---
 type: Guide
 title: Teammates
-description: How teammates are turned on (the teams.enabled setting, NAMZU_TEAMS and --teams), how a named Agent call starts one and how it runs, the shared task list and mail, the limits that apply, and where they do not run.
+description: How teammates are turned on (the teams.enabled setting, NAMZU_TEAMS and --teams), how a named Agent call starts one and how it runs, the shared task list and mail, how a teammate's permission asks and plans reach you, its hook events, the limits that apply, and where they do not run.
 resource: packages/cli/src/integrations/teams/
 tags: [cli, teams, teammates, settings, experimental]
 status: draft
@@ -10,7 +10,7 @@ generated: { by: "claude-sonnet-5", at: "2026-11-24" }
 
 # Teammates
 
-A teammate is a named helper that keeps its own conversation beside the main one, can message the other teammates, and shares a task list with them. In a conversation where teammates are on, the `Agent` tool given a `name` starts a teammate; without a name, or with teammates off, it starts a plain sub-agent exactly as before. This page covers the switch, how a teammate runs, and the limits. The shutdown protocol, permission and plan routing, the team panel and the `namzu team` command are later steps.
+A teammate is a named helper that keeps its own conversation beside the main one, can message the other teammates, and shares a task list with them. In a conversation where teammates are on, the `Agent` tool given a `name` starts a teammate; without a name, or with teammates off, it starts a plain sub-agent exactly as before. This page covers the switch, how a teammate runs, how its permission asks and plans reach you, the hook events, and the limits. The team panel and the `namzu team` command are later steps.
 
 ## Turning them on
 
@@ -28,7 +28,7 @@ These settings are your own config file's and the managed file's. A repository's
 
 The first named `Agent` call creates the team of the conversation, `team-` and the last eight characters of the lead session's id (the start of that id is the same for every session of the same weeks, so the end is the part that tells sessions apart). The call reserves the name in the team's file, starts the teammate and returns at once; if starting fails the name is given back. A name must pass the same rule as a team member's name in the SDK (`lead`, `main`, `team-lead`, `user`, `system` and id-shaped names are refused). `workspace: "worktree"` and the `fork` type are refused for a teammate for now: a teammate has to be woken for more work, and it shares the lead's checkout, so give teammates files that do not overlap.
 
-A teammate runs inside the lead's process, as a child session with its own history and its own stop. It receives the brief you gave plus a short note: plain text is seen by nobody, so it must call `send_message`, and the task tools are its way to the shared list. It runs under its own turn of the conversation, so it outlives the turn that started it; its permission asks go to the review channel the person last used (a routing of asks that names the teammate is a later step). Its model is the one the call named, else the session's.
+A teammate runs inside the lead's process, as a child session with its own history and its own stop. It receives the brief you gave plus a short note: plain text is seen by nobody, so it must call `send_message`, and the task tools are its way to the shared list. It runs under its own turn of the conversation, so it outlives the turn that started it; its permission asks go to you in the lead's conversation, with its name on them (see [Permission asks and plans](#permission-asks-and-plans)). Its model is the one the call named, else the session's.
 
 When a teammate's turn ends it does not end. It goes **idle**: the lead hears it like any background agent finishing, and the team keeps one idle line in the lead's mailbox. An idle teammate wakes when
 
@@ -47,6 +47,24 @@ The lead sends to a teammate by name with `send_message`; a teammate sends to th
 Two teammates cannot answer each other without end. After 12 messages between teammates in a row, with no task change, claim or message to or from the lead in between, the next one is refused, the sender is told why, and the lead gets one notice so it can step in. Any of those events starts the count again.
 
 The lead asks a teammate to shut down by calling `send_message` with `shutdown: true` (the message is the reason). The teammate finishes the call it is on, then answers with `shutdown_response`: approve, and it stops when its turn ends, or refuse with a reason, and it carries on while the lead is told why. If it has not answered within `teams.shutdownGraceSeconds` it is stopped. Either way the member leaves the team and its name can be used again; its tasks stay. Only the lead asks. A teammate that had already ended after the idle limit just leaves.
+
+## Permission asks and plans
+
+A teammate never asks in a screen of its own. When one of its calls needs a yes, the question is put to you in the lead's conversation exactly as one of the lead's own calls would be, with the teammate's name first in the title: `writer wants to run a command`, `writer wants to edit src/a.ts`. The question is tied to that one call (by the call's id and the session that raised it): your answer goes back to that teammate and no other, and two teammates that ask at the same moment are two separate questions. Nothing a teammate writes, or mails to the lead or another teammate, can answer a question or change it; only your answer does, and mail is written to the receiver as data from another session, never as you. If you do not answer, the teammate waits.
+
+Which calls are asked about, and what the lead's modes do, is the same as for a sub-agent today: a teammate runs under the lead's permission mode as it is at each call and under the lead's rules, so in `bypass` it is not asked, in `plan` it is refused what plan refuses, and "yes for the rest of the session" answers and the accept-edits answer mean what they mean for the lead's own calls. Under the Agent Client Protocol (the Desktop engine) the permission request carries `teammate: { name, team }`, which a client shows with the question.
+
+A teammate that wants a plan approved before it changes anything calls `exit_plan_mode` with the plan (the plan is the call's `plan` argument; the lead's own `exit_plan_mode` is a different tool that reads the plan file and asks you to leave plan mode). The plan is mailed to the lead (a `plan_request` in the lead's mailbox), shown to the lead's conversation as a row, and put to you in the same box as a question, titled `writer sent a plan for approval`, with the plan as its text and two answers: yes, or no with what to change. The tool declares that every call needs a person's yes, so it is asked in every mode, with the lead's own "approve all" and auto modes included; it is never approved by a mode, a rule, a remembered answer or another member's words, and the answer is offered once and not remembered. The teammate waits for it. Yes starts it on the plan; no sends your words back to it as the reason, and it revises. Approving a teammate's plan does not change the lead's permission mode. The answer is recorded in the teammate's mailbox (`plan_response`, or `permission_response` for any other ask), together with the ids of the calls it covers.
+
+## Hook events
+
+Three hook events are fired for the lead's team, on the lead's session, and the task events carry the member that caused them. All are described in [Hook events](../sdk/hooks.md#teammates).
+
+- `teammate_idle` runs when a teammate's turn has ended, before the lead hears it is idle. A hook that exits `2` sends its stderr to the teammate as feedback and the teammate keeps working; a hook that refuses every time is overridden after `limits.maxHookRefusals` (8) times in a row and the lead is told.
+- `teammate_start` and `teammate_stop` run when a teammate starts and when it leaves the team.
+- `task_created` and `task_completed` carry `teammate_name` and `team_name` when a teammate made or completed the task.
+
+All of them carry `teammate_name` and `team_name`; the matcher of the three teammate events is read against the name.
 
 ## The task list
 

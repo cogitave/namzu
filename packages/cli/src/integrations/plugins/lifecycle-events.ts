@@ -122,6 +122,58 @@ export async function instructionsLoaded(
 	})
 }
 
+/** `teammate_start`: a teammate joined the team. Observational. */
+export async function teammateStart(
+	manager: HookManager | undefined,
+	sessionId: string,
+	team: string,
+	name: string,
+): Promise<void> {
+	await fire(manager, 'teammate_start', {
+		sessionId: sessionId as never,
+		teammateName: name,
+		teamName: team,
+	})
+}
+
+/** `teammate_stop`: a teammate left the team (shut down, stopped or the team ended). Observational. */
+export async function teammateStop(
+	manager: HookManager | undefined,
+	sessionId: string,
+	team: string,
+	name: string,
+): Promise<void> {
+	await fire(manager, 'teammate_stop', {
+		sessionId: sessionId as never,
+		teammateName: name,
+		teamName: team,
+	})
+}
+
+/**
+ * `teammate_idle`: a teammate finished its turn and is about to go idle. The words a hook refused
+ * with (exit code 2), or `undefined` when nothing objected: with words, the teammate is sent back to
+ * work with them as feedback.
+ */
+export async function teammateIdle(
+	manager: HookManager | undefined,
+	sessionId: string,
+	team: string,
+	name: string,
+	signal?: AbortSignal,
+): Promise<string | undefined> {
+	const results = await fire(manager, 'teammate_idle', {
+		sessionId: sessionId as never,
+		teammateName: name,
+		teamName: team,
+		...(signal ? { signal } : {}),
+	})
+	const reasons: string[] = []
+	for (const result of results)
+		if (result.action === 'skip' && result.reason) reasons.push(result.reason)
+	return reasons.length > 0 ? reasons.join('\n') : undefined
+}
+
 /** What hooks decided about a command that expanded into a prompt. */
 export interface PromptExpansionVerdict {
 	/** Why the command is stopped, when a hook stopped it. */

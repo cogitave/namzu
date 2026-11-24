@@ -1955,6 +1955,15 @@ export interface AgentSession {
 	) => Promise<SubagentMessageReceipt>
 	/** Stop one running child from the agents rail; false when it is not ours or already ended. */
 	readonly stopSubagent?: (viewId: string) => boolean
+	/**
+	 * The teammate behind a review request that is open now, so the screen names the member in the
+	 * question. Absent without delegation; `undefined` for the person's own conversation and for
+	 * any other agent.
+	 */
+	readonly teammateAsking?: (request: {
+		readonly sessionId?: unknown
+		readonly toolCalls?: readonly { readonly id: string }[]
+	}) => { readonly team: string; readonly name: string } | undefined
 	readonly subagents?: SubagentActivitySource
 	/** Workflow runs of this conversation: the `workflow` tool's background runs. */
 	readonly workflows?: SessionWorkflows
@@ -7214,6 +7223,7 @@ export async function createAgentSession(
 					onSubagentCompletion: (listener: (completion: SubagentCompletion) => void) =>
 						subagentRuntime?.onBackgroundCompletion(listener) ?? (() => {}),
 					stopSubagent: (viewId: string) => subagentRuntime?.stopChild(viewId) ?? false,
+					teammateAsking: (request) => subagentRuntime?.teammateAsking(request),
 					messageSubagent: (viewId: string, message: string, opts?: SendOptions) =>
 						operations.promise(opts?.signal, async (signal) => {
 							const runtime = subagentRuntime

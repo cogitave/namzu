@@ -12,6 +12,7 @@ import {
 	wrapUntrusted,
 } from '@namzu/sdk'
 
+import { DEFAULT_MAX_HOOK_REFUSALS } from '../../config/turn-guards.js'
 import type { TeamsDecision, TeamsLimits } from './enabled.js'
 
 /**
@@ -41,6 +42,19 @@ export const SEND_WINDOW_MS = 60_000
 export const CHAIN_LIMIT = 12
 
 export type TeammateRunState = 'busy' | 'idle' | 'inactive' | 'stopped'
+
+/**
+ * The hook events of a team, as the host that owns the session's hooks runs them. Each is asked of the
+ * lead's session; a hook that fails to run never changes what the team does.
+ */
+export interface TeamHookPoints {
+	/** `teammate_start`: a teammate has started. */
+	start(lead: string, team: string, name: string): Promise<void>
+	/** `teammate_stop`: a teammate has left the team. */
+	stop(lead: string, team: string, name: string): Promise<void>
+	/** `teammate_idle`: the words a hook refused with (keep it working), or `undefined`. */
+	idle(lead: string, team: string, name: string): Promise<string | undefined>
+}
 
 export interface TeamsHost {
 	/** Asked at every named `Agent` call: teams are on or off right now. */
@@ -89,6 +103,10 @@ interface Tracked {
 	failedLast: boolean
 	/** A shutdown request the member has not answered, with the timer that stops it when the grace ends. */
 	shutdown: { timer: unknown; reason: string } | undefined
+	/** How many times in a row a `teammate_idle` hook has sent this member back to work. */
+	hookKept: number
+	/** `teammate_stop` has run for this member. */
+	stopFired: boolean
 }
 
 export class TeamError extends Error {
@@ -123,6 +141,7 @@ export function teammateAppendix(name: string, team: string): string {
 		`You are "${name}", a teammate in the team ${team}. The main conversation (the "lead") and the other teammates work beside you, each in their own context.`,
 		'What you write as plain text is not seen by anyone else in the team and not by the person. To tell someone something, call send_message with to set to their name, or to "lead" for the main conversation, and a short summary. The person talks mainly to the lead.',
 		'The team shares one task list. Use task_list to see it and task_get to read a task before you change it. Take a task that is pending, has no owner and is not blocked, preferring the lowest id, by moving it to in_progress with task_update; mark it completed when it is done, then look for the next one. Do not edit another member’s task.',
+		"You never ask the person yourself: when a call needs a yes, the person is asked in the lead's conversation with your name on it, and you wait for the answer. To have a plan approved before you change anything, call exit_plan_mode with the plan; the person reads it and answers, and you wait.",
 		'When your work is done, answer in a few lines and stop; you will be woken when there is mail or a task for you.',
 	].join('\n\n')
 }
@@ -165,6 +184,7 @@ export class TeamRunner {
 	constructor(
 		private readonly host: TeamsHost,
 		private readonly engine: TeammateEngine,
+		private readonly hooks?: TeamHookPoints,
 	) {
 		this.backend = this.inProcessBackend()
 	}
@@ -274,6 +294,7 @@ export class TeamRunner {
 				},
 			)
 			this.watchTasks(team)
+			if (tracked) this.fireHook(() => this.hooks?.start(input.leadSessionId, team, member.name))
 			return { team, member }
 		} catch (error) {
 			if (tracked) this.untrack(tracked)
@@ -334,6 +355,8 @@ export class TeamRunner {
 			stopRequested: false,
 			failedLast: false,
 			shutdown: undefined,
+			hookKept: 0,
+			stopFired: false,
 		}
 		let byName = this.members.get(team)
 		if (!byName) {
@@ -342,6 +365,22 @@ export class TeamRunner {
 		}
 		byName.set(normalizeTeamName(member.name), tracked)
 		return tracked
+	}
+
+	/** Run a hook event without waiting for it and without letting it fail the caller. */
+	private fireHook(run: () => Promise<void> | undefined): void {
+		try {
+			void run()?.catch(() => {})
+		} catch {
+			// A hook that cannot run changes nothing about the team.
+		}
+	}
+
+	/** `teammate_stop`, once per member. */
+	private noteLeft(tracked: Tracked): void {
+		if (tracked.stopFired) return
+		tracked.stopFired = true
+		this.fireHook(() => this.hooks?.stop(tracked.lead, tracked.team, tracked.name))
 	}
 
 	private untrack(tracked: Tracked): void {
@@ -385,6 +424,82 @@ export class TeamRunner {
 			else this.finish(tracked, 'stopped')
 			return
 		}
+		// A hook on `teammate_idle` may send the member back to work, so the lead hears of an idle member
+		// only once the hook has let it go.
+		if (this.hooks && outcome.state === 'completed') {
+			void this.askIdleHook(tracked, outcome)
+			return
+		}
+		this.settleIdle(tracked, outcome)
+	}
+
+	/** Run `teammate_idle`. Words from a hook (exit code 2) put the member back to work; otherwise it goes idle. */
+	private async askIdleHook(tracked: Tracked, outcome: TurnOutcome): Promise<void> {
+		const hooks = this.hooks
+		if (!hooks) return
+		tracked.state = 'idle'
+		tracked.idleSince = this.now()
+		// Mail that arrives while the hook runs is held, not handed over: the next look picks it up.
+		tracked.waking = true
+		let feedback: string | undefined
+		try {
+			feedback = await hooks.idle(tracked.lead, tracked.team, tracked.name)
+		} catch {
+			feedback = undefined
+		}
+		tracked.waking = false
+		// The hook took a while: the member may have been stopped, or the team ended, meanwhile.
+		if (
+			this.closed ||
+			this.stateOf(tracked.team, tracked.name) === 'stopped' ||
+			tracked.stopRequested
+		)
+			return
+		if (feedback !== undefined && tracked.hookKept < DEFAULT_MAX_HOOK_REFUSALS) {
+			tracked.hookKept += 1
+			const turns = tracked.turns
+			try {
+				await this.engine.deliver(
+					tracked.team,
+					tracked.name,
+					`A teammate_idle hook of this project asked you to keep working before you stop. It is not the person and not a teammate; what it said:\n\n${wrapUntrusted(
+						{
+							kind: 'hook-feedback',
+							attributes: { event: 'teammate_idle' },
+							provenance: 'Text written by a hook script of this project.',
+						},
+						feedback,
+					)}`,
+				)
+				this.busyAfterDelivery(tracked, turns)
+				return
+			} catch {
+				// Could not be handed over: the member goes idle, and the lead hears of it as usual.
+			}
+		} else if (feedback !== undefined) {
+			const text = `A teammate_idle hook sent ${tracked.name} back to work ${DEFAULT_MAX_HOOK_REFUSALS} times in a row, so ${tracked.name} is going idle now. The hook said: ${feedback}`
+			this.markRead(
+				tracked.team,
+				TEAM_LEAD_NAME,
+				this.record(tracked.team, TEAM_LEAD_NAME, {
+					from: tracked.name,
+					text,
+					summary: 'a teammate_idle hook was overridden',
+				}),
+			)
+			this.engine.tellLead?.(
+				tracked.team,
+				tracked.name,
+				'a teammate_idle hook was overridden',
+				text,
+			)
+		}
+		if (feedback === undefined) tracked.hookKept = 0
+		this.settleIdle(tracked, outcome)
+	}
+
+	private settleIdle(tracked: Tracked, outcome: TurnOutcome): void {
+		const { team } = tracked
 		tracked.state = 'idle'
 		tracked.idleSince = this.now()
 		tracked.failedLast = outcome.state === 'failed'
@@ -409,6 +524,66 @@ export class TeamRunner {
 			this.markRead(team, TEAM_LEAD_NAME, idle)
 		}
 		void this.wake(tracked)
+	}
+
+	// ─── asks and plans ──────────────────────────────────────────────────
+
+	/**
+	 * A teammate's call is waiting for the lead's person (a permission ask, or a plan sent for
+	 * approval). The ask itself is shown by the lead's own review; this leaves the record in the team's
+	 * files, read from the start because nobody reads it as mail. Nothing here can answer the ask.
+	 */
+	noteAsk(
+		team: string,
+		name: string,
+		ask: {
+			readonly callIds: readonly string[]
+			readonly tools: readonly string[]
+			readonly plan?: string
+		},
+	): void {
+		const isPlan = ask.plan !== undefined
+		this.markRead(
+			team,
+			TEAM_LEAD_NAME,
+			this.record(team, TEAM_LEAD_NAME, {
+				from: name,
+				kind: isPlan ? 'plan_request' : 'permission_request',
+				text: JSON.stringify({
+					callIds: ask.callIds,
+					tools: ask.tools,
+					...(isPlan ? { plan: (ask.plan as string).slice(0, IDLE_RESULT_CHARS * 4) } : {}),
+				}),
+				summary: isPlan ? `${name} sent a plan for approval` : `${name} is asking to run a tool`,
+			}),
+		)
+	}
+
+	/** The person answered a teammate's ask: the answer is recorded under that member, for those calls only. */
+	noteAnswer(
+		team: string,
+		name: string,
+		answer: {
+			readonly callIds: readonly string[]
+			readonly allow: boolean
+			readonly feedback?: string
+			readonly plan?: boolean
+		},
+	): void {
+		this.markRead(
+			team,
+			name,
+			this.record(team, name, {
+				from: TEAM_LEAD_NAME,
+				kind: answer.plan ? 'plan_response' : 'permission_response',
+				text: JSON.stringify({
+					callIds: answer.callIds,
+					allow: answer.allow,
+					...(answer.feedback ? { feedback: answer.feedback.slice(0, IDLE_RESULT_CHARS) } : {}),
+				}),
+				summary: answer.allow ? 'approved' : 'declined',
+			}),
+		)
 	}
 
 	/** Write an entry that was delivered live (or needs no delivery) as already read: the file is the record. */
@@ -594,6 +769,7 @@ export class TeamRunner {
 		this.disarm(tracked.timer)
 		tracked.timer = undefined
 		tracked.state = state
+		if (state === 'stopped') this.noteLeft(tracked)
 		try {
 			this.host.store.setMemberActive(tracked.team, tracked.name, false)
 		} catch {
@@ -887,6 +1063,7 @@ export class TeamRunner {
 	/** The member's place in the team is gone: its name can be used again, its mailbox goes, its tasks stay. */
 	private retire(tracked: Tracked): void {
 		tracked.state = 'stopped'
+		this.noteLeft(tracked)
 		this.untrack(tracked)
 		try {
 			this.host.store.removeMember(tracked.team, tracked.name)
@@ -930,6 +1107,7 @@ export class TeamRunner {
 			if (this.engine.isRunning(team, tracked.name))
 				this.engine.abort(team, tracked.name, 'The lead ended the team.')
 			tracked.state = 'stopped'
+			this.noteLeft(tracked)
 		}
 		this.members.delete(team)
 		try {

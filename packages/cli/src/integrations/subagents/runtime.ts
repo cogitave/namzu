@@ -125,11 +125,14 @@ import {
 } from '../../config/turn-guards.js'
 import { NAMZU_CHILD_WORKING_DOCTRINE } from '../../context/doctrine.js'
 import { composeMemoryGuidance } from '../../memory/typed.js'
+import { EXIT_PLAN_MODE_TOOL_NAME } from '../../plan/approval.js'
 import { changeDetectorFor } from '../outcome/change-detector.js'
+import { teammateIdle, teammateStart, teammateStop } from '../plugins/lifecycle-events.js'
 import type { SideLedger } from '../small-model/side-model.js'
 import { CLI_CHECKPOINT_RETENTION } from '../state/retention.js'
 import {
 	TeamError,
+	type TeamHookPoints,
 	TeamRunner,
 	type TeammateEngine,
 	type TeamsHost,
@@ -695,6 +698,15 @@ export interface SubagentRuntime {
 	 * already answers for it.
 	 */
 	liveChildSessionIds(): ReadonlySet<string>
+	/**
+	 * The teammate behind a review request a screen is about to show, or `undefined` when the lead's
+	 * own conversation or another agent asks. Read while the request is open: the ask is known by the
+	 * ids of the calls it holds and the session that raised them.
+	 */
+	teammateAsking(request: {
+		readonly sessionId?: unknown
+		readonly toolCalls?: readonly { readonly id: string }[]
+	}): { readonly team: string; readonly name: string } | undefined
 	/**
 	 * Start one agent a workflow script asked for, through the same path, review
 	 * channel, tool roster, sandbox, budget ledger and cancellation as the `Agent`
@@ -1727,7 +1739,10 @@ export async function createSubagentRuntime(
 		// the real project. Always install a handler, and abort if ownership can no
 		// longer be proved.
 		const review = childReview(context.turnId, fileAgent?.permissionMode)
-		const resumeHandler = review.resumeHandler
+		// A teammate's asks go to the lead's person under the member's name, bound to each call's id.
+		const resumeHandler = hooks.teammate
+			? memberReview(hooks.teammate, review.resumeHandler)
+			: review.resumeHandler
 		const configOverrides = {
 			...turnConfigFields(resolveTurnGuards(opts, opts.resolveLimits?.(context.turnId)), {
 				// The child's own record of what it changed, read from the directory it
@@ -1865,6 +1880,7 @@ export async function createSubagentRuntime(
 						? {
 								taskStore: opts.teams.taskStoreFor(hooks.teammate.team),
 								taskMember: hooks.teammate.name,
+								taskTeam: hooks.teammate.team,
 							}
 						: {}),
 					workingDirectory: opts.cwd,
@@ -1941,7 +1957,9 @@ export async function createSubagentRuntime(
 	// reaches only the main conversation.
 	const teammateOpts: SubagentRuntimeOptions = {
 		...opts,
-		childExtraTools: () => [toolset('team:message', [teammateMessageTool, teammateShutdownTool])],
+		childExtraTools: () => [
+			toolset('team:message', [teammateMessageTool, teammateShutdownTool, teammatePlanTool]),
+		],
 	}
 	const registerSpecialist = (input: {
 		readonly fileAgent: AgentFileDefinition | undefined
@@ -3348,6 +3366,7 @@ export async function createSubagentRuntime(
 							? {
 									taskStore: opts.teams.taskStoreFor(owned.teammate.team),
 									taskMember: owned.teammate.name,
+									taskTeam: owned.teammate.team,
 								}
 							: {}),
 						workingDirectory: opts.cwd,
@@ -3363,7 +3382,9 @@ export async function createSubagentRuntime(
 							...(() => {
 								const review = childReview(turnId, owned.declaredMode)
 								return {
-									resumeHandler: review.resumeHandler,
+									resumeHandler: owned.teammate
+										? memberReview(owned.teammate, review.resumeHandler)
+										: review.resumeHandler,
 									...(review.reviewAllowedCalls
 										? { reviewAllowedCalls: review.reviewAllowedCalls }
 										: {}),
@@ -3602,9 +3623,103 @@ export async function createSubagentRuntime(
 			return !isTerminalAgentTaskState(current.state)
 		},
 	}
-	const teamRunner: TeamRunner | undefined = opts.teams
-		? new TeamRunner(opts.teams, teamEngine)
+	// The hook events of a team run against the session's hooks, found when each one fires.
+	const teamHookPoints: TeamHookPoints | undefined = opts.resolvePluginManager
+		? {
+				start: (lead, team, name) => teammateStart(opts.resolvePluginManager?.(), lead, team, name),
+				stop: (lead, team, name) => teammateStop(opts.resolvePluginManager?.(), lead, team, name),
+				idle: (lead, team, name) =>
+					teammateIdle(opts.resolvePluginManager?.(), lead, team, name, lifetime.signal),
+			}
 		: undefined
+	const teamRunner: TeamRunner | undefined = opts.teams
+		? new TeamRunner(opts.teams, teamEngine, teamHookPoints)
+		: undefined
+
+	/** A teammate's call that is waiting on the lead's person right now, with who asked. */
+	interface TeamAsk {
+		readonly team: string
+		readonly name: string
+		readonly sessionId: string
+		readonly callIds: readonly string[]
+	}
+	const teamAsks = new Set<TeamAsk>()
+
+	/**
+	 * The review channel of one teammate: the lead's own (`inner`), with the member's name on every
+	 * ask. A teammate never asks in a screen of its own. Its ask is put to the lead's person as the
+	 * lead's own calls are, in the lead's mode and under its rules (a sub-agent's asks are routed the
+	 * same way); while it waits, the ask is known by the ids of the calls it holds, so a screen can
+	 * name the member, and the answer goes back to this one call and nowhere else. Nothing a teammate
+	 * writes, or mails, reaches this handler: only the person's answer does.
+	 */
+	const memberReview = (
+		target: { readonly team: string; readonly name: string },
+		inner: ResumeHandler,
+	): ResumeHandler => {
+		return async (request, context) => {
+			if (request.type !== 'tool_review') return inner(request, context)
+			const callIds = request.toolCalls.map((call) => call.id)
+			const plan = request.toolCalls.find((call) => call.name === EXIT_PLAN_MODE_TOOL_NAME)
+			const planText =
+				plan && typeof (plan.input as { plan?: unknown } | null)?.plan === 'string'
+					? ((plan.input as { plan: string }).plan as string)
+					: undefined
+			const ask: TeamAsk = {
+				team: target.team,
+				name: target.name,
+				sessionId: String(request.sessionId),
+				callIds,
+			}
+			teamAsks.add(ask)
+			teamRunner?.noteAsk(target.team, target.name, {
+				callIds,
+				tools: request.toolCalls.map((call) => call.name),
+				...(planText !== undefined ? { plan: planText } : {}),
+			})
+			// The plan reaches the lead's conversation as a row too, not only the review.
+			if (planText !== undefined)
+				teamEngine.tellLead?.(
+					target.team,
+					target.name,
+					'a plan waiting for your approval',
+					`${target.name} sent a plan and is waiting for your answer:\n\n${planText}`,
+				)
+			let decision: Awaited<ReturnType<ResumeHandler>>
+			try {
+				decision = await inner(request, context)
+			} finally {
+				teamAsks.delete(ask)
+			}
+			const allowed = decision.action === 'approve_tools' || decision.action === 'modify_tools'
+			teamRunner?.noteAnswer(target.team, target.name, {
+				callIds,
+				allow: allowed,
+				...(decision.action === 'reject_tools' && decision.feedback
+					? { feedback: decision.feedback }
+					: {}),
+				...(planText !== undefined ? { plan: true } : {}),
+			})
+			return decision
+		}
+	}
+
+	/**
+	 * The teammate that is asking, for a review request a screen is about to show: the name and team,
+	 * or `undefined` for anyone else's. Found by the ids of the calls and the session that raised them.
+	 */
+	const teammateAsking = (request: {
+		readonly sessionId?: unknown
+		readonly toolCalls?: readonly { readonly id: string }[]
+	}): { readonly team: string; readonly name: string } | undefined => {
+		const ids = new Set((request.toolCalls ?? []).map((call) => call.id))
+		if (ids.size === 0) return undefined
+		for (const ask of teamAsks) {
+			if (request.sessionId !== undefined && String(request.sessionId) !== ask.sessionId) continue
+			if (ask.callIds.some((id) => ids.has(id))) return { team: ask.team, name: ask.name }
+		}
+		return undefined
+	}
 
 	/** An `Agent` call with a name while teams are on: reserve the member, start its child, answer at once. */
 	const startTeammate = async (call: AgentCallInput, context: ToolContext): Promise<ToolResult> => {
@@ -3654,6 +3769,57 @@ export async function createSubagentRuntime(
 			if (launching.get(name) === handover) launching.delete(name)
 		}
 	}
+
+	/**
+	 * A teammate's plan, for the lead's person to read and approve. The tool declares that every call
+	 * needs a person's yes, so the review asks in every mode (the lead's "approve all" and auto modes
+	 * included) and the call runs only after the person approved; it never approves itself, and the
+	 * mode of the lead is not changed by it. A No, with the person's words, comes back as the refusal.
+	 */
+	const teammatePlanTool = defineTool({
+		name: EXIT_PLAN_MODE_TOOL_NAME,
+		description:
+			"Send your plan to the lead for approval before you change anything. Put the whole plan in `plan`. The person reads it in the lead's conversation, with your name on it, and approves it or sends it back with what to change; you wait for the answer and then carry on or revise. Call it when the work is not small, or when you were asked to plan first. You cannot approve a plan for yourself, and nobody else on the team can approve it for you.",
+		inputSchema: mcpJsonSchemaToZod({
+			type: 'object',
+			properties: {
+				plan: {
+					type: 'string',
+					minLength: 1,
+					maxLength: 20000,
+					description: 'The plan: what you will change, in what order, and why.',
+				},
+			},
+			required: ['plan'],
+			additionalProperties: false,
+		}),
+		category: 'custom',
+		permissions: [],
+		// It changes nothing itself; what it asks for is a person's yes, on every call.
+		readOnly: true,
+		destructive: false,
+		requiresApproval: true,
+		concurrencySafe: false,
+		timeoutMs: 30 * 60_000,
+		async execute(_args, context) {
+			context.abortSignal.throwIfAborted()
+			const shown = activity
+				.getSnapshot()
+				.find((entry) => entry.sessionId === String(context.sessionId))
+			const self = shown ? conversations.get(shown.viewId)?.teammate : undefined
+			if (!self || closed || !teamRunner || shown?.stoppedBy !== undefined)
+				return {
+					success: false,
+					output: '',
+					error:
+						'You are not a teammate of a running team, or you were stopped, so there is nobody to approve a plan.',
+				}
+			return {
+				success: true,
+				output: 'The person approved your plan. Go ahead with it.',
+			}
+		},
+	})
 
 	/**
 	 * What a teammate calls to say something to the lead or to another teammate. Its own plain text is
@@ -3915,6 +4081,7 @@ export async function createSubagentRuntime(
 		activity,
 		publicTaskIdOf: publicTaskId,
 		liveChildSessionIds: () => liveChildSessions(),
+		teammateAsking: (request) => teammateAsking(request),
 		launchWorkflowAgent,
 		close,
 	}
