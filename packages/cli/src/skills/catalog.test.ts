@@ -36,6 +36,7 @@ const ALL_BUILTINS = [
 	'debug',
 	'document',
 	'fewer-permission-prompts',
+	'pdf',
 	'pr',
 	'review-changes',
 	'run',
@@ -182,18 +183,18 @@ describe('the session skill catalog', () => {
 		expect((small.manifest ?? []).length).toBeLessThan(described.length)
 	})
 
-	it('offers the shipped built-ins, the run skills included, in full on a 40k window', async () => {
+	it('offers the shipped built-ins, the run skills included, in full on a 48k window', async () => {
 		const real = await createSessionSkillCatalog({
 			cwd,
 			home,
 			systemDir: systemSkillsDir(),
 		})
 		// Every entry pays for the skill's own path, and a checkout sits under a longer one than an
-		// install, so this reads the shipped set on a window a little over 32k;
-		// builtin-skills.test.ts holds the 32k fit with an install-length path.
+		// install, so this reads the shipped set on a window a little over 40k;
+		// builtin-skills.test.ts holds the 40k fit with an install-length path.
 		const withTools = await real.forTurn({
 			toolNames: ['browser', 'schedule'],
-			contextWindowTokens: 40_000,
+			contextWindowTokens: 48_000,
 		})
 		expect(withTools.manifest?.map((s) => s.metadata.name)).toEqual(ALL_BUILTINS)
 		expect(withTools.overflow).toEqual([])
@@ -202,7 +203,7 @@ describe('the session skill catalog', () => {
 		// Without the browser and schedule tools those two are hidden; the rest stay.
 		const bare = await real.forTurn({
 			toolNames: [],
-			contextWindowTokens: 40_000,
+			contextWindowTokens: 48_000,
 		})
 		expect(bare.manifest?.map((s) => s.metadata.name)).toEqual(
 			ALL_BUILTINS.filter((name) => name !== 'browser-automation' && name !== 'schedule-task'),

@@ -64,7 +64,7 @@ function topLevelCommandExists(name: string): boolean {
 }
 
 describe('the built-in skills', () => {
-	it('ships the fifteen built-in skills, and not the retired verify-change', () => {
+	it('ships the sixteen built-in skills, and not the retired verify-change', () => {
 		expect(builtinSkillDirs()).toEqual([
 			'batch',
 			'browser-automation',
@@ -72,6 +72,7 @@ describe('the built-in skills', () => {
 			'debug',
 			'document',
 			'fewer-permission-prompts',
+			'pdf',
 			'pr',
 			'review-changes',
 			'run',
@@ -114,6 +115,29 @@ describe('the built-in skills', () => {
 			expect(body).toMatch(/^## Example report$/m)
 			expect(readdirSync(join(SKILLS, dir))).toEqual(['SKILL.md'])
 		}
+	})
+
+	it('pdf probes first, never installs, and the document skill routes to it', async () => {
+		const pdf = await loadSkill(join(SKILLS, 'pdf'), 'full')
+		expect(pdf.skill.metadata.invocation).toBe('both')
+		expect(pdf.skill.metadata.metadata?.['namzu-requires-tools']).toBeUndefined()
+		expect(pdf.skill.metadata.description.match(/"[^"]+"/g)?.length).toBeGreaterThanOrEqual(2)
+		const body = pdf.skill.body ?? ''
+		expect(body).toMatch(/^## Look before you act$/m)
+		expect(body).toMatch(/^## Check the result$/m)
+		expect(body).toMatch(/^## Never$/m)
+		expect(body).toMatch(/Never install anything/)
+		expect(body).not.toMatch(/^\s*(pip|apt|brew|npm) install/m)
+
+		const doc = await loadSkill(join(SKILLS, 'document'), 'full')
+		expect(doc.skill.metadata.description).toContain(
+			'a research or analysis request is answered in the reply',
+		)
+		expect(doc.skill.metadata.description).toContain('`pdf` skill')
+		const docBody = doc.skill.body ?? ''
+		expect(docBody).toMatch(/^## Which file, and what is possible$/m)
+		expect(docBody).not.toMatch(/cannot be made yet/)
+		expect(docBody).toMatch(/do not give a Markdown or CSV file a `\.docx`/)
 	})
 
 	it('run and review-changes trigger on what the model is about to do, with quoted examples', async () => {
@@ -250,12 +274,12 @@ describe('the built-in skills', () => {
 	})
 
 	it('the descriptions the model is offered fit in full on the smallest window the model table lists for open weights', async () => {
-		// 32,768 tokens is the smallest window the table gives a current family
-		// (the 8k and 16k rows are older chat models). A real install sits under
+		// 40,000 tokens is a window the table gives current families
+		// (the 8k and 16k rows are older chat models; seven offered skills no longer fit in 32,768). A real install sits under
 		// a path of this length, which every entry also pays for. Skills only the
 		// operator starts are not described to the model and cost nothing here.
 		const installedPath = `/usr/local/lib/node_modules/@namzu/cli/skills/${'x'.repeat(20)}`
-		const budget = skillManifestBudget(32_768)
+		const budget = skillManifestBudget(40_000)
 		let spent = 0
 		let offered = 0
 		for (const dir of builtinSkillDirs()) {
@@ -267,7 +291,7 @@ describe('the built-in skills', () => {
 			offered++
 			spent += manifestEntryChars({ ...skill, dirPath: installedPath })
 		}
-		expect(offered).toBe(6)
+		expect(offered).toBe(7)
 		expect(spent).toBeLessThanOrEqual(budget)
 	})
 
