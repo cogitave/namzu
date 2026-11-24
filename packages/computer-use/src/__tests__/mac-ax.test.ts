@@ -19,7 +19,11 @@ vi.mock('../util/spawn.js', () => ({
 		timedOut: false,
 		signal: null,
 	}),
-	runCommandOrThrow: async () => ({ stdout: Buffer.from('{}'), stderr: '', exitCode: 0 }),
+	runCommandOrThrow: async () => ({
+		stdout: Buffer.from('{}'),
+		stderr: '',
+		exitCode: 0,
+	}),
 }))
 
 import {
@@ -50,7 +54,13 @@ class ScriptedHelper implements A11yProcess {
 		const handler = this.handlers[String(request.cmd)]
 		queueMicrotask(() => {
 			if (!handler) {
-				this.line?.(JSON.stringify({ id: request.id, ok: false, code: 'unknown_command' }))
+				this.line?.(
+					JSON.stringify({
+						id: request.id,
+						ok: false,
+						code: 'unknown_command',
+					}),
+				)
 				return
 			}
 			try {
@@ -173,7 +183,9 @@ const simpleTree = (overrides: Record<string, unknown> = {}) => ({
 
 describe('the host speaking to the helper', () => {
 	it('sends no script, lists windows and reads a tree with fingerprints', async () => {
-		const { host, helper } = setup({ snapshot: () => simpleTree({ selectedText: 'ell' }) })
+		const { host, helper } = setup({
+			snapshot: () => simpleTree({ selectedText: 'ell' }),
+		})
 		const windows = await host.listWindows()
 		expect(windows.map((w) => [w.processName, w.title, w.focused])).toEqual([
 			['TextEdit', 'Untitled', true],
@@ -222,7 +234,9 @@ describe('the host speaking to the helper', () => {
 		expect(shot.data.toString()).toBe('png')
 		expect(existsSync(file)).toBe(false)
 		reply = { path: '/etc/passwd', width: 1, height: 1, via: 'x' }
-		await expect(host.captureWindow('501')).rejects.toMatchObject({ code: 'bad_reply' })
+		await expect(host.captureWindow('501')).rejects.toMatchObject({
+			code: 'bad_reply',
+		})
 	})
 })
 
@@ -230,8 +244,16 @@ describe('the adapter views of a tree', () => {
 	it('lists windows as the host contract wants and focuses by id', async () => {
 		const { surface } = setup({ focus: () => ({ ok: true, focusedId: 502 }) })
 		const windows = await surface.listWindows()
-		expect(windows[0]).toMatchObject({ id: '501', app: 'TextEdit', pid: 7, focused: true })
-		expect(await surface.focusWindow('502')).toMatchObject({ ok: true, focusedId: '502' })
+		expect(windows[0]).toMatchObject({
+			id: '501',
+			app: 'TextEdit',
+			pid: 7,
+			focused: true,
+		})
+		expect(await surface.focusWindow('502')).toMatchObject({
+			ok: true,
+			focusedId: '502',
+		})
 	})
 
 	it('gives actionable controls refs that stay the same across snapshots', async () => {
@@ -241,7 +263,11 @@ describe('the adapter views of a tree', () => {
 		const refsOf = (s: typeof a) => (s.root.children ?? []).map((c) => c.ref)
 		expect(refsOf(a)).toEqual(refsOf(b))
 		const [save, area, wrap] = a.root.children ?? []
-		expect(save).toMatchObject({ role: 'AXButton', name: 'Save', actions: ['invoke'] })
+		expect(save).toMatchObject({
+			role: 'AXButton',
+			name: 'Save',
+			actions: ['invoke'],
+		})
 		expect(save?.ref).toMatch(/^ax[0-9a-f]{8}$/)
 		expect(area?.actions).toEqual(['set_value', 'focus'])
 		expect(wrap?.actions).toEqual(['toggle'])
@@ -298,7 +324,9 @@ describe('the adapter views of a tree', () => {
 		const list = snap.root.children?.[0]
 		expect(list?.hiddenChildren).toBeGreaterThan(0)
 		expect(list?.ref).toMatch(/^ax/)
-		const opened = await surface.uiSnapshot(undefined, { root: list?.ref ?? '' })
+		const opened = await surface.uiSnapshot(undefined, {
+			root: list?.ref ?? '',
+		})
 		expect(opened.region).toBe(true)
 		expect(calls[1]?.root).toMatchObject({ runtimeId: '7:1' })
 		expect(opened.root.children?.[0]?.name).toBe('Row action')
@@ -309,7 +337,10 @@ describe('the adapter views of a tree', () => {
 			nodes: [
 				node(0, -1, 'AXWindow', 'W'),
 				node(1, 0, 'AXMenuBar', '', { childCount: 1 }),
-				node(2, 1, 'AXMenuBarItem', 'Format', { actions: ['invoke'], childCount: 1 }),
+				node(2, 1, 'AXMenuBarItem', 'Format', {
+					actions: ['invoke'],
+					childCount: 1,
+				}),
 			],
 		})
 		const { surface } = setup({ snapshot: () => tree })
@@ -354,17 +385,28 @@ describe('acting on controls', () => {
 			readBack: { observed: '1' },
 		})
 		const act = helper.asked.find((r) => r.cmd === 'act')
-		expect(act).toMatchObject({ hwnd: 501, action: 'toggle', fingerprint: { runtimeId: '7:3' } })
+		expect(act).toMatchObject({
+			hwnd: 501,
+			action: 'toggle',
+			fingerprint: { runtimeId: '7:3' },
+		})
 	})
 
 	it('says not delivered when the control refuses', async () => {
 		const { surface } = setup({
 			snapshot: () => simpleTree(),
-			act: () => ({ done: false, detail: 'the control does not offer that action' }),
+			act: () => ({
+				done: false,
+				detail: 'the control does not offer that action',
+			}),
 		})
 		const snap = await surface.uiSnapshot('501')
 		const result = await surface.uiAct(snap.root.children?.[0]?.ref ?? '', 'invoke')
-		expect(result).toMatchObject({ ok: false, delivery: 'not_delivered', retrySafety: 'safe' })
+		expect(result).toMatchObject({
+			ok: false,
+			delivery: 'not_delivered',
+			retrySafety: 'safe',
+		})
 	})
 
 	it('turns the helper’s stale and ambiguous answers into typed failures', async () => {
@@ -377,7 +419,10 @@ describe('acting on controls', () => {
 		})
 		const snap = await surface.uiSnapshot('501')
 		const ref = snap.root.children?.[0]?.ref ?? ''
-		expect(await surface.uiAct(ref, 'invoke')).toMatchObject({ ok: false, code: 'STALE_REF' })
+		expect(await surface.uiAct(ref, 'invoke')).toMatchObject({
+			ok: false,
+			code: 'STALE_REF',
+		})
 		code = 'AMBIGUOUS_TARGET'
 		expect(await surface.uiAct(ref, 'invoke')).toMatchObject({
 			ok: false,
@@ -388,7 +433,10 @@ describe('acting on controls', () => {
 	it('surfaces the permission sentence when accessibility is off', async () => {
 		const { surface } = setup({
 			snapshot: () => {
-				throw { code: 'accessibility_denied', message: 'Accessibility is off for Namzu Helper.' }
+				throw {
+					code: 'accessibility_denied',
+					message: 'Accessibility is off for Namzu Helper.',
+				}
 			},
 		})
 		await expect(surface.uiSnapshot('501')).rejects.toThrow(
@@ -407,7 +455,12 @@ describe('input to a captured window', () => {
 		const file = join(dir, 'w.png')
 		writeFileSync(file, png)
 		const ctx = setup({
-			capture_window: () => ({ path: file, width: 1200, height: 800, via: 'screencapturekit' }),
+			capture_window: () => ({
+				path: file,
+				width: 1200,
+				height: 800,
+				via: 'screencapturekit',
+			}),
 			click: () => ({ done: true }),
 			scroll: () => ({ done: true }),
 			type: () => ({ done: true }),
@@ -439,14 +492,22 @@ describe('input to a captured window', () => {
 			direction: 'down',
 			amount: 3,
 		})
-		await surface.executeWindow(shot.captureId, { type: 'type_text', text: 'héllo' })
+		await surface.executeWindow(shot.captureId, {
+			type: 'type_text',
+			text: 'héllo',
+		})
 		await surface.executeWindow(shot.captureId, { type: 'key', keys: 'cmd+a' })
 		expect(helper.asked.find((r) => r.cmd === 'scroll')).toMatchObject({
 			direction: 'down',
 			amount: 3,
 		})
-		expect(helper.asked.find((r) => r.cmd === 'type')).toMatchObject({ text: 'héllo' })
-		expect(helper.asked.find((r) => r.cmd === 'key')).toMatchObject({ code: 0, flags: ['command'] })
+		expect(helper.asked.find((r) => r.cmd === 'type')).toMatchObject({
+			text: 'héllo',
+		})
+		expect(helper.asked.find((r) => r.cmd === 'key')).toMatchObject({
+			code: 0,
+			flags: ['command'],
+		})
 	})
 
 	it('refuses an old capture and a window that changed size', async () => {
@@ -470,7 +531,10 @@ describe('input to a captured window', () => {
 		const { surface, helper, shot } = await captured()
 		const ctx = setup({})
 		void ctx
-		await surface.executeWindow(shot.captureId, { type: 'type_text', text: 'x' })
+		await surface.executeWindow(shot.captureId, {
+			type: 'type_text',
+			text: 'x',
+		})
 		const seqs = helper.asked.filter((r) => r.cmd === 'seq')
 		expect(seqs.length).toBeGreaterThan(0)
 	})
@@ -523,7 +587,10 @@ describe('the helper build', () => {
 	it('says plainly what to install when there is no compiler', async () => {
 		const home = mkdtempSync(join(tmpdir(), 'mac-home-'))
 		await expect(
-			ensureMacHelper({ env: { NAMZU_HOME: home }, hasTool: async () => false }),
+			ensureMacHelper({
+				env: { NAMZU_HOME: home },
+				hasTool: async () => false,
+			}),
 		).rejects.toMatchObject({
 			code: 'no_compiler',
 			message: expect.stringContaining('xcode-select --install'),
@@ -540,7 +607,13 @@ describe('the helper build', () => {
 				mkdirSync(dirname(out), { recursive: true })
 				writeFileSync(out, 'binary')
 			}
-			return { exitCode: 0, stdout: Buffer.alloc(0), stderr: '', timedOut: false, signal: null }
+			return {
+				exitCode: 0,
+				stdout: Buffer.alloc(0),
+				stderr: '',
+				timedOut: false,
+				signal: null,
+			}
 		}) as never
 		const notices: string[] = []
 		const env = { NAMZU_HOME: home, SOME_API_KEY: 'secret' }
@@ -551,37 +624,82 @@ describe('the helper build', () => {
 			onNotice: (n) => notices.push(n),
 		})
 		expect(existsSync(first.executable)).toBe(true)
-		expect(calls.map((c) => c[0])).toEqual(['swiftc', 'codesign'])
-		expect(calls[1]).toEqual(
+		expect(calls.map((c) => c[0])).toEqual(['xcode-select', 'swiftc', 'codesign'])
+		expect(calls[2]).toEqual(
 			expect.arrayContaining(['--sign', '-', '--identifier', MAC_HELPER_BUNDLE_ID]),
 		)
 		expect(notices).toHaveLength(1)
-		const bundle = calls[0]?.[calls[0].indexOf('-o') + 1] ?? ''
+		const bundle = calls[1]?.[calls[1].indexOf('-o') + 1] ?? ''
 		expect(bundle).toContain('NamzuHelper')
 		expect(existsSync(join(first.bundle, 'Contents', 'Info.plist'))).toBe(true)
 		await ensureMacHelper({ env, run, hasTool: async () => true })
-		expect(calls).toHaveLength(2)
+		expect(calls).toHaveLength(3)
+	})
+
+	it('says the tools are missing when swiftc is only the shim', async () => {
+		const home = mkdtempSync(join(tmpdir(), 'mac-home-'))
+		const shim = (async (cmd: string) => ({
+			exitCode: cmd === 'xcode-select' ? 2 : 0,
+			stdout: Buffer.alloc(0),
+			stderr: 'xcode-select: note: no developer tools were found',
+			timedOut: false,
+			signal: null,
+		})) as never
+		await expect(
+			ensureMacHelper({
+				env: { NAMZU_HOME: home },
+				run: shim,
+				hasTool: async () => true,
+			}),
+		).rejects.toMatchObject({
+			code: 'no_compiler',
+			message: expect.stringContaining('xcode-select --install'),
+		})
+		const compileShim = (async (cmd: string) => ({
+			exitCode: cmd === 'swiftc' ? 1 : 0,
+			stdout: Buffer.alloc(0),
+			stderr: cmd === 'swiftc' ? 'xcode-select: error: no developer tools' : '',
+			timedOut: false,
+			signal: null,
+		})) as never
+		await expect(
+			ensureMacHelper({
+				env: { NAMZU_HOME: home },
+				run: compileShim,
+				hasTool: async () => true,
+			}),
+		).rejects.toMatchObject({ code: 'no_compiler' })
 	})
 
 	it('reports a compile failure with the compiler’s words', async () => {
 		const home = mkdtempSync(join(tmpdir(), 'mac-home-'))
-		const run = (async () => ({
-			exitCode: 1,
+		const run = (async (cmd: string) => ({
+			exitCode: cmd === 'swiftc' ? 1 : 0,
 			stdout: Buffer.alloc(0),
 			stderr: 'main.swift:1: error: boom',
 			timedOut: false,
 			signal: null,
 		})) as never
 		await expect(
-			ensureMacHelper({ env: { NAMZU_HOME: home }, run, hasTool: async () => true }),
-		).rejects.toMatchObject({ code: 'build_failed', message: expect.stringContaining('boom') })
+			ensureMacHelper({
+				env: { NAMZU_HOME: home },
+				run,
+				hasTool: async () => true,
+			}),
+		).rejects.toMatchObject({
+			code: 'build_failed',
+			message: expect.stringContaining('boom'),
+		})
 	})
 })
 
 describe('the factory and the adapter', () => {
 	it('is off by the environment switch and off the Mac', () => {
 		expect(
-			createMacA11yHost({ env: { NAMZU_COMPUTER_USE_A11Y: 'off' }, platform: 'darwin' }),
+			createMacA11yHost({
+				env: { NAMZU_COMPUTER_USE_A11Y: 'off' },
+				platform: 'darwin',
+			}),
 		).toBeUndefined()
 		expect(createMacA11yHost({ env: {}, platform: 'linux' })).toBeUndefined()
 		expect(createMacA11yHost({ env: {}, platform: 'darwin', enabled: false })).toBeUndefined()
@@ -603,7 +721,10 @@ describe('the factory and the adapter', () => {
 		})
 		const handle = createMacA11yHost({ spawnHelper: () => helper })
 		if (!handle) throw new Error('no handle')
-		const adapter = await DarwinAdapter.create({ ax: handle, scale: async () => 2 })
+		const adapter = await DarwinAdapter.create({
+			ax: handle,
+			scale: async () => 2,
+		})
 		expect(adapter.capabilities).toMatchObject({
 			windows: true,
 			windowCapture: true,
@@ -613,7 +734,12 @@ describe('the factory and the adapter', () => {
 		expect(adapter.capabilities.supportedActions).toContain('scroll')
 		expect(adapter.backend).toContain('namzu-helper')
 		expect(adapter.fallbackReason).toContain('Namzu Helper still needs permission')
-		await adapter.execute({ type: 'scroll', at: { x: 400, y: 200 }, direction: 'down', amount: 5 })
+		await adapter.execute({
+			type: 'scroll',
+			at: { x: 400, y: 200 },
+			direction: 'down',
+			amount: 5,
+		})
 		expect(helper.asked.find((r) => r.cmd === 'scroll')).toMatchObject({
 			x: 200,
 			y: 100,
@@ -624,7 +750,10 @@ describe('the factory and the adapter', () => {
 	it('works as before when the helper cannot start, and says why', async () => {
 		const handle = {
 			host: new MacA11yHost({ spawnHelper: () => new ScriptedHelper({}) }),
-			prepare: async () => ({ ok: false as const, reason: 'swiftc is missing' }),
+			prepare: async () => ({
+				ok: false as const,
+				reason: 'swiftc is missing',
+			}),
 		}
 		const adapter = await DarwinAdapter.create({ ax: handle })
 		expect(adapter.capabilities.uiTree).toBeUndefined()

@@ -1,5 +1,6 @@
 import { mkdirSync } from 'node:fs'
 import { readFile, unlink } from 'node:fs/promises'
+import { sep } from 'node:path'
 import { WindowsA11yHost, toNode } from './a11y.js'
 import type { A11yProcess, WindowsA11yOptions } from './a11y.js'
 import {
@@ -193,7 +194,10 @@ export class MacA11yHost extends WindowsA11yHost {
 		return {
 			windowId: String(cgWindowId(request.windowId)),
 			revision: num(reply.rev),
-			nodes: raw.map((n) => ({ ...toNode(n), fingerprint: fingerprintOf(n.fp) })),
+			nodes: raw.map((n) => ({
+				...toNode(n),
+				fingerprint: fingerprintOf(n.fp),
+			})),
 			total: num(reply.total),
 			truncated: reply.truncated === true,
 			readMs: num(reply.readMs),
@@ -344,7 +348,7 @@ export class MacA11yHost extends WindowsA11yHost {
 			signal,
 		)
 		const path = str(reply.path)
-		if (!path.startsWith(this.captureDir))
+		if (!path.startsWith(this.captureDir.endsWith(sep) ? this.captureDir : this.captureDir + sep))
 			throw new A11yError('bad_reply', 'the helper named a capture outside its folder')
 		try {
 			return {
@@ -362,7 +366,11 @@ export class MacA11yHost extends WindowsA11yHost {
 		const reply = await this.request('selfcheck', {}, 8_000, signal)
 		const checks = (Array.isArray(reply.checks) ? reply.checks : []) as Record<string, unknown>[]
 		return {
-			checks: checks.map((c) => ({ name: str(c.name), ok: c.ok === true, detail: str(c.detail) })),
+			checks: checks.map((c) => ({
+				name: str(c.name),
+				ok: c.ok === true,
+				detail: str(c.detail),
+			})),
 			pid: num(reply.pid),
 			build: str(reply.build),
 			path: str(reply.path),
@@ -377,7 +385,11 @@ export class MacA11yHost extends WindowsA11yHost {
 	async selfTest(signal?: AbortSignal): Promise<MacSelfCheck['checks']> {
 		const reply = await this.request('selftest', {}, 25_000, signal)
 		const checks = (Array.isArray(reply.checks) ? reply.checks : []) as Record<string, unknown>[]
-		return checks.map((c) => ({ name: str(c.name), ok: c.ok === true, detail: str(c.detail) }))
+		return checks.map((c) => ({
+			name: str(c.name),
+			ok: c.ok === true,
+			detail: str(c.detail),
+		}))
 	}
 
 	/** The rectangle as the helper reports it, for callers that read raw replies. */
@@ -465,7 +477,10 @@ export function createMacA11yHost(options: MacA11yFactoryOptions = {}): MacA11yH
 						'the macOS helper did not start; it must be launched from a logged-in desktop session',
 				}
 			} catch (error) {
-				return { ok: false, reason: error instanceof Error ? error.message : String(error) }
+				return {
+					ok: false,
+					reason: error instanceof Error ? error.message : String(error),
+				}
 			}
 		},
 	}

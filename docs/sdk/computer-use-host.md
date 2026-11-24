@@ -465,7 +465,7 @@ has to be signed with a paid developer identity, and one downloaded from the
 internet has to be notarised to open without a warning; compiling the source
 the person can read needs neither, never needs `sudo`, and costs only the
 Command Line Tools a developer's Mac already has. Without them the adapter
-works as before and says `xcode-select --install` once. A new source is a new
+works as before and says `xcode-select --install` once (checked with `xcode-select -p`, since without the tools `swiftc` is only a shim). A new source is a new
 directory and a new socket, so an old helper still running ends by itself
 after 15 quiet minutes and never answers a newer client.
 

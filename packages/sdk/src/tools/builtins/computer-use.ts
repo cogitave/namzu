@@ -568,7 +568,7 @@ const TERMINAL_APPS =
  * through the browser tool.
  */
 const BROWSER_APPS =
-	/^(chrome|google-chrome(-stable|-beta|-unstable)?|chromium(-browser)?|msedge|microsoft-edge(-stable|-beta|-dev)?|firefox(-esr|-bin)?|brave(-browser)?|opera|vivaldi(-stable)?|arc-browser|safari|librewolf|waterfox|zen-browser|navigator|tor browser|iexplore|duckduckgo|yandex-?browser|thorium)$/i
+	/^(chrome|google-chrome(-stable|-beta|-unstable|-canary|-dev)?|chromium(-browser)?|msedge|microsoft-edge(-stable|-beta|-dev)?|firefox(-esr|-bin)?|brave(-browser)?|opera|vivaldi(-stable)?|arc-browser|safari|librewolf|waterfox|zen-browser|navigator|tor browser|iexplore|duckduckgo|yandex-?browser|thorium)$/i
 
 /**
  * Editors and development environments, by process name. Like a terminal,
@@ -576,20 +576,35 @@ const BROWSER_APPS =
  * shell and the edit tools do that work without a screen.
  */
 const IDE_APPS =
-	/^(code(-insiders|-oss)?|cursor|windsurf|zed|devenv|idea(64)?|pycharm(64)?|webstorm(64)?|goland(64)?|clion(64)?|rider(64)?|phpstorm(64)?|rubymine(64)?|datagrip(64)?|studio64|android-studio|jetbrains-[a-z-]+|sublime_text|subl|atom-editor|eclipse|netbeans(64)?|xcode|nova-editor|vscodium|codium|kate|gedit|vim|gvim|nvim-qt|emacs|lapce|jetbrains-fleet)$/i
+	/^(code(-insiders|-oss)?|visual-studio-code(-insiders)?|intellij-idea(-ce)?|cursor|windsurf|zed|devenv|idea(64)?|pycharm(64)?|webstorm(64)?|goland(64)?|clion(64)?|rider(64)?|phpstorm(64)?|rubymine(64)?|datagrip(64)?|studio64|android-studio|jetbrains-[a-z-]+|sublime_text|subl|atom-editor|eclipse|netbeans(64)?|xcode|nova-editor|vscodium|codium|kate|gedit|vim|gvim|nvim-qt|emacs|lapce|jetbrains-fleet)$/i
 
 /** How far the tool works in an application: only looks, looks and clicks, or everything. */
 export type AppTier = 'view' | 'click' | 'full'
 
 /** The tier of an application by the name a host reports for its window. */
 export function appTier(app: string): AppTier {
+	// Arc's macOS display name is the bare word; as a lower-case process name it is too generic.
+	if (appIs(BROWSER_APPS, app) || app.trim() === 'Arc') return 'view'
+	if (appIs(TERMINAL_APPS, app) || appIs(IDE_APPS, app)) return 'click'
+	return 'full'
+}
+
+/**
+ * Whether an application name matches a family pattern. Hosts name a window's
+ * application differently: a process name on Windows and Linux (`msedge`,
+ * `sublime_text`), the display name on macOS (`Microsoft Edge`, `Sublime Text`).
+ * The name is tried as given and with its spaces joined by `-` and by `_`.
+ */
+function appIs(pattern: RegExp, app: string): boolean {
 	const name = app
 		.trim()
 		.replace(/\.exe$/i, '')
 		.replace(/^.*[\\/]/, '')
-	if (BROWSER_APPS.test(name)) return 'view'
-	if (TERMINAL_APPS.test(name) || IDE_APPS.test(name)) return 'click'
-	return 'full'
+	return (
+		pattern.test(name) ||
+		pattern.test(name.replace(/\s+/g, '-')) ||
+		pattern.test(name.replace(/\s+/g, '_'))
+	)
 }
 
 /** Keys that only move a page: allowed in a view-only application. */
@@ -2041,7 +2056,7 @@ export function createComputerUseTool(
 				const frame = frameFor(frameId)
 				if (item.delivery_mode && !frame.window)
 					throw new StepFailure('type_text delivery_mode requires a window screenshot')
-				if (frame.window && TERMINAL_APPS.test(frame.window.window.app))
+				if (frame.window && appIs(TERMINAL_APPS, frame.window.window.app))
 					throw new StepFailure(
 						'computer_use never types into a terminal window; use the shell tool for a command',
 					)
@@ -2067,7 +2082,7 @@ export function createComputerUseTool(
 					throw new StepFailure(
 						'key delivery_mode requires a window screenshot; take one with screenshot {window_id}',
 					)
-				if (frame.window && TERMINAL_APPS.test(frame.window.window.app))
+				if (frame.window && appIs(TERMINAL_APPS, frame.window.window.app))
 					throw new StepFailure(
 						'computer_use never sends keys to a terminal window; use the shell tool for a command',
 					)
@@ -2650,11 +2665,11 @@ export function createComputerUseTool(
 			throw new StepFailure(
 				`a browser is in front (${front.app}, window ${front.id}), so nothing was typed: computer_use only looks at a browser. Use the browser tool to act on a page, or bring the window you mean to the front (focus_window, or click it) and try again`,
 			)
-		if (front && IDE_APPS.test(front.app.trim().replace(/\.exe$/i, '')))
+		if (front && appIs(IDE_APPS, front.app))
 			throw new StepFailure(
 				`an editor is in front (${front.app}, window ${front.id}), so nothing was typed: computer_use clicks in an editor but does not type there. Use the edit tools for a file and the shell tool for a command, or bring the window you mean to the front (focus_window, or click it) and try again`,
 			)
-		if (front && TERMINAL_APPS.test(front.app))
+		if (front && appIs(TERMINAL_APPS, front.app))
 			throw new StepFailure(
 				`a terminal is in front (${front.app}, window ${front.id}), so nothing was typed: computer_use never sends keys or text to a terminal. Bring the window you mean to the front (focus_window, or click it) and try again; for a command, use a shell tool instead`,
 			)
@@ -3612,7 +3627,11 @@ export function createComputerUseTool(
 				if (tier === 'view' && type === 'key' && onlyScrollKeys(item.keys)) continue
 				if (tier === 'view')
 					return `computer_use only looks at ${name}, a browser: it does not click, type or press keys there. Use the browser tool to act on a page; take a screenshot to see what the window shows. Nothing was done.`
-				if (tier === 'click' && !TERMINAL_APPS.test(app) && (TYPING_ACTIONS.has(type) || setsValue))
+				if (
+					tier === 'click' &&
+					!appIs(TERMINAL_APPS, app) &&
+					(TYPING_ACTIONS.has(type) || setsValue)
+				)
 					return `computer_use clicks in ${name} but does not type or press keys there. Use the shell tool for a command and the edit tools for a file. Nothing was done.`
 			}
 		}

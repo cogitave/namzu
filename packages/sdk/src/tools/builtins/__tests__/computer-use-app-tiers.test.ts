@@ -43,7 +43,11 @@ function makeHost(app: string) {
 			windowScroll: true,
 			uiTree: true,
 		},
-		getDisplayGeometry: async () => ({ width: 640, height: 400, scaleFactor: 1 }),
+		getDisplayGeometry: async () => ({
+			width: 640,
+			height: 400,
+			scaleFactor: 1,
+		}),
 		execute: async () => {
 			touched.push('execute')
 			return { type: 'ok' }
@@ -184,7 +188,11 @@ describe('computer_use app tiers', () => {
 			})
 			expect(setValue.success, app).toBe(false)
 			expect(touched).toEqual([])
-			const clicked = await run(tool, { type: 'mouse_click', at: { x: 10, y: 10 }, button: 'left' })
+			const clicked = await run(tool, {
+				type: 'mouse_click',
+				at: { x: 10, y: 10 },
+				button: 'left',
+			})
 			expect(clicked.error ?? '', app).not.toContain('does not type')
 			expect(touched.length, app).toBeGreaterThan(0)
 		}
@@ -201,7 +209,10 @@ describe('computer_use app tiers', () => {
 
 	it("keeps the person's denied list on top: a denied browser says off limits", async () => {
 		const { host, touched } = makeHost('chrome')
-		const tool = createComputerUseTool(host, { settleMs: 0, deniedApps: ['chrome'] })
+		const tool = createComputerUseTool(host, {
+			settleMs: 0,
+			deniedApps: ['chrome'],
+		})
 		const result = await run(tool, { type: 'key', keys: 'ENTER' })
 		expect(result.success).toBe(false)
 		expect(result.error).toContain('off limits')
@@ -210,7 +221,10 @@ describe('computer_use app tiers', () => {
 
 	it('still honours the denied list for an application the tiers allow', async () => {
 		const { host, touched } = makeHost('notepad')
-		const tool = createComputerUseTool(host, { settleMs: 0, deniedApps: ['notepad'] })
+		const tool = createComputerUseTool(host, {
+			settleMs: 0,
+			deniedApps: ['notepad'],
+		})
 		const result = await run(tool, { type: 'key', keys: 'ENTER' })
 		expect(result.error).toContain('off limits')
 		expect(touched).toEqual([])
@@ -239,7 +253,11 @@ describe('computer_use app tiers, fresh placement and scroll keys', () => {
 		const tool = createComputerUseTool(host, { settleMs: 0 })
 		await run(tool, { type: 'list_windows' })
 		current = windowOf('chrome')
-		const refused = await run(tool, { type: 'mouse_click', at: { x: 10, y: 10 }, button: 'left' })
+		const refused = await run(tool, {
+			type: 'mouse_click',
+			at: { x: 10, y: 10 },
+			button: 'left',
+		})
 		expect(refused.success).toBe(false)
 		expect(refused.error).toContain('only looks at')
 	})
@@ -257,7 +275,9 @@ describe('computer_use app tiers, fresh placement and scroll keys', () => {
 
 	it('does not advise keys when window pixel scrolling is unavailable', async () => {
 		const { host } = makeHost('notepad')
-		Object.assign(host, { capabilities: { ...host.capabilities, windowScroll: false } })
+		Object.assign(host, {
+			capabilities: { ...host.capabilities, windowScroll: false },
+		})
 		const tool = createComputerUseTool(host, { settleMs: 0 })
 		await run(tool, { type: 'screenshot', window_id: '0x1' })
 		const res = await run(tool, {
@@ -268,5 +288,32 @@ describe('computer_use app tiers, fresh placement and scroll keys', () => {
 		})
 		expect(res.success).toBe(false)
 		expect(res.error ?? '').not.toContain('PAGE_DOWN')
+	})
+})
+
+describe('appTier with macOS display names', () => {
+	it.each([
+		'Google Chrome',
+		'Google Chrome Canary',
+		'Microsoft Edge',
+		'Brave Browser',
+		'Arc',
+		'Safari',
+		'Firefox',
+	])('looks only in %s', (name) => {
+		expect(appTier(name)).toBe('view')
+	})
+	it.each([
+		'Sublime Text',
+		'Android Studio',
+		'Visual Studio Code',
+		'IntelliJ IDEA',
+		'Zed',
+		'Terminal',
+	])('clicks but does not type in %s', (name) => {
+		expect(appTier(name)).toBe('click')
+	})
+	it('leaves other applications full', () => {
+		expect(appTier('Notes')).toBe('full')
 	})
 })

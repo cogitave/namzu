@@ -120,6 +120,9 @@ export interface EnsureMacHelperOptions {
 	readonly hasTool?: (name: string) => Promise<boolean>
 }
 
+const NO_COMPILER_TEXT =
+	'the macOS accessibility helper is built on this Mac the first time, and the Swift compiler is missing. Run `xcode-select --install` once (Xcode Command Line Tools), then try again.'
+
 /**
  * The helper's paths, compiling and signing it first when this source has
  * not been built on this machine. Throws {@link A11yError} (`no_compiler`,
@@ -131,12 +134,15 @@ export async function ensureMacHelper(options: EnsureMacHelperOptions): Promise<
 	if (existsSync(paths.executable)) return paths
 	const run = options.run ?? runCommand
 	const has = options.hasTool ?? hasExecutable
-	if (!(await has('swiftc'))) {
-		throw new A11yError(
-			'no_compiler',
-			'the macOS accessibility helper is built on this Mac the first time, and swiftc is missing. Run `xcode-select --install` once (Xcode Command Line Tools), then try again.',
-		)
-	}
+	const noCompiler = new A11yError('no_compiler', NO_COMPILER_TEXT)
+	if (!(await has('swiftc'))) throw noCompiler
+	// Without the Command Line Tools /usr/bin/swiftc is still there, as a shim
+	// that opens an install dialog, so presence on PATH proves nothing.
+	const developerDir = await run('xcode-select', ['-p'], {
+		timeoutMs: 5_000,
+		env: cleanEnv(options.env),
+	}).catch(() => undefined)
+	if (!developerDir || developerDir.exitCode !== 0) throw noCompiler
 	options.onNotice?.(
 		`Namzu is building its macOS helper (${MAC_HELPER_NAME}) from source, once. It takes a few seconds.`,
 	)
@@ -165,6 +171,7 @@ export async function ensureMacHelper(options: EnsureMacHelperOptions): Promise<
 	)
 	if (compile.exitCode !== 0) {
 		rmSync(stage, { recursive: true, force: true })
+		if (/xcode-select|developer tools/i.test(compile.stderr)) throw noCompiler
 		throw new A11yError(
 			'build_failed',
 			`the macOS helper did not compile: ${compile.stderr.trim().slice(0, 600)}`,
@@ -182,7 +189,10 @@ export async function ensureMacHelper(options: EnsureMacHelperOptions): Promise<
 			`the macOS helper did not sign: ${sign.stderr.trim().slice(0, 600)}`,
 		)
 	}
-	mkdirSync(join(paths.root, `helper-${paths.hash}`), { recursive: true, mode: 0o700 })
+	mkdirSync(join(paths.root, `helper-${paths.hash}`), {
+		recursive: true,
+		mode: 0o700,
+	})
 	try {
 		renameSync(app, paths.bundle)
 	} catch (error) {

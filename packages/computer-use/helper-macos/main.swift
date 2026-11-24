@@ -1592,6 +1592,12 @@ func startServer() {
     }
     let dir = (socketPath as NSString).deletingLastPathComponent
     try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+    // The folder must be a real directory of ours, not one another user made first.
+    var dirStat = stat()
+    if lstat(dir, &dirStat) != 0 || (dirStat.st_mode & S_IFMT) != S_IFDIR || dirStat.st_uid != getuid() {
+        FileHandle.standardError.write(Data("namzu-helper: socket folder is not owned by this user\n".utf8))
+        exit(65)
+    }
     chmod(dir, 0o700)
     unlink(socketPath)
     let fd = socket(AF_UNIX, SOCK_STREAM, 0)
