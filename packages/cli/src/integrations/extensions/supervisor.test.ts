@@ -11,7 +11,14 @@ function manifest(over: (m: any) => void = () => {}): Manifest {
 	return r.manifest
 }
 
-function rig(m: Manifest, opts: { granted?: string[]; obeysShutdown?: boolean } = {}) {
+function rig(
+	m: Manifest,
+	opts: {
+		granted?: string[]
+		obeysShutdown?: boolean
+		endpointReady?: () => Promise<boolean>
+	} = {},
+) {
 	const children: FakeChild[] = []
 	const audits: string[] = []
 	const snaps: Snapshot[] = []
@@ -20,6 +27,7 @@ function rig(m: Manifest, opts: { granted?: string[]; obeysShutdown?: boolean } 
 		granted: () => opts.granted ?? [],
 		audit: (e, d) => audits.push(`${e}${d ? `:${d}` : ''}`),
 		onChange: (s) => snaps.push(s),
+		...(opts.endpointReady ? { endpointReady: opts.endpointReady } : {}),
 		spawn: () => {
 			const c = new FakeChild(undefined, opts.obeysShutdown ?? true)
 			children.push(c)
@@ -39,6 +47,39 @@ beforeEach(() => {
 afterEach(() => vi.useRealTimers())
 
 describe('supervisor', () => {
+	it('with an endpoint check, the first status does not report collecting until the endpoint is up', async () => {
+		let open: (up: boolean) => void = () => {}
+		const r = rig(manifest(), {
+			endpointReady: () =>
+				new Promise<boolean>((res) => {
+					open = res
+				}),
+		})
+		r.sup.start()
+		hello(r.last())
+		r.last().say({ t: 'status', state: 'collecting', signals: { 'os.foregroundWindow': 'ok' } })
+		expect(r.sup.snapshot().state).toBe('starting')
+		expect(r.snaps.some((s) => s.state === 'collecting')).toBe(false)
+		open(true)
+		await Promise.resolve()
+		expect(r.sup.snapshot().state).toBe('collecting')
+		// Later statuses are not held again.
+		r.last().say({ t: 'status', state: 'collecting', signals: { 'os.foregroundWindow': 'ok' } })
+		expect(r.sup.snapshot().state).toBe('collecting')
+	})
+
+	it('an endpoint that never opens fails the start instead of reporting running', async () => {
+		const r = rig(manifest(), { endpointReady: () => Promise.resolve(false) })
+		r.sup.start()
+		hello(r.last())
+		r.last().say({ t: 'status', state: 'collecting', signals: { 'os.foregroundWindow': 'ok' } })
+		await Promise.resolve()
+		await Promise.resolve()
+		expect(r.snaps.some((s) => s.state === 'collecting')).toBe(false)
+		expect(r.children[0]?.killed).toEqual([true])
+		expect(r.audits).toContain('failed:query endpoint did not open')
+	})
+
 	it('starts, takes hello, acknowledges with the granted list, and reports collecting on the first status', () => {
 		const r = rig(manifest())
 		r.sup.start()

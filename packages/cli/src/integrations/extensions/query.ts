@@ -26,6 +26,48 @@ export function queryAddress(
 		: join(tmpdir(), `nx-${h(extensionId)}-${h(userHash)}.sock`)
 }
 
+/** How long a freshly started process may take to open its query endpoint after it said it is collecting. */
+export const ENDPOINT_READY_MS = 10_000
+const ENDPOINT_RETRY_MS = 20
+
+/**
+ * Resolves true once something accepts a connection at `address` (a connect that is then closed at once, so
+ * no request is sent), false when `deadlineMs` passes first. A process that is still opening its socket
+ * refuses or has no file yet; those are retried until the deadline, which only bounds a failure: a normal
+ * start resolves on the first connect that works, not on the clock.
+ */
+export function waitForEndpoint(address: string, deadlineMs = ENDPOINT_READY_MS): Promise<boolean> {
+	return new Promise((resolve) => {
+		let over = false
+		let retry: ReturnType<typeof setTimeout> | undefined
+		const stop = setTimeout(() => {
+			over = true
+			if (retry) clearTimeout(retry)
+			resolve(false)
+		}, deadlineMs)
+		stop.unref?.()
+		const attempt = () => {
+			if (over) return
+			const socket = createConnection(address)
+			socket.once('connect', () => {
+				socket.destroy()
+				if (over) return
+				over = true
+				clearTimeout(stop)
+				resolve(true)
+			})
+			socket.once('error', () => {
+				socket.destroy()
+				if (!over) {
+					retry = setTimeout(attempt, ENDPOINT_RETRY_MS)
+					retry.unref?.()
+				}
+			})
+		}
+		attempt()
+	})
+}
+
 export function requestOnce(
 	address: string,
 	request: unknown,
