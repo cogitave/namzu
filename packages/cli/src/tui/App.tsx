@@ -7092,6 +7092,8 @@ function AppBody({
 							// Somebody is at this terminal, so the model may ask them one
 							// question when a decision is genuinely theirs.
 							askUser: true,
+							// A named `Agent` call starts a teammate while the setting says so, asked again at every call.
+							...(ctxRef.current.readTeams ? { teams: { config: ctxRef.current.readTeams } } : {}),
 							// Plan mode gets its plan file and approval box, and each turn
 							// the hidden reminders (plan mode's, the task-list nudge).
 							planApproval: true,

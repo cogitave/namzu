@@ -1149,6 +1149,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 					...(resolvedCtx.config.imageGeneration
 						? { imageGeneration: resolvedCtx.config.imageGeneration }
 						: {}),
+					readTeams: () => refreshTrustedProjectContext(commandCtx, cwd).config.teams,
 					readImageGenerationEnabled: () =>
 						refreshTrustedProjectContext(commandCtx, cwd).config.imageGeneration?.enabled !== false,
 					...(resolvedCtx.config.computerUse
