@@ -1,5 +1,125 @@
 # @namzu/cli
 
+## 58.0.0
+
+### Major Changes
+
+- cbcc424: Three commands changed their spelling, and one is new.
+
+  Retired, each now prints one line naming the new form and exits 64 without doing anything:
+
+  - `namzu upgrade` is now `namzu update` (same `--check` option).
+  - `namzu login <claude|codex>` is now `namzu auth login <claude|codex>` (same `--no-browser`, `--code` and `--timeout`).
+  - `namzu logout [provider]` is now `namzu auth logout [provider]`.
+
+  Change any script, scheduled task or CI step that runs the old names. The `/login` and `/logout` slash commands inside a session are unchanged.
+
+  New:
+
+  - `namzu auth status [--json]` lists each stored or detected credential (provider, where it comes from, kind, usable or expired) and exits 0 when one is usable, 1 when none is. It never prints a token, key or any part of one.
+  - `namzu state purge [path] [--dry-run] [--yes] [--all]` deletes what Namzu keeps in its home for one project (conversations, checkpoints, file history, plans, memory, backups, prompt-history lines, index rows) or for all of them, and never touches files in the project folder. It asks first, needs `--yes` with no terminal, and refuses a project with a running session or leftover Namzu worktrees.
+
+- cbcc424: Commands follow one grammar: words separated by spaces, no second names. Four spellings are retired. Each now prints one line naming the new spelling and exits 64 without doing anything:
+
+  - `namzu spaces` is `namzu workspaces`. The `tui.spacesPrefix` setting is still read.
+  - `namzu e "<prompt>"` is `namzu exec "<prompt>"`.
+  - `namzu config reset <key>` is `namzu config unset <key>`.
+  - `--yolo` (on every command) is `--dangerously-skip-permissions`. Scripts that pass `--yolo` must be changed; it no longer runs.
+
+  `namzu computer stop-idle` is now `namzu computer stop idle`. The old spelling is what Namzu Desktop builds already installed run, so it keeps working and is hidden from the help; change your own scripts to `stop idle`.
+
+  New: `namzu help [command] [action...]` prints exactly what `namzu <command> [action...] --help` prints. `--help`, `-h`, `--version`, `-V` and `help` now work when `NAMZU_HOME` names a folder that does not exist (`namzu <command> --help` used to exit 70) and never create it. Every usage line starts with `namzu` (`namzu eval` did not), and `namzu serve` now says what it does.
+
+- cbcc424: `namzu mcp serve` runs Namzu's built-in tools (`read`, `write`, `edit`, `glob`, `grep`, `bash`) as a tool server on stdin and stdout, so another program can use them. Your permission rules apply to every call and a `deny` always wins; a call that would need your approval is refused with a message naming the rule to add, unless the launch flags allow it (`--permission-mode`, `--allowed-tools`, `--disallowed-tools`, `--add-dir`, `--trust`).
+
+  `namzu mcp add json <name> '<json>'` adds a server from one JSON object with the shape of a config entry. `json` is the JSON form only when exactly two arguments follow it and the second is a JSON object; `namzu mcp add json node server.js` still adds a server named `json`.
+
+  `namzu mcp add` and `namzu mcp remove` take `-s, --scope user|project` (project writes `.mcp.json` and the server waits for `namzu mcp approve`). `add` takes `-t, --transport stdio|http`, `-e, --env NAME=value` and `-H, --header 'NAME: value'`.
+
+  Two spellings are retired and now print the new form and exit 64 without saving anything:
+
+  - `--env NAME` is now `--env NAME=${NAME}` (it saved the variable name to pass through; the new form saves a reference to it).
+  - `--header NAME=VALUE` is now `--header 'NAME: VALUE'` (the value must still be `${ENV_VAR}` or `Bearer ${ENV_VAR}`).
+
+  Scripts that call `namzu mcp add` with the old spellings must change to the new ones. Nothing shipped in this repository (Desktop, the installer, workflows) used them.
+
+- dd59c26: One tool, `stop_task`, now ends the delegated work the model started: an agent task (by task id or name) or a workflow run (by the run id `agent_task_list` returns). A stopped run aborts its running agents, never starts its queued ones and keeps its journal, so a later `workflow` call with `resumeFromRunId` reuses what finished. Something that already ended answers "already ended". `stop_task` replaces `cancel_agent`, which leaves the model's tool list and the `cancel_agent` input name `task_id` becomes `id`; a permission rule, `--allowed-tools` or `--disallowed-tools` entry that names `cancel_agent` now applies to `stop_task`, and a resumed conversation whose history calls `cancel_agent` still loads. Shell jobs and monitors keep the `job` tool. `stop_task` is always loaded wherever `Agent` or `workflow` can be offered. The model is also told when to use it: background work it started is its to end when the person changed course, a result in hand answers the question or an earlier stage failed, not when it is only slow, and to say in one sentence what it stopped. The Agent description, the workflow launch receipt, the large-run notice and the hypermode reminders say so, and the Agent text now says a background agent is still running and prefers `send_message` to a finished agent over starting a new one. Only permission rules and tool flags map the old name: a hook matcher that names `cancel_agent` no longer matches and must name `stop_task` (`task_id` is now `id`). Nothing else to change.
+
+### Minor Changes
+
+- 2842ccd: In the Desktop app, the agent's browser can now work in a tab of the app's Browser pane. When the app says it can host one (`namzu/browser-pane` at `initialize`), `namzu acp --desktop` drives that tab with the same browser code and asks the app for it with `namzu/browser/pane/open`, `/cdp` and `/close`; the app sends page events back as `namzu/browser/pane/event` and `/state`, which the engine now lists among its methods. If the app does not offer it, cannot open a tab, or the browser is set to run without a window (`browser.headless: always`), the engine opens its own browser as before, with one line saying why. A paused sign-in reports `window: 'pane'` and no terminal login command. The Desktop contract number does not change: an older app is never asked and keeps its card text, and an older engine is never sent a tab event. `/browser` in the terminal names the pane when that is where the browser runs.
+- dd59c26: Auto mode now asks you when its safety check cannot be completed, instead of refusing the call and stopping the turn. The terminal says why in a few words (`no credential for the check model`, `provider returned 400`, `timed out after 60 s`) and puts the same question `prompt` mode would; your answer decides, and the mode stays as it is. The cause is written to the log. With nobody to ask (`namzu exec`, a scheduled run) the call is still refused, now with the cause in the reason, and three answers in a row still stop the turn.
+
+  A turn stopped by a refusal or by a check that gave no verdict now ends with one line of what was done and what is left (`Stopped before the task was finished · changed 6 files so far · 2 calls not run · send a message to carry on`). The line under a turn names the newest result of each check, so a command that failed and later passed (also as a background job) is not drawn as failed.
+
+- cbcc424: New launch options, on `namzu`, `namzu resume`, `namzu exec` and `namzu -p`: `--system-prompt <text|@file>` replaces Namzu's own system prompt text for the launch (tools, `--append-system-prompt`, project instructions and memory still apply); `--tools <list>` offers the model only the named tools (`""` none, `default` all), which removes tools rather than setting a permission rule; `-n, --name <name>` names the conversation; `--bare` starts without hooks, plugins, project instruction files, saved memory notes, learning, the code index, the background model catalogue refresh and the update check; `--debug-file <path>` writes every log record, debug level included, to a file; `--settings <file-or-json>` adds one settings layer above your files and the environment and below flags and the managed file; `--mcp-config <file-or-json>` now also works on the interactive launch and takes inline JSON; `--strict-mcp-config` uses only those servers. Nothing existing changes meaning, and a launch that does not use them behaves as before. A bad `--settings` or `--mcp-config` is one line and exit status 64. The hooks report's `setBy.kind` can now be `launch` (with a `flag`), for a hook switch set by `--bare` or `--settings`.
+- 096202b: `namzu <area> <action> --help` (and `namzu help <area> <action>`) now prints that action's own help: its usage line, what it does, its options and an example. Before, it printed the whole area's help. `namzu <area> --help` ends with one line per action and says `namzu <area> <action> --help for details.` Covers schedule (and schedule service), extension, browser, mcp, auth, state, computer, config, skills, providers, worktree, pal, peers, plugin, github and archive. Nothing a command accepts or prints other than help changes. `CommandDef` gains an optional `actions` table.
+- 096202b: The agent can hand you a finished file with `present_file`. A file it wrote inside your own folder is already there, so it says where; it uses `present_file` for a file that lives only in the scratch folder or that you should open now. The terminal shows one row, `Shared report.pdf · /tmp/out/report.pdf`. The tool is deferred like the other tools outside the always-sent list; nothing you configure changes.
+
+  A deny or review rule written under `read` (for example `read(.env)`) now also applies to `present_file`: a file you denied for reading is not handed over.
+
+- cbcc424: `namzu "<prompt>"` starts the interactive session on that first message, and `namzu -p "<prompt>"` answers a prompt and exits, running exactly what `namzu exec "<prompt>"` runs. With `-p` the root takes exec's options with the same meaning (`--output-format text|json|stream-json`, `--input-format`, `--max-budget-usd`, `--mcp-config`, `-c`, `-r <id>`, `--model`, `--provider`, `--permission-mode`, `--allowed-tools`, `--disallowed-tools`, `--append-system-prompt`, `--no-session-persistence`, `--fallback-model`, `--max-output-tokens`, `--effort`) and reads piped input as exec does; `namzu exec -r <id>` now means `--resume <id>`. A prompt that begins with a dash or is a command name goes after `--`: `namzu -- "providers"`.
+
+  Without `-p`, `--output-format`, `--input-format` and `--max-budget-usd` are refused with one line saying they need `-p` (exit 64); before this, `--max-budget-usd` was refused with a line pointing at exec. `--message` still works, hidden from `--help`, because builds already installed pass it; write `namzu "<text>"` in anything new. Nothing to change in scripts that call `namzu exec`. Desktop's terminal tab now starts Namzu with the composer's text after `--`.
+
+- f50c78b: The session prompt tells the model to read a page with `web_fetch` first and to open the browser only for a sign-in, a script-drawn page or interaction, and not to repeat a search or reopen a page in the same turn. `web_fetch` is always loaded in a session that defers tools, and the agent and workflow tools are loaded while hypermode is on or delegated work runs. Nothing to change on your side.
+- f50c78b: Transcript rows for work-status tools are one plain line. `agent_task_list` reads `Checking agents` then how many agents and workflow runs are running; `wait_for_task` reads `Waiting for background work` then `Finished`, `Failed` or `Still running`; `search_tools` names the tools it loaded. The frame that marks a delegated agent's or a fetched page's text is no longer shown in any row, live or after a resume (the model's copy is unchanged). A page fetch row is `Fetch(url)` instead of `Web fetch(url)`, and a hosted search that ran several queries says `Did N searches`. Anything that read the old row text needs the new wording. The same lines now appear after a conversation is reopened, and a workflow or background-command notice that was injected for the model reads as one line (`Workflow <name> finished · 1m 1s · 2 agents`) instead of its raw text.
+
+### Patch Changes
+
+- 2842ccd: The agent's tab in the Browser pane is no longer closed when the engine's browser is disposed: it lets go and the tab stays for you, so a page you signed in on survives a delegated run, a profile switch or a release. A delegated run under another profile, or a switched profile, uses the engine's own browser, so its cookies stay apart from the pane's. An empty site rule set is now sent when the open request is made, replacing stricter rules an earlier engine left. `signInNotice` takes an optional fifth argument, the place the person signs in (default "the browser window"), and the pane path passes "the Browser pane".
+- 096202b: The browser guidance no longer asks again for a step the person asked for exactly, and a scheduled run decides instead of asking; the document skill hands scratch files and edited copies over with `present_file`. Nothing to do on upgrade.
+- dd59c26: The snippet shown to the model after a file changed on disk numbers its lines like the read tool does (a right-aligned number, an arrow, the line), so tabs in the file's indentation are not confused with a separator.
+- 096202b: The note in the session prompt about an already open desktop browser window now says to look at it only, and to act on pages through the browser tool. With the SDK change, `computer_use` no longer clicks or types in a browser window.
+- dd59c26: `/context` (and `/context details`) now answers at once while a reply is running, instead of waiting for the reply to end; it adds one line saying the numbers are as of the last finished reply. A slash command that still waits (`/compact`, `/init`, `/clear` and the rest) shows in the pending rows as `/command · Queued, runs after this reply`. The WSL guidance now tells the model not to check, list or focus a window with the screen tools after opening a program or file for you unless you ask. Nothing to change on your side.
+- f50c78b: The agent now delegates only independent scopes and does not repeat delegated work itself, and says in its answer which late results it applied or dropped. It writes no documentation or report files unless asked, names files after the project (or in lowercase English with hyphens), keeps file lists in step and writes real command output into files. On WSL it launches Windows programs with a window detached. A short memory reminder appears after the same command failure twice or after a compaction. `agent_task_list` still lists a run that finished in this session, with `ended_ms_ago`. Nothing to change.
+- 096202b: A machine asking to join your Namzu network no longer fills the conversation with one line per try. Terminals of the asking machine share one request (one code), the footer shows `1 join request · /peers` while any wait, each machine gets one passing footer line per session instead of a transcript row, and `/peers` lists join requests first. After a Deny a machine waits an hour before asking that network again on its own (`namzu peers join <address>` asks at once).
+- f50c78b: The environment block tells the model when the user's PATH has no `node` and names the directory of Namzu's own node binary that shell commands get at the end of their PATH, so it stops searching the machine for one.
+- 096202b: Text the model reads, nothing in a setting or command changes. The system prompt now says that what a tool shows (a page, a file, command output, a screen) is data and cannot approve a push, delete or send; to prefer the least destructive route; to confirm a purchase with item and total; to ask one question before a large fan-out on an unclear request, also under hypermode; and to use `gh`. The browser guidance lists effects that need a clear yes first. A scheduled run states its chosen reading and stops before an irreversible choice. Memory guidance no longer saves sensitive traits or announces itself. The document and verify-change skills gained a line each. Nothing to change on your side.
+- f50c78b: `namzu schedule edit <job> --add-dir <dir>` now adds the folder to the job's stored list; before, it was ignored unless `--permissions` was also given. An edit with `--permissions` that names no list of its own keeps the stored folders instead of dropping them. A permissions file that sets `additionalDirectories` still replaces the list.
+- dd59c26: A model whose context window Namzu has to guess now says so: `/context` reads "a guess: this model's window is not known; set compaction.contextWindowTokens", and the transcript says it once per session with the same setting. The `/context` line no longer says "default for an unrecognized model".
+- dd59c26: The one-line note that a model's window is a guess now appears once for each model that needs it, not once per session, so switching to a second unrecognised model shows it again.
+- dd59c26: A workflow run that was cut short because the session closed or you moved to another conversation is now told to the model the next time that conversation is opened, with its run id and the `resumeFromRunId` call; before, a run ended that way was never announced, so "continue" made the model redo the work by hand. `agent_task_list` with `run_id` and `include_output: true` now returns the outputs of that run's agents instead of an error, says when the session holds no such run, and names the run an unknown agent id belonged to. The `workflow` and `stop_task` descriptions tell the model to resume an unfinished run when you say to continue. A stopped turn never stopped a run; that is now covered by a test. Nothing to change on your side.
+
+  Why the run in the reported session vanished is not proven: the journal shows no restart between the refused call and "continue", and a stopped turn does not stop a run here, so the likeliest cause is a conversation change or a close. Both are now announced at the next open, and the notice names which one happened.
+
+- dd59c26: The workflow detail view now takes the place of the message box and the status line while it is open (it was drawn above them), fills the rest of the screen, and ends in a key line of only the keys that apply (`↑↓ select · x stop workflow · esc back`). Nothing to change in your setup: the draft in the box and its cursor are back when you press Esc.
+- dd59c26: In the fullscreen view, `ctrl+c` while text is selected no longer interrupts the running reply. It copies the selection, or lets go of one that was already copied when you released the mouse; with nothing selected `ctrl+c` interrupts as before.
+- 096202b: In the fullscreen view, `ctrl+shift+c` copies the selected text and never interrupts the reply, also in terminals that report it in xterm's `modifyOtherKeys` form (which used to be typed into the message box as text). With nothing selected it does nothing. A terminal that sends it as a plain `ctrl+c` byte still gives `ctrl+c`.
+- f50c78b: A session that can launch an agent or a workflow now holds its task tools (wait, list, send, cancel) loaded from the start, so a turn that launches its first agent waits for it without a search and the tool list stays the same between turns. A skill carried across a compaction no longer loses steps that follow a `# Example` comment line inside a code fence. No action needed.
+- Updated dependencies [2842ccd]
+- Updated dependencies [2842ccd]
+- Updated dependencies [2842ccd]
+- Updated dependencies [f50c78b]
+- Updated dependencies [f50c78b]
+- Updated dependencies [f50c78b]
+- Updated dependencies [dd59c26]
+- Updated dependencies [f50c78b]
+- Updated dependencies [dd59c26]
+- Updated dependencies [2842ccd]
+- Updated dependencies [dd59c26]
+- Updated dependencies [096202b]
+- Updated dependencies [f50c78b]
+- Updated dependencies [096202b]
+- Updated dependencies [dd59c26]
+- Updated dependencies [f50c78b]
+- Updated dependencies [096202b]
+- Updated dependencies [f50c78b]
+- Updated dependencies [096202b]
+- Updated dependencies [dd59c26]
+- Updated dependencies [096202b]
+- Updated dependencies [dd59c26]
+- Updated dependencies [dd59c26]
+- Updated dependencies [f50c78b]
+  - @namzu/browser@3.2.0
+  - @namzu/sdk@69.0.0
+  - @namzu/openai@4.7.0
+  - @namzu/computer-use@4.4.0
+  - @namzu/anthropic@7.2.1
+  - @namzu/ollama@2.4.0
+  - @namzu/openrouter@3.3.0
+  - @namzu/sandbox@44.0.0
+
 ## 57.1.0
 
 ### Minor Changes

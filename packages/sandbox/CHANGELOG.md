@@ -1,5 +1,28 @@
 # @namzu/sandbox
 
+## 44.0.0
+
+### Patch Changes
+
+- Updated dependencies [f50c78b]
+- Updated dependencies [f50c78b]
+- Updated dependencies [2842ccd]
+- Updated dependencies [dd59c26]
+- Updated dependencies [096202b]
+- Updated dependencies [f50c78b]
+- Updated dependencies [096202b]
+- Updated dependencies [dd59c26]
+- Updated dependencies [f50c78b]
+- Updated dependencies [096202b]
+- Updated dependencies [f50c78b]
+- Updated dependencies [096202b]
+- Updated dependencies [dd59c26]
+- Updated dependencies [096202b]
+- Updated dependencies [dd59c26]
+- Updated dependencies [dd59c26]
+- Updated dependencies [f50c78b]
+  - @namzu/sdk@69.0.0
+
 ## 43.0.0
 
 ### Patch Changes

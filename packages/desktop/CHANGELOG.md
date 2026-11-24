@@ -1,5 +1,28 @@
 # @namzu/desktop
 
+## 0.8.9
+
+### Patch Changes
+
+- 2842ccd: The agent's tab in the Browser pane is no longer closed when the engine's browser is disposed: it lets go and the tab stays for you, so a page you signed in on survives a delegated run, a profile switch or a release. A delegated run under another profile, or a switched profile, uses the engine's own browser, so its cookies stay apart from the pane's. An empty site rule set is now sent when the open request is made, replacing stricter rules an earlier engine left. `signInNotice` takes an optional fifth argument, the place the person signs in (default "the browser window"), and the pane path passes "the Browser pane".
+- cbcc424: `namzu "<prompt>"` starts the interactive session on that first message, and `namzu -p "<prompt>"` answers a prompt and exits, running exactly what `namzu exec "<prompt>"` runs. With `-p` the root takes exec's options with the same meaning (`--output-format text|json|stream-json`, `--input-format`, `--max-budget-usd`, `--mcp-config`, `-c`, `-r <id>`, `--model`, `--provider`, `--permission-mode`, `--allowed-tools`, `--disallowed-tools`, `--append-system-prompt`, `--no-session-persistence`, `--fallback-model`, `--max-output-tokens`, `--effort`) and reads piped input as exec does; `namzu exec -r <id>` now means `--resume <id>`. A prompt that begins with a dash or is a command name goes after `--`: `namzu -- "providers"`.
+
+  Without `-p`, `--output-format`, `--input-format` and `--max-budget-usd` are refused with one line saying they need `-p` (exit 64); before this, `--max-budget-usd` was refused with a line pointing at exec. `--message` still works, hidden from `--help`, because builds already installed pass it; write `namzu "<text>"` in anything new. Nothing to change in scripts that call `namzu exec`. Desktop's terminal tab now starts Namzu with the composer's text after `--`.
+
+- 2842ccd: The agent now browses in a tab of the Browser pane, where you can watch it and sign in yourself, instead of a separate browser window. A new setting, _Where Namzu browses_ (Settings, Tools, next to _Keep cookies_), chooses between _In the built-in browser_ (the default) and _In its own window_; it reaches a project the next time it opens. If the pane cannot be used, Namzu opens its own browser as before and says so. The agent's tab is dropped when its engine restarts and closed when the conversation is removed.
+- 2842ccd: Desktop's Browser pane can now hold tabs for the agent, kept apart from yours: their own cookie partition, their own limit of four per conversation (your eight are untouched), and a take-over state. Nothing changes for you yet: the agent's browser still opens in its own window until a later release switches it to the pane.
+- 2842ccd: When the agent works in a tab of the Browser pane, you can now see and steer it: the tab is marked "Namzu is using this tab" with a dot that shows when a call is on the page, the pane shows itself the first time (without taking the focus from the message box), and Take over and Hand back pause and resume the agent. A sign-in that Namzu needs from you in the pane says "Sign in to <site> in the Browser pane", with a quiet Show the tab action at the left, Stop and Continue together at the right on one row, and no terminal command. Nothing changes until the engine uses the pane.
+
+  While you hold a tab Namzu was using (to sign in, say), Namzu is told only where the page is, never what you type or submit, and taking over stops what it had running there. Site rules a conversation's first open set can only get tighter while the same engine holds the tab. A narrow window no longer covers the conversation with the pane for a sign-in pause; Show the tab opens it. Keep cookies now says that pages Namzu opens share sign-ins across conversations unless it is set to per conversation.
+
+- cbcc424: Desktop stops an idle Pal computer with `namzu computer stop idle`, the new two-word spelling, instead of `computer stop-idle`. Nothing changes for you: Desktop's engine understands both, and the hyphenated form stays accepted for Desktop builds already installed.
+- dd59c26: Extensions in Settings: Unlock (administrator lock) now works, where it used to answer "That is not an extensions method". The unlock dialog also shows a readable failure instead of staying busy, and clears the typed passwords every time. The "What is collected" page shows one compact summary per kind of data (description, example, retention, records), and the recent-records table disappears when the extension is turned off.
+- 096202b: A file the agent hands over shows as a card under its reply: the name, a "Shared" mark, the one line the agent gave, and buttons to show it in its folder, save a copy, copy the text or open it. A file in your project folder opens beside the conversation; one outside it (a file the agent made in a scratch folder) opens in its own program, or in its folder when Namzu does not open that kind of file itself.
+
+  On the extension screen _What is collected_, each kind's retention and record count now sit at the right edge of the row, like the rows on the extension's other screens, and _Show recent records_ sits at the right.
+
+- 096202b: A Desktop started with its own `--user-data-dir` (a test copy beside your own Namzu) now says so: the window title and the tray tooltip read `Namzu (test: <folder name>)` and the tray icon carries a small orange dot. Your normal profile looks as before, and opening it a second time still brings the open window forward.
+
 ## 0.8.8
 
 ### Patch Changes
