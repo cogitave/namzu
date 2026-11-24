@@ -86,6 +86,7 @@ import {
 } from '../integrations/network/format.js'
 import { networkSettings } from '../integrations/network/policy.js'
 import { type NetworkRuntime, createNetworkRuntime } from '../integrations/network/runtime.js'
+import { formatSessionList, rowsFromLocalList } from '../integrations/network/session-list.js'
 import {
 	type LivePeers,
 	buildPeerTools,
@@ -14613,7 +14614,17 @@ function AppBody({
 								const heldLocal = peers.held()
 								let screen: string
 								if (!summary) {
-									const local = `Peer messaging ${peers.enabled ? 'on' : 'off'} · ${peers.pending} pending\n${localList.map((peer) => `${peer.self ? 'This terminal' : (peer.title as string)} [${peer.ref as string}] · ${peer.state as string} · ${peer.permission_mode as string}${peer.accepts_messages ? '' : ' · not accepting messages'}`).join('\n')}`
+									const local = [
+										formatSessionList(rowsFromLocalList(localList), {
+											now: Date.now(),
+											columns: (terminal.columns ?? 80) - SCREEN_MARGIN - 4,
+										}),
+										...(peers.enabled && peers.pending === 0
+											? []
+											: [
+													`Peer messaging ${peers.enabled ? 'on' : 'off'} · ${peers.pending} pending`,
+												]),
+									].join('\n')
 									const off = network && !network.decision.run ? `\n${network.decision.text}` : ''
 									const held = heldLocal.length
 										? `\nHeld (${heldLocal.length}): ${heldLocal.map((item) => `${item.fromName} · ${item.reason}`).join('; ')}`
@@ -14624,6 +14635,7 @@ function AppBody({
 										summary,
 										roster,
 										selfRef: peers.ref,
+										startTimes: peers.startTimes(),
 										heldLocal,
 										now: Date.now(),
 										// The picker draws it inside its frame, two columns of padding and a margin in.

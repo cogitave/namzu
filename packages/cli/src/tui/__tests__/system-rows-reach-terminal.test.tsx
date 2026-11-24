@@ -71,6 +71,7 @@ vi.mock('../../integrations/peers/runtime.js', async (importOriginal) => {
 			take: () => waitingMail.splice(0),
 			roleContext: () => undefined,
 			held: () => [],
+			startTimes: () => new Map<string, number>(),
 			takeExact: (_generation: number, id: string) => {
 				const index = waitingMail.findIndex((mail) => mail.id === id)
 				return index === -1 ? undefined : waitingMail.splice(index, 1)[0]

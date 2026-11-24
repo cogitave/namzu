@@ -78,19 +78,34 @@ it('renders receipts in plain words with distinct exit codes', () => {
 })
 
 it('renders the listing', () => {
-	expect(renderListing([])).toBe('No live terminals in this project.')
+	expect(renderListing([])).toBe('No Namzu sessions are running.')
 	expect(
-		renderListing([
-			{
-				ref: 'ab12cd',
-				sessionId: 's',
-				title: 'proj',
-				state: 'idle',
-				mode: 'auto',
-				acceptsMessages: true,
-			},
-		]),
-	).toBe('ab12cd  proj  idle  auto')
+		renderListing(
+			[
+				{
+					ref: 'ab12cd',
+					sessionId: 's',
+					title: 'proj',
+					state: 'idle',
+					mode: 'classify',
+					acceptsMessages: true,
+					folder: 'proj',
+					path: '~/proj',
+					named: false,
+					startedAt: 1_000,
+				},
+			],
+			{ now: 424_000 },
+		),
+	).toBe(
+		[
+			'Namzu sessions (1):',
+			'  [idle]  ·  (unnamed session)  ·  started 7m ago',
+			'      in ~/proj  ·  auto mode',
+			'',
+			'Sessions shown as (unnamed session) have no name of their own: /rename <name> in that terminal gives one others can message.',
+		].join('\n'),
+	)
 })
 
 it('acts, with no --mode, in the mode a new terminal here starts in', () => {
@@ -356,16 +371,16 @@ const run = (h: ReturnType<typeof harness>, args: string[]) => {
 	return executePeers(parsed, h.deps, h.io)
 }
 
-it('lists every machine when the network runs, and only this folder when it does not', async () => {
+it('lists every machine when the network runs, and every folder of this computer when it does not', async () => {
 	const on = harness()
 	expect(await run(on, ['list'])).toBe(EXIT_OK)
-	expect(on.out[0]?.text).toContain('studio-air · this machine · online')
-	expect(on.out[0]?.text).toContain('calm-heron')
+	expect(on.out[0]?.text).toContain('Namzu sessions (1):')
+	expect(on.out[0]?.text).toContain('[idle]  ·  calm-heron')
 	expect(on.out[0]?.value).toHaveProperty('machines')
 	on.done()
 	const off = harness({}, false)
 	expect(await run(off, ['list'])).toBe(EXIT_OK)
-	expect(off.out[0]?.text).toBe('No live terminals in this project.')
+	expect(off.out[0]?.text).toBe('No Namzu sessions are running.')
 	expect(off.out[0]?.value).not.toHaveProperty('machines')
 	off.done()
 })
@@ -376,7 +391,7 @@ it('tells a machine that was removed why its list has no machines', async () => 
 		summary: async () => summary({ state: 'removed', removed: true, members: 0 }),
 	})
 	expect(await run(removed, ['list'])).toBe(EXIT_OK)
-	expect(removed.out[0]?.text).toContain('No live terminals in this project.')
+	expect(removed.out[0]?.text).toContain('No Namzu sessions are running.')
 	expect(removed.out[0]?.text).toContain('This machine was removed from your Namzu network')
 	expect(removed.out[0]?.value).toMatchObject({ network: { state: 'removed', removed: true } })
 	removed.done()
@@ -554,7 +569,7 @@ it('sends to a session on another machine, and a message held there exits 4', as
 	for (const h of [queued, held, refused, unknown]) h.done()
 })
 
-it('sends from a command line to a terminal in the same folder first, and to the network when it is not one', async () => {
+it('sends from a command line to a terminal on this computer first, and to the network when it is not one', async () => {
 	const h = harness({ send: async () => ({ status: 'queued', id: 'm1' }) })
 	const parsed = parsePeersArgs(['send', 'swift-finch', 'hello'])
 	if ('error' in parsed) throw new Error('parse')
@@ -564,7 +579,7 @@ it('sends from a command line to a terminal in the same folder first, and to the
 	// Without a running network the old words stay.
 	const off = harness({}, false)
 	expect(await run(off, ['send', 'swift-finch', 'hello'])).toBe(EXIT_FAIL)
-	expect(off.out[0]?.text).toContain('No matching terminal in this project')
+	expect(off.out[0]?.text).toContain('No matching terminal on this computer')
 	h.done()
 	off.done()
 })
@@ -646,6 +661,13 @@ it('trusts a network on allow, lists trusted networks, renames and removes one',
 	const off = harness({}, false)
 	expect(await run(off, ['untrust', 'Home'])).toBe(EXIT_UNAVAILABLE)
 	off.done()
+})
+
+it('prints a help entry that starts with its list label', async () => {
+	const { peersCommand } = await import('./peers.js')
+	const help = String(peersCommand.help)
+	expect(help).toMatch(/^list {4}Every live Namzu session here, one counted list/m)
+	expect(help).not.toMatch(/^\s+\[state\]/m)
 })
 
 it('same computer reset is a keyword command that deletes the shared secret through the home it runs in', async () => {
