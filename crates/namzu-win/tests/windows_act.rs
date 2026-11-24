@@ -48,7 +48,7 @@ const ID_EDIT: usize = 104;
 const EN_CHANGE: usize = 0x0300;
 
 /// What reached the window, and a signal for the test to wake on.
-#[derive(Default, Debug)]
+#[derive(Default)]
 struct Seen {
     invoked: u32,
     checked: u32,
@@ -421,13 +421,6 @@ fn the_helper_acts_on_a_real_window() {
         let _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
     }
     let window = TestWindow::open();
-    // DIAGNOSTIC (temporary): say where a hang is, then end the process.
-    std::thread::spawn(move || {
-        std::thread::sleep(std::time::Duration::from_secs(100));
-        use std::io::Write;
-        let _ = writeln!(std::io::stderr(), "WATCHDOG seen={:?}", *seen());
-        std::process::exit(3);
-    });
     let mut h = Helper::start();
     hello(&mut h);
 
