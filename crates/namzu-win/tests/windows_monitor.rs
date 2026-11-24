@@ -40,7 +40,7 @@ use windows::Win32::UI::Input::{
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GWL_EXSTYLE, GetClassNameW,
-    GetMessageW, GetWindowDisplayAffinity, GetWindowLongPtrW, GetWindowRect,
+    GetForegroundWindow, GetMessageW, GetWindowDisplayAffinity, GetWindowLongPtrW, GetWindowRect,
     GetWindowThreadProcessId, IsWindowVisible, MSG, PostThreadMessageW, RegisterClassExW,
     TranslateMessage, WDA_NONE, WINDOW_EX_STYLE, WM_QUIT, WNDCLASSEXW, WS_EX_APPWINDOW,
     WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TRANSPARENT, WS_OVERLAPPEDWINDOW,
@@ -165,8 +165,13 @@ fn poll_until(
             return p;
         }
         if started.elapsed() > WAIT_BOUND {
+            // Everything the monitor has recorded, and which window is in front now.
+            let all = poll(h, None);
+            let front = unsafe { GetForegroundWindow() };
             panic!(
-                "HANG in section `{section}`: no such event after {WAIT_BOUND:?}; last poll reply: {p:?}"
+                "HANG in section `{section}`: no such event after {WAIT_BOUND:?}; last poll reply: {p:?}; \
+                 everything recorded: {all:?}; front window now: {:#x}",
+                front.0 as isize
             );
         }
         std::thread::sleep(std::time::Duration::from_millis(5));
@@ -323,7 +328,7 @@ fn the_monitor_sees_input_without_its_content_and_the_overlay_is_plain_to_captur
     };
     assert_eq!(end.inputs_during, Some(0));
 
-    eprintln!("section: foreground");
+    eprintln!("section: foreground (a = {}, b = {})", a.id(), b.id());
     // --- foreground changes arrive --------------------------------------------------
     let mark = poll(&mut h, None).seq;
     let want_b = b.id();
