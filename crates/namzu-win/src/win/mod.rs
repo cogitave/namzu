@@ -651,16 +651,15 @@ impl Inner {
             .ok_or_else(|| err(ErrorCode::NotFound, "no display"))?;
         let steps = input::plan(r, &desktop).map_err(|m| err(ErrorCode::BadRequest, m))?;
         let in_lease = locked(&self.lease).is_some();
+        let start = foreground::tick();
         if !in_lease {
-            self.mark_own(Some(OwnTicks {
-                start: foreground::tick(),
-                end: None,
-            }));
+            self.mark_own(Some(OwnTicks { start, end: None }));
         }
         let sent = sendinput::send(&steps);
         if !in_lease {
+            // The guard of `own` must be gone before `mark_own` locks it again.
             self.mark_own(Some(OwnTicks {
-                start: locked(&self.own).map_or_else(foreground::tick, |o| o.start),
+                start,
                 end: Some(foreground::tick()),
             }));
         }
