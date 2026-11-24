@@ -16,20 +16,16 @@
  * @experimental
  */
 
-import { existsSync } from "node:fs";
-import { readFile, rename, rm } from "node:fs/promises";
-import { join } from "node:path";
-import { z } from "zod";
-import { hardenPeerRuntimeDir } from "../peers/dir.js";
-import { atomicWriteFile } from "../utils/atomic-write.js";
-import {
-	type MachineKey,
-	exportMachineKeyPem,
-	importMachineKeyPem,
-} from "./identity.js";
-import { AdmissionSchema, RevocationSchema } from "./membership.js";
+import { existsSync } from 'node:fs'
+import { readFile, rename, rm } from 'node:fs/promises'
+import { join } from 'node:path'
+import { z } from 'zod'
+import { hardenPeerRuntimeDir } from '../peers/dir.js'
+import { atomicWriteFile } from '../utils/atomic-write.js'
+import { type MachineKey, exportMachineKeyPem, importMachineKeyPem } from './identity.js'
+import { AdmissionSchema, RevocationSchema } from './membership.js'
 
-const FILE_MODE = 0o600;
+const FILE_MODE = 0o600
 
 export const MachineFileSchema = z
 	.object({
@@ -40,8 +36,8 @@ export const MachineFileSchema = z
 		listenPort: z.number().int().min(1).max(65535).optional(),
 		createdAt: z.number().int().nonnegative(),
 	})
-	.strict();
-export type MachineFile = z.infer<typeof MachineFileSchema>;
+	.strict()
+export type MachineFile = z.infer<typeof MachineFileSchema>
 
 export const NetworkFileSchema = z
 	.object({
@@ -50,8 +46,8 @@ export const NetworkFileSchema = z
 		founderPublicKey: z.string().min(1),
 		createdAt: z.number().int().nonnegative(),
 	})
-	.strict();
-export type NetworkFile = z.infer<typeof NetworkFileSchema>;
+	.strict()
+export type NetworkFile = z.infer<typeof NetworkFileSchema>
 
 export const MembersFileSchema = z
 	.object({
@@ -60,8 +56,8 @@ export const MembersFileSchema = z
 		members: z.array(AdmissionSchema),
 		revoked: z.array(RevocationSchema),
 	})
-	.strict();
-export type MembersFile = z.infer<typeof MembersFileSchema>;
+	.strict()
+export type MembersFile = z.infer<typeof MembersFileSchema>
 
 const AddressSchema = z
 	.object({
@@ -70,8 +66,8 @@ const AddressSchema = z
 		at: z.number().int().nonnegative(),
 		manual: z.boolean().optional(),
 	})
-	.strict();
-export type RememberedAddress = z.infer<typeof AddressSchema>;
+	.strict()
+export type RememberedAddress = z.infer<typeof AddressSchema>
 
 export const PeersFileSchema = z
 	.object({
@@ -86,8 +82,8 @@ export const PeersFileSchema = z
 				.strict(),
 		),
 	})
-	.strict();
-export type PeersFile = z.infer<typeof PeersFileSchema>;
+	.strict()
+export type PeersFile = z.infer<typeof PeersFileSchema>
 
 export const SessionRolesFileSchema = z
 	.object({
@@ -105,8 +101,8 @@ export const SessionRolesFileSchema = z
 			)
 			.max(64),
 	})
-	.strict();
-export type SessionRolesFile = z.infer<typeof SessionRolesFileSchema>;
+	.strict()
+export type SessionRolesFile = z.infer<typeof SessionRolesFileSchema>
 
 export const TrustedNetworksFileSchema = z
 	.object({
@@ -124,8 +120,8 @@ export const TrustedNetworksFileSchema = z
 			)
 			.max(64),
 	})
-	.strict();
-export type TrustedNetworksFile = z.infer<typeof TrustedNetworksFileSchema>;
+	.strict()
+export type TrustedNetworksFile = z.infer<typeof TrustedNetworksFileSchema>
 
 /**
  * The one request this machine has out to join a network, shared by every terminal of the machine: the
@@ -140,11 +136,11 @@ export const JoinAttemptFileSchema = z
 		nonce: z.string().min(1).max(64),
 		startedAt: z.number().int().nonnegative(),
 		/** Set once the other side answered or the ask ran out; absent while it waits. */
-		result: z.enum(["denied", "expired", "refused"]).optional(),
+		result: z.enum(['denied', 'expired', 'refused']).optional(),
 		endedAt: z.number().int().nonnegative().optional(),
 	})
-	.strict();
-export type JoinAttemptFile = z.infer<typeof JoinAttemptFileSchema>;
+	.strict()
+export type JoinAttemptFile = z.infer<typeof JoinAttemptFileSchema>
 
 /** Machines of this person's own computer that joined (or admitted this one) by proof; the roster marks them while the secret still reads. */
 export const SameComputerFileSchema = z
@@ -154,8 +150,8 @@ export const SameComputerFileSchema = z
 		fp: z.string().length(16).optional(),
 		machines: z.array(z.string().length(64)).max(64),
 	})
-	.strict();
-export type SameComputerFile = z.infer<typeof SameComputerFileSchema>;
+	.strict()
+export type SameComputerFile = z.infer<typeof SameComputerFileSchema>
 
 export const LeaderLockSchema = z
 	.object({
@@ -163,166 +159,156 @@ export const LeaderLockSchema = z
 		startedAt: z.number().int().nonnegative(),
 		port: z.number().int().min(0).max(65535),
 	})
-	.strict();
-export type LeaderLock = z.infer<typeof LeaderLockSchema>;
+	.strict()
+export type LeaderLock = z.infer<typeof LeaderLockSchema>
 
 export type ReadResult<T> =
-	| { readonly status: "ok"; readonly value: T }
-	| { readonly status: "missing" }
-	| { readonly status: "corrupt" };
+	| { readonly status: 'ok'; readonly value: T }
+	| { readonly status: 'missing' }
+	| { readonly status: 'corrupt' }
 
 export interface NetworkStoreOptions {
 	/** The Namzu home (`~/.namzu`). The store works in `<home>/network`. */
-	readonly home: string;
+	readonly home: string
 	/** Tighten the directory; the CLI supplies one that also restricts a Windows ACL. */
-	readonly hardenDirectory?: (path: string) => void;
-	readonly now?: () => number;
+	readonly hardenDirectory?: (path: string) => void
+	readonly now?: () => number
 }
 
 export interface NetworkStore {
-	readonly dir: string;
+	readonly dir: string
 	/** True when the directory exists: some network state may be there. */
-	exists(): boolean;
-	file(name: string): string;
-	readMachine(): Promise<ReadResult<MachineFile>>;
-	writeMachine(value: MachineFile): Promise<void>;
-	readKey(): Promise<ReadResult<MachineKey>>;
-	writeKey(key: MachineKey): Promise<void>;
-	readCertificate(): Promise<string | undefined>;
-	writeCertificate(pem: string): Promise<void>;
-	readNetwork(): Promise<ReadResult<NetworkFile>>;
-	writeNetwork(value: NetworkFile): Promise<void>;
-	readMembers(): Promise<ReadResult<MembersFile>>;
-	writeMembers(value: MembersFile): Promise<void>;
-	readPeers(): Promise<ReadResult<PeersFile>>;
-	writePeers(value: PeersFile): Promise<void>;
-	readSessionRoles(): Promise<ReadResult<SessionRolesFile>>;
-	writeSessionRoles(value: SessionRolesFile): Promise<void>;
-	readTrustedNetworks(): Promise<ReadResult<TrustedNetworksFile>>;
-	writeTrustedNetworks(value: TrustedNetworksFile): Promise<void>;
-	readJoinAttempt(): Promise<ReadResult<JoinAttemptFile>>;
-	writeJoinAttempt(value: JoinAttemptFile): Promise<void>;
-	clearJoinAttempt(): Promise<void>;
-	readSameComputer(): Promise<ReadResult<SameComputerFile>>;
-	writeSameComputer(value: SameComputerFile): Promise<void>;
+	exists(): boolean
+	file(name: string): string
+	readMachine(): Promise<ReadResult<MachineFile>>
+	writeMachine(value: MachineFile): Promise<void>
+	readKey(): Promise<ReadResult<MachineKey>>
+	writeKey(key: MachineKey): Promise<void>
+	readCertificate(): Promise<string | undefined>
+	writeCertificate(pem: string): Promise<void>
+	readNetwork(): Promise<ReadResult<NetworkFile>>
+	writeNetwork(value: NetworkFile): Promise<void>
+	readMembers(): Promise<ReadResult<MembersFile>>
+	writeMembers(value: MembersFile): Promise<void>
+	readPeers(): Promise<ReadResult<PeersFile>>
+	writePeers(value: PeersFile): Promise<void>
+	readSessionRoles(): Promise<ReadResult<SessionRolesFile>>
+	writeSessionRoles(value: SessionRolesFile): Promise<void>
+	readTrustedNetworks(): Promise<ReadResult<TrustedNetworksFile>>
+	writeTrustedNetworks(value: TrustedNetworksFile): Promise<void>
+	readJoinAttempt(): Promise<ReadResult<JoinAttemptFile>>
+	writeJoinAttempt(value: JoinAttemptFile): Promise<void>
+	clearJoinAttempt(): Promise<void>
+	readSameComputer(): Promise<ReadResult<SameComputerFile>>
+	writeSameComputer(value: SameComputerFile): Promise<void>
 	/** Forget the network and the identity (a removed machine starts over). The audit log stays. */
-	reset(): Promise<void>;
+	reset(): Promise<void>
 }
 
 export function createNetworkStore(options: NetworkStoreOptions): NetworkStore {
-	const dir = join(options.home, "network");
-	const now = options.now ?? Date.now;
+	const dir = join(options.home, 'network')
+	const now = options.now ?? Date.now
 	const harden =
-		options.hardenDirectory ??
-		((path: string) => hardenPeerRuntimeDir(path, process.getuid?.()));
-	let hardened = false;
+		options.hardenDirectory ?? ((path: string) => hardenPeerRuntimeDir(path, process.getuid?.()))
+	let hardened = false
 	const ensure = () => {
-		if (hardened) return;
-		harden(dir);
-		hardened = true;
-	};
-	const file = (name: string) => join(dir, name);
+		if (hardened) return
+		harden(dir)
+		hardened = true
+	}
+	const file = (name: string) => join(dir, name)
 
 	async function setAside(path: string): Promise<void> {
-		await rename(path, `${path}.corrupt-${now()}`).catch(() => undefined);
+		await rename(path, `${path}.corrupt-${now()}`).catch(() => undefined)
 	}
 
 	async function readText(path: string): Promise<string | undefined> {
 		try {
-			return await readFile(path, "utf8");
+			return await readFile(path, 'utf8')
 		} catch {
-			return undefined;
+			return undefined
 		}
 	}
 
-	async function readJson<T>(
-		name: string,
-		schema: z.ZodType<T>,
-	): Promise<ReadResult<T>> {
-		const path = file(name);
-		const text = await readText(path);
-		if (text === undefined) return { status: "missing" };
+	async function readJson<T>(name: string, schema: z.ZodType<T>): Promise<ReadResult<T>> {
+		const path = file(name)
+		const text = await readText(path)
+		if (text === undefined) return { status: 'missing' }
 		try {
-			const parsed = schema.safeParse(JSON.parse(text));
-			if (parsed.success) return { status: "ok", value: parsed.data };
+			const parsed = schema.safeParse(JSON.parse(text))
+			if (parsed.success) return { status: 'ok', value: parsed.data }
 		} catch {
 			// fall through to corrupt
 		}
-		await setAside(path);
-		return { status: "corrupt" };
+		await setAside(path)
+		return { status: 'corrupt' }
 	}
 
 	async function writeJson(name: string, value: unknown): Promise<void> {
-		ensure();
+		ensure()
 		await atomicWriteFile(file(name), `${JSON.stringify(value, null, 2)}\n`, {
 			mode: FILE_MODE,
-		});
+		})
 	}
 
 	return {
 		dir,
 		exists: () => existsSync(dir),
 		file,
-		readMachine: () => readJson("machine.json", MachineFileSchema),
-		writeMachine: (v) => writeJson("machine.json", MachineFileSchema.parse(v)),
+		readMachine: () => readJson('machine.json', MachineFileSchema),
+		writeMachine: (v) => writeJson('machine.json', MachineFileSchema.parse(v)),
 		async readKey() {
-			const path = file("machine.key.pem");
-			const text = await readText(path);
-			if (text === undefined) return { status: "missing" };
+			const path = file('machine.key.pem')
+			const text = await readText(path)
+			if (text === undefined) return { status: 'missing' }
 			try {
-				return { status: "ok", value: importMachineKeyPem(text) };
+				return { status: 'ok', value: importMachineKeyPem(text) }
 			} catch {
-				await setAside(path);
-				return { status: "corrupt" };
+				await setAside(path)
+				return { status: 'corrupt' }
 			}
 		},
 		async writeKey(key) {
-			ensure();
-			await atomicWriteFile(file("machine.key.pem"), exportMachineKeyPem(key), {
+			ensure()
+			await atomicWriteFile(file('machine.key.pem'), exportMachineKeyPem(key), {
 				mode: FILE_MODE,
-			});
+			})
 		},
-		readCertificate: () => readText(file("machine.cert.pem")),
+		readCertificate: () => readText(file('machine.cert.pem')),
 		async writeCertificate(pem) {
-			ensure();
-			await atomicWriteFile(file("machine.cert.pem"), pem, { mode: FILE_MODE });
+			ensure()
+			await atomicWriteFile(file('machine.cert.pem'), pem, { mode: FILE_MODE })
 		},
-		readNetwork: () => readJson("network.json", NetworkFileSchema),
-		writeNetwork: (v) => writeJson("network.json", NetworkFileSchema.parse(v)),
-		readMembers: () => readJson("members.json", MembersFileSchema),
-		writeMembers: (v) => writeJson("members.json", MembersFileSchema.parse(v)),
-		readPeers: () => readJson("peers.json", PeersFileSchema),
-		writePeers: (v) => writeJson("peers.json", PeersFileSchema.parse(v)),
-		readSessionRoles: () =>
-			readJson("session-roles.json", SessionRolesFileSchema),
-		writeSessionRoles: (v) =>
-			writeJson("session-roles.json", SessionRolesFileSchema.parse(v)),
-		readTrustedNetworks: () =>
-			readJson("trusted-networks.json", TrustedNetworksFileSchema),
+		readNetwork: () => readJson('network.json', NetworkFileSchema),
+		writeNetwork: (v) => writeJson('network.json', NetworkFileSchema.parse(v)),
+		readMembers: () => readJson('members.json', MembersFileSchema),
+		writeMembers: (v) => writeJson('members.json', MembersFileSchema.parse(v)),
+		readPeers: () => readJson('peers.json', PeersFileSchema),
+		writePeers: (v) => writeJson('peers.json', PeersFileSchema.parse(v)),
+		readSessionRoles: () => readJson('session-roles.json', SessionRolesFileSchema),
+		writeSessionRoles: (v) => writeJson('session-roles.json', SessionRolesFileSchema.parse(v)),
+		readTrustedNetworks: () => readJson('trusted-networks.json', TrustedNetworksFileSchema),
 		writeTrustedNetworks: (v) =>
-			writeJson("trusted-networks.json", TrustedNetworksFileSchema.parse(v)),
-		readJoinAttempt: () => readJson("join-attempt.json", JoinAttemptFileSchema),
-		writeJoinAttempt: (v) =>
-			writeJson("join-attempt.json", JoinAttemptFileSchema.parse(v)),
-		clearJoinAttempt: () => rm(file("join-attempt.json"), { force: true }),
-		readSameComputer: () =>
-			readJson("same-computer.json", SameComputerFileSchema),
-		writeSameComputer: (v) =>
-			writeJson("same-computer.json", SameComputerFileSchema.parse(v)),
+			writeJson('trusted-networks.json', TrustedNetworksFileSchema.parse(v)),
+		readJoinAttempt: () => readJson('join-attempt.json', JoinAttemptFileSchema),
+		writeJoinAttempt: (v) => writeJson('join-attempt.json', JoinAttemptFileSchema.parse(v)),
+		clearJoinAttempt: () => rm(file('join-attempt.json'), { force: true }),
+		readSameComputer: () => readJson('same-computer.json', SameComputerFileSchema),
+		writeSameComputer: (v) => writeJson('same-computer.json', SameComputerFileSchema.parse(v)),
 		async reset() {
 			for (const name of [
-				"machine.json",
-				"machine.key.pem",
-				"machine.cert.pem",
-				"network.json",
-				"members.json",
-				"peers.json",
-				"session-roles.json",
-				"join-attempt.json",
-				"same-computer.json",
+				'machine.json',
+				'machine.key.pem',
+				'machine.cert.pem',
+				'network.json',
+				'members.json',
+				'peers.json',
+				'session-roles.json',
+				'join-attempt.json',
+				'same-computer.json',
 			]) {
-				await rm(file(name), { force: true });
+				await rm(file(name), { force: true })
 			}
 		},
-	};
+	}
 }
