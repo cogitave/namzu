@@ -1,0 +1,7 @@
+# `stable` rather than a number: CI and a developer machine both resolve it to
+# whatever stable they have (the lane that added this file ran on 1.99.1).
+# `rust-version` in Cargo.toml is the oldest compiler the code is written for.
+[toolchain]
+channel = "stable"
+components = ["rustfmt", "clippy"]
+profile = "minimal"

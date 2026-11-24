@@ -1,0 +1,17 @@
+[package]
+name = "namzu-win"
+description = "The native Windows helper for Namzu computer use: speaks namzu-win/1 over stdio."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+namzu-win-core = { path = "../namzu-win-core" }
+serde_json.workspace = true
+
+[[bin]]
+name = "namzu-win"
+path = "src/main.rs"

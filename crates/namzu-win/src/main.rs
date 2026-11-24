@@ -1,0 +1,17 @@
+//! `namzu-win`: the native Windows helper. Reads requests on stdin, writes
+//! replies on stdout, ends when stdin closes or on `quit`.
+
+use std::io::{self, BufReader};
+use std::process::ExitCode;
+
+fn main() -> ExitCode {
+    let stdin = BufReader::new(io::stdin().lock());
+    let stdout = io::stdout().lock();
+    match namzu_win::run(stdin, stdout, namzu_win::BuildInfo::current()) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(e) => {
+            eprintln!("namzu-win: {e}");
+            ExitCode::FAILURE
+        }
+    }
+}

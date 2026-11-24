@@ -47,6 +47,7 @@ The kernel.
 
 * [The computer_use tool](computer-actions.md) - Fitted, numbered screenshots and the coordinate contract, a screenshot after every action, batches, zoom, wait, windows, provider gating and exact per-host action declarations.
 * [The computer-use host contract](computer-use-host.md) - Physical pixels at the host boundary, the display a capture shows, and the optional window, region-capture and accessibility-tree methods behind their capability flags.
+* [The native Windows helper](native-windows-helper.md) - namzu-win, the compiled helper that replaces the PowerShell scripts behind Windows computer use: its namzu-win/1 line protocol, refs, fingerprints, key names, DPI math, conformance vectors and CI.
 * [The foreground ladder](foreground-ladder.md) - How computer use takes the user's screen when background delivery is impossible: idle gate, screen lease, watched burst, conditional restore, the one question, the Escape stop and security refusals, with every threshold.
 * [Local Pal computers](local-pal-computer.md) - Persistent local container desktops with Pal-owned volumes, authenticated guest control, explicit installation and shared SDK admission.
 * [Code analysis](code-analysis.md) - The code_analysis tool and CodeAnalysisProvider: a paged, cited index of JavaScript and TypeScript that finds a string, the function around it, its source and its callers, with observed, inferred and coverage evidence.

@@ -42,3 +42,4 @@ AGENTS.local.md
 # Extension signing keys: never tracked (tests make ephemeral ones)
 dev-keys/
 *.private.pem
+/target/

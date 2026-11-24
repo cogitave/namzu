@@ -1,0 +1,13 @@
+[package]
+name = "namzu-win-core"
+description = "The parts of the namzu-win helper that do not touch Windows: the namzu-win/1 line codec, the ref table, element fingerprints, key names and DPI math."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true

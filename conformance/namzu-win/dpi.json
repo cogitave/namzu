@@ -1,0 +1,47 @@
+{
+"about": "pixels. scale: dpi to scale (96 dpi is 1; 0 is a failed query and counts as 1). monitors: three monitors side by side in virtual-desktop physical pixels, with virtualBounds their union. at: the monitor a point is on (null: none) and the nearest one. logical: a physical point to logical pixels from its monitor corner and back. absolute: the 0..65535 SendInput coordinates of a point on the virtual desktop, clamped. scaledRect: a rectangle times a factor, edges rounded.",
+"scale": [
+{"dpi":96,"scale":1},
+{"dpi":120,"scale":1.25},
+{"dpi":144,"scale":1.5},
+{"dpi":168,"scale":1.75},
+{"dpi":192,"scale":2},
+{"dpi":288,"scale":3},
+{"dpi":0,"scale":1}
+],
+"monitors": [
+{"id":"left","bounds":{"x":-1920,"y":0,"width":1920,"height":1080},"dpi":96},
+{"id":"main","bounds":{"x":0,"y":0,"width":3840,"height":2160},"dpi":192},
+{"id":"right","bounds":{"x":3840,"y":200,"width":2400,"height":1350},"dpi":144}
+],
+"virtualBounds": {"x":-1920,"y":0,"width":8160,"height":2160},
+"at": [
+{"point":{"x":0,"y":0},"monitor":"main","nearest":"main"},
+{"point":{"x":-1,"y":0},"monitor":"left","nearest":"left"},
+{"point":{"x":-1920,"y":1079},"monitor":"left","nearest":"left"},
+{"point":{"x":3839,"y":2159},"monitor":"main","nearest":"main"},
+{"point":{"x":3840,"y":150},"monitor":null,"nearest":"main"},
+{"point":{"x":3840,"y":200},"monitor":"right","nearest":"right"},
+{"point":{"x":-1920,"y":1080},"monitor":null,"nearest":"left"},
+{"point":{"x":9000,"y":9000},"monitor":null,"nearest":"right"},
+{"point":{"x":-5000,"y":10},"monitor":null,"nearest":"left"}
+],
+"logical": [
+{"point":{"x":200,"y":100},"monitor":"main","logical":{"x":100,"y":50}},
+{"point":{"x":-100,"y":40},"monitor":"left","logical":{"x":1820,"y":40}},
+{"point":{"x":3990,"y":350},"monitor":"right","logical":{"x":100,"y":100}}
+],
+"absolute": [
+{"point":{"x":-1920,"y":0},"abs":{"x":0,"y":0}},
+{"point":{"x":6239,"y":2159},"abs":{"x":65535,"y":65535}},
+{"point":{"x":0,"y":1080},"abs":{"x":15422,"y":32783}},
+{"point":{"x":1000,"y":500},"abs":{"x":23454,"y":15177}},
+{"point":{"x":99999,"y":-99},"abs":{"x":65535,"y":0}},
+{"point":{"x":-99999,"y":99999},"abs":{"x":0,"y":65535}}
+],
+"scaledRect": [
+{"rect":{"x":10,"y":20,"width":30,"height":40},"factor":1.5,"scaled":{"x":15,"y":30,"width":45,"height":60}},
+{"rect":{"x":-10,"y":5,"width":25,"height":25},"factor":2,"scaled":{"x":-20,"y":10,"width":50,"height":50}},
+{"rect":{"x":1,"y":1,"width":1,"height":1},"factor":1.25,"scaled":{"x":1,"y":1,"width":2,"height":2}}
+]
+}
