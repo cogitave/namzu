@@ -24,6 +24,7 @@ export function networkSettings(config: NetworkConfig | undefined): NetworkSetti
 		enabled: config?.enabled ?? 'auto',
 		acceptMail: config?.acceptMail ?? 'members',
 		autoAdmit: config?.autoAdmit ?? 'trusted-networks',
+		sameComputer: config?.sameComputer ?? true,
 		...(config?.machineName ? { machineName: config.machineName } : {}),
 	}
 }

@@ -192,6 +192,11 @@ export interface NetworkConfig {
 	 * join), `never` to be asked every time.
 	 */
 	readonly autoAdmit?: 'trusted-networks' | 'always' | 'never'
+	/**
+	 * Whether another Namzu of yours on this same computer joins without asking: it must prove it holds this
+	 * computer's secret (see `namzu peers same computer`). Default true; `false` asks for each one.
+	 */
+	readonly sameComputer?: boolean
 }
 
 /** Release channel the background updater follows. */

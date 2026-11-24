@@ -27,6 +27,16 @@ import { z } from 'zod'
 import { type AuditEntry, type AuditSink, createFileAuditSink, textHash } from './audit.js'
 import { type NetworkClock, systemClock } from './clock.js'
 import {
+	type ComputerSecretSource,
+	computerJoinProof,
+	computerMemberProof,
+	computerSecretFingerprint,
+	ensureComputerSecret,
+	readComputerSecret,
+	verifyComputerJoinProof,
+	verifyComputerMemberProof,
+} from './computer.js'
+import {
 	type DiscoveredEndpoint,
 	type ListenAddress,
 	type NetworkDiscovery,
@@ -36,6 +46,7 @@ import {
 import { createNetworkIdentity, createSystemGatewayReader } from './fingerprint.js'
 import { type MachineKey, generateMachineKey, machineIdOf, shortMachineId } from './identity.js'
 import {
+	JOIN_ADDRESS_WINDOW_MS,
 	JOIN_BACKOFF_DENIED_MS,
 	JOIN_BACKOFF_OTHER_MS,
 	JOIN_EXPIRY_MS,
@@ -112,6 +123,8 @@ export const FRESH_NETWORK_MS = 60_000
 export const INTERFACE_RECHECK_MS = 30_000
 export const ROSTER_FRESH_MS = 15_000
 const MAX_NEARBY_NETWORKS = 8
+/** Wrong computer proofs one address may send in a join window before its proofs are no longer checked. */
+const MAX_PROOF_FAILURES = 5
 
 /** A message from a session on another machine, as the host receives it. */
 export interface RemoteMail {
@@ -136,7 +149,10 @@ export interface NetworkHost {
 	deliverLocal(
 		sessionRef: string,
 		mail: RemoteMail,
-	): Promise<{ readonly status: 'queued' | 'refused'; readonly reason?: string }>
+	): Promise<{
+		readonly status: 'queued' | 'refused'
+		readonly reason?: string
+	}>
 	/** Record a role on a local session; false when there is no such session. Never touches permissions. */
 	setLocalRole?(
 		sessionRef: string,
@@ -165,7 +181,11 @@ export interface HeldMail {
 }
 
 export type NetworkEvent =
-	| { readonly type: 'state'; readonly state: NetworkState; readonly reason?: string }
+	| {
+			readonly type: 'state'
+			readonly state: NetworkState
+			readonly reason?: string
+	  }
 	| { readonly type: 'founded'; readonly netId: string }
 	| {
 			readonly type: 'join-waiting'
@@ -173,7 +193,11 @@ export type NetworkEvent =
 			readonly shownCode: string
 			readonly endpoint: HostPort
 	  }
-	| { readonly type: 'joined'; readonly netId: string; readonly members: number }
+	| {
+			readonly type: 'joined'
+			readonly netId: string
+			readonly members: number
+	  }
 	| {
 			readonly type: 'join-ended'
 			readonly result: 'denied' | 'expired' | 'refused' | 'cancelled'
@@ -181,12 +205,12 @@ export type NetworkEvent =
 	  }
 	| { readonly type: 'join-request'; readonly request: PendingJoin }
 	| {
-			/** A join was admitted without asking, on a trusted network or because `network.autoAdmit` is `always`. */
+			/** A join was admitted without asking: a trusted network, `network.autoAdmit` `always`, or another home of the same person on this computer (`same-computer`, proven by the computer secret). */
 			readonly type: 'join-auto'
 			readonly requestId: string
 			readonly name: string
 			readonly machineId: string
-			readonly mode: 'trusted-network' | 'always'
+			readonly mode: 'trusted-network' | 'always' | 'same-computer'
 			/** The name of the trusted network, when that is why. */
 			readonly network?: string
 			readonly at: number
@@ -196,8 +220,16 @@ export type NetworkEvent =
 			readonly requestId: string
 			readonly result: 'allow' | 'deny' | 'expired'
 	  }
-	| { readonly type: 'member-added'; readonly machineId: string; readonly name?: string }
-	| { readonly type: 'member-removed'; readonly machineId: string; readonly name?: string }
+	| {
+			readonly type: 'member-added'
+			readonly machineId: string
+			readonly name?: string
+	  }
+	| {
+			readonly type: 'member-removed'
+			readonly machineId: string
+			readonly name?: string
+	  }
 	| { readonly type: 'removed-self' }
 	| { readonly type: 'nearby'; readonly networks: readonly string[] }
 	| { readonly type: 'held'; readonly mail: HeldMail }
@@ -259,6 +291,15 @@ export interface NetworkServiceOptions {
 	 * network, or never. Read at each request.
 	 */
 	readonly autoAdmit?: () => AutoAdmitSetting
+	/**
+	 * The computer secret this home may use (the host decides; see `resolveComputerSecret`). Absent: this home
+	 * never proves or accepts a same-computer join and asks like any other machine.
+	 */
+	readonly machineSecret?: ComputerSecretSource
+	/** Whether a proof of the same computer admits without asking. Read at each request; default true. */
+	readonly sameComputer?: () => boolean
+	/** Tighten a directory the service creates (the CLI's also restricts a Windows ACL). */
+	readonly hardenDirectory?: (path: string) => void
 	/** Which local network an address is on (see `fingerprint.ts`); undefined when unknown. Tests inject one. */
 	readonly networkIdentity?: (address: string) => Promise<string | undefined>
 	readonly audit?: AuditSink
@@ -307,6 +348,10 @@ const PeerEntrySchema = z
 const AdmittedFrameSchema = z
 	.object({
 		status: z.literal('admitted'),
+		/** Only when the member admitted this machine on the computer proof. */
+		sameComputer: z.literal(true).optional(),
+		/** The member's counter-proof (base64 HMAC, 44 characters); the joiner marks the member only when it verifies. */
+		computerMemberProof: z.string().length(44).optional(),
 		netId: z.string().length(16).optional(),
 		admissions: z.array(AdmissionSchema).max(MAX_MEMBERS * 2),
 		revocations: z.array(RevocationSchema).max(MAX_MEMBERS * 2),
@@ -314,10 +359,17 @@ const AdmittedFrameSchema = z
 	})
 	.strict()
 const PendingFrameSchema = z
-	.object({ status: z.literal('pending'), nonce: z.string(), netId: z.string().length(16) })
+	.object({
+		status: z.literal('pending'),
+		nonce: z.string(),
+		netId: z.string().length(16),
+	})
 	.strict()
 const EndFrameSchema = z
-	.object({ status: z.enum(['denied', 'expired', 'refused']), reason: z.string().optional() })
+	.object({
+		status: z.enum(['denied', 'expired', 'refused']),
+		reason: z.string().optional(),
+	})
 	.strict()
 const HelloReplySchema = z
 	.object({
@@ -326,7 +378,10 @@ const HelloReplySchema = z
 	})
 	.strict()
 const SyncReplySchema = z
-	.object({ admissions: z.array(AdmissionSchema), revocations: z.array(RevocationSchema) })
+	.object({
+		admissions: z.array(AdmissionSchema),
+		revocations: z.array(RevocationSchema),
+	})
 	.strict()
 /** Words from another machine that reach a screen or a model: no control characters, one line, short. */
 function cleanReason(value: string | undefined): string | undefined {
@@ -383,11 +438,18 @@ export interface NetworkService {
 	setRole(
 		target: { readonly machineId: string; readonly sessionRef?: string },
 		role: string | null,
-	): Promise<{ readonly status: 'applied' | 'refused'; readonly reason?: string }>
+	): Promise<{
+		readonly status: 'applied' | 'refused'
+		readonly reason?: string
+	}>
 	send(
 		target: { readonly machineId: string; readonly sessionRef: string },
 		text: string,
-		from: { readonly sessionRef: string; readonly sessionName: string; readonly mode: string },
+		from: {
+			readonly sessionRef: string
+			readonly sessionName: string
+			readonly mode: string
+		},
 		options?: { readonly inReplyTo?: string; readonly hops?: number },
 	): Promise<{
 		readonly id: string
@@ -459,7 +521,10 @@ export function createNamzuNetwork(options: NetworkServiceOptions): NetworkServi
 	const store = options.store ?? createNetworkStore({ home: options.home })
 	const audit: AuditSink =
 		options.audit ??
-		createFileAuditSink({ dir: store.dir, report: (m) => options.host.report?.(m) })
+		createFileAuditSink({
+			dir: store.dir,
+			report: (m) => options.host.report?.(m),
+		})
 	const discovery = options.discovery
 	const host = options.host
 	const platform = options.platform ?? osPlatform()
@@ -483,6 +548,15 @@ export function createNamzuNetwork(options: NetworkServiceOptions): NetworkServi
 	const peerState = new Map<string, PeerState>()
 	const nearby = new Map<string, DiscoveredEndpoint[]>()
 	const pendingConns = new Map<string, ServerContext>()
+	/** Requests admitted by the computer proof: their `admitted` frame says so. */
+	const proven = new Set<string>()
+	const unavailableSeen = new Set<string>()
+	/** Machines of this computer, by proof, in either direction. */
+	let sameComputerIds: Set<string> | undefined
+	let sameComputerFp: string | undefined
+	/** Failed proofs per source address: past a few in a minute the proof is no longer even checked. */
+	const proofFailures = new Map<string, { at: number; count: number }>()
+	const mismatchSeen = new Set<string>()
 	/** Cancels for the timers of requests whose connection dropped. */
 	const orphanTimers = new Map<string, () => void>()
 	/** What a waiting request was made of, so the same machine asking again with the same nonce gets the same code. */
@@ -492,7 +566,13 @@ export function createNamzuNetwork(options: NetworkServiceOptions): NetworkServi
 	>()
 	const sent = new Map<
 		string,
-		{ machineId: string; at: number; session: string; bytes: number; textHash: string }
+		{
+			machineId: string
+			at: number
+			session: string
+			bytes: number
+			textHash: string
+		}
 	>()
 	const seenMail: string[] = []
 	const inFlight = new Set<string>()
@@ -563,7 +643,11 @@ export function createNamzuNetwork(options: NetworkServiceOptions): NetworkServi
 		const names = new Set(list.map((n) => n.name.toLowerCase()))
 		let n = list.length + 1
 		while (names.has(`network ${n}`)) n++
-		return { id, ...(known ? { trusted: known.name } : {}), suggestedName: `Network ${n}` }
+		return {
+			id,
+			...(known ? { trusted: known.name } : {}),
+			suggestedName: `Network ${n}`,
+		}
 	}
 
 	async function trustNetwork(address: string, name?: string): Promise<TrustedNetwork> {
@@ -630,7 +714,10 @@ export function createNamzuNetwork(options: NetworkServiceOptions): NetworkServi
 	async function untrustNetwork(query: string): Promise<TrustedNetwork> {
 		const list = await trustedList()
 		const gone = findTrusted(list, query)
-		await store.writeTrustedNetworks({ v: 1, networks: list.filter((n) => n.id !== gone.id) })
+		await store.writeTrustedNetworks({
+			v: 1,
+			networks: list.filter((n) => n.id !== gone.id),
+		})
 		logAudit({ event: 'network_untrusted', reason: gone.name })
 		return gone
 	}
@@ -660,7 +747,11 @@ export function createNamzuNetwork(options: NetworkServiceOptions): NetworkServi
 				event: 'join_expired',
 				machine: { id12: entry.viaMachineId.slice(0, 12), name: entry.name },
 			})
-			emit({ type: 'join-settled', requestId: entry.requestId, result: 'expired' })
+			emit({
+				type: 'join-settled',
+				requestId: entry.requestId,
+				result: 'expired',
+			})
 		},
 	})
 	const heldQueue = new HoldQueue<HeldMail>({
@@ -677,8 +768,16 @@ export function createNamzuNetwork(options: NetworkServiceOptions): NetworkServi
 			void notifySender(mail, 'expired', 'The message was not answered in time and has expired.')
 		},
 	})
-	const mailBuckets = new TokenBuckets({ capacity: 30, refillPerSecond: 0.5, clock })
-	const roleBuckets = new TokenBuckets({ capacity: 6, refillPerSecond: 0.1, clock })
+	const mailBuckets = new TokenBuckets({
+		capacity: 30,
+		refillPerSecond: 0.5,
+		clock,
+	})
+	const roleBuckets = new TokenBuckets({
+		capacity: 6,
+		refillPerSecond: 0.1,
+		clock,
+	})
 	const pairs = new SlidingCounter(clock, 60_000)
 
 	const selfName = () => machine?.name ?? 'this machine'
@@ -707,9 +806,116 @@ export function createNamzuNetwork(options: NetworkServiceOptions): NetworkServi
 		if (m.status === 'ok' && m.value.machineId === key.machineId) {
 			machine = { ...m.value, name }
 		} else {
-			machine = { v: 1, machineId: key.machineId, name, createdAt: clock.now() }
+			machine = {
+				v: 1,
+				machineId: key.machineId,
+				name,
+				createdAt: clock.now(),
+			}
 		}
 		await store.writeMachine(machine)
+	}
+
+	// ─── the computer secret ───────────────────────────────────────────────
+
+	/** The secret, read afresh each time (a rotation or a loosened file takes effect at once). Never repaired. */
+	async function computerSecret(): Promise<Buffer | undefined> {
+		const source = options.machineSecret
+		if (!source) return undefined
+		const read = await readComputerSecret(source).catch(
+			() => ({ status: 'unsafe', reason: 'the secret cannot be read' }) as const,
+		)
+		if (read.status === 'ok') return read.secret
+		if (read.status === 'unsafe' && !unavailableSeen.has(read.reason)) {
+			unavailableSeen.add(read.reason)
+			logAudit({ event: 'same_computer_unavailable', reason: read.reason })
+		}
+		return undefined
+	}
+
+	async function ensureSecret(): Promise<void> {
+		const source = options.machineSecret
+		if (!source) return
+		try {
+			await ensureComputerSecret(source, options.hardenDirectory)
+		} catch {
+			// no secret: this home asks like any other
+		}
+	}
+
+	/** Remembered machines of the secret this home reads now; marks earned under another secret are not shown. */
+	async function sameComputerSet(secret: Buffer): Promise<Set<string>> {
+		if (!sameComputerIds || sameComputerFp !== computerSecretFingerprint(secret)) {
+			const fp = computerSecretFingerprint(secret)
+			const r = await store.readSameComputer().catch(() => undefined)
+			sameComputerFp = fp
+			sameComputerIds = new Set(r?.status === 'ok' && r.value.fp === fp ? r.value.machines : [])
+		}
+		return sameComputerIds
+	}
+
+	async function rememberSameComputer(machineId: string, secret: Buffer): Promise<void> {
+		const set = await sameComputerSet(secret)
+		if (set.has(machineId)) return
+		set.add(machineId)
+		await store
+			.writeSameComputer({
+				v: 1,
+				fp: computerSecretFingerprint(secret),
+				machines: [...set].slice(-64),
+			})
+			.catch(() => undefined)
+	}
+
+	/** Whether this request proves the joiner holds the computer secret, and the person allows acting on it. */
+	async function provesSameComputer(
+		request: Extract<NetRequest, { op: 'join_request' }>,
+		joinerId: string,
+		sourceAddress: string,
+	): Promise<boolean> {
+		if (request.computerProof === undefined) return false
+		const failed = proofFailures.get(sourceAddress)
+		if (
+			failed &&
+			clock.now() - failed.at < JOIN_ADDRESS_WINDOW_MS &&
+			failed.count >= MAX_PROOF_FAILURES
+		)
+			return false
+		if (options.sameComputer?.() === false) return false
+		if ((options.autoAdmit?.() ?? 'trusted-networks') === 'never') return false
+		const secret = await computerSecret()
+		if (!secret) return false
+		const ok = verifyComputerJoinProof(
+			secret,
+			request.computerProof,
+			joinerId,
+			selfId(),
+			request.nonce,
+		)
+		if (!ok) {
+			const now = clock.now()
+			const prev = proofFailures.get(sourceAddress)
+			proofFailures.set(sourceAddress, {
+				at: prev && now - prev.at < JOIN_ADDRESS_WINDOW_MS ? prev.at : now,
+				count: prev && now - prev.at < JOIN_ADDRESS_WINDOW_MS ? prev.count + 1 : 1,
+			})
+			if (proofFailures.size > 256)
+				proofFailures.delete(proofFailures.keys().next().value as string)
+			// One line per joiner and address, not one per request.
+			const seen = `${sourceAddress}|${joinerId}`
+			if (!mismatchSeen.has(seen)) {
+				if (mismatchSeen.size > 256) mismatchSeen.clear()
+				mismatchSeen.add(seen)
+				logAudit({
+					event: 'same_computer_mismatch',
+					machine: {
+						id12: shortMachineId(joinerId),
+						name: sanitizeName(request.machineName),
+					},
+				})
+			}
+		}
+		return ok
 	}
 
 	function defaultName(): string {
@@ -814,13 +1020,21 @@ export function createNamzuNetwork(options: NetworkServiceOptions): NetworkServi
 		await persistMembership()
 		for (const id of added) {
 			if (id !== selfId())
-				emit({ type: 'member-added', machineId: id, name: peerState.get(id)?.name })
+				emit({
+					type: 'member-added',
+					machineId: id,
+					name: peerState.get(id)?.name,
+				})
 		}
 		for (const id of removed) {
 			if (id === selfId()) continue
 			for (const l of netListeners) l.closeMachine(id)
 			logAudit({ event: 'removed', machine: who(id) })
-			emit({ type: 'member-removed', machineId: id, name: peerState.get(id)?.name })
+			emit({
+				type: 'member-removed',
+				machineId: id,
+				name: peerState.get(id)?.name,
+			})
 		}
 		if (!merged.members.has(selfId())) await handleSelfRemoved()
 		return added.length > 0 || removed.length > 0
@@ -1091,14 +1305,21 @@ export function createNamzuNetwork(options: NetworkServiceOptions): NetworkServi
 
 	async function advertise(): Promise<void> {
 		if (netId && port !== undefined) {
-			discovery.start({ netId, port, addresses: addresses.map((a) => a.address) })
+			discovery.start({
+				netId,
+				port,
+				addresses: addresses.map((a) => a.address),
+			})
 		}
 	}
 
 	async function found(): Promise<void> {
 		if (!key || netId) return
 		const founding = createFounding(key, clock.now())
-		const next = evaluateMembership({ admissions: [founding], revocations: [] })
+		const next = evaluateMembership({
+			admissions: [founding],
+			revocations: [],
+		})
 		netId = next.netId
 		foundedAt = clock.now()
 		adopt(next)
@@ -1130,7 +1351,10 @@ export function createNamzuNetwork(options: NetworkServiceOptions): NetworkServi
 				clock,
 			})
 			try {
-				const reply = (await client.request({ protocol: NET_PROTOCOL, op: 'ping_net' })) as {
+				const reply = (await client.request({
+					protocol: NET_PROTOCOL,
+					op: 'ping_net',
+				})) as {
 					netId?: unknown
 					ageMs?: unknown
 				}
@@ -1195,13 +1419,18 @@ export function createNamzuNetwork(options: NetworkServiceOptions): NetworkServi
 			return
 		}
 		await loadIdentity()
+		await ensureSecret()
 		await loadNetwork()
 		await startListeners(list)
 		logAudit({ event: 'network_on' })
 		offDiscovery.push(discovery.onFound(onEndpoint))
 		if (netId) {
 			setState('ready')
-			discovery.start({ netId, port: port as number, addresses: list.map((a) => a.address) })
+			discovery.start({
+				netId,
+				port: port as number,
+				addresses: list.map((a) => a.address),
+			})
 			for (const id of view?.members.keys() ?? []) {
 				if (id === selfId()) continue
 				void reconnect(id)
@@ -1337,17 +1566,52 @@ export function createNamzuNetwork(options: NetworkServiceOptions): NetworkServi
 		try {
 			client = await connectTo(endpoint, undefined).catch(() => undefined)
 			if (!client) {
-				client = await dialNet({ identity: tls, host: endpoint.host, port: endpoint.port, clock })
+				client = await dialNet({
+					identity: tls,
+					host: endpoint.host,
+					port: endpoint.port,
+					clock,
+				})
 			}
 			joinClient = client
 			joinEndpoint = endpoint
-			const first = await client.request({
-				protocol: NET_PROTOCOL,
-				op: 'join_request',
-				machineName: selfName(),
-				publicKey,
-				nonce,
-			})
+			const secret = await computerSecret()
+			const ask = (conn: NetClient, withProof: boolean) =>
+				conn.request({
+					protocol: NET_PROTOCOL,
+					op: 'join_request',
+					machineName: selfName(),
+					publicKey,
+					nonce,
+					...(withProof && secret
+						? {
+								computerProof: computerJoinProof(
+									secret,
+									key?.machineId as string,
+									conn.peer.machineId,
+									nonce,
+								),
+							}
+						: {}),
+				})
+			let first = await ask(client, true)
+			if (
+				secret &&
+				typeof first === 'object' &&
+				first !== null &&
+				(first as { error?: unknown }).error === 'bad_request'
+			) {
+				// An older member does not know the proof field and closed on it: ask again plainly.
+				client.close()
+				client = await dialNet({
+					identity: tls,
+					host: endpoint.host,
+					port: endpoint.port,
+					clock,
+				})
+				joinClient = client
+				first = await ask(client, false)
+			}
 			const pending = PendingFrameSchema.safeParse(first)
 			if (!pending.success) {
 				const reason = EndFrameSchema.safeParse(first)
@@ -1361,7 +1625,12 @@ export function createNamzuNetwork(options: NetworkServiceOptions): NetworkServi
 			}
 			target = pending.data.netId
 			const code = joinCode(key.machineId, client.peer.machineId, nonce, pending.data.nonce)
-			emit({ type: 'join-waiting', code, shownCode: formatJoinCode(code), endpoint })
+			emit({
+				type: 'join-waiting',
+				code,
+				shownCode: formatJoinCode(code),
+				endpoint,
+			})
 			let final: unknown
 			try {
 				final = await client.nextFrame()
@@ -1382,11 +1651,18 @@ export function createNamzuNetwork(options: NetworkServiceOptions): NetworkServi
 							: 'refused'
 					: 'refused'
 				await settle(result)
-				emit({ type: 'join-ended', result, reason: end.success ? end.data.reason : undefined })
+				emit({
+					type: 'join-ended',
+					result,
+					reason: end.success ? end.data.reason : undefined,
+				})
 				return result
 			}
 			const verdict = evaluateMembership(
-				{ admissions: admitted.data.admissions, revocations: admitted.data.revocations },
+				{
+					admissions: admitted.data.admissions,
+					revocations: admitted.data.revocations,
+				},
 				pending.data.netId,
 			)
 			if (verdict.netId !== pending.data.netId || !verdict.members.has(key.machineId)) {
@@ -1415,8 +1691,27 @@ export function createNamzuNetwork(options: NetworkServiceOptions): NetworkServi
 				})
 			}
 			remember(client.peer.machineId, endpoint)
+			// Mutual: the member's claim counts only with its own proof, so a machine that merely sets the flag is not marked.
+			if (
+				admitted.data.sameComputer === true &&
+				admitted.data.computerMemberProof !== undefined &&
+				secret &&
+				verifyComputerMemberProof(
+					secret,
+					admitted.data.computerMemberProof,
+					client.peer.machineId,
+					key.machineId,
+					nonce,
+					pending.data.nonce,
+				)
+			)
+				await rememberSameComputer(client.peer.machineId, secret)
 			setState('ready')
-			emit({ type: 'joined', netId: netId as string, members: verdict.members.size })
+			emit({
+				type: 'joined',
+				netId: netId as string,
+				members: verdict.members.size,
+			})
 			await advertise()
 			for (const id of verdict.members.keys()) if (id !== key.machineId) void reconnect(id)
 			return 'joined'
@@ -1451,17 +1746,31 @@ export function createNamzuNetwork(options: NetworkServiceOptions): NetworkServi
 
 	function peersForJoiner(): z.infer<typeof PeerEntrySchema>[] {
 		const out: z.infer<typeof PeerEntrySchema>[] = [
-			{ machineId: selfId(), name: selfName(), addresses: ourHostPorts().slice(0, 8) },
+			{
+				machineId: selfId(),
+				name: selfName(),
+				addresses: ourHostPorts().slice(0, 8),
+			},
 		]
 		for (const [id, p] of peerState) {
 			if (isMember(id) && id !== selfId())
-				out.push({ machineId: id, name: p.name, addresses: p.addresses.slice(0, 4) })
+				out.push({
+					machineId: id,
+					name: p.name,
+					addresses: p.addresses.slice(0, 4),
+				})
 		}
 		return out.slice(0, MAX_MEMBERS)
 	}
 
 	function admittedFrame() {
-		return { status: 'admitted', netId, admissions: adm, revocations: rev, peers: peersForJoiner() }
+		return {
+			status: 'admitted',
+			netId,
+			admissions: adm,
+			revocations: rev,
+			peers: peersForJoiner(),
+		}
 	}
 
 	function buildSelfRoster(): Roster {
@@ -1520,7 +1829,10 @@ export function createNamzuNetwork(options: NetworkServiceOptions): NetworkServi
 				peerState.set(peerId, p)
 				for (const a of request.addresses) remember(peerId, a)
 				void persistPeers()
-				return { machineName: selfName(), addresses: ourHostPorts().slice(0, 8) }
+				return {
+					machineName: selfName(),
+					addresses: ourHostPorts().slice(0, 8),
+				}
 			}
 			case 'members_sync': {
 				await mergeIn(request.admissions, request.revocations)
@@ -1531,7 +1843,11 @@ export function createNamzuNetwork(options: NetworkServiceOptions): NetworkServi
 				const earlier = joiners.findByJoiner(machineIdOf(Buffer.from(request.publicKey, 'base64')))
 				if (earlier && !earlier.local && earlier.requestId !== request.requestId) {
 					joiners.settle(earlier.requestId, 'deny')
-					emit({ type: 'join-settled', requestId: earlier.requestId, result: 'deny' })
+					emit({
+						type: 'join-settled',
+						requestId: earlier.requestId,
+						result: 'deny',
+					})
 				}
 				const created = joiners.addRemote({
 					requestId: request.requestId,
@@ -1567,10 +1883,16 @@ export function createNamzuNetwork(options: NetworkServiceOptions): NetworkServi
 		const joinerKey = Buffer.from(request.publicKey, 'base64')
 		const joinerId = machineIdOf(joinerKey)
 		if (joinerId !== ctx.peer.machineId)
-			return { status: 'refused', reason: 'The key does not match the connection.' }
+			return {
+				status: 'refused',
+				reason: 'The key does not match the connection.',
+			}
 		if (view.members.has(joinerId)) return { ...admittedFrame() }
 		if (view.removed.has(joinerId))
-			return { status: 'refused', reason: 'This machine was removed from the network.' }
+			return {
+				status: 'refused',
+				reason: 'This machine was removed from the network.',
+			}
 		// A machine has one request waiting, however many times it asks: the same ask again (same nonce,
 		// as when another terminal of that machine takes over) keeps the request and its code and only
 		// takes over the held connection; a different ask replaces the old one.
@@ -1587,29 +1909,44 @@ export function createNamzuNetwork(options: NetworkServiceOptions): NetworkServi
 		}
 		// A different ask is a new request and meets the same one-a-minute limit as any address; check
 		// before the old one is retired, so a refused ask leaves it standing.
-		if (joiners.tooSoon(ctx.sourceAddress))
+		// The proof is the only evidence of the same computer: no address, name or hint is read.
+		const same = await provesSameComputer(request, joinerId, ctx.sourceAddress).catch(() => false)
+		if (!same && joiners.tooSoon(ctx.sourceAddress))
 			return { status: 'refused', reason: 'Asked again too soon.' }
 		if (prior) retireJoin(prior)
-		const auto = await autoAdmitMode(ctx.sourceAddress).catch(() => undefined)
+		const auto:
+			| {
+					mode: 'trusted-network' | 'always' | 'same-computer'
+					network?: string
+			  }
+			| undefined = same
+			? { mode: 'same-computer' }
+			: await autoAdmitMode(ctx.sourceAddress).catch(() => undefined)
 		const nonceM = randomBytes(16).toString('base64')
 		const code = joinCode(joinerId, selfId(), request.nonce, nonceM)
 		const requestId = randomUUID()
-		const added = joiners.addLocal({
-			requestId,
-			name: sanitizeName(request.machineName),
-			code,
-			sourceAddr: ctx.sourceAddress,
-			viaMachineId: selfId(),
-			joinerMachineId: joinerId,
-			joinerPublicKey: request.publicKey,
-		})
+		const added = joiners.addLocal(
+			{
+				requestId,
+				name: sanitizeName(request.machineName),
+				code,
+				sourceAddr: ctx.sourceAddress,
+				viaMachineId: selfId(),
+				joinerMachineId: joinerId,
+				joinerPublicKey: request.publicKey,
+			},
+			same,
+		)
 		if (!added.ok)
 			return {
 				status: 'refused',
 				reason:
 					added.reason === 'rate' ? 'Asked again too soon.' : 'Too many requests are waiting.',
 			}
-		askNonces.set(requestId, { joinerNonce: request.nonce, memberNonce: nonceM })
+		askNonces.set(requestId, {
+			joinerNonce: request.nonce,
+			memberNonce: nonceM,
+		})
 		if (askNonces.size > 64)
 			for (const id of askNonces.keys()) if (!joiners.get(id)) askNonces.delete(id)
 		ctx.holdOpen()
@@ -1623,6 +1960,7 @@ export function createNamzuNetwork(options: NetworkServiceOptions): NetworkServi
 		})
 		if (auto) {
 			try {
+				if (auto.mode === 'same-computer') proven.add(requestId)
 				// Admitted without asking: nobody is shown a request, so the other members are not told of one.
 				emit({
 					type: 'join-auto',
@@ -1636,12 +1974,15 @@ export function createNamzuNetwork(options: NetworkServiceOptions): NetworkServi
 				await decideJoin(
 					requestId,
 					'allow',
-					auto.mode === 'always'
-						? 'automatically (network.autoAdmit is always)'
-						: `automatically (trusted network ${auto.network})`,
+					auto.mode === 'same-computer'
+						? 'automatically (same computer)'
+						: auto.mode === 'always'
+							? 'automatically (network.autoAdmit is always)'
+							: `automatically (trusted network ${auto.network})`,
 				)
 				return undefined
 			} catch {
+				proven.delete(requestId)
 				// fall through: the request waits for a person like any other
 			}
 		}
@@ -1710,7 +2051,11 @@ export function createNamzuNetwork(options: NetworkServiceOptions): NetworkServi
 	/** The name a joiner gave itself, so the members that let it in show it before its own greeting arrives. */
 	function rememberJoinerName(machineId: string, name: string): void {
 		if (peerState.has(machineId)) return
-		peerState.set(machineId, { name: sanitizeName(name), addresses: [], online: false })
+		peerState.set(machineId, {
+			name: sanitizeName(name),
+			addresses: [],
+			online: false,
+		})
 	}
 
 	async function handleJoinDecision(
@@ -1730,7 +2075,11 @@ export function createNamzuNetwork(options: NetworkServiceOptions): NetworkServi
 				rememberJoinerName(request.admission.machineId, entry.name)
 				await mergeIn([request.admission], [])
 			}
-			emit({ type: 'join-settled', requestId: request.requestId, result: request.decision })
+			emit({
+				type: 'join-settled',
+				requestId: request.requestId,
+				result: request.decision,
+			})
 			return { ok: true }
 		}
 		if (joiners.decide(request.requestId, request.decision) !== 'ok')
@@ -1740,34 +2089,69 @@ export function createNamzuNetwork(options: NetworkServiceOptions): NetworkServi
 		if (request.decision === 'allow') {
 			const a = request.admission
 			if (!a || a.machineId !== entry.joinerMachineId || a.admittedBy !== from) {
-				conn?.write({ status: 'refused', reason: 'The admission did not match the request.' })
+				conn?.write({
+					status: 'refused',
+					reason: 'The admission did not match the request.',
+				})
 				conn?.close()
 				return { ok: false }
 			}
 			rememberJoinerName(a.machineId, entry.name)
 			await mergeIn([a], [])
 			if (!isMember(a.machineId)) {
-				conn?.write({ status: 'refused', reason: 'The admission did not check out.' })
+				conn?.write({
+					status: 'refused',
+					reason: 'The admission did not check out.',
+				})
 				conn?.close()
 				return { ok: false }
 			}
-			conn?.write(admittedFrame())
+			const memberSecret = proven.has(request.requestId) ? await computerSecret() : undefined
+			const asked = askNonces.get(request.requestId)
+			if (memberSecret) await rememberSameComputer(a.machineId, memberSecret)
+			conn?.write(
+				memberSecret && asked
+					? {
+							...admittedFrame(),
+							sameComputer: true as const,
+							computerMemberProof: computerMemberProof(
+								memberSecret,
+								selfId(),
+								a.machineId,
+								asked.joinerNonce,
+								asked.memberNonce,
+							),
+						}
+					: admittedFrame(),
+			)
+			proven.delete(request.requestId)
 			logAudit({
 				event: 'join_allowed',
 				machine: { id12: shortMachineId(a.machineId), name: entry.name },
 				decision: note ?? `by ${shortMachineId(from)}`,
 			})
-			emit({ type: 'join-settled', requestId: request.requestId, result: 'allow' })
+			emit({
+				type: 'join-settled',
+				requestId: request.requestId,
+				result: 'allow',
+			})
 			void pushSync()
 			void gossipDecision(request.requestId, 'allow', a, from)
 		} else {
 			conn?.write({ status: 'denied' })
 			logAudit({
 				event: 'join_denied',
-				machine: { id12: shortMachineId(entry.joinerMachineId ?? ''), name: entry.name },
+				machine: {
+					id12: shortMachineId(entry.joinerMachineId ?? ''),
+					name: entry.name,
+				},
 				decision: `by ${shortMachineId(from)}`,
 			})
-			emit({ type: 'join-settled', requestId: request.requestId, result: 'deny' })
+			emit({
+				type: 'join-settled',
+				requestId: request.requestId,
+				result: 'deny',
+			})
 			void gossipDecision(request.requestId, 'deny', undefined, from)
 		}
 		conn?.close()
@@ -1851,7 +2235,11 @@ export function createNamzuNetwork(options: NetworkServiceOptions): NetworkServi
 		joiners.settle(entry.requestId, decision)
 		if (reply?.ok === false)
 			throw new NetworkError('refused', 'That request was already decided on another machine.')
-		emit({ type: 'join-settled', requestId: entry.requestId, result: decision })
+		emit({
+			type: 'join-settled',
+			requestId: entry.requestId,
+			result: decision,
+		})
 		return entry
 	}
 
@@ -1872,15 +2260,27 @@ export function createNamzuNetwork(options: NetworkServiceOptions): NetworkServi
 
 	async function handleRoleSet(request: RoleSetRequest, from: string): Promise<unknown> {
 		if (!roleBuckets.take(from))
-			return { status: 'refused', reason: 'Too many role changes from that machine.' }
+			return {
+				status: 'refused',
+				reason: 'Too many role changes from that machine.',
+			}
 		const role = request.role === null ? null : (sanitizeRole(request.role) ?? null)
 		const byName = peerState.get(from)?.name ?? sanitizeName(request.by.machineName)
 		if ('machine' in request.target) {
 			if (!machine) return { status: 'refused', reason: 'No machine.' }
-			machine = { ...machine, ...(role === null ? { role: undefined } : { role }) }
+			machine = {
+				...machine,
+				...(role === null ? { role: undefined } : { role }),
+			}
 			await store.writeMachine(machine)
 			logAudit({ event: 'role_set', ...roleAudit(from, 'machine', role) })
-			emit({ type: 'role', target: 'machine', role, byMachine: byName, at: request.at })
+			emit({
+				type: 'role',
+				target: 'machine',
+				role,
+				byMachine: byName,
+				at: request.at,
+			})
 			return { status: 'applied' }
 		}
 		const ref = request.target.sessionRef
@@ -1900,7 +2300,13 @@ export function createNamzuNetwork(options: NetworkServiceOptions): NetworkServi
 		const ok = host.setLocalRole(ref, role, { by: byName, at: request.at })
 		if (!ok) return { status: 'refused', reason: 'That session is not running here.' }
 		logAudit({ event: 'role_set', ...roleAudit(from, ref, role) })
-		emit({ type: 'role', target: ref, role, byMachine: byName, at: request.at })
+		emit({
+			type: 'role',
+			target: ref,
+			role,
+			byMachine: byName,
+			at: request.at,
+		})
 		return { status: 'applied' }
 	}
 
@@ -1958,7 +2364,10 @@ export function createNamzuNetwork(options: NetworkServiceOptions): NetworkServi
 		if (stale) {
 			try {
 				const roster = RosterSchema.safeParse(
-					await callMachine(machineId, { protocol: NET_PROTOCOL, op: 'roster' }),
+					await callMachine(machineId, {
+						protocol: NET_PROTOCOL,
+						op: 'roster',
+					}),
 				)
 				if (roster.success) applyRoster(machineId, roster.data)
 			} catch {
@@ -2258,6 +2667,9 @@ export function createNamzuNetwork(options: NetworkServiceOptions): NetworkServi
 		}
 		const now = clock.now()
 		const own = buildSelfRoster()
+		// A live fact: remembered machines count only while this home can still read the secret.
+		const rosterSecret = await computerSecret()
+		const sameSet = rosterSecret ? await sameComputerSet(rosterSecret) : new Set<string>()
 		const machines: RosterMachineView[] = [
 			{
 				machineId: selfId(),
@@ -2279,6 +2691,7 @@ export function createNamzuNetwork(options: NetworkServiceOptions): NetworkServi
 				status: online || (opts.refresh === false && p?.online === true) ? 'online' : 'offline',
 				seenAt: p?.seenAt,
 				role: p?.role,
+				...(sameSet.has(id) ? { sameComputer: true } : {}),
 				sessions: p?.sessions
 					? online
 						? p.sessions
@@ -2334,7 +2747,11 @@ export function createNamzuNetwork(options: NetworkServiceOptions): NetworkServi
 			reason: stateReason,
 			machine:
 				machine && key
-					? { id: key.machineId, name: machine.name ?? selfName(), role: machine.role }
+					? {
+							id: key.machineId,
+							name: machine.name ?? selfName(),
+							role: machine.role,
+						}
 					: undefined,
 			netId,
 			members: view?.members.size ?? 0,

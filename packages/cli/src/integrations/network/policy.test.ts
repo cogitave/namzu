@@ -85,11 +85,13 @@ describe('whether this terminal runs the Namzu network', () => {
 			enabled: 'auto',
 			acceptMail: 'members',
 			autoAdmit: 'trusted-networks',
+			sameComputer: true,
 		})
 		expect(networkSettings({ acceptMail: 'hold', machineName: 'studio' })).toEqual({
 			enabled: 'auto',
 			acceptMail: 'hold',
 			autoAdmit: 'trusted-networks',
+			sameComputer: true,
 			machineName: 'studio',
 		})
 		expect(networkSettings({ autoAdmit: 'never' }).autoAdmit).toBe('never')
