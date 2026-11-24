@@ -47,6 +47,10 @@ const MAX_READS: usize = 6;
 const DEFAULT_TASK_MS: u64 = 8_000;
 
 struct Entry {
+    #[expect(
+        dead_code,
+        reason = "kept so the act side can use the element a ref names without reading the window again"
+    )]
     element: El,
     identity: fingerprint::Identity,
 }

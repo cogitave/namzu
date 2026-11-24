@@ -316,8 +316,8 @@ impl Source for UiaSource<'_> {
             if available(el, UIA_IsScrollPatternAvailablePropertyId) {
                 node.actions.push(Action::Scroll);
             }
+            node
         }
-        node
     }
 
     fn children(&self, h: &El) -> Option<Vec<El>> {
