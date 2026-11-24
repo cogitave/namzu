@@ -2,19 +2,21 @@ import { describe, expect, it } from 'vitest'
 
 import type { TeamMemberView, TeamTaskView } from '../integrations/teams/view.js'
 import {
+	TEAM_BADGE_WIDTH,
+	TEAM_FOLDED_HINT,
 	TEAM_IDLE_FADE_MS,
 	TEAM_STOPPED_LINGER_MS,
 	TEAM_STOP_CONFIRM_MS,
+	TEAM_VIEW_ESC_HINT,
 	foldedIdleText,
-	idleRowText,
 	lastFinishedTask,
 	mailBody,
 	memberTask,
 	parseTeamCommand,
 	sameTeamSnapshot,
-	sentLabel,
 	teamChecklistItems,
 	teamNextFade,
+	teamPromptBadge,
 	teamRailHint,
 	teamRailPlan,
 	teamStatusText,
@@ -22,12 +24,16 @@ import {
 	teamSummaryLines,
 	teamTaskLine,
 	teamTaskLines,
+	teamTaskRowCap,
+	teamTaskWindow,
+	teamTasksHeading,
+	teamTasksOverflow,
 } from './team-view.js'
 
 const NOW = 1_000_000
 
 function member(name: string, state: TeamMemberView['state'], since = 0): TeamMemberView {
-	return { name, viewId: `v-${name}`, state, since }
+	return { name, viewId: `v-${name}`, state, color: 'blue', since }
 }
 
 function task(id: string, patch: Partial<TeamTaskView> = {}): TeamTaskView {
@@ -56,7 +62,7 @@ describe('which teammates the rail draws', () => {
 		const plan = teamRailPlan(four, NOW)
 		expect(plan.shown.size).toBe(0)
 		expect(plan.folded).toBe(4)
-		expect(foldedIdleText(4)).toBe('4 idle teammates')
+		expect(foldedIdleText(4)).toBe('4 idle agents')
 	})
 
 	it('drops idle rows only after the whole rail has been idle for 30 seconds', () => {
@@ -122,26 +128,12 @@ describe('what a row says', () => {
 })
 
 describe('lines about mail to a teammate', () => {
-	it('words each kind for what it is, not as a correction', () => {
-		expect(sentLabel({ kind: 'message', from: 'lead' }, 'one')).toBe('sent to one')
-		expect(sentLabel({ kind: 'message', from: 'two' }, 'one')).toBe('two sent to one')
-		expect(sentLabel({ kind: 'task', from: 'lead' }, 'one')).toBe('task given to one')
-		expect(sentLabel({ kind: 'stop', from: 'lead' }, 'one')).toBe('asked one to stop')
-		expect(sentLabel(undefined, 'one')).toBe('correction sent')
-	})
-
 	it('leaves out the frame that says whose mail it is', () => {
 		expect(
 			mailBody('A message from the lead. It comes from another session.\n\nlook at tests'),
 		).toBe('look at tests')
 		expect(mailBody('A shutdown request from the lead, another.\n\nwrap up')).toBe('wrap up')
 		expect(mailBody('Task 3 ("x") was assigned to you')).toBe('Task 3 ("x") was assigned to you')
-	})
-
-	it('writes one plain row for an idle teammate', () => {
-		expect(idleRowText('one', 'write the parser')).toBe('one is idle · finished write the parser')
-		expect(idleRowText('one', undefined)).toBe('one is idle')
-		expect(idleRowText('one', '  a\n b ')).toBe('one is idle · finished a b')
 	})
 })
 
@@ -166,18 +158,18 @@ describe('the team task list', () => {
 		]
 		expect(teamChecklistItems(long)[1]).toMatchObject({ id: '01a20eb8-2ffd', blockedBy: ['1'] })
 		expect(teamTaskLines(long)).toEqual([
-			'Tasks · 0/2 done',
+			'0/2 tasks done',
 			'#1 □ first',
-			'#2 □ second · waits on #1',
+			'#2 □ second › blocked by #1',
 		])
 	})
 
 	it('writes plain lines for /team tasks', () => {
 		expect(teamTaskLines(tasks)).toEqual([
-			'Tasks · 1/3 done',
-			'#1 ■ write it · one',
-			'#2 □ test it · waits on #1',
-			'#3 ✓ ship it · two',
+			'1/3 tasks done · 1 in progress',
+			'#1 ■ write it (@one)',
+			'#2 □ test it › blocked by #1',
+			'#3 ✓ ship it (@two)',
 		])
 		expect(teamTaskLines([])).toEqual(['The team has no tasks yet.'])
 		expect(teamTaskLine(task('7', { subject: 'a\n b' }))).toBe('#7 □ a b')
@@ -191,7 +183,7 @@ describe('the team task list', () => {
 		)
 		expect(lines[0]).toBe('one    working · write it')
 		expect(lines[1]).toBe('alice  idle · 3s')
-		expect(lines.at(-1)).toBe('Tasks · 1/3 done (/team tasks lists them)')
+		expect(lines.at(-1)).toBe('1/3 tasks done · 1 in progress (/team tasks lists them)')
 		expect(teamSummaryLines([], [], NOW)[0]).toContain('No teammates yet')
 	})
 })
@@ -213,12 +205,27 @@ describe('/team and the stop key', () => {
 	})
 
 	it('words the key line for a teammate row', () => {
-		expect(teamRailHint('working', 'one', false, false)).toBe('↑↓ select · enter open · x stop')
-		expect(teamRailHint('working', 'one', true, false)).toBe(
-			'↑↓ select · enter open · x again to stop one',
+		expect(teamRailHint('working', 'one', false, false)).toBe(
+			'↑/↓ to select · enter to view · x to stop · esc to collapse',
 		)
-		expect(teamRailHint('idle', 'one', false, true)).toBe('↑↓ select · x stop')
-		expect(teamRailHint('stopped', 'one', false, false)).toBe('↑↓ select · enter open · x clear')
+		expect(teamRailHint('working', 'one', true, false)).toBe(
+			'↑/↓ to select · enter to view · x again to stop one · esc to collapse',
+		)
+		expect(teamRailHint('idle', 'one', false, true)).toBe(
+			'↑/↓ to select · x to stop · esc to collapse',
+		)
+		expect(teamRailHint('stopped', 'one', false, false)).toBe(
+			'↑/↓ to select · enter to view · x to clear · esc to collapse',
+		)
+		expect(TEAM_FOLDED_HINT).toBe('↑/↓ to select · enter to expand · esc to collapse')
+	})
+
+	it('says what Esc does in a teammate transcript, and cuts the name on the prompt', () => {
+		expect(TEAM_VIEW_ESC_HINT).toBe('esc to return to team lead')
+		expect(teamPromptBadge('one')).toBe('@one')
+		const long = teamPromptBadge('a'.repeat(40))
+		expect([...long]).toHaveLength(TEAM_BADGE_WIDTH)
+		expect(long.endsWith('…')).toBe(true)
 	})
 })
 
@@ -231,4 +238,50 @@ it('treats two equal snapshots as one, so the screen redraws only for a change',
 	expect(sameTeamSnapshot(a, { members: a.members, tasks: [task('1', { owner: 'x' })] })).toBe(
 		false,
 	)
+})
+
+describe('the task block of a team', () => {
+	const many = [
+		task('1', { status: 'completed' }),
+		task('2', { status: 'completed' }),
+		task('3', { status: 'in_progress', owner: 'one' }),
+		task('4'),
+		task('5'),
+		task('6', { status: 'completed' }),
+		task('7'),
+	]
+
+	it('heads the block with the count and what is in progress', () => {
+		expect(teamTasksHeading(many)).toBe('3/7 tasks done · 1 in progress')
+		expect(teamTasksHeading([task('1')])).toBe('0/1 tasks done')
+		expect(teamTasksHeading([task('1', { status: 'failed' })])).toBe('0/1 tasks done · 1 failed')
+	})
+
+	it('takes as many rows as the terminal leaves, between three and five, none on a short one', () => {
+		expect(teamTaskRowCap(10)).toBe(0)
+		expect(teamTaskRowCap(16)).toBe(3)
+		expect(teamTaskRowCap(18)).toBe(4)
+		expect(teamTaskRowCap(60)).toBe(5)
+	})
+
+	it('shows the working and open tasks first and counts the rest in one line', () => {
+		expect(teamTasksOverflow(many)).toBe('7 tasks (1 in progress, 3 open, 3 done)')
+		const window = teamTaskWindow(many, 4)
+		expect(window.shown.map((item) => item.id)).toEqual(['3', '4', '5'])
+		expect(window.overflow).toBe('7 tasks (1 in progress, 3 open, 3 done)')
+		expect(teamTaskWindow(many.slice(0, 3), 4)).toEqual({ shown: many.slice(0, 3) })
+		expect(teamTaskWindow(many, 0)).toEqual({
+			shown: [],
+			overflow: '7 tasks (1 in progress, 3 open, 3 done)',
+		})
+	})
+
+	it('hands the owner its teammate colour', () => {
+		const items = teamChecklistItems(many, (name) => (name === 'one' ? 'green' : undefined))
+		expect(items.find((item) => item.id === '3')).toMatchObject({
+			owner: 'one',
+			ownerColor: 'green',
+		})
+		expect(items.find((item) => item.id === '4')).not.toHaveProperty('ownerColor')
+	})
 })

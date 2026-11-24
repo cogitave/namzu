@@ -4,11 +4,10 @@
  * With teams on, each teammate is a row of the agents rail under the prompt: its name, what it is
  * doing (working, idle, waiting for you, stopped) and the task it holds. Idle rows go away once the
  * whole rail has been idle for a while, and more than three idle teammates are one row that counts
- * them. The lead's screen also says, in a line each, what was sent to a teammate and when one goes
- * idle. Nothing here draws or reads the screen; `AgentExplorer.tsx` and `App.tsx` do.
+ * them. The rows the lead's conversation gets (mail, idle, shutdown, plans) are in `team-rows.ts`.
+ * Nothing here draws or reads the screen; `AgentExplorer.tsx` and `App.tsx` do.
  */
 
-import type { SubagentMailLabel } from '../integrations/subagents/activity.js'
 import type { TeamMemberState, TeamMemberView, TeamTaskView } from '../integrations/teams/view.js'
 import type { ChecklistItem } from './Checklist.js'
 
@@ -128,6 +127,7 @@ function seconds(ms: number): string {
 
 /** The right-hand block of a teammate's row: its state, and for an idle or stopped one how long ago. */
 export function teamStatusText(member: TeamMemberView, now: number): string {
+	if (member.awaitingPlan === true && member.state !== 'stopped') return 'awaiting approval'
 	const word = teamStateWord(member.state)
 	if ((member.state === 'idle' || member.state === 'stopped') && member.since > 0)
 		return `${word} · ${seconds(now - member.since)}`
@@ -141,24 +141,7 @@ export function teamTaskText(member: TeamMemberView, tasks: readonly TeamTaskVie
 
 /** The dim row that stands for the idle teammates folded away. */
 export function foldedIdleText(count: number): string {
-	return `${count} idle teammates`
-}
-
-/**
- * What a message the lead's screen mirrors is called: `sent to one`, `task given to one`,
- * `asked one to stop`, and for one teammate writing to another `one sent to two`.
- */
-export function sentLabel(mail: SubagentMailLabel | undefined, to: string): string {
-	if (mail === undefined) return 'correction sent'
-	if (mail.kind === 'task') return `task given to ${to}`
-	if (mail.kind === 'stop') return `asked ${to} to stop`
-	return mail.from === 'lead' ? `sent to ${to}` : `${mail.from} sent to ${to}`
-}
-
-/** The one plain row for a teammate that went idle: `one is idle · finished <task>`. */
-export function idleRowText(name: string, finished: string | undefined): string {
-	const task = finished?.replace(/\s+/gu, ' ').trim()
-	return task ? `${name} is idle · finished ${task}` : `${name} is idle`
+	return `${count} idle agents`
 }
 
 /**
@@ -170,7 +153,11 @@ export function taskNumbers(tasks: readonly TeamTaskView[]): ReadonlyMap<string,
 }
 
 /** The task list as the checklist draws it: all tasks, lowest id first, with owner and blockers by number. */
-export function teamChecklistItems(tasks: readonly TeamTaskView[]): readonly ChecklistItem[] {
+export function teamChecklistItems(
+	tasks: readonly TeamTaskView[],
+	/** The colour a teammate's name wears; the owner is drawn in it. */
+	colorOf?: (name: string) => string | undefined,
+): readonly ChecklistItem[] {
 	const numbers = taskNumbers(tasks)
 	return [...tasks].sort(byId).map((task) => ({
 		id: task.id,
@@ -181,6 +168,9 @@ export function teamChecklistItems(tasks: readonly TeamTaskView[]): readonly Che
 			? { blockedBy: task.blockedBy.map((id) => String(numbers.get(id) ?? id)) }
 			: {}),
 		...(task.owner !== undefined ? { owner: task.owner } : {}),
+		...(task.owner !== undefined && colorOf?.(task.owner) !== undefined
+			? { ownerColor: colorOf(task.owner) as string }
+			: {}),
 	}))
 }
 
@@ -191,7 +181,68 @@ const MARK: Record<TeamTaskView['status'], string> = {
 	failed: '✗',
 }
 
-/** One task as a line of plain text: `#2 ■ subject · one · waits on #1`. */
+/** `3/5 tasks done · 1 in progress`: the head of the task block and of `/team tasks`. */
+export function teamTasksHeading(tasks: readonly { readonly status: string }[]): string {
+	const done = tasks.filter((task) => task.status === 'completed').length
+	const active = tasks.filter((task) => task.status === 'in_progress').length
+	const failed = tasks.filter((task) => task.status === 'failed').length
+	return `${done}/${tasks.length} tasks done${active > 0 ? ` · ${active} in progress` : ''}${failed > 0 ? ` · ${failed} failed` : ''}`
+}
+
+/**
+ * How many task rows the live list may take on a terminal this tall: the rows minus 14, between 3
+ * and 5, and none at all on a terminal of ten rows or fewer.
+ */
+export function teamTaskRowCap(terminalRows: number): number {
+	if (terminalRows <= 10) return 0
+	return Math.min(5, Math.max(3, terminalRows - 14))
+}
+
+/** `7 tasks (1 in progress, 2 open, 4 done)`: what the rows left out add up to. */
+export function teamTasksOverflow(tasks: readonly { readonly status: string }[]): string {
+	const active = tasks.filter((task) => task.status === 'in_progress').length
+	const done = tasks.filter((task) => task.status === 'completed').length
+	const open = tasks.length - active - done
+	return `${tasks.length} tasks (${active} in progress, ${open} open, ${done} done)`
+}
+
+/**
+ * The task rows the live list shows when there are more than fit: the ones in progress first, then
+ * open, then the latest done, kept in list order, and the line that counts them all. Everything
+ * shows when it fits the cap.
+ */
+export function teamTaskWindow<T extends { readonly status: string }>(
+	tasks: readonly T[],
+	cap: number,
+): { readonly shown: readonly T[]; readonly overflow?: string } {
+	if (cap <= 0)
+		return { shown: [], ...(tasks.length > 0 ? { overflow: teamTasksOverflow(tasks) } : {}) }
+	if (tasks.length <= cap) return { shown: tasks }
+	const rank = (task: T): number =>
+		task.status === 'in_progress'
+			? 0
+			: task.status === 'completed' || task.status === 'failed'
+				? 2
+				: 1
+	const room = Math.max(1, cap - 1)
+	const chosen = new Set(
+		tasks
+			.map((task, index) => ({ task, index }))
+			.sort(
+				(a, b) =>
+					rank(a.task) - rank(b.task) ||
+					(rank(a.task) === 2 ? b.index - a.index : a.index - b.index),
+			)
+			.slice(0, room)
+			.map(({ index }) => index),
+	)
+	return {
+		shown: tasks.filter((_, index) => chosen.has(index)),
+		overflow: teamTasksOverflow(tasks),
+	}
+}
+
+/** One task as a line of plain text: `#2 ■ subject (@one) › blocked by #1`. */
 export function teamTaskLine(
 	task: TeamTaskView,
 	numbers: ReadonlyMap<string, number> = new Map(),
@@ -200,19 +251,18 @@ export function teamTaskLine(
 	const parts = [
 		`${number(task.id)} ${MARK[task.status]} ${task.subject.replace(/\s+/gu, ' ').trim()}`,
 	]
-	if (task.owner !== undefined) parts.push(task.owner)
+	if (task.owner !== undefined) parts[0] += ` (@${task.owner})`
 	if (task.blockedBy.length > 0 && task.status !== 'completed')
-		parts.push(`waits on ${task.blockedBy.map(number).join(', ')}`)
+		parts[0] += ` › blocked by ${task.blockedBy.map(number).join(', ')}`
 	return parts.join(' · ')
 }
 
 /** The lines `/team tasks` writes. */
 export function teamTaskLines(tasks: readonly TeamTaskView[]): readonly string[] {
 	if (tasks.length === 0) return ['The team has no tasks yet.']
-	const done = tasks.filter((task) => task.status === 'completed').length
 	const numbers = taskNumbers(tasks)
 	return [
-		`Tasks · ${done}/${tasks.length} done`,
+		teamTasksHeading(tasks),
 		...[...tasks].sort(byId).map((task) => teamTaskLine(task, numbers)),
 	]
 }
@@ -229,9 +279,7 @@ export function teamSummaryLines(
 		const task = teamTaskText(member, tasks)
 		return `${member.name.padEnd(width)}  ${teamStatusText(member, now)}${task ? ` · ${task}` : ''}`
 	})
-	const done = tasks.filter((task) => task.status === 'completed').length
-	if (tasks.length > 0)
-		lines.push('', `Tasks · ${done}/${tasks.length} done (/team tasks lists them)`)
+	if (tasks.length > 0) lines.push('', `${teamTasksHeading(tasks)} (/team tasks lists them)`)
 	return lines
 }
 
@@ -277,11 +325,29 @@ export function teamRailHint(
 	armed: boolean,
 	viewed: boolean,
 ): string {
-	const items = ['↑↓ select']
-	if (!viewed) items.push('enter open')
-	if (state === 'stopped') items.push('x clear')
-	else items.push(armed ? teamStopAsk(name) : 'x stop')
+	const items = ['↑/↓ to select']
+	if (!viewed) items.push('enter to view')
+	if (state === 'stopped') items.push('x to clear')
+	else items.push(armed ? teamStopAsk(name) : 'x to stop')
+	items.push('esc to collapse')
 	return items.join(' · ')
+}
+
+/** The hint for the folded `N idle agents` row. */
+export const TEAM_FOLDED_HINT = '↑/↓ to select · enter to expand · esc to collapse'
+
+/** What Esc does while a teammate's transcript is open: it goes back to the lead, and never stops the teammate. */
+export const TEAM_VIEW_ESC_HINT = 'esc to return to team lead'
+
+/** Longest a name gets on the prompt while its transcript is open, in cells. */
+export const TEAM_BADGE_WIDTH = 24
+
+/** The `@name` on the prompt of an open teammate transcript, cut to {@link TEAM_BADGE_WIDTH} cells. */
+export function teamPromptBadge(name: string): string {
+	const chars = [...`@${name}`]
+	return chars.length <= TEAM_BADGE_WIDTH
+		? chars.join('')
+		: `${chars.slice(0, TEAM_BADGE_WIDTH - 1).join('')}…`
 }
 
 /** The team as the screen holds it: members now and the shared task list. */
@@ -302,6 +368,8 @@ export function sameTeamSnapshot(a: TeamSnapshot, b: TeamSnapshot): boolean {
 			left?.name !== right?.name ||
 			left?.viewId !== right?.viewId ||
 			left?.state !== right?.state ||
+			left?.color !== right?.color ||
+			left?.awaitingPlan !== right?.awaitingPlan ||
 			left?.since !== right?.since
 		)
 			return false

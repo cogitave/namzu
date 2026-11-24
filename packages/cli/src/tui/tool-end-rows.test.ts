@@ -169,3 +169,22 @@ it('a call to a tool that does not exist is not counted as a look and shows its 
 	expect(rows[1]?.content).toContain('does not exist (ls)')
 	expect(rows[1]?.detail?.join('\n')).toContain('Unknown tool "ls"')
 })
+
+describe('what the lead sent a teammate', () => {
+	const send = (output: string, over: Partial<ToolEndEvent> = {}) =>
+		toolEndRows(end({ toolName: 'send_message', output, summary: output, ...over }), undefined, {
+			hasPlan: false,
+		})
+
+	it('leaves no receipt row: the arrow row says it', () => {
+		expect(send('Message sent to teammate one. It reads it at its next step.').kind).toBe('none')
+		expect(send('Shutdown requested of teammate two. It finishes its current step.').kind).toBe(
+			'none',
+		)
+	})
+
+	it('still shows a send that failed or went to someone else', () => {
+		expect(send('No teammate named x.', { isError: true }).kind).toBe('rows')
+		expect(send('Sent to the sub-agent count-words.').kind).toBe('rows')
+	})
+})

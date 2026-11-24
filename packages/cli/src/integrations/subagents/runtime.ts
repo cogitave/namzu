@@ -79,6 +79,7 @@ import {
 	SessionSummaryMaterializer,
 	type SessionTokenBudget,
 	type SessionTokenBudgetStore,
+	TEAM_LEAD_NAME,
 	type TaskHandle,
 	type TaskId,
 	type TaskScheduler,
@@ -130,6 +131,7 @@ import { changeDetectorFor } from '../outcome/change-detector.js'
 import { teammateIdle, teammateStart, teammateStop } from '../plugins/lifecycle-events.js'
 import type { SideLedger } from '../small-model/side-model.js'
 import { CLI_CHECKPOINT_RETENTION } from '../state/retention.js'
+import { TeamColors, fallbackTeamColor } from '../teams/colors.js'
 import {
 	TeamError,
 	type TeamHookPoints,
@@ -3657,6 +3659,18 @@ export async function createSubagentRuntime(
 		readonly callIds: readonly string[]
 	}
 	const teamAsks = new Set<TeamAsk>()
+	/** Colours by team: handed out in the order members are first seen, the lead's first, and kept. */
+	const teamColors = new Map<string, TeamColors>()
+	const colorsOf = (team: string): TeamColors => {
+		let colors = teamColors.get(team)
+		if (!colors) {
+			colors = new TeamColors()
+			teamColors.set(team, colors)
+		}
+		return colors
+	}
+	/** Plans sent to the person and not yet answered, by team and member. */
+	const teamPlans = new Set<string>()
 
 	// ─── what a screen reads about the team ──────────────────────────────
 
@@ -3680,6 +3694,14 @@ export async function createSubagentRuntime(
 	const teamView: TeamViewSource | undefined = opts.teams
 		? {
 				team: activeTeam,
+				colorOf: (name) => {
+					const team = activeTeam()
+					if (team === undefined) return undefined
+					const colors = colorsOf(team)
+					if (name === TEAM_LEAD_NAME) return colors.lead()
+					return colors.get(name) ?? fallbackTeamColor(name)
+				},
+				onMail: (listener) => teamRunner?.onMail(listener) ?? (() => {}),
 				members: () => {
 					const team = activeTeam()
 					if (team === undefined || !teamRunner) return []
@@ -3707,6 +3729,8 @@ export async function createSubagentRuntime(
 							name: target.name,
 							viewId,
 							state,
+							color: colorsOf(team).assign(target.name),
+							...(teamPlans.has(`${team}\u0000${target.name}`) ? { awaitingPlan: true } : {}),
 							since:
 								state === 'idle'
 									? entry.idleSince
@@ -3782,6 +3806,7 @@ export async function createSubagentRuntime(
 				callIds,
 			}
 			teamAsks.add(ask)
+			if (planText !== undefined) teamPlans.add(`${target.team}\u0000${target.name}`)
 			notifyTeam()
 			teamRunner?.noteAsk(target.team, target.name, {
 				callIds,
@@ -3801,6 +3826,7 @@ export async function createSubagentRuntime(
 				decision = await inner(request, context)
 			} finally {
 				teamAsks.delete(ask)
+				teamPlans.delete(`${target.team}\u0000${target.name}`)
 				notifyTeam()
 			}
 			const allowed = decision.action === 'approve_tools' || decision.action === 'modify_tools'

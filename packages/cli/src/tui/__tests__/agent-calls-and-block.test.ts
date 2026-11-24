@@ -211,6 +211,15 @@ describe('a batch of waited-on agents that all finished', () => {
 		)
 	})
 
+	it('says where to follow background work, except for a teammate whose rail already shows it', () => {
+		const background = members.map((entry) => ({ ...entry, background: true }))
+		expect(settledBatchRows(background, false).map((row) => row.content)).toContain(
+			'Running in the background · follow it with ↓ or /tasks',
+		)
+		const rows = settledBatchRows(background, false, () => true)
+		expect(rows.map((row) => row.content).join('\n')).not.toContain('follow it with')
+	})
+
 	it('replaces the receipt and the per-agent rows', () => {
 		const rows = settledBatchRows(members)
 		expect(rows).toHaveLength(1)

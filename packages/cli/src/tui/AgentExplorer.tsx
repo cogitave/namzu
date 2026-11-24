@@ -32,6 +32,7 @@ import {
 	type TeamRailPlan,
 	type TeamSnapshot,
 	foldedIdleText,
+	mailBody,
 	teamByView,
 	teamNextFade,
 	teamRailPlan,
@@ -40,7 +41,7 @@ import {
 } from './team-view.js'
 import { truncateChoiceText } from './terminal-choice-text.js'
 import { scriptText, terminalDisplayText } from './terminal-display.js'
-import { theme } from './theme.js'
+import { paint, theme } from './theme.js'
 import { formatElapsed } from './units.js'
 import { formatCompactCount } from './units.js'
 import { nextRunEviction, runPhaseId, runRailFacts, visibleRuns } from './workflow-runs.js'
@@ -1060,7 +1061,7 @@ export function AgentTaskPanel({
 									<Text
 										bold={bright}
 										dimColor={!bright}
-										color={theme.text.primary}
+										color={member ? paint(member.color) : theme.text.primary}
 										wrap="truncate-end"
 									>
 										{terminalDisplayText(oneLine(rowName(agent)))}
@@ -2441,9 +2442,31 @@ export function maxAgentViewTailOffset(
 	agent: SubagentActivity,
 	pageRows: number,
 	terminalColumns: number,
+	teammate?: TeammateView,
 ): number {
-	const room = pageRows - (agentViewUsageLine(agent, terminalColumns) !== undefined ? 1 : 0)
-	return Math.max(0, agentTranscriptRows(agent, terminalColumns + 5).length - room)
+	const room =
+		pageRows -
+		(teammate
+			? teammate.hint !== undefined
+				? 1
+				: 0
+			: agentViewUsageLine(agent, terminalColumns) !== undefined
+				? 1
+				: 0)
+	return Math.max(0, agentTranscriptRows(agent, terminalColumns + 5, teammate).length - room)
+}
+
+/**
+ * An open teammate's transcript reads as a conversation, not as a log of how it was started: the
+ * system prompt and the tool descriptions it was given are not shown, what the lead wrote is a
+ * plain `❯` row, and mail from another teammate names its sender in that teammate's colour.
+ */
+export interface TeammateView {
+	readonly name: string
+	/** The colour a name wears, for the sender of a message from another teammate. */
+	readonly colorOf?: (name: string) => string | undefined
+	/** The dim line under the transcript: what Esc does here. */
+	readonly hint?: string
 }
 
 /**
@@ -2469,6 +2492,8 @@ export interface AgentViewProps {
 	readonly terminalColumns: number
 	/** One plain sentence about the last message that could not be sent. */
 	readonly notice?: string | undefined
+	/** Set while the agent is a teammate: its transcript is drawn as a conversation (see {@link TeammateView}). */
+	readonly teammate?: TeammateView
 }
 
 /**
@@ -2484,9 +2509,11 @@ export function AgentView({
 	pageRows,
 	terminalColumns,
 	notice,
+	teammate,
 }: AgentViewProps) {
-	const lines = agentTranscriptRows(agent, terminalColumns + 5)
-	const usage = agentViewUsageLine(agent, terminalColumns)
+	const lines = agentTranscriptRows(agent, terminalColumns + 5, teammate)
+	// A teammate's view has no counts; its one dim line says what Esc does.
+	const usage = teammate ? teammate.hint : agentViewUsageLine(agent, terminalColumns)
 	const room = Math.max(1, pageRows - (notice ? 1 : 0) - (usage !== undefined ? 1 : 0))
 	const offset = Math.min(Math.max(0, tailOffset), Math.max(0, lines.length - room))
 	const end = lines.length - offset
@@ -2616,6 +2643,8 @@ export interface AgentTranscriptLine {
 	readonly continuation: boolean
 	/** The `Error` heading of a failure section. */
 	readonly heading?: true
+	/** A colour of its own: a message from another teammate, in that teammate's. */
+	readonly tone?: string
 	readonly source: 'prompt' | SubagentActivity['transcript'][number]
 }
 
@@ -2623,16 +2652,19 @@ export interface AgentTranscriptLine {
 export function agentTranscriptRows(
 	agent: SubagentActivity,
 	terminalColumns: number | undefined,
+	teammate?: TeammateView,
 ): readonly AgentTranscriptLine[] {
 	const sources: readonly {
 		readonly id: string
 		readonly text: string
 		readonly source: AgentTranscriptLine['source']
 	}[] = [
-		{ id: `${agent.viewId}:prompt`, text: agent.prompt, source: 'prompt' },
+		...(teammate
+			? []
+			: [{ id: `${agent.viewId}:prompt`, text: agent.prompt, source: 'prompt' as const }]),
 		...agent.transcript.map((row) => ({
 			id: row.id,
-			text: transcriptRowText(row),
+			text: teammate ? teammateRowText(row) : transcriptRowText(row),
 			source: row,
 		})),
 	]
@@ -2683,7 +2715,23 @@ export function agentTranscriptRows(
 			})
 		}
 	}
-	return lines
+	if (!teammate?.colorOf) return lines
+	return lines.map((line) => {
+		const from = peerSender(line.source)
+		const tone = from === undefined ? undefined : teammate.colorOf?.(from)
+		return tone === undefined ? line : { ...line, tone }
+	})
+}
+
+/** The teammate that wrote a row of mail the lead did not write, or undefined. */
+function peerSender(source: AgentTranscriptLine['source']): string | undefined {
+	return source !== 'prompt' &&
+		source.kind === 'system' &&
+		source.direction === 'to-child' &&
+		source.mail !== undefined &&
+		source.mail.from !== 'lead'
+		? source.mail.from
+		: undefined
 }
 
 /** Resolve indentation before paging; raw tabs can move the terminal beyond a row's box. */
@@ -2828,7 +2876,13 @@ function lineGlyph(line: AgentTranscriptLine): string {
 function rowGlyph(row: SubagentActivity['transcript'][number]): string {
 	if (row.kind === 'assistant') return '●'
 	if (row.kind === 'system')
-		return row.direction === 'operator-to-child' ? '❯' : row.direction === 'to-child' ? '←' : '·'
+		return row.direction === 'operator-to-child'
+			? '❯'
+			: row.direction === 'to-child'
+				? row.mail?.from === 'lead'
+					? '❯'
+					: '←'
+				: '·'
 	return row.status === 'working' ? '◌' : row.status === 'failed' ? '✗' : '✓'
 }
 
@@ -2850,7 +2904,23 @@ export function transcriptRowText(row: SubagentActivity['transcript'][number]): 
 	return row.text
 }
 
+/**
+ * A row of an open teammate's transcript: the lead's words as written, a teammate's as `@name: text`,
+ * never the frame the model was given. Everything else reads as it does for any agent.
+ */
+export function teammateRowText(row: SubagentActivity['transcript'][number]): string {
+	if (row.kind === 'system' && row.direction === 'to-child') {
+		const body = row.mail?.body ?? mailBody(row.text)
+		if (row.mail === undefined || row.mail.from === 'lead') return body
+		return `@${row.mail.from}: ${body}`
+	}
+	// The list of tools a `search_tools` call switched on is the model's own plumbing, not a thing said.
+	if (row.kind === 'tool' && /^search_tools\b/.test(row.text)) return row.text
+	return transcriptRowText(row)
+}
+
 function lineColor(line: AgentTranscriptLine): string {
+	if (line.tone !== undefined) return paint(line.tone)
 	if (line.source === 'prompt') return theme.text.secondary
 	return rowColor(line.source)
 }

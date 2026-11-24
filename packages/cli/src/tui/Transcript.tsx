@@ -609,13 +609,13 @@ export function MessageRow({
 						<Text color={textColor} wrap="wrap" {...tinted}>
 							<WrappedSpans
 								spans={[
-									...(message.diff?.summary ?? [{ text: content }]),
+									...(message.spans ?? message.diff?.summary ?? [{ text: content }]),
 									...(message.meta
 										? [
 												{
 													// A hint that would be cut across two rows moves whole.
 													text: hintSuffix(
-														(message.diff?.summary ?? [{ text: content }])
+														(message.spans ?? message.diff?.summary ?? [{ text: content }])
 															.map((span) => span.text)
 															.join(''),
 														`${metaSeparator(message.meta)}${terminalDisplayText(message.meta)}`,

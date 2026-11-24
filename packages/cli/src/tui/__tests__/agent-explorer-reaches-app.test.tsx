@@ -25,6 +25,7 @@ import type { Preferences } from '../../integrations/providers/index.js'
 import { subagentParentFixture } from '../../integrations/subagents/__fixtures__/parent.js'
 import type { SubagentActivity } from '../../integrations/subagents/activity.js'
 import { createSubagentRuntime } from '../../integrations/subagents/runtime.js'
+import type { TeamMailEvent } from '../../integrations/teams/view.js'
 import { testToolset } from '../../test-support/toolset.js'
 import {
 	AgentCockpit,
@@ -152,12 +153,14 @@ const stoppedChildren: string[] = vi.hoisted(() => [])
 /** The team the session reports, when a test gives it one. */
 const teamState = vi.hoisted(() => {
 	const listeners = new Set<() => void>()
+	const mailListeners = new Set<(event: TeamMailEvent) => void>()
 	const state: {
 		members: readonly {
 			name: string
 			viewId: string
 			state: 'working' | 'idle' | 'waiting' | 'stopped'
 			since: number
+			color: string
 		}[]
 		tasks: readonly {
 			id: string
@@ -170,6 +173,19 @@ const teamState = vi.hoisted(() => {
 	return {
 		state,
 		listeners,
+		mailListeners,
+		/** The team writes a piece of mail: a screen that listens draws its row. */
+		mail(event: Record<string, unknown>) {
+			for (const listener of [...mailListeners])
+				listener({
+					team: 'team-test',
+					from: 'one',
+					to: 'lead',
+					kind: 'message',
+					text: '',
+					...event,
+				})
+		},
 		set(next: Partial<typeof state>) {
 			Object.assign(state, next)
 			for (const listener of [...listeners]) listener()
@@ -269,6 +285,11 @@ vi.mock('../agent.js', async (importOriginal) => {
 				team: () => 'team-test',
 				members: () => teamState.state.members,
 				tasks: async () => teamState.state.tasks,
+				colorOf: (name: string) => (name === 'one' ? 'green' : undefined),
+				onMail: (listener: (event: TeamMailEvent) => void) => {
+					teamState.mailListeners.add(listener)
+					return () => teamState.mailListeners.delete(listener)
+				},
 				subscribe: (listener: () => void) => {
 					teamState.listeners.add(listener)
 					return () => teamState.listeners.delete(listener)
@@ -4905,7 +4926,7 @@ describe('teammates on the rail', () => {
 			}),
 		])
 		teamState.set({
-			members: [{ name: 'one', viewId: 'v-one', state: 'idle', since }],
+			members: [{ name: 'one', viewId: 'v-one', state: 'idle', color: 'blue', since }],
 			tasks: [
 				{ id: '1', subject: 'write the parser', status: 'completed', owner: 'one', blockedBy: [] },
 			],
@@ -4927,7 +4948,11 @@ describe('teammates on the rail', () => {
 		const screen = await mount()
 		await waitUntil(screen, () => /idle · \d+s/u.test(text(screen)), 'no idle row')
 		screen.press('\x1b[B')
-		await waitUntil(screen, () => text(screen).includes('enter open · x stop'), 'rail not focused')
+		await waitUntil(
+			screen,
+			() => text(screen).includes('enter to view · x to stop'),
+			'rail not focused',
+		)
 		screen.press('x')
 		await waitUntil(screen, () => text(screen).includes('x again to stop one'), 'no question')
 		expect(stoppedChildren).toEqual([])
@@ -4946,8 +4971,72 @@ describe('teammates on the rail', () => {
 		})
 		const screen = await mount()
 		await submit(screen, '/team')
-		await waitUntil(screen, () => painted(screen).includes('Tasks · 1/2 done'), 'no /team answer')
+		await waitUntil(screen, () => painted(screen).includes('1/2 tasks done'), 'no /team answer')
 		await submit(screen, '/team tasks')
 		await waitUntil(screen, () => painted(screen).includes('#2 □ test the parser'), 'no task list')
+	})
+
+	it('writes what the team mails to the lead as folded lines and a finished line', async () => {
+		idleTeammate()
+		const screen = await mount()
+		teamState.mail({ summary: 'first', text: 'one body' })
+		teamState.mail({ summary: 'second', text: 'two body' })
+		await waitUntil(screen, () => text(screen).includes('2 messages from @one'), 'no folded line')
+		expect(text(screen)).toContain('(ctrl+o to expand)')
+		expect(text(screen)).not.toContain('one body')
+		teamState.mail({
+			kind: 'idle',
+			text: JSON.stringify({ idleReason: 'available', result: 'wrote the parser' }),
+		})
+		await waitUntil(
+			screen,
+			() => text(screen).includes('Teammate @one finished'),
+			'no finished line',
+		)
+		expect(text(screen)).toContain('wrote the parser')
+		expect(text(screen)).not.toContain('is idle')
+		teamState.mail({ kind: 'shutdown_response', text: JSON.stringify({ approve: true }) })
+		await waitUntil(
+			screen,
+			() => text(screen).includes('Teammate @one shut down'),
+			'no shut down line',
+		)
+		expect(text(screen)).not.toContain('left the team')
+	})
+
+	it('shows a refused shutdown and a plan waiting, in plain rows', async () => {
+		idleTeammate()
+		const screen = await mount()
+		teamState.mail({
+			kind: 'shutdown_response',
+			text: JSON.stringify({ approve: false, reason: 'tests still run' }),
+		})
+		await waitUntil(screen, () => text(screen).includes('Shutdown refused by @one'), 'no refusal')
+		expect(text(screen)).toContain('Reason: tests still run')
+		teamState.mail({ kind: 'plan_request', text: JSON.stringify({ plan: 'step one' }) })
+		await waitUntil(
+			screen,
+			() => text(screen).includes('Plan approval request from @one'),
+			'no plan request',
+		)
+	})
+
+	it('opens a teammate with its name on the prompt and says what Esc does', async () => {
+		childMessageBridge.current = vi.fn(async () => ({
+			kind: 'queued' as const,
+			taskId: 'task',
+			state: 'running',
+			parentNotice: 'admitted',
+		}))
+		idleTeammate()
+		const screen = await mount()
+		await waitUntil(screen, () => /idle · \d+s/u.test(text(screen)), 'no idle row')
+		screen.press('\x1b[B')
+		await waitUntil(screen, () => text(screen).includes('enter to'), 'rail not focused')
+		screen.press('\x1b[B')
+		await waitUntil(screen, () => text(screen).includes('enter to view'), 'row not selected')
+		screen.press('\r')
+		await waitUntil(screen, () => text(screen).includes('esc to return to team lead'), 'no hint')
+		expect(text(screen)).toMatch(/@one\s+Message this teammate/u)
 	})
 })

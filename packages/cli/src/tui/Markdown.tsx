@@ -52,7 +52,7 @@ import type { MdBlock } from './markdownParser.js'
 import { terminalDisplayText } from './terminal-display.js'
 import { terminalWebHyperlink } from './terminal-hyperlinks.js'
 import { useThemeEpoch } from './theme-store.js'
-import { theme } from './theme.js'
+import { paint, theme } from './theme.js'
 
 /**
  * How many terminal cells the text beside a transcript gutter has.
@@ -504,6 +504,20 @@ function SpanView({
 	readonly hyperlinks: boolean
 }) {
 	if (span.border) return <Text color={theme.border.default}>{span.text}</Text>
+	if (span.strike) {
+		return (
+			<Text color={theme.text.muted} strikethrough dimColor>
+				{span.text}
+			</Text>
+		)
+	}
+	if (span.tone !== undefined) {
+		return (
+			<Text color={paint(span.tone)} bold={span.bold} italic={span.italic} dimColor={span.muted}>
+				{span.text}
+			</Text>
+		)
+	}
 	if (span.muted) return <Text color={theme.text.muted}>{span.text}</Text>
 	if (span.code) {
 		return (

@@ -1,0 +1,309 @@
+import { describe, expect, it } from 'vitest'
+
+import { TEAM_COLORS, TeamColors, fallbackTeamColor } from '../integrations/teams/colors.js'
+import type { TeamMailEvent } from '../integrations/teams/view.js'
+import {
+	TeamRowBatcher,
+	idleRows,
+	mailRow,
+	newlyCompleted,
+	parseIdle,
+	planAnswerRows,
+	planRequestRow,
+	sentRow,
+	shutDownRow,
+	shutdownRefusedRows,
+	taskCompletedRow,
+} from './team-rows.js'
+import { EXPAND_HINT } from './truncation.js'
+
+const colors = new TeamColors()
+const colorOf = (name: string) => colors.assign(name)
+
+function event(patch: Partial<TeamMailEvent>): TeamMailEvent {
+	return { team: 't', from: 'one', to: 'lead', kind: 'message', text: 'hello', ...patch }
+}
+
+describe('teammate colours', () => {
+	it('hands out eight colours in order, the lead first, and keeps each', () => {
+		const palette = new TeamColors()
+		expect(palette.lead()).toBe(TEAM_COLORS[0])
+		const names = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i']
+		const given = names.map((name) => palette.assign(name))
+		expect(given.slice(0, 7)).toEqual(TEAM_COLORS.slice(1))
+		// The ninth wraps round to the lead's colour: eight colours, nine seats.
+		expect(given[7]).toBe(TEAM_COLORS[0])
+		expect(palette.assign('a')).toBe(given[0])
+		expect(palette.get('zzz')).toBeUndefined()
+	})
+
+	it('gives a name nobody coloured the same blue or pink every time, never the lead colour', () => {
+		for (const name of ['x', 'worker', 'qa-2', '']) {
+			expect(fallbackTeamColor(name)).toBe(fallbackTeamColor(name))
+			expect(['blue', '#ff69b4']).toContain(fallbackTeamColor(name))
+		}
+	})
+})
+
+describe('mail from a teammate', () => {
+	it('is one dim collapsed line with the name in its colour', () => {
+		const row = mailRow('one', 'green', [{ summary: 'found it', body: 'the bug is in a.ts' }])
+		expect(row.content).toBe('Message from @one')
+		expect(row.glyph).toBe('›')
+		expect(row.meta).toBe(EXPAND_HINT)
+		expect(row.spans?.find((span) => span.text === '@one')).toMatchObject({ tone: 'green' })
+		expect(JSON.stringify(row)).not.toContain('untrusted')
+	})
+
+	it('opens to a coloured header with the summary and the body indented two', () => {
+		const row = mailRow('one', 'green', [
+			{ summary: 'found it', body: 'line one\nline two' },
+			{ body: 'second' },
+		])
+		expect(row.content).toBe('2 messages from @one')
+		expect(row.detail).toEqual([
+			'@ one ❯ found it',
+			'  line one',
+			'  line two',
+			'',
+			'@ one',
+			'  second',
+		])
+	})
+})
+
+describe('an idle teammate', () => {
+	it('reads the record: finished, interrupted, failed', () => {
+		expect(parseIdle(JSON.stringify({ idleReason: 'available', result: 'done' }))).toEqual({
+			reason: 'available',
+			result: 'done',
+		})
+		expect(parseIdle(JSON.stringify({ idleReason: 'interrupted' }))).toEqual({
+			reason: 'interrupted',
+		})
+		expect(parseIdle('not json')).toEqual({ reason: 'available' })
+	})
+
+	it.each([
+		['available', 'Teammate @one finished', 'theme:status.ok'],
+		['interrupted', 'Teammate @one was interrupted', 'theme:status.warn'],
+		['failed', 'Teammate @one failed', 'theme:status.error'],
+	] as const)('says %s, coloured by the reason', (reason, words, tone) => {
+		const [head] = idleRows('one', 'red', { reason })
+		expect(head?.content).toBe(words)
+		expect(head?.glyphColor).toBe(tone)
+		expect(head?.spans?.find((span) => span.text === '@one')).toMatchObject({ tone: 'red' })
+		expect(head?.spans?.[0]).toMatchObject({ tone })
+	})
+
+	it('puts the first line of its answer dim under it and the whole answer behind ctrl+o', () => {
+		const rows = idleRows(
+			'one',
+			'red',
+			{ reason: 'available', result: 'wrote part one\nand tests' },
+			3,
+		)
+		expect(rows).toHaveLength(2)
+		expect(rows[1]).toMatchObject({ glyph: '⎿', content: 'wrote part one', meta: EXPAND_HINT })
+		expect(rows[1]?.detail).toEqual(['(task #3)', 'wrote part one', 'and tests'])
+	})
+
+	it('has nothing to open when the answer is one short line and no task', () => {
+		const rows = idleRows('one', 'red', { reason: 'available', result: 'done' })
+		expect(rows[1]?.detail).toBeUndefined()
+		expect(rows[1]?.meta).toBeUndefined()
+		expect(idleRows('one', 'red', { reason: 'available' })).toHaveLength(1)
+	})
+
+	it('cuts a long first line with an ellipsis', () => {
+		const rows = idleRows('one', 'red', { reason: 'available', result: 'x'.repeat(300) })
+		expect(rows[1]?.content.length).toBeLessThanOrEqual(100)
+		expect(rows[1]?.content.endsWith('…')).toBe(true)
+		expect(rows[1]?.detail).toBeDefined()
+	})
+
+	it('never cuts an emoji in half', () => {
+		const rows = idleRows('one', 'red', { reason: 'available', result: `${'x'.repeat(98)}😀😀😀` })
+		const line = rows[1]?.content ?? ''
+		expect(line).toBe(`${'x'.repeat(98)}😀…`)
+		expect(line).not.toMatch(/[\ud800-\udbff](?![\udc00-\udfff])/u)
+	})
+})
+
+describe('shutdown', () => {
+	it('is one dim line for a teammate that left, a count for several', () => {
+		expect(shutDownRow([{ name: 'one', color: 'red' }]).content).toBe('Teammate @one shut down')
+		expect(
+			shutDownRow([
+				{ name: 'one', color: 'red' },
+				{ name: 'two', color: 'blue' },
+			]).content,
+		).toBe('2 teammates shut down')
+	})
+
+	it('says who refused, why, and that it can be asked again', () => {
+		const rows = shutdownRefusedRows('one', 'red', 'still writing the tests')
+		expect(rows.map((row) => row.content)).toEqual([
+			'Shutdown refused by @one',
+			'Reason: still writing the tests',
+			'Still working. Ask again later.',
+		])
+		expect(shutdownRefusedRows('one', 'red', undefined)).toHaveLength(2)
+	})
+})
+
+describe('plans', () => {
+	it('shows the request with the plan behind ctrl+o', () => {
+		const row = planRequestRow('one', 'red', '1. read\n2. write')
+		expect(row.content).toBe('Plan approval request from @one')
+		expect(row.detail).toEqual(['1. read', '2. write'])
+		expect(planRequestRow('one', 'red', undefined).detail).toBeUndefined()
+	})
+
+	it('answers approved or rejected, with the feedback and what happens next', () => {
+		const yes = planAnswerRows('one', 'red', true, undefined)
+		expect(yes.map((row) => row.content)).toEqual([
+			'Plan from @one approved',
+			'@one can now proceed.',
+		])
+		expect(yes[0]?.glyphColor).toBe('theme:status.ok')
+		const no = planAnswerRows('one', 'red', false, 'cover the failure case')
+		expect(no.map((row) => row.content)).toEqual([
+			'Plan from @one rejected',
+			'Feedback: cover the failure case',
+			'@one will revise the plan.',
+		])
+		expect(no[0]?.glyphColor).toBe('theme:status.error')
+	})
+})
+
+describe('what the lead sent', () => {
+	it('is one arrow row per kind, with the words behind ctrl+o', () => {
+		const sent = sentRow({ kind: 'message', from: 'lead' }, 'one', 'red', 'look at a.ts')
+		expect(sent?.content).toBe('Sent to @one')
+		expect(sent?.detail).toEqual(['look at a.ts'])
+		const stop = sentRow({ kind: 'stop', from: 'lead' }, 'one', 'red', 'wrap up')
+		expect(stop?.content).toBe('Asked @one to stop')
+	})
+
+	it('shows only the subject of a task, never the instruction text', () => {
+		const task = sentRow({ kind: 'task', from: 'lead' }, 'one', 'red', 'Write part two')
+		expect(task?.content).toBe('Task assigned to @one · Write part two')
+		expect(task?.detail).toBeUndefined()
+		expect(task?.meta).toBeUndefined()
+	})
+
+	it('writes nothing for mail between two teammates', () => {
+		expect(sentRow({ kind: 'message', from: 'two' }, 'one', 'red', 'hi')).toBeUndefined()
+	})
+})
+
+describe('task completion', () => {
+	it('is a dim tick line naming the owner, the number and the subject', () => {
+		const row = taskCompletedRow('one', 'red', 2, 'ship it')
+		expect(row.content).toBe('@one completed task #2 (ship it)')
+		expect(row.glyph).toBe('✓')
+		expect(taskCompletedRow(undefined, 'red', 2, 'ship it').content).toBe(
+			'Completed task #2 (ship it)',
+		)
+	})
+
+	it('finds the tasks that became done since the last look, and none on the first look', () => {
+		const tasks = [
+			{ id: '1', status: 'completed' },
+			{ id: '2', status: 'completed' },
+			{ id: '3', status: 'pending' },
+		]
+		expect(newlyCompleted(undefined, tasks)).toEqual([])
+		const before = new Map([
+			['1', 'completed'],
+			['2', 'in_progress'],
+			['3', 'pending'],
+		])
+		expect(newlyCompleted(before, tasks).map((task) => task.id)).toEqual(['2'])
+	})
+})
+
+describe('the rows of one moment', () => {
+	it('folds messages in a row from one teammate into one line, in the order they came', () => {
+		const batcher = new TeamRowBatcher(colorOf)
+		batcher.add(event({ text: 'a' }))
+		batcher.add(event({ text: 'b' }))
+		batcher.add(event({ from: 'two', text: 'c' }))
+		batcher.add(event({ text: 'd' }))
+		expect(batcher.flush().map((row) => row.content)).toEqual([
+			'2 messages from @one',
+			'Message from @two',
+			'Message from @one',
+		])
+		expect(batcher.pending).toBe(false)
+		expect(batcher.flush()).toEqual([])
+	})
+
+	it('writes nothing for mail between teammates or from the lead', () => {
+		const batcher = new TeamRowBatcher(colorOf)
+		expect(batcher.add(event({ from: 'one', to: 'two' }))).toBe(false)
+		expect(batcher.add(event({ from: 'lead', to: 'one' }))).toBe(false)
+		expect(batcher.add(event({ kind: 'permission_request' }))).toBe(false)
+		expect(batcher.flush()).toEqual([])
+	})
+
+	it('folds teammates that shut down together, and shows a refusal on its own', () => {
+		const batcher = new TeamRowBatcher(colorOf)
+		const approve = JSON.stringify({ approve: true })
+		batcher.add(event({ kind: 'shutdown_response', from: 'one', text: approve }))
+		batcher.add(event({ kind: 'shutdown_response', from: 'two', text: approve }))
+		batcher.add(
+			event({
+				kind: 'shutdown_response',
+				from: 'three',
+				text: JSON.stringify({ approve: false, reason: 'busy' }),
+			}),
+		)
+		expect(batcher.flush().map((row) => row.content)).toEqual([
+			'2 teammates shut down',
+			'Shutdown refused by @three',
+			'Reason: busy',
+			'Still working. Ask again later.',
+		])
+	})
+
+	it('writes the idle line with its answer and the task number when asked for one', () => {
+		const batcher = new TeamRowBatcher(colorOf)
+		batcher.add(
+			event({
+				kind: 'idle',
+				text: JSON.stringify({ idleReason: 'available', result: 'done\nmore' }),
+			}),
+			(name) => (name === 'one' ? 4 : undefined),
+		)
+		const rows = batcher.flush()
+		expect(rows.map((row) => row.content)).toEqual(['Teammate @one finished', 'done'])
+		expect(rows[1]?.detail?.[0]).toBe('(task #4)')
+	})
+
+	it('writes the plan request, and the answer under the name of the teammate it was for', () => {
+		const batcher = new TeamRowBatcher(colorOf)
+		batcher.add(event({ kind: 'plan_request', text: JSON.stringify({ plan: 'step 1' }) }))
+		batcher.add(
+			event({
+				kind: 'plan_response',
+				from: 'lead',
+				to: 'one',
+				text: JSON.stringify({ allow: true }),
+			}),
+		)
+		expect(batcher.flush().map((row) => row.content)).toEqual([
+			'Plan approval request from @one',
+			'Plan from @one approved',
+			'@one can now proceed.',
+		])
+	})
+
+	it('draws a name nobody coloured in a fixed fallback colour', () => {
+		const batcher = new TeamRowBatcher()
+		batcher.add(event({ from: 'ghost' }))
+		const span = batcher.flush()[0]?.spans?.find((s) => s.text === '@ghost')
+		expect(span?.tone).toBe(fallbackTeamColor('ghost'))
+	})
+})

@@ -14,6 +14,7 @@ import {
 
 import { DEFAULT_MAX_HOOK_REFUSALS } from '../../config/turn-guards.js'
 import type { TeamsDecision, TeamsLimits } from './enabled.js'
+import type { TeamMailEvent } from './view.js'
 
 /**
  * Teammates that run inside the lead's process.
@@ -206,6 +207,7 @@ export class TeamRunner {
 	private swept = false
 	private closed = false
 	private readonly changeListeners = new Set<() => void>()
+	private readonly mailListeners = new Set<(event: TeamMailEvent) => void>()
 	readonly backend: TeammateBackend
 
 	constructor(
@@ -267,6 +269,14 @@ export class TeamRunner {
 		this.changeListeners.add(listener)
 		return () => {
 			this.changeListeners.delete(listener)
+		}
+	}
+
+	/** Hear every piece of mail the team writes, as it is written (the file keeps the record; this is for a screen). */
+	onMail(listener: (event: TeamMailEvent) => void): () => void {
+		this.mailListeners.add(listener)
+		return () => {
+			this.mailListeners.delete(listener)
 		}
 	}
 
@@ -659,6 +669,20 @@ export class TeamRunner {
 				...(draft.summary !== undefined ? { summary: draft.summary } : {}),
 				...(draft.kind !== undefined ? { kind: draft.kind } : {}),
 			})
+			for (const listener of [...this.mailListeners]) {
+				try {
+					listener({
+						team,
+						from: draft.from,
+						to,
+						kind: draft.kind ?? 'message',
+						text: draft.text,
+						...(draft.summary !== undefined ? { summary: draft.summary } : {}),
+					})
+				} catch {
+					// A screen that cannot draw must not stop the team.
+				}
+			}
 			return entry
 		} catch (error) {
 			if (error instanceof TeamStoreError && error.code === 'team_not_found') return undefined

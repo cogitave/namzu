@@ -20,7 +20,7 @@ import { Box, Text } from 'ink'
 import stringWidth from 'string-width'
 
 import { terminalDisplayText } from './terminal-display.js'
-import { theme } from './theme.js'
+import { paint, theme } from './theme.js'
 
 export type ChecklistStatus = 'pending' | 'in_progress' | 'completed' | 'failed'
 
@@ -32,6 +32,8 @@ export interface ChecklistItem {
 	readonly blockedBy?: readonly string[]
 	/** The teammate that holds it, on a team's list. */
 	readonly owner?: string
+	/** The colour the owner's name wears (a teammate's own), when the roster gave one. */
+	readonly ownerColor?: string
 	/** True on a team's list, the only list that shows owner and blockers beside the subject. */
 	readonly team?: boolean
 	/** What the working row says while this step is in progress; the subject when absent. */
@@ -52,19 +54,35 @@ export function isTerminalChecklistStatus(status: ChecklistStatus): boolean {
 
 /** Completed-of-total, the count every task surface leads with. */
 export function checklistProgress(items: readonly ChecklistItem[]): string {
+	if (items[0]?.team === true) {
+		const active = items.filter((item) => item.status === 'in_progress').length
+		const failed = items.filter((item) => item.status === 'failed').length
+		const done = items.filter((item) => item.status === 'completed').length
+		return `${done}/${items.length} tasks done${active > 0 ? ` · ${active} in progress` : ''}${failed > 0 ? ` · ${failed} failed` : ''}`
+	}
 	const done = items.filter((item) => item.status === 'completed').length
 	const failed = items.filter((item) => item.status === 'failed').length
 	return `Tasks · ${done}/${items.length} done${failed > 0 ? ` · ${failed} failed` : ''}`
 }
 
+/** The owner as a list shows it: `(@one)`; empty when no one holds the task. */
+export function checklistOwner(item: ChecklistItem): string {
+	return item.team === true && item.owner !== undefined ? ` (@${oneLine(item.owner)})` : ''
+}
+
+/** What a team's list says a task waits on: ` › blocked by #1, #2`; empty when it waits on nothing. */
+export function checklistBlocked(item: ChecklistItem): string {
+	return item.team === true &&
+		item.blockedBy !== undefined &&
+		item.blockedBy.length > 0 &&
+		item.status !== 'completed'
+		? ` › blocked by ${item.blockedBy.map((id) => `#${id}`).join(', ')}`
+		: ''
+}
+
 /** What follows a task's subject on a team's list: who holds it and what it waits on; empty on a plain list. */
 export function checklistSuffix(item: ChecklistItem): string {
-	if (item.team !== true) return ''
-	const parts: string[] = []
-	if (item.owner !== undefined) parts.push(oneLine(item.owner))
-	if (item.blockedBy !== undefined && item.blockedBy.length > 0 && item.status !== 'completed')
-		parts.push(`waits on ${item.blockedBy.map((id) => `#${id}`).join(', ')}`)
-	return parts.length > 0 ? ` · ${parts.join(' · ')}` : ''
+	return `${checklistOwner(item)}${checklistBlocked(item)}`
 }
 
 /**
@@ -79,12 +97,12 @@ function oneLine(subject: string): string {
 	return terminalDisplayText(subject.replace(/\s+/g, ' ').trim())
 }
 
-function markColor(status: ChecklistStatus): string {
+function markColor(status: ChecklistStatus, team = false): string {
 	switch (status) {
 		case 'in_progress':
 			return theme.accent.assistant
 		case 'completed':
-			return theme.text.muted
+			return team ? theme.status.ok : theme.text.muted
 		case 'failed':
 			return theme.status.error
 		default:
@@ -107,7 +125,9 @@ export function ChecklistRow({
 	return (
 		<Box flexDirection="row">
 			<Box width={2} flexShrink={0}>
-				<Text color={markColor(item.status)}>{CHECKLIST_MARK[item.status]}</Text>
+				<Text color={markColor(item.status, item.team === true)}>
+					{CHECKLIST_MARK[item.status]}
+				</Text>
 			</Box>
 			<Box flexGrow={1} flexShrink={1}>
 				<Text
@@ -124,9 +144,19 @@ export function ChecklistRow({
 					wrap={wrap}
 				>
 					{oneLine(item.subject)}
-					{checklistSuffix(item) ? (
+					{checklistOwner(item) ? (
+						<Text
+							color={item.ownerColor !== undefined ? paint(item.ownerColor) : theme.text.muted}
+							strikethrough={false}
+							bold={false}
+							dimColor
+						>
+							{checklistOwner(item)}
+						</Text>
+					) : null}
+					{checklistBlocked(item) ? (
 						<Text color={theme.text.muted} strikethrough={false} bold={false}>
-							{checklistSuffix(item)}
+							{checklistBlocked(item)}
 						</Text>
 					) : null}
 				</Text>

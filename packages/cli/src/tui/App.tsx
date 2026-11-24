@@ -754,16 +754,26 @@ import {
 	upsertTask,
 } from './task-activity.js'
 import {
+	TeamRowBatcher,
+	colorFor,
+	idleRows,
+	newlyCompleted,
+	sentRow,
+	shutDownRow,
+	taskCompletedRow,
+} from './team-rows.js'
+import {
 	EMPTY_TEAM,
 	TEAM_STOP_CONFIRM_MS,
+	TEAM_VIEW_ESC_HINT,
 	type TeamSnapshot,
-	idleRowText,
 	lastFinishedTask,
 	mailBody,
 	parseTeamCommand,
 	sameTeamSnapshot,
-	sentLabel,
+	taskNumbers,
 	teamChecklistItems,
+	teamPromptBadge,
 	teamRailHint,
 	teamStopStep,
 	teamSummaryLines,
@@ -870,7 +880,6 @@ import {
 	holdsForBatch,
 	numberDetailRows,
 	settledBatchRows,
-	teammateIdleRows,
 	trailFromRecords,
 	withSavedAgentRows,
 	workflowClosingRow,
@@ -1156,6 +1165,8 @@ const FREE_TEXT_ANSWER = '__free_text__'
 const SHELLS_FOCUS = 'shells'
 /** The stop-all chord's armed notice; the second press removes it. */
 const STOP_ALL_CONFIRM_KEY = 'kill-agents-confirm'
+/** Messages and answers the team writes within this long of each other are folded into one row. */
+const TEAM_ROW_FOLD_MS = 250
 
 type PluginChoiceState = ({ readonly kind: 'plugin' } | { readonly kind: 'plugin-action' }) & {
 	readonly title: string
@@ -4341,6 +4352,7 @@ function AppBody({
 			diff?: TranscriptMessage['diff'],
 			contentColor?: string,
 			attachments?: readonly AttachmentRow[],
+			spans?: TranscriptMessage['spans'],
 		) => {
 			// A command the model ran for the person tells the model what it printed.
 			if (role === 'system') commandCaptureRef.current?.push(content)
@@ -4402,6 +4414,7 @@ function AppBody({
 								...(shell ? { shell } : {}),
 								...(diff ? { diff } : {}),
 								...(contentColor ? { contentColor } : {}),
+								...(spans && spans.length > 0 ? { spans } : {}),
 								...(attachments && attachments.length > 0 ? { attachments } : {}),
 								...(sourceDelivery ? { sourceDelivery } : {}),
 								// Numbered only if this body will actually be COLLAPSED — the
@@ -4481,6 +4494,8 @@ function AppBody({
 				row.shell,
 				row.diff,
 				row.contentColor,
+				undefined,
+				row.spans,
 			),
 		[pushMessage],
 	)
@@ -4589,17 +4604,21 @@ function AppBody({
 				scopeRef.current?.sessionId !== message.parentSessionId
 			)
 				return
-			const row = childMessageRow(message)
-			pushMessage(
-				'tool',
-				row.content,
-				false,
-				'›',
-				row.detail,
-				tokenColor('text.muted'),
-				row.hint,
-				'agent-result',
-			)
+			// A teammate's message is a row of the team's own mail (folded, in its colour); the model
+			// still hears it here.
+			if (!message.teammate || !session?.team?.onMail) {
+				const row = childMessageRow(message)
+				pushMessage(
+					'tool',
+					row.content,
+					false,
+					'›',
+					row.detail,
+					tokenColor('text.muted'),
+					row.hint,
+					'agent-result',
+				)
+			}
 			wakeLedgerRef.current.noteChildMessage(childMessageNotice(message))
 			// No `notify()`: a message queued for the next turn does not release a wait the
 			// running turn is in (it is queued at `next` priority); the turn
@@ -4945,10 +4964,13 @@ function AppBody({
 	const [receiptTick, setReceiptTick] = useState(0)
 	/** The task each teammate's idle row last named, so a turn that finished nothing new does not name it again. */
 	const finishedNamedRef = useRef(new Map<string, string>())
+	/** Teammates whose `shut down` line is already in the conversation. */
+	const shutDownNamesRef = useRef(new Set<string>())
 	// biome-ignore lint/correctness/useExhaustiveDependencies: the list predates linting of .tsx files; changing it changes when this runs, so it is left as written.
 	useEffect(() => {
 		reportedAgentsRef.current.clear()
 		finishedNamedRef.current.clear()
+		shutDownNamesRef.current.clear()
 		reportedFailuresRef.current.clear()
 		reportedBatchesRef.current.clear()
 		reportedWorkflowLinesRef.current.clear()
@@ -4962,6 +4984,12 @@ function AppBody({
 		reportedWorkflowLinesRef.current.add(first.workflowGroupId)
 		return true
 	}, [])
+	/** True for an agent that is a member of the team: its launch line says no `follow it with` hint. */
+	const isTeamMember = useCallback(
+		(agent: SubagentActivity): boolean =>
+			session?.team?.members().some((member) => member.viewId === agent.viewId) ?? false,
+		[session],
+	)
 	/**
 	 * Writes the receipt of every batch that is whole. `force` skips the settle
 	 * window (a reply is about to print under it); a batch whose `Agent` call is
@@ -5015,11 +5043,11 @@ function AppBody({
 				}
 				reportedBatchesRef.current.add(key)
 				if (!claimReceipt(members)) continue
-				for (const row of settledBatchRows(members, agentCallsOn)) pushRow(row)
+				for (const row of settledBatchRows(members, agentCallsOn, isTeamMember)) pushRow(row)
 			}
 			return retryIn
 		},
-		[agentCallsOn, claimReceipt, pushRow, session],
+		[agentCallsOn, claimReceipt, isTeamMember, pushRow, session],
 	)
 	flushLaunchReceiptsRef.current = () => {
 		writeLaunchReceipts(subagentsRef.current, activeToolsRef.current, true)
@@ -5074,7 +5102,11 @@ function AppBody({
 			) {
 				reportedBatchesRef.current.add(key)
 				if (claimReceipt(batches.get(key) ?? [agent])) {
-					for (const row of settledBatchRows(batches.get(key) ?? [agent], agentCallsOn))
+					for (const row of settledBatchRows(
+						batches.get(key) ?? [agent],
+						agentCallsOn,
+						isTeamMember,
+					))
 						pushRow(row)
 				}
 			}
@@ -5100,18 +5132,28 @@ function AppBody({
 					? session?.team?.members().find((m) => m.viewId === agent.viewId)
 					: undefined
 			if (teammate) {
-				const last = lastFinishedTask(teammate.name, teamSnapRef.current.tasks)
-				const fresh =
-					last && finishedNamedRef.current.get(teammate.name) !== last.id ? last : undefined
-				if (fresh) finishedNamedRef.current.set(teammate.name, fresh.id)
-				for (const done of teammateIdleRows(agent, idleRowText(teammate.name, fresh?.subject)))
-					pushRow(done)
+				// The team's own mail says it (see the mail effect below): one `Teammate @one finished`
+				// line with its answer under it. A session whose team has no mail feed writes the plain line.
+				if (!session?.team?.onMail)
+					for (const done of idleRows(
+						teammate.name,
+						colorFor(session?.team?.colorOf, teammate.name),
+						{ reason: 'available' },
+					))
+						pushRow(done)
 				continue
 			}
 			const leftName =
 				agent.status === 'completed' ? session?.team?.left?.(agent.viewId) : undefined
 			if (leftName !== undefined) {
-				for (const done of teammateIdleRows(agent, `${leftName} left the team`)) pushRow(done)
+				// An approved shutdown already wrote its line from the team's mail; a forced one has not.
+				// The name is spent once this member has left, so a later teammate with the same name that
+				// is stopped by force writes its own line.
+				if (shutDownNamesRef.current.has(leftName)) shutDownNamesRef.current.delete(leftName)
+				else
+					pushRow(
+						shutDownRow([{ name: leftName, color: colorFor(session?.team?.colorOf, leftName) }]),
+					)
 				continue
 			}
 			for (const done of agentCompletionRows(agent, previousFailure, agentCallsOn)) pushRow(done)
@@ -5128,6 +5170,7 @@ function AppBody({
 		writeLaunchReceipts,
 		claimReceipt,
 		agentCallsOn,
+		isTeamMember,
 		teamSnap,
 	])
 
@@ -5195,15 +5238,86 @@ function AppBody({
 				// correction to a sub-agent is a correction.
 				const member = session?.team?.members().find((m) => m.viewId === agent.viewId)
 				if (member) {
-					pushMessage('tool', sentLabel(row.mail, member.name), false, '→', [
+					const sent = sentRow(
+						row.mail,
+						member.name,
+						colorFor(session?.team?.colorOf, member.name),
 						row.mail?.body ?? mailBody(row.text),
-					])
+					)
+					if (sent) pushRow(sent)
 					continue
 				}
 				pushMessage('tool', `${agent.description} · correction sent`, false, '→', [row.text])
 			}
 		}
-	}, [subagents, pushMessage, session])
+	}, [subagents, pushMessage, pushRow, session])
+
+	/**
+	 * What the team writes to the lead, as rows: a teammate's messages folded into one dim line, an
+	 * idle teammate with its answer, a shutdown, a plan waiting for the person and its answer. The
+	 * rows of one short moment are folded together, so three messages in a burst are one line.
+	 */
+	useEffect(() => {
+		const source = session?.team
+		if (!source?.onMail) return
+		const batcher = new TeamRowBatcher((name) => source.colorOf?.(name))
+		let timer: ReturnType<typeof setTimeout> | undefined
+		const flush = (): void => {
+			timer = undefined
+			for (const row of batcher.flush()) pushRow(row)
+		}
+		const off = source.onMail((event) => {
+			if (event.kind === 'shutdown_response') {
+				try {
+					if ((JSON.parse(event.text) as { approve?: unknown }).approve === true)
+						shutDownNamesRef.current.add(event.from)
+				} catch {
+					// Not a shutdown answer we can read: it leaves its row as a refusal.
+				}
+			}
+			const taken = batcher.add(event, (name) => {
+				const last = lastFinishedTask(name, teamSnapRef.current.tasks)
+				if (!last || finishedNamedRef.current.get(name) === last.id) return undefined
+				finishedNamedRef.current.set(name, last.id)
+				return taskNumbers(teamSnapRef.current.tasks).get(last.id)
+			})
+			if (taken && timer === undefined) timer = setTimeout(flush, TEAM_ROW_FOLD_MS)
+		})
+		return () => {
+			off()
+			// Mail already taken from the runner is never sent again: write what is folded, do not drop it.
+			if (timer !== undefined) {
+				clearTimeout(timer)
+				for (const row of batcher.flush()) pushRow(row)
+			}
+		}
+	}, [session, pushRow])
+
+	/** A task a teammate completed: one dim line, from the change of the shared list. */
+	const seenTaskStatesRef = useRef<ReadonlyMap<string, string> | undefined>(undefined)
+	// biome-ignore lint/correctness/useExhaustiveDependencies: the list predates linting of .tsx files; changing it changes when this runs, so it is left as written.
+	useEffect(() => {
+		seenTaskStatesRef.current = undefined
+	}, [session])
+	// biome-ignore lint/correctness/useExhaustiveDependencies: only the task list moves this; `session` is read for the colours.
+	useEffect(() => {
+		const tasks = teamSnap.tasks
+		// The first list is the baseline: tasks that were done before it are not news.
+		if (seenTaskStatesRef.current === undefined && tasks.length === 0) return
+		const done = newlyCompleted(seenTaskStatesRef.current, tasks)
+		seenTaskStatesRef.current = new Map(tasks.map((task) => [task.id, task.status]))
+		if (done.length === 0) return
+		const numbers = taskNumbers(tasks)
+		for (const task of done)
+			pushRow(
+				taskCompletedRow(
+					task.owner,
+					colorFor(session?.team?.colorOf, task.owner ?? ''),
+					numbers.get(task.id) ?? 0,
+					task.subject,
+				),
+			)
+	}, [teamSnap.tasks, pushRow])
 
 	/**
 	 * Change the permission mode, now — including while a turn runs.
@@ -8153,13 +8267,13 @@ function AppBody({
 	// With a team the list is the team's: every task with its owner and what it waits on, from the
 	// shared store, not the slices this conversation's own turns happened to touch.
 	const shownTasks: readonly TaskListItem[] =
-		teamSnap.tasks.length > 0 ? teamChecklistItems(teamSnap.tasks) : tasks
+		teamSnap.tasks.length > 0 ? teamChecklistItems(teamSnap.tasks, session?.team?.colorOf) : tasks
 	const planLive = (state === 'thinking' || state === 'tool') && shownTasks.length > 0
 	const checklistOpen =
 		checklistExpanded && shownTasks.length > 0 && (planLive || checklistPinned || !checklistShown)
 	checklistOpenRef.current = checklistOpen
 	const liveTasks = planLive || checklistOpen || !checklistShown ? shownTasks : []
-	const fullTaskFurniture = taskListRows(liveTasks, checklistOpen)
+	const fullTaskFurniture = taskListRows(liveTasks, checklistOpen, terminal.rows)
 	// The plan's next task, drawn under the working row; never from a sub-agent's plan.
 	const nextPlanned = nextTask(shownTasks)
 	const compactWork =
@@ -11064,7 +11178,7 @@ function AppBody({
 			// With a team the block shows the team's whole list, not the slice this conversation touched.
 			const shown =
 				teamSnapRef.current.tasks.length > 0
-					? teamChecklistItems(teamSnapRef.current.tasks)
+					? teamChecklistItems(teamSnapRef.current.tasks, session?.team?.colorOf)
 					: checklist
 			setMessages(
 				(prev) =>
@@ -11078,7 +11192,7 @@ function AppBody({
 					}) as TranscriptMessage[],
 			)
 		},
-		[nextId],
+		[nextId, session?.team?.colorOf],
 	)
 
 	// Render one agent event onto the transcript. Shared by the local turn loop
@@ -18747,6 +18861,9 @@ function AppBody({
 							selected,
 							rows,
 							Math.max(1, terminal.columns - SCREEN_MARGIN),
+							teamSnapRef.current.members.some((m) => m.viewId === selected.viewId)
+								? { name: '', hint: TEAM_VIEW_ESC_HINT }
+								: undefined,
 						)
 						const offset = Math.min(agentView.tailOffset, max)
 						const next = key.home
@@ -19926,6 +20043,15 @@ function AppBody({
 									pageRows={viewPageRows}
 									terminalColumns={Math.max(1, terminal.columns - SCREEN_MARGIN)}
 									notice={viewNotice}
+									{...(teamRail?.members.has(viewingAgent.viewId)
+										? {
+												teammate: {
+													name: teamRail.members.get(viewingAgent.viewId)?.name ?? '',
+													colorOf: (name: string) => session?.team?.colorOf?.(name),
+													hint: TEAM_VIEW_ESC_HINT,
+												},
+											}
+										: {})}
 								/>
 							) : null}
 							{workflowDetailOpen && agentSurface?.kind === 'cockpit' ? (
@@ -19992,9 +20118,19 @@ function AppBody({
 									<Composer
 										attachmentFloor={attachmentFloor}
 										{...(viewingAgent
-											? {
-													placeholder: `Message @${[...(teamRail?.members.get(viewingAgent.viewId)?.name ?? viewingAgent.agentId)].slice(0, 20).join('')}…`,
-												}
+											? teamRail?.members.has(viewingAgent.viewId)
+												? {
+														placeholder: 'Message this teammate',
+														badge: {
+															text: teamPromptBadge(
+																teamRail.members.get(viewingAgent.viewId)?.name ?? '',
+															),
+															color: teamRail.members.get(viewingAgent.viewId)?.color ?? 'cyan',
+														},
+													}
+												: {
+														placeholder: `Message @${[...viewingAgent.agentId].slice(0, 20).join('')}…`,
+													}
 											: examplePrompts &&
 													history.length === 0 &&
 													!messages.some((message) => message.role === 'user')
