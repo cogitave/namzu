@@ -274,10 +274,26 @@ Window "Hesap Makinesi"
   `ui_snapshot { root: "e12" }` reads just that region (a long one in pages:
   the text ends with `ui_snapshot {root, offset}` for the next), and every ref
   outside it stays valid. `ui_snapshot { query: "text" }` lists only the
-  controls whose text matches, with the elements above them. `ui_act` on a
+  controls whose text matches, with the elements above them;
+  `ui_snapshot { role: "Button" }` does the same by control type (several
+  roles joined with a comma, and it combines with `query`). `ui_act` on a
   region is refused with how to open it. The header says how many controls were
   shown out of how many the window holds.
-- The text is cut at 14 000 characters (about 4 000 tokens); the line that says
+- A window read before comes back as what changed since that read, by default:
+  `+` lines for controls that appeared, `~` for ones whose text, value or state
+  changed, `-` for ones that went, or `no change since u3` when nothing did.
+  Every ref from the earlier read still works. `ui_snapshot { full: true }`
+  lists the whole tree; a region, a filtered read, a read that was cut, and a
+  window that mostly changed (the diff would not be shorter than the tree) are
+  shown whole. The tool keeps the last whole read of each window for this.
+- The text ends with the control that has focus (a `focused` state, when the
+  host reports it) and any text selected in the window (`UiSnapshot.selectedText`),
+  inside the same untrusted frame.
+- The first window screenshot of a window nobody has read carries its controls
+  in the same result, ahead of the picture, so the model starts from names. A
+  host that cannot read the tree, or a read that fails, leaves the screenshot
+  alone.
+- The text is cut at 24 000 characters (about 7 000 tokens); the line that says
   so tells the model to drill into the region it needs. A host that stopped its
   own walk sets `truncated` and the text says so.
 

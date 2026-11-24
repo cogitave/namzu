@@ -2,19 +2,19 @@
 // Display server — the host environment's graphical stack
 // ---------------------------------------------------------------------------
 
-export type DisplayServer = 'darwin' | 'win32' | 'x11' | 'wayland' | 'unknown'
+export type DisplayServer = "darwin" | "win32" | "x11" | "wayland" | "unknown";
 
 export function assertDisplayServer(value: DisplayServer): void {
 	switch (value) {
-		case 'darwin':
-		case 'win32':
-		case 'x11':
-		case 'wayland':
-		case 'unknown':
-			return
+		case "darwin":
+		case "win32":
+		case "x11":
+		case "wayland":
+		case "unknown":
+			return;
 		default: {
-			const _exhaustive: never = value
-			throw new Error(`Unknown DisplayServer: ${_exhaustive}`)
+			const _exhaustive: never = value;
+			throw new Error(`Unknown DisplayServer: ${_exhaustive}`);
 		}
 	}
 }
@@ -24,24 +24,24 @@ export function assertDisplayServer(value: DisplayServer): void {
 // ---------------------------------------------------------------------------
 
 export interface ComputerUseCapabilities {
-	readonly displayServer: DisplayServer
-	readonly screenshot: boolean
-	readonly mouse: boolean
-	readonly keyboard: boolean
-	readonly cursorPosition: boolean
-	readonly clipboard: boolean
+	readonly displayServer: DisplayServer;
+	readonly screenshot: boolean;
+	readonly mouse: boolean;
+	readonly keyboard: boolean;
+	readonly cursorPosition: boolean;
+	readonly clipboard: boolean;
 	/** Display action subset when known. Window capture and input are a separate path. */
-	readonly supportedActions?: readonly ComputerUseAction['type'][]
+	readonly supportedActions?: readonly ComputerUseAction["type"][];
 	/** Supported click buttons; absent leaves button admission to the host. */
-	readonly mouseClickButtons?: readonly MouseButton[]
+	readonly mouseClickButtons?: readonly MouseButton[];
 	/** Supported drag buttons; absent leaves button admission to the host. */
-	readonly mouseDragButtons?: readonly MouseButton[]
+	readonly mouseDragButtons?: readonly MouseButton[];
 	/**
 	 * The most clicks in a row one `mouse_click` may make (2 is a double-click).
 	 * Absent means 1: the tool refuses a larger `count` before the host is
 	 * reached, and does not offer the field to the model.
 	 */
-	readonly maxClickCount?: 1 | 2 | 3
+	readonly maxClickCount?: 1 | 2 | 3;
 	/**
 	 * Why every flag above is false, when a host loaded but the desktop did
 	 * not answer — a WSL process with PowerShell and no interactive Windows
@@ -49,29 +49,29 @@ export interface ComputerUseCapabilities {
 	 * mounted and says this in its description and in every refusal, so the
 	 * model reads the reason once and does not try again.
 	 */
-	readonly unavailableReason?: string
+	readonly unavailableReason?: string;
 	/**
 	 * The host implements {@link ComputerUseHost.listWindows} and
 	 * {@link ComputerUseHost.focusWindow}. Absent or false, the tool does not
 	 * offer `list_windows` or `focus_window`, even when the methods exist.
 	 */
-	readonly windows?: boolean
+	readonly windows?: boolean;
 	/**
 	 * The host can capture and act on one named window without sharing the
 	 * whole desktop. Requires `captureWindow` and `executeWindow`.
 	 */
-	readonly windowCapture?: boolean
+	readonly windowCapture?: boolean;
 	/**
 	 * Whether scoped pixel scrolling can be delivered safely. Explicit false
 	 * refuses it before a batch starts; absent retains host-defined behavior.
 	 */
-	readonly windowScroll?: boolean
+	readonly windowScroll?: boolean;
 	/**
 	 * The host implements {@link ComputerUseHost.captureRegion}. Absent or
 	 * false, `zoom` still works: the tool crops a full capture instead, which
 	 * costs one whole-display capture per zoom.
 	 */
-	readonly regionCapture?: boolean
+	readonly regionCapture?: boolean;
 	/**
 	 * The host implements {@link ComputerUseHost.uiSnapshot} and
 	 * {@link ComputerUseHost.uiAct}: an accessibility tree (Windows UI
@@ -81,7 +81,7 @@ export interface ComputerUseCapabilities {
 	 * @experimental The UI-tree surface is reserved for the host packages that
 	 * implement it; its shape may still change in a minor release.
 	 */
-	readonly uiTree?: boolean
+	readonly uiTree?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -99,9 +99,9 @@ export interface ComputerUseCapabilities {
 // ---------------------------------------------------------------------------
 
 export interface DisplayGeometry {
-	readonly width: number
-	readonly height: number
-	readonly scaleFactor: number
+	readonly width: number;
+	readonly height: number;
+	readonly scaleFactor: number;
 }
 
 /**
@@ -116,91 +116,94 @@ export interface DisplayGeometry {
  */
 export interface DisplayInfo {
 	/** Stable for the host's lifetime; what a host would accept to select this display. */
-	readonly id: string
-	readonly x: number
-	readonly y: number
-	readonly width: number
-	readonly height: number
-	readonly scaleFactor: number
+	readonly id: string;
+	readonly x: number;
+	readonly y: number;
+	readonly width: number;
+	readonly height: number;
+	readonly scaleFactor: number;
 	/** True for the display the operating system calls primary. */
-	readonly primary?: boolean
+	readonly primary?: boolean;
 }
 
 export interface ScreenshotResult {
-	readonly data: Buffer
-	readonly mimeType: 'image/png'
+	readonly data: Buffer;
+	readonly mimeType: "image/png";
 	/** Physical pixel width of `data`. */
-	readonly width: number
+	readonly width: number;
 	/** Physical pixel height of `data`. */
-	readonly height: number
+	readonly height: number;
 	/**
 	 * The display this capture shows. A host should always set it; one written
 	 * before it existed does not, and the tool then assumes a single display at
 	 * the origin whose size is the capture's own, with a scale factor of 1.
 	 */
-	readonly display?: DisplayInfo
+	readonly display?: DisplayInfo;
 }
 
 /** A rectangle in physical pixels. What its origin is relative to depends on where it appears. */
 export interface Rect {
-	readonly x: number
-	readonly y: number
-	readonly width: number
-	readonly height: number
+	readonly x: number;
+	readonly y: number;
+	readonly width: number;
+	readonly height: number;
 }
 
 /** One top-level window, as {@link ComputerUseHost.listWindows} reports it. */
 export interface WindowInfo {
 	/** Opaque and host-defined (an HWND in hex, a CGWindowID, an X11 window id); valid for {@link ComputerUseHost.focusWindow}. */
-	readonly id: string
-	readonly title: string
+	readonly id: string;
+	readonly title: string;
 	/** Application or process name, e.g. `msedge`, `Teams`, `Code`. */
-	readonly app: string
-	readonly pid: number
+	readonly app: string;
+	readonly pid: number;
 	/** Virtual-desktop physical pixels — not display-relative. */
-	readonly bounds: Rect
-	readonly focused: boolean
-	readonly minimized: boolean
+	readonly bounds: Rect;
+	readonly focused: boolean;
+	readonly minimized: boolean;
 }
 
 /** A PNG of one window. Its pixels are window-local, not display-relative. */
 export interface WindowScreenshotResult {
-	readonly data: Buffer
-	readonly mimeType: 'image/png'
+	readonly data: Buffer;
+	readonly mimeType: "image/png";
 	/** Pixel size of the exact PNG returned by the host. */
-	readonly width: number
-	readonly height: number
-	readonly window: WindowInfo
+	readonly width: number;
+	readonly height: number;
+	readonly window: WindowInfo;
 	/**
 	 * Opaque capture token. The host rejects actions after another window
 	 * capture, driver restart, session revival, or target geometry change.
 	 */
-	readonly captureId: string
+	readonly captureId: string;
 	/** A limitation of this capture, when the driver reports one. */
-	readonly captureCoverage?: string
+	readonly captureCoverage?: string;
 }
 
 /** How input is delivered to a captured window. Foreground may briefly activate it. */
-export type WindowDeliveryMode = 'background' | 'foreground'
+export type WindowDeliveryMode = "background" | "foreground";
 
 /** Window-local actions. A window-scoped mouse move is not a real OS move. */
 export type WindowInputAction =
-	| Extract<ComputerUseAction, { readonly type: 'mouse_click' | 'mouse_drag' | 'scroll' }>
+	| Extract<
+			ComputerUseAction,
+			{ readonly type: "mouse_click" | "mouse_drag" | "scroll" }
+	  >
 	/** Foreground delivery sends text to the verified target window. */
 	| {
-			readonly type: 'type_text'
-			readonly text: string
-			readonly delivery_mode?: WindowDeliveryMode
+			readonly type: "type_text";
+			readonly text: string;
+			readonly delivery_mode?: WindowDeliveryMode;
 	  }
 	/**
 	 * `foreground` explicitly permits the host to bring the verified target
 	 * window forward for keys its background input path cannot deliver.
 	 */
 	| {
-			readonly type: 'key'
-			readonly keys: string
-			readonly delivery_mode?: WindowDeliveryMode
-	  }
+			readonly type: "key";
+			readonly keys: string;
+			readonly delivery_mode?: WindowDeliveryMode;
+	  };
 
 /**
  * What {@link ComputerUseHost.focusWindow} achieved. Bringing a window to
@@ -210,18 +213,18 @@ export type WindowInputAction =
  */
 export interface FocusWindowResult {
 	/** True only when `focusedId` is the requested window. */
-	readonly ok: boolean
+	readonly ok: boolean;
 	/** The window in front after the attempt, or null when none could be read. */
-	readonly focusedId: string | null
+	readonly focusedId: string | null;
 	/**
 	 * Set with `detail` when the host did not try at all (the screen was in
 	 * use, a prompt had it, the user said no). `not_delivered` / `safe` means
 	 * nothing was done and asking again later is fine.
 	 */
-	readonly delivery?: ActionDelivery
-	readonly retrySafety?: ActionRetrySafety
+	readonly delivery?: ActionDelivery;
+	readonly retrySafety?: ActionRetrySafety;
 	/** Why, in words the model can act on. */
-	readonly detail?: string
+	readonly detail?: string;
 }
 
 /**
@@ -230,14 +233,14 @@ export interface FocusWindowResult {
  * @experimental See {@link ComputerUseCapabilities.uiTree}.
  */
 export type UiElementAction =
-	| 'invoke'
-	| 'focus'
-	| 'set_value'
-	| 'toggle'
-	| 'select'
-	| 'expand'
-	| 'collapse'
-	| 'scroll_into_view'
+	| "invoke"
+	| "focus"
+	| "set_value"
+	| "toggle"
+	| "select"
+	| "expand"
+	| "collapse"
+	| "scroll_into_view";
 
 /**
  * One accessibility element.
@@ -254,25 +257,25 @@ export interface UiElement {
 	 * ref to a region it left unexpanded (see {@link UiElement.hiddenChildren});
 	 * that ref is the `root` of a drill-down snapshot, not a target for `uiAct`.
 	 */
-	readonly ref: string
+	readonly ref: string;
 	/** Platform role, e.g. `Button`, `Edit`, `ListItem` (UIA ControlType) or `AXButton`. */
-	readonly role: string
-	readonly name: string
-	readonly value?: string
+	readonly role: string;
+	readonly name: string;
+	readonly value?: string;
 	/** A platform automation id, when the element has one. */
-	readonly automationId?: string
+	readonly automationId?: string;
 	/** Virtual-desktop physical pixels, when the element is on screen. */
-	readonly bounds?: Rect
+	readonly bounds?: Rect;
 	/** Element states such as `focused`, `disabled`, `selected`, `checked`, `expanded`. */
-	readonly states?: readonly string[]
-	readonly actions?: readonly UiElementAction[]
-	readonly children?: readonly UiElement[]
+	readonly states?: readonly string[];
+	readonly actions?: readonly UiElementAction[];
+	readonly children?: readonly UiElement[];
 	/**
 	 * How many children of this element the host left out of the snapshot to
 	 * keep it short. Read them with a snapshot whose {@link UiSnapshotOptions.root}
 	 * is this element's ref.
 	 */
-	readonly hiddenChildren?: number
+	readonly hiddenChildren?: number;
 }
 
 /**
@@ -281,26 +284,28 @@ export interface UiElement {
  * @experimental See {@link ComputerUseCapabilities.uiTree}.
  */
 export interface UiSnapshot {
-	readonly windowId?: string
+	readonly windowId?: string;
 	/** The window's title, as its application sets it. */
-	readonly title?: string
+	readonly title?: string;
 	/** The owning application or process name, as in {@link WindowInfo.app}. */
-	readonly app?: string
-	readonly root: UiElement
+	readonly app?: string;
+	readonly root: UiElement;
 	/** True when the host stopped walking the tree before it ended (a size or time bound). */
-	readonly truncated?: boolean
+	readonly truncated?: boolean;
 	/**
 	 * True when the tree is an outline of a larger one: regions carry
 	 * {@link UiElement.hiddenChildren} and can be opened with
 	 * {@link UiSnapshotOptions.root}.
 	 */
-	readonly outline?: boolean
+	readonly outline?: boolean;
 	/** How many controls the whole window holds, when the host knows. */
-	readonly total?: number
+	readonly total?: number;
 	/** True when this snapshot is one region of the window (it was asked for with `root`). */
-	readonly region?: boolean
+	readonly region?: boolean;
 	/** For a region listed in pages: the `offset` that reads the page after this one. */
-	readonly next?: number
+	readonly next?: number;
+	/** The text selected in the window, when the host could read it. */
+	readonly selectedText?: string;
 }
 
 /**
@@ -310,19 +315,24 @@ export interface UiSnapshot {
  */
 export interface UiSnapshotOptions {
 	/** A ref from an earlier snapshot: read only that element's subtree. Refs outside it stay valid. */
-	readonly root?: string
+	readonly root?: string;
 	/** With `root`: skip this many of the region's children (the page a snapshot reported as `next`). */
-	readonly offset?: number
+	readonly offset?: number;
 	/** Only controls whose text contains this (case-insensitive), with the elements above them. */
-	readonly query?: string
+	readonly query?: string;
+	/**
+	 * Only controls of this role (case-insensitive; several may be joined with
+	 * a comma), with the elements above them. Combines with `query`.
+	 */
+	readonly role?: string;
 }
 
 /** Why a ref could not be acted on, as a typed failure. */
 export type UiActFailureCode =
 	/** The control the ref named is gone, or no longer something that can be acted on. */
-	| 'STALE_REF'
+	| "STALE_REF"
 	/** Several controls fit what the ref named; the host did not guess. */
-	| 'AMBIGUOUS_TARGET'
+	| "AMBIGUOUS_TARGET";
 
 /**
  * What {@link ComputerUseHost.uiAct} did.
@@ -330,20 +340,20 @@ export type UiActFailureCode =
  * @experimental See {@link ComputerUseCapabilities.uiTree}.
  */
 export interface UiActResult {
-	readonly ok: boolean
+	readonly ok: boolean;
 	/** Why it did not, in words the model can act on (a stale ref, a disabled element). */
-	readonly detail?: string
+	readonly detail?: string;
 	/** Set when the ref could not be resolved to one control; nothing was sent. */
-	readonly code?: UiActFailureCode
+	readonly code?: UiActFailureCode;
 	/** What is known about the effect. Absent from a host that does not classify. */
-	readonly delivery?: ActionDelivery
+	readonly delivery?: ActionDelivery;
 	/** Whether repeating the action blindly is safe. Set together with `delivery`. */
-	readonly retrySafety?: ActionRetrySafety
+	readonly retrySafety?: ActionRetrySafety;
 	/** The state read back after a stateful action, when the host could read it. */
 	readonly readBack?: {
-		readonly expected?: string
-		readonly observed?: string
-	}
+		readonly expected?: string;
+		readonly observed?: string;
+	};
 }
 
 /**
@@ -356,13 +366,16 @@ export interface UiActResult {
  * - `not_delivered`: the action was refused before any input, or a read-back
  *   proved the state did not change.
  */
-export type ActionDelivery = 'delivered_verified' | 'delivered_unverified' | 'not_delivered'
+export type ActionDelivery =
+	| "delivered_verified"
+	| "delivered_unverified"
+	| "not_delivered";
 
 /**
  * `safe`: nothing reached the target, so the same action may be repeated.
  * `unsafe`: the action may have taken effect; inspect before repeating it.
  */
-export type ActionRetrySafety = 'safe' | 'unsafe'
+export type ActionRetrySafety = "safe" | "unsafe";
 
 /**
  * What a window-scoped input action learned about its own delivery.
@@ -370,73 +383,75 @@ export type ActionRetrySafety = 'safe' | 'unsafe'
  * @experimental See {@link ComputerUseHost.executeWindow}.
  */
 export interface WindowInputResult {
-	readonly delivery: ActionDelivery
-	readonly retrySafety: ActionRetrySafety
-	readonly detail?: string
+	readonly delivery: ActionDelivery;
+	readonly retrySafety: ActionRetrySafety;
+	readonly detail?: string;
 	/** What the window read afterwards, when the host verified the input by reading it. */
 	readonly readBack?: {
-		readonly expected?: string
-		readonly observed?: string
-	}
+		readonly expected?: string;
+		readonly observed?: string;
+	};
 }
 
 export interface Point {
-	readonly x: number
-	readonly y: number
+	readonly x: number;
+	readonly y: number;
 }
 
-export type MouseButton = 'left' | 'right' | 'middle'
+export type MouseButton = "left" | "right" | "middle";
 
-export type ScrollDirection = 'up' | 'down' | 'left' | 'right'
+export type ScrollDirection = "up" | "down" | "left" | "right";
 
 // ---------------------------------------------------------------------------
 // Action — discriminated union over what a pointer-and-keyboard host can do
 // ---------------------------------------------------------------------------
 
 export type ComputerUseAction =
-	| { readonly type: 'screenshot' }
-	| { readonly type: 'cursor_position' }
-	| { readonly type: 'mouse_move'; readonly to: Point }
+	| { readonly type: "screenshot" }
+	| { readonly type: "cursor_position" }
+	| { readonly type: "mouse_move"; readonly to: Point }
 	| {
-			readonly type: 'mouse_click'
-			readonly at: Point
-			readonly button: MouseButton
+			readonly type: "mouse_click";
+			readonly at: Point;
+			readonly button: MouseButton;
 			/**
 			 * Clicks in a row at `at`: 2 is a double-click. Absent means 1, and the
 			 * tool sends it only above 1, only with the left button, and only to a
 			 * host whose {@link ComputerUseCapabilities.maxClickCount} allows it.
 			 */
-			readonly count?: 1 | 2 | 3
+			readonly count?: 1 | 2 | 3;
 	  }
 	| {
-			readonly type: 'mouse_drag'
-			readonly from: Point
-			readonly to: Point
-			readonly button: MouseButton
+			readonly type: "mouse_drag";
+			readonly from: Point;
+			readonly to: Point;
+			readonly button: MouseButton;
 	  }
 	| {
-			readonly type: 'scroll'
-			readonly at: Point
-			readonly direction: ScrollDirection
-			readonly amount: number
+			readonly type: "scroll";
+			readonly at: Point;
+			readonly direction: ScrollDirection;
+			readonly amount: number;
 	  }
-	| { readonly type: 'type_text'; readonly text: string }
-	| { readonly type: 'key'; readonly keys: string }
+	| { readonly type: "type_text"; readonly text: string }
+	| { readonly type: "key"; readonly keys: string };
 
-export function assertComputerUseActionType(type: ComputerUseAction['type']): void {
+export function assertComputerUseActionType(
+	type: ComputerUseAction["type"],
+): void {
 	switch (type) {
-		case 'screenshot':
-		case 'cursor_position':
-		case 'mouse_move':
-		case 'mouse_click':
-		case 'mouse_drag':
-		case 'scroll':
-		case 'type_text':
-		case 'key':
-			return
+		case "screenshot":
+		case "cursor_position":
+		case "mouse_move":
+		case "mouse_click":
+		case "mouse_drag":
+		case "scroll":
+		case "type_text":
+		case "key":
+			return;
 		default: {
-			const _exhaustive: never = type
-			throw new Error(`Unknown ComputerUseAction type: ${_exhaustive}`)
+			const _exhaustive: never = type;
+			throw new Error(`Unknown ComputerUseAction type: ${_exhaustive}`);
 		}
 	}
 }
@@ -446,15 +461,15 @@ export function assertComputerUseActionType(type: ComputerUseAction['type']): vo
 // ---------------------------------------------------------------------------
 
 export type ComputerUseResult =
-	| { readonly type: 'screenshot'; readonly result: ScreenshotResult }
-	| { readonly type: 'cursor_position'; readonly point: Point }
+	| { readonly type: "screenshot"; readonly result: ScreenshotResult }
+	| { readonly type: "cursor_position"; readonly point: Point }
 	| {
-			readonly type: 'ok'
+			readonly type: "ok";
 			/** Set by a host that can tell more than "the call returned". */
-			readonly delivery?: ActionDelivery
-			readonly retrySafety?: ActionRetrySafety
-			readonly detail?: string
-	  }
+			readonly delivery?: ActionDelivery;
+			readonly retrySafety?: ActionRetrySafety;
+			readonly detail?: string;
+	  };
 
 /**
  * A state-changing desktop action started, but its subprocess did not report
@@ -466,13 +481,13 @@ export type ComputerUseResult =
  * share an error constructor identity.
  */
 export interface ComputerUseOutcomeUnknown {
-	readonly code: 'computer_use_outcome_unknown'
-	readonly action: ComputerUseAction['type']
-	readonly outcome: 'unknown'
-	readonly retrySafety: 'unsafe'
-	readonly timedOut: boolean
-	readonly exitCode: number
-	readonly message: string
+	readonly code: "computer_use_outcome_unknown";
+	readonly action: ComputerUseAction["type"];
+	readonly outcome: "unknown";
+	readonly retrySafety: "unsafe";
+	readonly timedOut: boolean;
+	readonly exitCode: number;
+	readonly message: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -481,10 +496,10 @@ export interface ComputerUseOutcomeUnknown {
 // ---------------------------------------------------------------------------
 
 export interface ComputerUseHost {
-	readonly id: string
-	readonly capabilities: ComputerUseCapabilities
+	readonly id: string;
+	readonly capabilities: ComputerUseCapabilities;
 
-	getDisplayGeometry(): Promise<DisplayGeometry>
+	getDisplayGeometry(): Promise<DisplayGeometry>;
 	/**
 	 * Points in `action` are physical pixels relative to the display of the
 	 * most recent capture; a `screenshot` result carries that display in
@@ -497,33 +512,39 @@ export interface ComputerUseHost {
 	 * 'unsafe'`; one that provably was not answers `not_delivered` with
 	 * `'safe'`. A read throws.
 	 */
-	execute(action: ComputerUseAction, signal?: AbortSignal): Promise<ComputerUseResult>
+	execute(
+		action: ComputerUseAction,
+		signal?: AbortSignal,
+	): Promise<ComputerUseResult>;
 
 	/**
 	 * The visible, titled top-level windows, front to back where the platform
 	 * knows the order. Offered to the model only with
 	 * {@link ComputerUseCapabilities.windows}.
 	 */
-	listWindows?(signal?: AbortSignal): Promise<readonly WindowInfo[]>
+	listWindows?(signal?: AbortSignal): Promise<readonly WindowInfo[]>;
 	/**
 	 * Bring a window to the front, restoring it when minimized. Offered only
 	 * with {@link ComputerUseCapabilities.windows}.
 	 */
-	focusWindow?(id: string, signal?: AbortSignal): Promise<FocusWindowResult>
+	focusWindow?(id: string, signal?: AbortSignal): Promise<FocusWindowResult>;
 	/**
 	 * The model's turn `turnId` is making a tool call. A host that keeps state
 	 * per turn (an Escape stop, refused permissions) starts a new one when the
 	 * id changes.
 	 */
-	beginTurn?(turnId: string): void
+	beginTurn?(turnId: string): void;
 	/**
 	 * The model's turn ended or was interrupted. A host releases anything it
 	 * holds for the turn: a lease on the screen, an input monitor, a window it
 	 * moved forward.
 	 */
-	endTurn?(): void | Promise<void>
+	endTurn?(): void | Promise<void>;
 	/** Capture a named window. Never silently replace a failed capture with the desktop. */
-	captureWindow?(id: string, signal?: AbortSignal): Promise<WindowScreenshotResult>
+	captureWindow?(
+		id: string,
+		signal?: AbortSignal,
+	): Promise<WindowScreenshotResult>;
 	/**
 	 * Act in the PNG pixel space of `captureId`. The host must verify the
 	 * capture is current and still belongs to the same process/window before
@@ -535,14 +556,14 @@ export interface ComputerUseHost {
 		action: WindowInputAction,
 		signal?: AbortSignal,
 		// biome-ignore lint/suspicious/noConfusingVoidType: widening an existing `Promise<void>` return
-	): Promise<void | WindowInputResult>
+	): Promise<void | WindowInputResult>;
 	/**
 	 * Capture one region of the current display at full physical resolution.
 	 * `rect` is display-relative physical pixels; the result's `width` and
 	 * `height` are the region's. Used by `zoom` when
 	 * {@link ComputerUseCapabilities.regionCapture} is set.
 	 */
-	captureRegion?(rect: Rect, signal?: AbortSignal): Promise<ScreenshotResult>
+	captureRegion?(rect: Rect, signal?: AbortSignal): Promise<ScreenshotResult>;
 	/**
 	 * The accessibility tree of one window, or of the focused window when
 	 * `windowId` is omitted. With `options.root` only that element's subtree is
@@ -554,7 +575,7 @@ export interface ComputerUseHost {
 		windowId?: string,
 		options?: UiSnapshotOptions,
 		signal?: AbortSignal,
-	): Promise<UiSnapshot>
+	): Promise<UiSnapshot>;
 	/**
 	 * Act on an element from an earlier {@link uiSnapshot}. `value` is the text
 	 * for `set_value`. Offered only with {@link ComputerUseCapabilities.uiTree}.
@@ -566,7 +587,7 @@ export interface ComputerUseHost {
 		action: UiElementAction,
 		value?: string,
 		signal?: AbortSignal,
-	): Promise<UiActResult>
+	): Promise<UiActResult>;
 
 	/**
 	 * Wait until the window the last action went to has stopped changing,
@@ -584,24 +605,24 @@ export interface ComputerUseHost {
 	settle?(
 		request: ComputerUseSettleRequest,
 		signal?: AbortSignal,
-	): Promise<ComputerUseSettleResult | undefined>
+	): Promise<ComputerUseSettleResult | undefined>;
 
-	initialize?(): Promise<void>
-	dispose?(): Promise<void>
+	initialize?(): Promise<void>;
+	dispose?(): Promise<void>;
 }
 
 /** What the tool asks of {@link ComputerUseHost.settle}. */
 export interface ComputerUseSettleRequest {
 	/** The window the batch acted in, when it acted in one; absent for display input. */
-	readonly windowId?: string
+	readonly windowId?: string;
 	/** The most the tool is willing to wait, in milliseconds (its `settleMs`). */
-	readonly budgetMs: number
+	readonly budgetMs: number;
 }
 
 /** What {@link ComputerUseHost.settle} reports. */
 export interface ComputerUseSettleResult {
 	/** How long the host waited, in milliseconds. */
-	readonly waitedMs: number
+	readonly waitedMs: number;
 	/** Whether the window changed at all while it waited. */
-	readonly changed: boolean
+	readonly changed: boolean;
 }
