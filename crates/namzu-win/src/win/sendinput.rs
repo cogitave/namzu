@@ -7,7 +7,7 @@
 //! than were sent, something else holds the input desktop (a secure prompt, a
 //! program with more rights) and the caller is told, not left to guess.
 
-use namzu_win_core::input::Step;
+use namzu_win_core::input::{Step, release_after};
 use namzu_win_core::keys::is_extended;
 use namzu_win_core::protocol::{ErrorCode, MouseButton, WireError};
 use std::time::Duration;
@@ -90,6 +90,38 @@ fn button_flag(button: MouseButton, down: bool) -> MOUSE_EVENT_FLAGS {
     }
 }
 
+/// The modifier keys a `VkKeyScanW` answer needs held.
+fn modifiers_of(scan: i16) -> Vec<u16> {
+    let state = ((scan >> 8) & 0xFF) as u8;
+    let mut held: Vec<u16> = Vec::new();
+    if state & 1 != 0 {
+        held.push(VK_LSHIFT);
+    }
+    if state & 2 != 0 {
+        held.push(VK_LCONTROL);
+    }
+    if state & 4 != 0 {
+        held.push(VK_LMENU);
+    }
+    held
+}
+
+/// The modifiers `press` holds for a character, none when it goes as Unicode.
+fn press_modifiers(ch: char) -> Vec<u16> {
+    let mut units = [0u16; 2];
+    let encoded = ch.encode_utf16(&mut units);
+    if encoded.len() != 1 {
+        return Vec::new();
+    }
+    // SAFETY: a plain lookup.
+    let scan = unsafe { VkKeyScanW(encoded[0]) };
+    if scan == -1 {
+        Vec::new()
+    } else {
+        modifiers_of(scan)
+    }
+}
+
 /// A character that is no key of its own in a combination: its key and
 /// modifiers in the current layout, or its Unicode units when the layout has
 /// none for it.
@@ -109,17 +141,7 @@ fn press(ch: char) -> Vec<INPUT> {
             .collect();
     }
     let vk = (scan & 0xFF) as u16;
-    let state = ((scan >> 8) & 0xFF) as u8;
-    let mut held: Vec<u16> = Vec::new();
-    if state & 1 != 0 {
-        held.push(VK_LSHIFT);
-    }
-    if state & 2 != 0 {
-        held.push(VK_LCONTROL);
-    }
-    if state & 4 != 0 {
-        held.push(VK_LMENU);
-    }
+    let held = modifiers_of(scan);
     let mut out: Vec<INPUT> = held.iter().map(|m| key(*m, false)).collect();
     out.push(key(vk, false));
     out.push(key(vk, true));
@@ -175,23 +197,47 @@ fn flush(batch: &mut Vec<INPUT>, delivered: &mut u32) -> Result<(), WireError> {
     }
 }
 
-/// Sends the plan. Returns how many input events the system took.
+/// Sends the plan. Returns how many input events the system took. When it
+/// takes only part, every button and key the steps so far left down is put
+/// back up (best effort) before the error is returned.
 pub fn send(steps: &[Step]) -> Result<u32, WireError> {
-    let mut batch: Vec<INPUT> = Vec::new();
     let mut delivered = 0u32;
-    for step in steps {
+    match run(steps, &mut delivered) {
+        Ok(()) => Ok(delivered),
+        Err((consumed, error)) => {
+            release(&steps[..consumed]);
+            Err(error)
+        }
+    }
+}
+
+/// Errs with how many steps had been taken into a batch when the system refused.
+fn run(steps: &[Step], delivered: &mut u32) -> Result<(), (usize, WireError)> {
+    let mut batch: Vec<INPUT> = Vec::new();
+    for (i, step) in steps.iter().enumerate() {
         if let Step::Pause { ms } = step {
-            flush(&mut batch, &mut delivered)?;
+            flush(&mut batch, delivered).map_err(|e| (i, e))?;
             std::thread::sleep(Duration::from_millis(u64::from(*ms)));
             continue;
         }
         batch.extend(records(step));
         if batch.len() >= BATCH {
-            flush(&mut batch, &mut delivered)?;
+            flush(&mut batch, delivered).map_err(|e| (i + 1, e))?;
         }
     }
-    flush(&mut batch, &mut delivered)?;
-    Ok(delivered)
+    flush(&mut batch, delivered).map_err(|e| (steps.len(), e))
+}
+
+/// Puts back up what a cut-short plan left down. A character typed through a
+/// layout that was the last step may have its modifiers down too.
+fn release(consumed: &[Step]) {
+    let mut ups: Vec<INPUT> = Vec::new();
+    if let Some(Step::Press { ch }) = consumed.last() {
+        ups.extend(press_modifiers(*ch).iter().rev().map(|m| key(*m, true)));
+    }
+    ups.extend(release_after(consumed).iter().flat_map(records));
+    let mut delivered = 0;
+    let _ = flush(&mut ups, &mut delivered);
 }
 
 /// Taps one virtual key. A failure is ignored: the tap only gives this

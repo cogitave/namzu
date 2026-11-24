@@ -9,6 +9,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
+import { NativeWin32Adapter } from '../adapters/win32-native.js'
 import { ForegroundLadder } from '../foreground/ladder.js'
 import { createWindowsForegroundLadder } from '../foreground/windows.js'
 import { NativeForegroundMonitor } from '../native/foreground-monitor.js'
@@ -153,6 +154,43 @@ describe('NativeForegroundMonitor', () => {
 		await m.begin({ leasePath: 'p', token: 't' })
 		expect(fake.last('lease.begin').raise).toBeUndefined()
 		expect(fake.last('lease.begin').windowId).toBeUndefined()
+	})
+
+	it('begins a burst for the desktop with the front window to watch, nothing raised', async () => {
+		const fake = new FakeHelper()
+		const m = monitor(fake)
+		await m.start()
+		await m.begin({ leasePath: 'p', token: 't', watch: '0x10A2C' })
+		expect(fake.last('lease.begin')).toMatchObject({ windowId: 'w:0000000000010a2c' })
+		expect(fake.last('lease.begin').raise).toBeUndefined()
+	})
+
+	it('meets the display adapter in one helper, so the lease it begins is the one input is checked against', async () => {
+		const fake = new FakeHelper()
+		fake.answers.hello = {
+			...fake.answers.hello,
+			caps: ['monitor', 'capture', 'input', 'foreground', 'lease'],
+		} as Record<string, unknown>
+		fake.answers.input = { ok: true, delivered: 1, via: 'sendinput' }
+		let started = 0
+		const spawnHelper = (): FakeHelper => {
+			started++
+			return fake
+		}
+		const m = new NativeForegroundMonitor({ executable: 'namzu-win.exe', spawnHelper })
+		const adapter = await NativeWin32Adapter.create({ executable: 'namzu-win.exe', spawnHelper })
+		await m.start()
+		await m.begin({ leasePath: 'p', token: 't', watch: '0x10A2C' })
+		await adapter.execute({ type: 'key', keys: 'a' })
+		expect(started).toBe(1)
+		expect(fake.ops().filter((op) => op === 'hello')).toHaveLength(1)
+		const ops = fake.ops()
+		expect(ops.indexOf('input')).toBeGreaterThan(ops.indexOf('lease.begin'))
+		// The helper ends with its last holder.
+		await adapter.dispose()
+		expect(fake.killed).toBe(false)
+		await m.dispose()
+		expect(fake.killed).toBe(true)
 	})
 
 	it('ends a burst with what the helper counted of a person, and no Escape count', async () => {

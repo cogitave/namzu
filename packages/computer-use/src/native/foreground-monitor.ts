@@ -1,7 +1,8 @@
 import { readFileSync, unlinkSync } from 'node:fs'
 import type { ForegroundMonitor, MonitorBurstEnd, MonitorState } from '../foreground/types.js'
-import { NativeWinProcess, type NativeWinProcessOptions } from './process.js'
+import type { NativeWinProcessOptions } from './process.js'
 import type { NativeForegroundState, NativeMonitorPollReply } from './protocol.js'
+import { type NativeHelper, shareNativeProcess } from './shared.js'
 
 /**
  * The foreground monitor on the native helper: it watches for a person's use
@@ -35,11 +36,11 @@ function hwndOf(windowId: string): string {
 }
 
 export class NativeForegroundMonitor implements ForegroundMonitor {
-	private readonly process: NativeWinProcess
+	private readonly process: NativeHelper
 	private started = false
 
 	constructor(private readonly options: NativeForegroundMonitorOptions) {
-		this.process = new NativeWinProcess(options)
+		this.process = shareNativeProcess(options)
 	}
 
 	get running(): boolean {
@@ -75,13 +76,18 @@ export class NativeForegroundMonitor implements ForegroundMonitor {
 		readonly leasePath: string
 		readonly token: string
 		readonly raise?: string
+		readonly watch?: string
 		readonly idleMs?: number
 	}): Promise<MonitorState & { readonly raised?: boolean; readonly refused?: boolean }> {
 		const to = this.options.toHelperPath ?? ((p: string) => p)
 		const reply = await this.process.request(
 			{
 				op: 'lease.begin',
-				...(args.raise !== undefined ? { windowId: windowIdOf(args.raise), raise: true } : {}),
+				...(args.raise !== undefined
+					? { windowId: windowIdOf(args.raise), raise: true }
+					: args.watch !== undefined
+						? { windowId: windowIdOf(args.watch) }
+						: {}),
 				...(args.idleMs !== undefined ? { idleMs: args.idleMs } : {}),
 				leasePath: to(args.leasePath),
 				token: args.token,

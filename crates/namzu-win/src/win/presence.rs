@@ -489,7 +489,15 @@ fn run(queue: Arc<Mutex<VecDeque<Cmd>>>, ready: Sender<u32>) {
             ..Default::default()
         };
         let _ = RegisterClassExW(&class);
-        let made = Layer::new().zip(Layer::new());
+        // One at a time: a first window that was made is not left behind when
+        // the second cannot be.
+        let made = Layer::new().and_then(|mut first| match Layer::new() {
+            Some(second) => Some((first, second)),
+            None => {
+                first.destroy();
+                None
+            }
+        });
         let _ = ready.send(GetCurrentThreadId());
         let Some((cursor, frame)) = made else {
             // No windows: every command is answered with nothing until the thread is stopped.

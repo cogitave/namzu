@@ -411,7 +411,11 @@ export class ForegroundLadder {
 					// Checked by the monitor before it raises anything, so a person who
 					// started typing after the last look is not displaced.
 					idleMs: state.needed,
-					...(subject.hwnd !== undefined ? { raise: subject.hwnd } : {}),
+					...(subject.hwnd !== undefined
+						? { raise: subject.hwnd }
+						: state.state.foreground
+							? { watch: state.state.foreground.hwnd }
+							: {}),
 				})
 			} catch (error) {
 				if (error instanceof CallAbortedError) throw error

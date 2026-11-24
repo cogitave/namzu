@@ -315,29 +315,34 @@ fn monitor_scale(
 
 /// A window, drawn as it is even when covered.
 pub fn window(hwnd: HWND, cursor: bool, timeout: Duration) -> Result<Shot, WireError> {
-    let iconic = unsafe { IsIconic(hwnd).as_bool() };
+    // A minimized window is parked as a title-bar stub far off the screen, and
+    // Windows draws nothing of its contents: say so rather than send the stub.
+    if unsafe { IsIconic(hwnd).as_bool() } {
+        return Err(WireError::new(
+            ErrorCode::BackgroundUnavailable,
+            "the window is minimized; restore it to take its picture",
+        ));
+    }
     let monitors = enumerate::monitors();
     let nearest = unsafe { MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST) };
     let (scale, display) = monitor_scale(&monitors, nearest);
-    if !iconic {
-        if let Ok((width, height, mut bgra)) = wgc(&Item::Window(hwnd), cursor, timeout) {
-            make_opaque(&mut bgra);
-            let frame = frame_rect(hwnd, false);
-            return Ok(Shot {
-                width,
-                height,
-                bgra,
-                via: CaptureVia::Wgc,
-                bounds: Rect {
-                    x: frame.x,
-                    y: frame.y,
-                    width: width as i32,
-                    height: height as i32,
-                },
-                scale,
-                display,
-            });
-        }
+    if let Ok((width, height, mut bgra)) = wgc(&Item::Window(hwnd), cursor, timeout) {
+        make_opaque(&mut bgra);
+        let frame = frame_rect(hwnd, false);
+        return Ok(Shot {
+            width,
+            height,
+            bgra,
+            via: CaptureVia::Wgc,
+            bounds: Rect {
+                x: frame.x,
+                y: frame.y,
+                width: width as i32,
+                height: height as i32,
+            },
+            scale,
+            display,
+        });
     }
     let mut r = windows::Win32::Foundation::RECT::default();
     unsafe {

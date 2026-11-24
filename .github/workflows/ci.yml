@@ -608,6 +608,9 @@ jobs:
   windows-helper:
     name: Windows helper (${{ matrix.target }})
     runs-on: windows-latest
+    # The monitor tests wait for events with no deadline of their own (a test
+    # never races the clock); this bounds a real hang to the job.
+    timeout-minutes: 20
     strategy:
       matrix:
         include:

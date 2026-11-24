@@ -12,8 +12,9 @@ import type {
 	ScreenshotResult,
 } from '@namzu/sdk'
 import { type A11yDisplay, A11yError } from '../a11y/interface.js'
-import { NativeWinProcess, type NativeWinProcessOptions } from '../native/process.js'
+import type { NativeWinProcessOptions } from '../native/process.js'
 import type { NativeCaptureTarget, NativeInputRequest } from '../native/protocol.js'
+import { type NativeHelper, shareNativeProcess } from '../native/shared.js'
 import { SpawnError } from '../util/spawn.js'
 import { type Adapter, AdapterUnavailableError } from './types.js'
 
@@ -77,7 +78,7 @@ export class NativeWin32Adapter implements Adapter {
 	private display: DisplayInfo | undefined
 
 	private constructor(
-		private readonly process: NativeWinProcess,
+		private readonly process: NativeHelper,
 		private readonly dir: string,
 		private readonly helperDir: string,
 		ownsDir: boolean,
@@ -114,7 +115,7 @@ export class NativeWin32Adapter implements Adapter {
 	 * {@link AdapterUnavailableError} when it cannot.
 	 */
 	static async create(options: NativeWin32AdapterOptions): Promise<NativeWin32Adapter> {
-		const process = new NativeWinProcess(options)
+		const process = shareNativeProcess(options)
 		if (!(await process.ready())) {
 			throw new AdapterUnavailableError(
 				`Win32Adapter: the native helper did not start (${options.executable})`,

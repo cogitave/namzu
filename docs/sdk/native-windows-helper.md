@@ -58,7 +58,7 @@ own helper process.
 | `packages/computer-use/src/native/protocol.ts` | The TypeScript codec: `encodeRequest`, `decodeReply`, `formatRef`, `parseRef`, `nameHash`. |
 | `packages/computer-use/src/native/process.ts` | `NativeWinProcess`: starts the executable (no shell, no window), greets it, matches replies to requests by id, cancels at the helper on a timeout or an abort, starts it again (up to three times, counted afresh after a run of a minute or more) when it ends. The shipped helper aborts on a panic, so a panic ends it and this restart is the recovery. |
 | `packages/computer-use/src/native/a11y.ts` | `NativeA11yBackend`: the `AccessibilityBackend` interface answered by the helper, and `act` (a control by ref or fingerprint, through its pattern); `actFailureCode` names the two failures a ref can have (`STALE_REF`, `AMBIGUOUS_TARGET`). |
-| `packages/computer-use/src/native/foreground-monitor.ts`, `native/presence.ts` | `NativeForegroundMonitor` (the ladder's `ForegroundMonitor`: `monitor.start`, `foreground.get`, `monitor.poll`, `lease.begin`, `lease.end`) and `NativePresence` (the overlay's `Presence`: `presence.act`, `presence.hide`). Neither starts a process of its own. |
+| `packages/computer-use/src/native/foreground-monitor.ts`, `native/presence.ts`, `native/shared.ts` | `NativeForegroundMonitor` (the ladder's `ForegroundMonitor`: `monitor.start`, `foreground.get`, `monitor.poll`, `lease.begin`, `lease.end`) and `NativePresence` (the overlay's `Presence`: `presence.act`, `presence.hide`). The monitor and `NativeWin32Adapter` take their helper from `shareNativeProcess`, so the lease the ladder begins and the input the adapter sends meet in one helper process, which is the only place a lease can refuse an input; the process ends with its last holder, and `release` (ending an idle helper) does nothing while the other still holds it. |
 | `packages/computer-use/src/adapters/win32-native.ts` | `NativeWin32Adapter`: the display `Adapter` (screenshot, zoom region, click, drag, scroll, type, key, cursor position, display geometry) on top of `input`, `capture`, `displays` and `foreground.get`. |
 
 ## The protocol: `namzu-win/1`
@@ -217,9 +217,13 @@ path of a drag, how many wheel notches a scroll is, how a text becomes key
 events, which modifiers go down first and come up last. The Windows side only
 carries the steps out, in batches, pausing where the plan says to. A point
 outside every display is `bad_request` (it is refused, not clamped to somewhere
-the caller did not ask for). When the system takes fewer events than were sent
+the caller did not ask for); that is checked against each monitor's own
+rectangle, so a point inside the bounding box of an L-shaped layout that no
+monitor shows is refused too. When the system takes fewer events than were sent
 (a secure prompt, or a program with more rights holds the input) the reply is
-`input_blocked` and says how many were taken. A character the layout has no key
+`input_blocked` and says how many were taken, and every button and key the
+plan had left down (a drag's button, a combination's modifiers) is first sent
+back up, best effort, so a cut-short plan does not leave one held. A character the layout has no key
 for inside a combination is sent as Unicode.
 
 ## Capture
@@ -234,8 +238,10 @@ back as `dataBase64`.
 - A window or a display is captured with Windows.Graphics.Capture, which works
   while the window is covered, draws no pointer unless `cursor` is set and asks
   for no yellow border (the border switch needs a recent Windows; elsewhere the
-  system draws it). A window that is minimized, or a Windows that cannot capture
-  one, is drawn with `PrintWindow` (`via: "printwindow"`); a display the capture
+  system draws it). A window that Windows cannot capture that way is drawn with
+  `PrintWindow` (`via: "printwindow"`). A minimized window has no picture to
+  take (Windows parks it as a title-bar stub off the screen): it is
+  `background_unavailable`, saying to restore it; a display the capture
   API refused is copied from the screen (`via: "bitblt"`). A region is always
   copied from the screen. `cursor` is honoured by Windows.Graphics.Capture only.
 - The pixels are made opaque (a window may leave alpha at zero where it drew
@@ -259,7 +265,9 @@ person must be asked, one session at a time through the lease file) and the
 helper keeps the primitives. `lease.begin` records the window in front, the
 pointer and the system's input tick, refuses (`refused: true`, nothing moved)
 when `idleMs` is given and a person was not still that long, raises `windowId`
-when asked, and holds the lease. While it is held:
+when asked, and holds the lease. `windowId` without `raise` names the window the
+burst is for and moves nothing: for a burst on "the desktop" the ladder names the
+window in front when it starts. While it is held:
 
 - `input` is refused with `foreground_lost` unless a window of the lease
   window's program is in front (a dialog or menu of the program is fine), so a
@@ -318,7 +326,14 @@ oldest kept event. It is `bad_request` while no monitor runs.
 and `end`, when the monitor ran for the whole burst, and leaves it out
 otherwise. Because the monitor never reads a key, `NativeForegroundMonitor`
 reports no Escape presses (`escapes` is always 0): a person who wants a burst
-to stop uses the machine, which the count sees.
+to stop uses the machine, which the count sees, and the burst's result says the
+input may have landed elsewhere. The PowerShell monitor also ended the turn on
+Escape; the native one does not yet, and input from a remote session or a
+virtual device (which has no device handle) may count as injected and go
+unseen. The helper therefore stays opt-in behind `NAMZU_WIN_HELPER`; an abort
+path that reads no key content (a single registered hotkey for Escape, or
+treating a person's input during a burst as a stop) comes before it is made the
+default.
 
 ## The presence overlay
 

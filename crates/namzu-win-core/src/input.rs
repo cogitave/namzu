@@ -140,26 +140,69 @@ impl Step {
     }
 }
 
+/// The steps that put every button and key a plan prefix left down back up,
+/// the latest pressed first. Used when the system took only part of a plan:
+/// a drag must not leave the button held, a combination not its modifiers.
+/// Releasing something that is already up is harmless.
+pub fn release_after(prefix: &[Step]) -> Vec<Step> {
+    let mut held: Vec<Step> = Vec::new();
+    for step in prefix {
+        match *step {
+            Step::Button { button, down } => {
+                held.retain(|h| !matches!(h, Step::Button { button: b, .. } if *b == button));
+                if down {
+                    held.push(Step::Button {
+                        button,
+                        down: false,
+                    });
+                }
+            }
+            Step::Key { vk, up } => {
+                held.retain(|h| !matches!(h, Step::Key { vk: v, .. } if *v == vk));
+                if !up {
+                    held.push(Step::Key { vk, up: true });
+                }
+            }
+            Step::Unit { unit, up } => {
+                held.retain(|h| !matches!(h, Step::Unit { unit: u, .. } if *u == unit));
+                if !up {
+                    held.push(Step::Unit { unit, up: true });
+                }
+            }
+            _ => {}
+        }
+    }
+    held.reverse();
+    held
+}
+
 /// How many input events a plan holds.
 pub fn event_count(steps: &[Step]) -> u32 {
     steps.iter().filter(|s| s.is_event()).count() as u32
 }
 
 /// The virtual desktop, for turning a point into `SendInput`'s space.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Desktop {
+    /// The rectangle all monitors cover together: the space `SendInput` maps.
     pub bounds: Rect,
+    /// Each monitor's own rectangle. With monitors of different sizes side by
+    /// side the union holds points that no monitor shows.
+    pub monitors: Vec<Rect>,
 }
 
 impl Desktop {
     pub fn of(monitors: &[dpi::Monitor]) -> Option<Desktop> {
-        dpi::virtual_bounds(monitors).map(|bounds| Desktop { bounds })
+        dpi::virtual_bounds(monitors).map(|bounds| Desktop {
+            bounds,
+            monitors: monitors.iter().map(|m| m.bounds).collect(),
+        })
     }
 
     /// The point in the 0..=65535 space. A point off the desktop is refused:
     /// clamping it would click somewhere the caller did not ask for.
     pub fn absolute(&self, p: Point) -> Result<(i32, i32), String> {
-        if !self.bounds.contains(p) {
+        if !self.monitors.iter().any(|m| m.contains(p)) {
             return Err(format!(
                 "the point ({}, {}) is outside every display",
                 p.x, p.y
@@ -412,6 +455,63 @@ mod tests {
             },
         ])
         .unwrap()
+    }
+
+    #[test]
+    fn a_plan_cut_short_releases_what_it_left_down() {
+        let down = Step::Button {
+            button: MouseButton::Left,
+            down: true,
+        };
+        let up = Step::Button {
+            button: MouseButton::Left,
+            down: false,
+        };
+        let ctrl = |up| Step::Key { vk: 0x11, up };
+        let shift = |up| Step::Key { vk: 0x10, up };
+        // A drag cut after the press.
+        assert_eq!(
+            release_after(&[down, Step::MoveTo { x: 1, y: 1 }, Step::Pause { ms: 5 }]),
+            vec![up]
+        );
+        // A drag that finished leaves nothing.
+        assert!(release_after(&[down, Step::Pause { ms: 5 }, up]).is_empty());
+        // A combination cut after its modifiers: the latest goes up first.
+        assert_eq!(
+            release_after(&[
+                ctrl(false),
+                shift(false),
+                Step::Key {
+                    vk: 0x54,
+                    up: false
+                }
+            ]),
+            vec![Step::Key { vk: 0x54, up: true }, shift(true), ctrl(true)]
+        );
+        assert!(release_after(&[]).is_empty());
+    }
+
+    #[test]
+    fn a_point_in_the_gap_of_an_l_shaped_layout_is_refused() {
+        let monitor = |id: &str, x, y, width, height| Monitor {
+            id: id.into(),
+            bounds: Rect {
+                x,
+                y,
+                width,
+                height,
+            },
+            dpi: 96,
+        };
+        let d = Desktop::of(&[
+            monitor("a", 0, 0, 1920, 1080),
+            monitor("b", 1920, 540, 1920, 540),
+        ])
+        .unwrap();
+        // Inside the union (0,0)-(3840,1080), on neither monitor.
+        assert!(d.absolute(Point { x: 3000, y: 100 }).is_err());
+        assert!(d.absolute(Point { x: 3000, y: 600 }).is_ok());
+        assert!(d.absolute(Point { x: 100, y: 100 }).is_ok());
     }
 
     #[test]

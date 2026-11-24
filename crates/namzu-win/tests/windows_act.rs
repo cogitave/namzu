@@ -34,9 +34,10 @@ use windows::Win32::UI::HiDpi::{
 use windows::Win32::UI::WindowsAndMessaging::{
     CS_DBLCLKS, CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetMessageW,
     GetWindowTextW, HMENU, LB_ADDSTRING, LB_GETTOPINDEX, MSG, PostThreadMessageW, RegisterClassExW,
-    SendMessageW, TranslateMessage, WINDOW_EX_STYLE, WINDOW_STYLE, WM_COMMAND, WM_LBUTTONDBLCLK,
-    WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEWHEEL, WM_QUIT, WM_RBUTTONDOWN, WNDCLASSEXW, WS_BORDER,
-    WS_CHILD, WS_DISABLED, WS_OVERLAPPEDWINDOW, WS_TABSTOP, WS_VISIBLE, WS_VSCROLL,
+    SW_MINIMIZE, SW_RESTORE, SendMessageW, ShowWindow, TranslateMessage, WINDOW_EX_STYLE,
+    WINDOW_STYLE, WM_COMMAND, WM_LBUTTONDBLCLK, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEWHEEL,
+    WM_QUIT, WM_RBUTTONDOWN, WNDCLASSEXW, WS_BORDER, WS_CHILD, WS_DISABLED, WS_OVERLAPPEDWINDOW,
+    WS_TABSTOP, WS_VISIBLE, WS_VSCROLL,
 };
 use windows::core::w;
 
@@ -825,6 +826,27 @@ fn the_helper_acts_on_a_real_window() {
     let data = tiny.data_base64.expect("inline data");
     assert!(tiny.bytes as usize <= INLINE_LIMIT);
     assert_eq!(data.len() as u64, tiny.bytes.div_ceil(3) * 4);
+
+    // A minimized window has no picture to take: it is said, not drawn as a
+    // title-bar stub at the parking position.
+    unsafe {
+        let _ = ShowWindow(HWND(window.parent as *mut _), SW_MINIMIZE);
+    }
+    let minimized = h
+        .call(Request::Capture(CaptureRequest {
+            target: CaptureTarget::Window {
+                window_id: id.clone(),
+            },
+            into: Some(into.clone()),
+            inline: None,
+            cursor: None,
+            timeout_ms: None,
+        }))
+        .unwrap_err();
+    assert_eq!(minimized.code, "background_unavailable", "{minimized:?}");
+    unsafe {
+        let _ = ShowWindow(HWND(window.parent as *mut _), SW_RESTORE);
+    }
 
     // A picture needs a place to go.
     let nowhere = h
