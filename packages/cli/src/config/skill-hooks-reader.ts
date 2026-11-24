@@ -264,6 +264,9 @@ export function withoutConversationEvents(read: SkillHooksRead): SkillHooksRead 
 			'directory_added',
 			'instructions_loaded',
 			'user_prompt_expansion',
+			'teammate_idle',
+			'teammate_start',
+			'teammate_stop',
 		],
 		'is fired for the conversation the host runs, never inside a delegated agent, so it will not run for a skill that runs as one.',
 	)

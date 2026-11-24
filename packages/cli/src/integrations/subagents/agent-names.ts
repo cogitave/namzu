@@ -1,3 +1,5 @@
+import { teammateNameProblem } from '@namzu/sdk'
+
 /**
  * Names for sub-agents. A name given to `Agent` addresses that agent in
  * `send_message`, `wait_for_task` and `stop_task` in place of its task id.
@@ -25,8 +27,18 @@ export function normalizeAgentName(raw: string): string {
 		.replace(/\s+/g, '-')
 }
 
-/** Why a name cannot be used, in words for the model; undefined when it can. */
-export function agentNameProblem(raw: string): string | undefined {
+/**
+ * Why a name cannot be used, in words for the model; undefined when it can.
+ *
+ * A name that starts a teammate is judged by the teams module's own rule (`teammateNameProblem`), so the
+ * two never drift: it is also a file name in the team's directory and reserves `lead`. A plain sub-agent
+ * keeps its own, which does not reserve `lead`.
+ */
+export function agentNameProblem(
+	raw: string,
+	options: { team?: boolean } = {},
+): string | undefined {
+	if (options.team) return teammateNameProblem(raw)
 	if (!NAME_SHAPE.test(raw))
 		return 'name must start with a letter or digit and contain only letters, digits, underscores or hyphens (at most 64 characters).'
 	const folded = normalizeAgentName(raw)

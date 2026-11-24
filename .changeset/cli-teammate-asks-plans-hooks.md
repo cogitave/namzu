@@ -1,0 +1,5 @@
+---
+"@namzu/cli": minor
+---
+
+Teammates' permission asks and plans reach you in the lead's conversation. A teammate's call that needs a yes is asked in your terminal box with the member's name first ("writer wants to run a command"), tied to that call and answered for that teammate only; nothing a teammate or its mail says can answer it, and the lead's mode and rules decide what is asked exactly as they do for a sub-agent. A teammate sends a plan with `exit_plan_mode`: it is mailed to the lead, shown as a row and put to you as a question titled "writer sent a plan for approval" with the plan as its text; it is asked in every mode, never approved by a mode or a remembered answer, and the teammate waits (yes starts it on the plan, no sends your words back). The ACP permission request carries `teammate` for the Desktop engine. The `teammate_idle` hook (exit 2 keeps the teammate working, up to `limits.maxHookRefusals` times in a row), `teammate_start` and `teammate_stop` run for the lead's team, and `task_created` and `task_completed` name the teammate that caused them. Only with `teams.enabled`; with teammates off nothing changes.

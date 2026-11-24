@@ -149,6 +149,33 @@ const childMessageBridge: {
  */
 /** The rows `x` stopped on the rail, in order. */
 const stoppedChildren: string[] = vi.hoisted(() => [])
+/** The team the session reports, when a test gives it one. */
+const teamState = vi.hoisted(() => {
+	const listeners = new Set<() => void>()
+	const state: {
+		members: readonly {
+			name: string
+			viewId: string
+			state: 'working' | 'idle' | 'waiting' | 'stopped'
+			since: number
+		}[]
+		tasks: readonly {
+			id: string
+			subject: string
+			status: 'pending' | 'in_progress' | 'completed' | 'failed'
+			owner?: string
+			blockedBy: string[]
+		}[]
+	} = { members: [], tasks: [] }
+	return {
+		state,
+		listeners,
+		set(next: Partial<typeof state>) {
+			Object.assign(state, next)
+			for (const listener of [...listeners]) listener()
+		},
+	}
+})
 const savedChildren: {
 	current: readonly SubagentActivity[]
 	reads: number
@@ -238,6 +265,15 @@ vi.mock('../agent.js', async (importOriginal) => {
 			mcpFailed: [],
 			agentIds: ['general-purpose'],
 			subagents: activity.source as AgentSession['subagents'],
+			team: {
+				team: () => 'team-test',
+				members: () => teamState.state.members,
+				tasks: async () => teamState.state.tasks,
+				subscribe: (listener: () => void) => {
+					teamState.listeners.add(listener)
+					return () => teamState.listeners.delete(listener)
+				},
+			},
 			savedChildren: async () => {
 				savedChildren.reads += 1
 				await savedChildren.gate
@@ -4845,5 +4881,73 @@ describe('Up and Down between the box and the task rows', () => {
 		await until(screen, () => !railLive(screen))
 		screen.press('h')
 		await until(screen, () => /❯ h/u.test(text(screen)))
+	})
+})
+
+describe('teammates on the rail', () => {
+	const mount = async () => {
+		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 110, rows: 28 })
+		mounted = screen
+		await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
+		return screen
+	}
+	const text = (screen: Screen) => screen.viewport().join('\n')
+	const idleTeammate = () => {
+		const since = Date.now() - 2_000
+		activity.set([
+			agent({
+				viewId: 'v-one',
+				agentId: 'teammate-type',
+				description: 'one works',
+				background: true,
+				status: 'completed',
+				completedAt: since,
+			}),
+		])
+		teamState.set({
+			members: [{ name: 'one', viewId: 'v-one', state: 'idle', since }],
+			tasks: [
+				{ id: '1', subject: 'write the parser', status: 'completed', owner: 'one', blockedBy: [] },
+			],
+		})
+	}
+	afterEach(() => {
+		teamState.set({ members: [], tasks: [] })
+	})
+
+	it('lists an idle teammate by name with its state, which a finished background agent would not have', async () => {
+		idleTeammate()
+		const screen = await mount()
+		await waitUntil(screen, () => /one\s.*idle · \d+s/u.test(text(screen)), 'no idle row')
+	})
+
+	it('asks before stopping a teammate: the first x asks on the key line, the second stops it', async () => {
+		stoppedChildren.length = 0
+		idleTeammate()
+		const screen = await mount()
+		await waitUntil(screen, () => /idle · \d+s/u.test(text(screen)), 'no idle row')
+		screen.press('\x1b[B')
+		await waitUntil(screen, () => text(screen).includes('enter open · x stop'), 'rail not focused')
+		screen.press('x')
+		await waitUntil(screen, () => text(screen).includes('x again to stop one'), 'no question')
+		expect(stoppedChildren).toEqual([])
+		screen.press('x')
+		await waitUntil(screen, () => stoppedChildren.length === 1, 'second x did not stop it')
+		expect(stoppedChildren).toEqual(['v-one'])
+	})
+
+	it('writes /team as the members and /team tasks as every task', async () => {
+		idleTeammate()
+		teamState.set({
+			tasks: [
+				{ id: '1', subject: 'write the parser', status: 'completed', owner: 'one', blockedBy: [] },
+				{ id: '2', subject: 'test the parser', status: 'pending', blockedBy: ['1'] },
+			],
+		})
+		const screen = await mount()
+		await submit(screen, '/team')
+		await waitUntil(screen, () => painted(screen).includes('Tasks · 1/2 done'), 'no /team answer')
+		await submit(screen, '/team tasks')
+		await waitUntil(screen, () => painted(screen).includes('#2 □ test the parser'), 'no task list')
 	})
 })

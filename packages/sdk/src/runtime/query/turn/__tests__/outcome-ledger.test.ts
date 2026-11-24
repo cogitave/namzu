@@ -91,6 +91,19 @@ describe('the outcome of a turn, by its own calls', () => {
 		expect(outcome?.verdict).toBe('unchanged')
 	})
 
+	it('a turn that only kept the task list and the mail between agents changed nothing it could have missed', async () => {
+		for (const toolName of ['task_create', 'task_update', 'send_message', 'stop_task']) {
+			expect(
+				(await turn(new OutcomeLedger(), [[{ toolName, input: {} }]]))?.verdict,
+				toolName,
+			).toBe('unchanged')
+		}
+		// Any other tool that is not known to be read-only still may have changed files.
+		expect((await turn(new OutcomeLedger(), [[{ toolName: 'mystery', input: {} }]]))?.verdict).toBe(
+			'unknown',
+		)
+	})
+
 	it('a command that never ran, or only launched work elsewhere, is not one that may have changed files', async () => {
 		const sed = bash('sed -i s/a/b/ a.ts')
 		expect((await turn(new OutcomeLedger(), [[sed]]))?.verdict).toBe('unknown')

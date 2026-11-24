@@ -158,6 +158,7 @@ import {
 	type SkillRegistryRef,
 	type StopReason,
 	type StructuredOutputConfig,
+	TEAM_LEAD_NAME,
 	type TaskScheduler,
 	type TaskStore,
 	type TenantId,
@@ -212,6 +213,7 @@ import {
 	getBuiltinTools,
 	getCodeAnalysisTools,
 	getMonitorTools,
+	isClaimableTaskStore,
 	isNamzuError,
 	isReviewExempt,
 	isTurnInProgressError,
@@ -273,6 +275,7 @@ import type {
 	RoutingConfig,
 	SandboxConfig,
 	SkillsConfig,
+	TeamsConfig,
 	TurnLimitsConfig,
 	WebConfig,
 	WorkflowCliConfig,
@@ -502,6 +505,9 @@ import {
 	createSavedAgentHistory,
 	createSavedAgentsStep,
 } from '../integrations/subagents/saved-agents.js'
+import { createTeamsHost } from '../integrations/teams/host.js'
+import { teamNameFor } from '../integrations/teams/runner.js'
+import type { TeamViewSource } from '../integrations/teams/view.js'
 import { isTrusted } from '../integrations/trust/store.js'
 import { listWorkflowRuns } from '../integrations/workflows/history.js'
 import { type WorkflowHost, createWorkflowHost } from '../integrations/workflows/host.js'
@@ -1950,7 +1956,18 @@ export interface AgentSession {
 	) => Promise<SubagentMessageReceipt>
 	/** Stop one running child from the agents rail; false when it is not ours or already ended. */
 	readonly stopSubagent?: (viewId: string) => boolean
+	/**
+	 * The teammate behind a review request that is open now, so the screen names the member in the
+	 * question. Absent without delegation; `undefined` for the person's own conversation and for
+	 * any other agent.
+	 */
+	readonly teammateAsking?: (request: {
+		readonly sessionId?: unknown
+		readonly toolCalls?: readonly { readonly id: string }[]
+	}) => { readonly team: string; readonly name: string } | undefined
 	readonly subagents?: SubagentActivitySource
+	/** The team of this conversation (members, their states, the shared task list). Absent without teams. */
+	readonly team?: TeamViewSource
 	/** Workflow runs of this conversation: the `workflow` tool's background runs. */
 	readonly workflows?: SessionWorkflows
 	/**
@@ -2956,6 +2973,15 @@ export interface AgentSessionOptions {
 	 * the model is never offered a question it would ask into the void.
 	 */
 	readonly askUser?: boolean
+	/**
+	 * Where the teams switch is read from. With it, and with `askUser` (a person at the session), a named
+	 * `Agent` call starts a teammate while `teams.enabled` says so; without it a named call is a plain
+	 * sub-agent. The setting is read again at every call.
+	 */
+	readonly teams?: {
+		readonly config: () => TeamsConfig | undefined
+		readonly env?: () => NodeJS.ProcessEnv
+	}
 	/**
 	 * Mount `ask_user_question`, its prompt guidance and the answerer for a tool
 	 * server's request for input, and nothing else `askUser` turns on (agents
@@ -4711,6 +4737,14 @@ export async function createAgentSession(
 	const pluginFiles = await readPluginFileSources({ config: options.plugins, cwd })
 	for (const problem of pluginFiles.problems) cliLogger().warn(problem)
 	let subagentRuntime: SubagentRuntime | undefined
+	// Teammates: only a session with a person at it can start them.
+	const teamsHost =
+		options.teams && options.askUser
+			? createTeamsHost({
+					config: options.teams.config,
+					...(options.teams.env ? { env: options.teams.env } : {}),
+				})
+			: undefined
 	// Stays empty when the runtime below throws, which is the honest answer: the
 	// catch is non-fatal and the session then genuinely has no delegate to
 	// dispatch to. A roster reported from the request rather than the result
@@ -4773,6 +4807,7 @@ export async function createAgentSession(
 				onNotice: (line) => pluginRuntime?.hookActivity.notify(line),
 			},
 			...(options.ephemeral ? { ephemeral: true } : {}),
+			...(teamsHost ? { teams: teamsHost } : {}),
 			// An operator is watching: agents run in the background by default and
 			// the turn ends without waiting for them.
 			...(options.askUser ? { backgroundByDefault: true } : {}),
@@ -5507,11 +5542,15 @@ export async function createAgentSession(
 	// captured on this line. The count at connect time is unchanged; what
 	// changes is that asking again later gets a later answer.
 	const taskStoreFor = (sessionScope: SessionScope): TaskStore =>
-		new DiskTaskStore({
-			paths,
-			session: { sessionId: sessionScope.sessionId },
-			tenantId: sessionScope.tenantId,
-		})
+		// With teams on, the lead works from the team's list, which every teammate shares; the team's
+		// name follows from the session, so the list is the same one before and after the first teammate.
+		teamsHost?.enabled().enabled === true
+			? teamsHost.taskStoreFor(teamNameFor(String(sessionScope.sessionId)))
+			: new DiskTaskStore({
+					paths,
+					session: { sessionId: sessionScope.sessionId },
+					tenantId: sessionScope.tenantId,
+				})
 	let selectedTaskStore: { scope: SessionScope; store: TaskStore } | undefined
 	let taskSelectionGeneration = 0
 	const resetTaskStore = () => {
@@ -6485,6 +6524,7 @@ export async function createAgentSession(
 					...(turnSkills.registry ? { skillRegistry: turnSkills.registry } : {}),
 					...(turnSkills.manifest ? { skills: turnSkills.manifest } : {}),
 					taskStore: turnTaskStore,
+					...(isClaimableTaskStore(turnTaskStore) ? { taskMember: TEAM_LEAD_NAME } : {}),
 					...(webCapability ? { web: webCapability } : {}),
 					// The same availability the original turn registered under.
 					// A resumed turn re-registers the task tools; leaving them at
@@ -7170,6 +7210,7 @@ export async function createAgentSession(
 		...(subagentRuntime
 			? {
 					subagents: subagentRuntime.activity,
+					...(subagentRuntime.team ? { team: subagentRuntime.team } : {}),
 					onSubagentReport: (
 						listener: (report: {
 							readonly parentSessionId: string
@@ -7186,6 +7227,7 @@ export async function createAgentSession(
 					onSubagentCompletion: (listener: (completion: SubagentCompletion) => void) =>
 						subagentRuntime?.onBackgroundCompletion(listener) ?? (() => {}),
 					stopSubagent: (viewId: string) => subagentRuntime?.stopChild(viewId) ?? false,
+					teammateAsking: (request) => subagentRuntime?.teammateAsking(request),
 					messageSubagent: (viewId: string, message: string, opts?: SendOptions) =>
 						operations.promise(opts?.signal, async (signal) => {
 							const runtime = subagentRuntime
@@ -8181,6 +8223,7 @@ export async function createAgentSession(
 									...(opts?.liveModel ? [createLiveModelStep(opts.liveModel)] : []),
 								],
 								taskStore: turnTaskStore,
+								...(isClaimableTaskStore(turnTaskStore) ? { taskMember: TEAM_LEAD_NAME } : {}),
 								reminders: reminderSource,
 								// The mode reminders already tell the model about a mode
 								// change, once, after the history; the kernel's own notice
@@ -9256,6 +9299,8 @@ interface TurnParams {
 	/** Whether a batch the rules allow still goes to `resumeHandler` (plan mode). */
 	readonly reviewAllowedCalls?: () => boolean
 	readonly taskStore: TaskStore
+	/** The name the lead's task tools claim under when `taskStore` is the list a team shares. */
+	readonly taskMember?: string
 	/** Hidden reminders for each model request; see `AgentSessionOptions.reminders`. */
 	readonly reminders?: ReminderSource
 	/** Whether the kernel also tells the model about a mode change; see `QueryParams`. */
@@ -9340,6 +9385,7 @@ async function* runTurn({
 	onApprovalPolicy,
 	reviewAllowedCalls,
 	taskStore,
+	taskMember,
 	reminders,
 	announceApprovalPolicyChange,
 	systemPrompt,
@@ -9416,6 +9462,7 @@ async function* runTurn({
 			// turn. An admitted send owns the exact turn-scoped authority above.
 			...(!opts?.goalRound ? { deniedTools: SESSION_GOAL_TOOL_NAMES } : {}),
 			taskStore,
+			...(taskMember !== undefined ? { taskMember } : {}),
 			...(taskGateway ? { taskScheduler: taskGateway } : {}),
 			// `gateFor`, not the bare default: the default's `rules` is a hardcoded
 			// empty array, so passing it here discarded the operator's rules on the

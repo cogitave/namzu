@@ -44,6 +44,8 @@ const GUARD_EVENTS: ReadonlySet<ShellHookEvent> = new Set([
 	'user_prompt_expansion',
 	'task_created',
 	'task_completed',
+	// A hook that sends a teammate back to work.
+	'teammate_idle',
 ])
 
 /** Whether a hook on this event can refuse, redirect or feed back into a turn: one lost here is a guard lost. */

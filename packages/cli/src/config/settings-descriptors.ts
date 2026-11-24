@@ -1562,6 +1562,19 @@ const DECLARED: readonly SettingDescriptor[] = [
 		},
 	),
 	d(
+		'teams.shutdownGraceSeconds',
+		'agent',
+		'Teammate shutdown wait',
+		'How long a teammate has to finish its current step and answer when the main conversation asks it to shut down, before it is stopped.',
+		num(1, 600, 's'),
+		{
+			group: 'helpers-workflows',
+			keywords: ['teams', 'teammates', 'shutdown', 'stop', 'grace'],
+			default: 20,
+			shownWhen: { path: 'teams.enabled', is: 'true' },
+		},
+	),
+	d(
 		'goal.confirmedBy',
 		'agent',
 		'When a goal counts as done',

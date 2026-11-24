@@ -211,6 +211,8 @@ export interface TeamsConfig {
 	readonly maxTeammates?: number
 	/** Minutes a teammate with nothing to do waits before it ends. Default 30; at most 1440. */
 	readonly idleExitMinutes?: number
+	/** Seconds a teammate has to answer a shutdown request before it is stopped. Default 20; at most 600. */
+	readonly shutdownGraceSeconds?: number
 }
 
 /** Release channel the background updater follows. */

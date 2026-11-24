@@ -133,6 +133,11 @@ export interface AcpFileChangePreview {
 /** What the agent asks the client before running a tool batch. */
 export interface AcpRequestPermissionParams {
 	readonly sessionId: string
+	/**
+	 * Present when the ask is a teammate's: its name and team. A client names the member in the
+	 * question ("<name> wants to run ..."). Absent on the session's own calls and from an older agent.
+	 */
+	readonly teammate?: { readonly name: string; readonly team: string }
 	readonly toolCalls: readonly {
 		readonly id: string
 		readonly name: string

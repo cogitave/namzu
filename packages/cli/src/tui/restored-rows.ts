@@ -787,6 +787,21 @@ export function agentCompletionRows(
 	]
 }
 
+/** The one row a teammate that went idle leaves in the lead's conversation, with its last answer behind Ctrl+O. */
+export function teammateIdleRows(agent: SubagentActivity, text: string): readonly ToolRow[] {
+	const said = agentMessageRow(agent)
+	return [
+		{
+			role: 'tool',
+			content: text,
+			glyph: '●',
+			glyphColor: tokenColor('text.muted'),
+			contentColor: tokenColor('text.primary'),
+			...(said ? { detail: said.detail, meta: said.hint, activity: 'agent-result' as const } : {}),
+		},
+	]
+}
+
 /**
  * The waited-on agents of a settled batch that one block stands for: two or
  * more that completed and handed their result back inline, once nothing in the

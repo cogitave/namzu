@@ -864,6 +864,7 @@ export class ACPServer {
 				// describe the tool batch, but it cannot relabel A's consent as B's.
 				sessionId,
 				toolCalls: request.toolCalls,
+				...(request.teammate ? { teammate: request.teammate } : {}),
 			},
 			signal,
 		)

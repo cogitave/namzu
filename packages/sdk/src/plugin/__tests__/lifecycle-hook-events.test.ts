@@ -35,6 +35,9 @@ const NEW_EVENTS = {
 	user_prompt_expansion: 'UserPromptExpansion',
 	task_created: 'TaskCreated',
 	task_completed: 'TaskCompleted',
+	teammate_idle: 'TeammateIdle',
+	teammate_start: 'TeammateStart',
+	teammate_stop: 'TeammateStop',
 } as const
 
 const dirs: string[] = []
@@ -164,6 +167,76 @@ describe('what each event is sent', () => {
 		expect(
 			send({ event: 'task_completed', task: { id: 't1', subject: 'Ship it', description: 'd' } }),
 		).toMatchObject({ task_id: 't1', task_subject: 'Ship it', task_description: 'd' })
+	})
+})
+
+describe('teammate events', () => {
+	it('send the teammate and its team, and the task events send them when a teammate caused them', () => {
+		for (const event of ['teammate_idle', 'teammate_start', 'teammate_stop'] as const) {
+			expect(
+				JSON.parse(
+					shellHookPayload({
+						event,
+						cwd: '/w',
+						sessionId: SESSION,
+						teammateName: 'writer',
+						teamName: 'team-ab12',
+					}),
+				),
+			).toMatchObject({ teammate_name: 'writer', team_name: 'team-ab12' })
+		}
+		const done = JSON.parse(
+			shellHookPayload({
+				event: 'task_completed',
+				cwd: '/w',
+				sessionId: SESSION,
+				task: { id: '3' },
+				teammateName: 'writer',
+				teamName: 'team-ab12',
+			}),
+		)
+		expect(done).toMatchObject({ task_id: '3', teammate_name: 'writer', team_name: 'team-ab12' })
+		const lead = JSON.parse(
+			shellHookPayload({ event: 'task_created', cwd: '/w', sessionId: SESSION, task: {} }),
+		)
+		expect(lead.teammate_name).toBeUndefined()
+		expect(lead.team_name).toBeUndefined()
+	})
+
+	it('teammate_idle: exit 2 sends the stderr back as feedback and keeps the teammate working', () => {
+		expect(
+			shellHookVerdict('teammate_idle', entry, {
+				...ok,
+				exitCode: 2,
+				stderr: 'run the tests first',
+			}),
+		).toEqual({ action: 'skip', reason: 'run the tests first' })
+		expect(shellHookVerdict('teammate_idle', entry, ok)).toEqual({ action: 'continue' })
+		// A failing script is the hook's failure, never feedback.
+		expect(
+			shellHookVerdict('teammate_idle', entry, { ...ok, exitCode: 1, stderr: 'boom' }),
+		).toEqual({
+			action: 'continue',
+		})
+	})
+
+	it('teammate_idle: an exit-0 hook that prints additionalContext still lets the member go idle', () => {
+		expect(
+			shellHookVerdict('teammate_idle', entry, {
+				...ok,
+				stdout: JSON.stringify({
+					hookSpecificOutput: { hookEventName: 'TeammateIdle', additionalContext: 'fyi' },
+				}),
+			}),
+		).toEqual({ action: 'continue' })
+	})
+
+	it('teammate_start and teammate_stop are observational: a 2 refuses nothing', () => {
+		for (const event of ['teammate_start', 'teammate_stop'] as const) {
+			expect(shellHookVerdict(event, entry, { ...ok, exitCode: 2, stderr: 'x' })).toEqual({
+				action: 'continue',
+			})
+		}
 	})
 })
 
@@ -393,6 +466,16 @@ describe('through createShellHook', () => {
 			await run('instructions_loaded', 'session_start|include', { instructions }),
 		).toBeDefined()
 		expect(await run('instructions_loaded', 'compact', { instructions })).toBeUndefined()
+	})
+
+	it('a teammate event reads its matcher against the teammate name', async () => {
+		const fields = { teammateName: 'writer', teamName: 'team-ab12' } as const
+		expect(await run('teammate_idle', 'writer', fields)).toMatchObject({
+			teammate_name: 'writer',
+			hook_event_name: 'TeammateIdle',
+		})
+		expect(await run('teammate_idle', 'reviewer', fields)).toBeUndefined()
+		expect(await run('teammate_start', '*', fields)).toBeDefined()
 	})
 
 	it('events that name nothing ignore their matcher and fire', async () => {

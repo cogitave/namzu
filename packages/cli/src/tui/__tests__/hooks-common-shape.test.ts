@@ -12,7 +12,7 @@ const hooks = {
 	PreToolUse: [
 		{ matcher: 'Bash', hooks: [{ command: 'guard.sh' }, { type: 'agent', prompt: 'p' }] },
 	],
-	TeammateIdle: [{ hooks: [{ command: 'idle.sh' }] }],
+	ConfigChange: [{ hooks: [{ command: 'idle.sh' }] }],
 	pre_compact: [{ command: 'own.sh', toolNames: 'written' }],
 }
 
@@ -35,7 +35,7 @@ describe('/hooks and the doctor row for a hooks block in the common shape', () =
 		const text = renderHooks(config.hooks)
 		expect(text).toContain('guard.sh · matches Bash · tool names as written (Bash)')
 		expect(text).toContain('Not loaded: ')
-		expect(text).toContain('TeammateIdle: is not an event this kernel has')
+		expect(text).toContain('ConfigChange: is not an event this kernel has')
 		expect(text).toContain('a kind this kernel does not have')
 		// Not a tool event: no names line.
 		expect(text).not.toMatch(/own\.sh.*tool names/)
@@ -46,7 +46,7 @@ describe('/hooks and the doctor row for a hooks block in the common shape', () =
 		const cwd = mkdtempSync(join(tmpdir(), 'namzu-common-cwd-'))
 		writeFileSync(
 			join(cwd, 'namzu.config.json'),
-			JSON.stringify({ hooks: { TeammateIdle: [{ hooks: [{ command: 'x' }] }] } }),
+			JSON.stringify({ hooks: { ConfigChange: [{ hooks: [{ command: 'x' }] }] } }),
 		)
 		loadConfig({ home, cwd, env: {} })
 		expect(renderHooks(undefined)).toContain('Not loaded: ')
@@ -56,7 +56,7 @@ describe('/hooks and the doctor row for a hooks block in the common shape', () =
 		const config = loadConfig(folder())
 		const row = describeHooksStatus(config)
 		expect(row.status).toBe('warn')
-		expect(row.message).toContain('TeammateIdle')
+		expect(row.message).toContain('ConfigChange')
 		expect(row.message).toContain('PreToolUse')
 		expect(row.message).toContain('namzu.config.json')
 	})
@@ -65,14 +65,14 @@ describe('/hooks and the doctor row for a hooks block in the common shape', () =
 		const dir = folder()
 		const config = loadConfig(dir)
 		const row = describeHooksStatus(config, { cwd: dir.cwd, trusted: false })
-		expect(row.message).not.toContain('TeammateIdle')
+		expect(row.message).not.toContain('ConfigChange')
 	})
 
 	it('the launch says it once as a warning', () => {
 		loadConfig(folder())
 		const said = takeConfigWarnings().join('\n')
 		expect(said).toContain('Hook problem in')
-		expect(said).toContain('TeammateIdle')
+		expect(said).toContain('ConfigChange')
 	})
 })
 
@@ -83,7 +83,7 @@ describe('the trust prompt names a hook written in the common shape', () => {
 		expect(found).toEqual(
 			expect.arrayContaining([
 				{ event: 'PreToolUse', runs: 'guard.sh' },
-				{ event: 'TeammateIdle', runs: 'idle.sh' },
+				{ event: 'ConfigChange', runs: 'idle.sh' },
 				{ event: 'pre_compact', runs: 'own.sh' },
 			]),
 		)

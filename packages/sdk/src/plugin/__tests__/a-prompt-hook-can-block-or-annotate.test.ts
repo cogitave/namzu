@@ -77,6 +77,9 @@ describe('a shell hook on the prompt', () => {
 			'user_prompt_expansion',
 			'task_created',
 			'task_completed',
+			'teammate_idle',
+			'teammate_start',
+			'teammate_stop',
 		])
 	})
 })

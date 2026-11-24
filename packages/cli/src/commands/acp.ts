@@ -336,6 +336,7 @@ type AcpLiveSession = Pick<
 	readonly browser?: AgentSession['browser']
 	readonly describeComputerUseCall?: AgentSession['describeComputerUseCall']
 	readonly revokeComputerBrowser?: AgentSession['revokeComputerBrowser']
+	readonly teammateAsking?: AgentSession['teammateAsking']
 	/** What the context panel sizes; a fake session may leave them out. */
 	readonly contextInventory?: AgentSession['contextInventory']
 	readonly instructionFiles?: AgentSession['instructionFiles']
@@ -1450,6 +1451,7 @@ export function createCliAcpRuntime(
 				let failureMessage: string | undefined
 				let settledHistory: readonly Message[] | undefined
 				const onPermission = async (request: {
+					sessionId?: unknown
 					toolCalls: readonly (MustAskCall & {
 						id: string
 						name: string
@@ -1458,8 +1460,11 @@ export function createCliAcpRuntime(
 					})[]
 					screenConsent?: true
 				}) => {
+					// A teammate's ask is put to the person with the member's name on it.
+					const teammate = record.session.teammateAsking?.(request)
 					const outcome = await ask({
 						sessionId,
+						...(teammate ? { teammate } : {}),
 						toolCalls: await withPreviews(request.toolCalls, [record.cwd], {
 							askEveryCall: request.screenConsent === true,
 							computer: (call) =>
@@ -1711,8 +1716,10 @@ export function createCliAcpRuntime(
 					},
 					...onQuestionOf(sessionId, ask, signal),
 					onPermission: async (request) => {
+						const teammate = record.session.teammateAsking?.(request)
 						const outcome = await ask({
 							sessionId,
+							...(teammate ? { teammate } : {}),
 							toolCalls: await withPreviews(request.toolCalls, [record.cwd], {
 								askEveryCall: request.screenConsent === true,
 								computer: (call) =>

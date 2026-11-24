@@ -237,6 +237,16 @@ export type PluginHookEvent =
 	 * reason reaches the model.
 	 */
 	| 'task_completed'
+	/**
+	 * A teammate has finished its turn and is about to go idle. Carries
+	 * `teammateName` and `teamName`. `skip` keeps it working: the reason is sent
+	 * to it as feedback (shell exit code 2).
+	 */
+	| 'teammate_idle'
+	/** A teammate was started. Carries `teammateName` and `teamName`. Observational. */
+	| 'teammate_start'
+	/** A teammate left the team (shut down, stopped or ended). Carries `teammateName` and `teamName`. Observational. */
+	| 'teammate_stop'
 	| 'pre_llm_call'
 	| 'post_llm_call'
 	| 'iteration_start'
@@ -289,6 +299,9 @@ export function assertPluginHookEvent(event: PluginHookEvent): void {
 		case 'user_prompt_expansion':
 		case 'task_created':
 		case 'task_completed':
+		case 'teammate_idle':
+		case 'teammate_start':
+		case 'teammate_stop':
 		case 'pre_llm_call':
 		case 'post_llm_call':
 		case 'iteration_start':
@@ -540,6 +553,13 @@ export interface PluginHookContext {
 	readonly expansion?: PluginPromptExpansionInfo
 	/** The task, on `task_created` and `task_completed`. */
 	readonly task?: PluginTaskInfo
+	/**
+	 * The teammate's name, on `teammate_idle`, `teammate_start` and `teammate_stop`, and on
+	 * `task_created` and `task_completed` when a teammate makes or completes the task.
+	 */
+	readonly teammateName?: string
+	/** The team that teammate belongs to; present wherever `teammateName` is. */
+	readonly teamName?: string
 	/** The pass, on `pre_compact` and `post_compact`. */
 	readonly compaction?: PluginCompactionInfo
 	readonly toolName?: string
@@ -767,6 +787,7 @@ export type PluginHookResultFor<E extends PluginHookEvent> = E extends 'user_pro
 					| 'elicitation_result'
 					| 'task_created'
 					| 'task_completed'
+					| 'teammate_idle'
 			? Extract<PluginHookResult, { action: 'continue' | 'skip' | 'error' }>
 			: E extends 'post_model_switch'
 				? Extract<PluginHookResult, { action: 'continue' | 'annotate' | 'error' }>
@@ -799,6 +820,8 @@ export type PluginHookResultFor<E extends PluginHookEvent> = E extends 'user_pro
 																| 'permission_denied'
 																| 'file_changed'
 																| 'cwd_changed'
+																| 'teammate_start'
+																| 'teammate_stop'
 														? Extract<PluginHookResult, { action: 'continue' }>
 														: Extract<PluginHookResult, { action: 'continue' | 'error' }>
 

@@ -44,7 +44,7 @@ The operator application.
 * [Session storage](session-storage.md) - Every file the CLI keeps under NAMZU_HOME, the one log per session, the rebuildable index, and which files are safe to delete.
 * [Watching a session from another terminal](watching-a-session.md) - `namzu watch` and `namzu send`: follow a running or finished session from a second terminal, say something to it as yourself, what each can and cannot do, states and exit statuses.
 * [Messages between live terminals](peer-messaging.md) - Discover independent terminals on this computer and send attributed context at safe request boundaries, from a terminal or with `namzu peers`.
-* [Teammates](teams.md) - How teammates are turned on (the teams.enabled setting, NAMZU_TEAMS and --teams), the limits that apply, and where they do not run.
+* [Teammates](teams.md) - How teammates are turned on (the teams.enabled setting, NAMZU_TEAMS and --teams), how a teammate's permission asks and plans reach you, its hook events, the team on the terminal (rows, transcript, stop, /team, the task list), the limits that apply, and where they do not run.
 * [Your Namzu network](namzu-network.md) - See your other machines and their sessions, message them, give them roles, and let a new machine join with one Allow.
 * [Accounts in the terminal](accounts.md) - `/auth` and `--account`: choose the account a conversation uses, add a Codex sign-in or labelled API key, and what happens when an account runs out of allowance.
 * [namzu auth](auth.md) - `namzu auth login`, `logout` and `status`: sign in or out, and list stored or detected credentials as usable or expired, never printing a secret.

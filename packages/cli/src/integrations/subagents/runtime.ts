@@ -105,6 +105,7 @@ import {
 	formatCompletionNotification,
 	generateSummaryId,
 	generateTaskId,
+	generateTurnId,
 	isTerminalAgentTaskState,
 	isTrustedReadOnly,
 	mcpJsonSchemaToZod,
@@ -114,7 +115,7 @@ import {
 	toolset,
 	wrapUntrusted,
 } from '@namzu/sdk'
-import type { TaskStore, WorktreeHookHost } from '@namzu/sdk'
+import type { TaskStore, TeammateStartSpec, WorktreeHookHost } from '@namzu/sdk'
 
 import type { TurnLimitsConfig } from '../../config/schema.js'
 import {
@@ -124,9 +125,21 @@ import {
 } from '../../config/turn-guards.js'
 import { NAMZU_CHILD_WORKING_DOCTRINE } from '../../context/doctrine.js'
 import { composeMemoryGuidance } from '../../memory/typed.js'
+import { EXIT_PLAN_MODE_TOOL_NAME } from '../../plan/approval.js'
 import { changeDetectorFor } from '../outcome/change-detector.js'
+import { teammateIdle, teammateStart, teammateStop } from '../plugins/lifecycle-events.js'
 import type { SideLedger } from '../small-model/side-model.js'
 import { CLI_CHECKPOINT_RETENTION } from '../state/retention.js'
+import {
+	TeamError,
+	type TeamHookPoints,
+	type TeamMailLabel,
+	TeamRunner,
+	type TeammateEngine,
+	type TeamsHost,
+	teammateAppendix,
+} from '../teams/runner.js'
+import type { TeamMemberView, TeamTaskView, TeamViewSource } from '../teams/view.js'
 import { NamzuCliAgent, type NamzuCliAgentConfig, type RunScope } from './NamzuCliAgent.js'
 import { startActivityLabeler } from './activity-label.js'
 import {
@@ -139,7 +152,7 @@ import {
 	type SubagentActivitySource,
 } from './activity.js'
 import type { AgentHooksHost, RefusedAgent } from './agent-hooks.js'
-import { AgentNames, agentNameProblem } from './agent-names.js'
+import { AgentNames, agentNameProblem, normalizeAgentName } from './agent-names.js'
 import { chargeLabelRequest } from './label-ledger.js'
 import { CLI_INTERACTIVE_TURN_TIMEOUT_MS } from './policy.js'
 import { SAVED_AGENTS_GUIDANCE, type SavedAgentHistory } from './saved-agents.js'
@@ -305,9 +318,21 @@ interface ChildLaunchHooks {
 	readonly onEvent?: (event: SessionEvent) => void
 	/** What a cancelled child is recorded as: a workflow's agents are stopped by the operator. */
 	readonly cancelCause?: CancelCause
+	/** The child is a team member: it runs under the team's turn and works from the team's task list. */
+	readonly teammate?: {
+		readonly team: string
+		readonly name: string
+		readonly lead: string
+		readonly turnId: TurnId
+	}
 }
 
 export interface SubagentRuntimeOptions {
+	/**
+	 * Teammates: a named `Agent` call starts one while this host says teams are on (asked at every
+	 * call). Absent, a named agent is always a plain sub-agent.
+	 */
+	readonly teams?: TeamsHost
 	/**
 	 * The task list each child of a turn works from, called when the turn's first child is launched.
 	 * Absent, or answering undefined, a child has no task tools and no view of the parent's list. Left
@@ -581,6 +606,8 @@ export interface SubagentMessage {
 	readonly description: string
 	readonly taskId?: string
 	readonly text: string
+	/** Set when the sender is a teammate: the team it belongs to and its name. */
+	readonly teammate?: { readonly team: string; readonly name: string }
 }
 
 export interface SubagentRuntime {
@@ -674,6 +701,17 @@ export interface SubagentRuntime {
 	 */
 	liveChildSessionIds(): ReadonlySet<string>
 	/**
+	 * The teammate behind a review request a screen is about to show, or `undefined` when the lead's
+	 * own conversation or another agent asks. Read while the request is open: the ask is known by the
+	 * ids of the calls it holds and the session that raised them.
+	 */
+	teammateAsking(request: {
+		readonly sessionId?: unknown
+		readonly toolCalls?: readonly { readonly id: string }[]
+	}): { readonly team: string; readonly name: string } | undefined
+	/** The team of this conversation as a screen lists it. Absent when teams are not available here. */
+	readonly team?: TeamViewSource
+	/**
 	 * Start one agent a workflow script asked for, through the same path, review
 	 * channel, tool roster, sandbox, budget ledger and cancellation as the `Agent`
 	 * tool, and wait for it. The child keeps its normal transcript.
@@ -755,11 +793,31 @@ export async function createSubagentRuntime(
 	}
 	const childMessageListeners = new Set<(message: SubagentMessage) => void>()
 	const backgroundCompletionListeners = new Set<(completion: SubagentCompletion) => void>()
+	// A team's members run under a turn of their own, so that a wake that nobody asked for (mail from
+	// another teammate, a task that became ready) is not tied to a lead turn that has long ended. It
+	// answers for the conversation it was made from, with the review channel the lead's person last used.
+	const teamParents = new Map<TurnId, SubagentParent>()
+	const teamReviews = new Map<TurnId, ResumeHandler | undefined>()
+	const teamReviewAllowed = new Map<TurnId, (() => boolean) | undefined>()
 	const opts: SubagentRuntimeOptions = {
 		...input,
+		resolveParent: async (turnId) => teamParents.get(turnId) ?? input.resolveParent(turnId),
+		...(input.resolveResumeHandler
+			? {
+					resolveResumeHandler: (turnId) =>
+						teamReviews.has(turnId)
+							? teamReviews.get(turnId)
+							: input.resolveResumeHandler?.(turnId),
+				}
+			: {}),
+		resolveReviewAllowedCalls: (turnId) =>
+			teamReviewAllowed.has(turnId)
+				? teamReviewAllowed.get(turnId)
+				: input.resolveReviewAllowedCalls?.(turnId),
 		childExtraTools: () =>
 			childMessageListeners.size > 0 ? [toolset('agents:message-main', [messageMainTool])] : [],
 	}
+	const lifetime = new AbortController()
 	const registry = new AgentRegistry()
 	registry.register(
 		buildDefinition(
@@ -865,6 +923,13 @@ export async function createSubagentRuntime(
 		readonly declaredMode?: string
 		/** The id the model first knew this agent by; every later run keeps answering to it. */
 		readonly publicTaskId: string
+		/** Set for a teammate: its team, its name, the lead session and the turn it runs under. */
+		readonly teammate?: {
+			readonly team: string
+			readonly name: string
+			readonly lead: string
+			readonly turnId: TurnId
+		}
 		gateway: TaskScheduler
 		task: TaskHandle
 		turnId: TurnId
@@ -1580,7 +1645,7 @@ export async function createSubagentRuntime(
 		if (refusedFile) throw new Error(refusedFile.line)
 		const agentName = typeof input.name === 'string' ? input.name.trim() : ''
 		if (agentName.length > 0) {
-			const problem = agentNameProblem(agentName)
+			const problem = agentNameProblem(agentName, { team: hooks.teammate !== undefined })
 			if (problem) throw new Error(problem)
 		}
 		// Which built-in read-only type this launch names, if any.
@@ -1634,7 +1699,11 @@ export async function createSubagentRuntime(
 				: undefined
 		let agentId = fileAgent?.name ?? readOnlyType ?? GENERAL_PURPOSE_SUBAGENT
 		const persona = typeof role === 'string' ? role.trim() : ''
-		const dynamic = persona.length > 0 || selection !== undefined || forked !== undefined
+		const dynamic =
+			persona.length > 0 ||
+			selection !== undefined ||
+			forked !== undefined ||
+			hooks.teammate !== undefined
 		if (dynamic) {
 			// A role on top of a type keeps that type's roster and model: the
 			// persona says who the child is, the type says what it may touch,
@@ -1648,6 +1717,7 @@ export async function createSubagentRuntime(
 				selection,
 				model: selection?.model ?? fileAgent?.model ?? parentModel,
 				...(forked ? { inheritedPrompt: forked.systemPrompt } : {}),
+				...(hooks.teammate ? { teammate: true } : {}),
 			})
 		}
 		const seed = {
@@ -1673,7 +1743,10 @@ export async function createSubagentRuntime(
 		// the real project. Always install a handler, and abort if ownership can no
 		// longer be proved.
 		const review = childReview(context.turnId, fileAgent?.permissionMode)
-		const resumeHandler = review.resumeHandler
+		// A teammate's asks go to the lead's person under the member's name, bound to each call's id.
+		const resumeHandler = hooks.teammate
+			? memberReview(hooks.teammate, review.resumeHandler)
+			: review.resumeHandler
 		const configOverrides = {
 			...turnConfigFields(resolveTurnGuards(opts, opts.resolveLimits?.(context.turnId)), {
 				// The child's own record of what it changed, read from the directory it
@@ -1714,15 +1787,17 @@ export async function createSubagentRuntime(
 			if (dynamic && !retained) registry.unregister(agentId)
 		}
 		try {
-			const parentKey = sessionKey(await resolveParent(context.turnId))
-			const gateway = await gatewayForTurn(context.turnId)
-			const completionInbox = await completionInboxForTurn(context.turnId)
+			// A teammate belongs to its team's turn, which outlives the lead's turn that asked for it.
+			const gatewayTurn = hooks.teammate?.turnId ?? context.turnId
+			const parentKey = sessionKey(await resolveParent(gatewayTurn))
+			const gateway = await gatewayForTurn(gatewayTurn)
+			const completionInbox = await completionInboxForTurn(gatewayTurn)
 			const subdirectory =
 				workspace === 'worktree' ? await worktreeDriver.selectedSubdirectory() : undefined
 			// Nothing is saved here: the SDK records the child's spawn and its
 			// ending in the parent's log, and the child's own log beside it.
 			const outcome = await runBlockingAgentTask({
-				gateway: await gatewayForTurn(context.turnId),
+				gateway,
 				signal: context.abortSignal,
 				waitForInbound: opts.resolveWaitForInbound?.(context.turnId),
 				background: run_in_background === true,
@@ -1749,15 +1824,21 @@ export async function createSubagentRuntime(
 						publicTaskId: String(task.taskId),
 						gateway,
 						task,
-						turnId: context.turnId,
+						turnId: gatewayTurn,
 						busy: false,
+						...(hooks.teammate ? { teammate: hooks.teammate } : {}),
 					}
 					conversations.set(tracker.viewId, retained)
 					taskViews.set(String(task.taskId), tracker.viewId)
 					if (agentName.length > 0) agentNames.register(agentName, String(task.taskId), parentKey)
 					const visible = new Set(activity.getSnapshot().map((value) => value.viewId))
 					for (const [id, previous] of conversations) {
-						if (visible.has(id) || previous.busy || !isTerminalAgentTaskState(previous.task.state))
+						if (
+							visible.has(id) ||
+							previous.busy ||
+							previous.teammate !== undefined ||
+							!isTerminalAgentTaskState(previous.task.state)
+						)
 							continue
 						dropConversation(id)
 						if (previous.dynamic) registry.unregister(previous.agentId)
@@ -1767,8 +1848,12 @@ export async function createSubagentRuntime(
 				onSettled: (completed) => {
 					if (retained) retained.task = completed
 					tracker.settle(completed)
+					if (retained?.teammate) teammateSettled(retained, completed)
 				},
-				onFailed: (error) => tracker.fail(error),
+				onFailed: (error) => {
+					tracker.fail(error)
+					if (retained?.teammate) teammateFailed(retained, error)
+				},
 				onFinished: cleanupDefinition,
 				create: {
 					agentId,
@@ -1793,6 +1878,13 @@ export async function createSubagentRuntime(
 											}
 										: {}),
 								},
+							}
+						: {}),
+					...(hooks.teammate && opts.teams
+						? {
+								taskStore: opts.teams.taskStoreFor(hooks.teammate.team),
+								taskMember: hooks.teammate.name,
+								taskTeam: hooks.teammate.team,
 							}
 						: {}),
 					workingDirectory: opts.cwd,
@@ -1865,6 +1957,14 @@ export async function createSubagentRuntime(
 	 * Register a per-call specialist: a type's roster and prompt, a role on top,
 	 * and the model the call chose. Returns its registry id.
 	 */
+	// What a team member's definition is built from: the team's message tool in place of the one that
+	// reaches only the main conversation.
+	const teammateOpts: SubagentRuntimeOptions = {
+		...opts,
+		childExtraTools: () => [
+			toolset('team:message', [teammateMessageTool, teammateShutdownTool, teammatePlanTool]),
+		],
+	}
 	const registerSpecialist = (input: {
 		readonly fileAgent: AgentFileDefinition | undefined
 		readonly readOnlyType: string | undefined
@@ -1873,6 +1973,8 @@ export async function createSubagentRuntime(
 		readonly model: string
 		/** A fork: the system prompt of the conversation it continues, used as it is. */
 		readonly inheritedPrompt?: string
+		/** A team member: it holds the team's message tool, not the one that reaches only the main conversation. */
+		readonly teammate?: boolean
 	}): string => {
 		const { fileAgent, readOnlyType, persona, selection } = input
 		const id = `dyn-${++dynCounter}`
@@ -1888,7 +1990,7 @@ export async function createSubagentRuntime(
 							(readOnlyType !== undefined
 								? (READ_ONLY_PROMPTS.get(readOnlyType) ?? SUBAGENT_PROMPT)
 								: SUBAGENT_PROMPT),
-				opts,
+				input.teammate === true ? teammateOpts : opts,
 				fileAgent
 					? fileAgentTools(fileAgent, opts)
 					: readOnlyType !== undefined
@@ -1924,6 +2026,10 @@ export async function createSubagentRuntime(
 			'When coordinating several specialists, give them the same `workflow` label and an explicit `phase` plus `phase_order` so the operator can follow the work in the agent cockpit. For work with several phases or many agents, use the `workflow` tool instead when it is in your tool list, and keep these labels for a small fan-out.',
 			'These fields are display annotations only; they do not create dependencies, barriers, or serial execution.',
 			fileAgentSummary.length > 0 ? `Project-defined types: ${fileAgentSummary}.` : '',
+			// Said only to a session that started with teammates on; the call itself is decided at each call.
+			opts.teams?.enabled().enabled === true
+				? 'Teammates are on: a call that gives `name` starts a teammate, not a one-shot sub-agent. A teammate is a long-lived helper with its own conversation that shares a task list with you and the other teammates, goes idle between pieces of work and is woken by send_message or a task; use it for parallel work that needs several turns and talking to each other, and a plain unnamed sub-agent for a single self-contained job. A team has a small cap, so start only what the work needs.'
+				: '',
 		]
 			.filter((part) => part.length > 0)
 			.join(' '),
@@ -2037,6 +2143,11 @@ export async function createSubagentRuntime(
 		timeoutMs: opts.resolveLimits ? 0 : (opts.timeoutMs ?? CLI_INTERACTIVE_TURN_TIMEOUT_MS),
 		async execute(input, context) {
 			const call = input as AgentCallInput
+			// Teams on and a name given: the agent is a teammate, not a one-shot sub-agent. Asked now, so
+			// a change to the setting applies to the next call.
+			const teammateName = typeof call.name === 'string' ? call.name.trim() : ''
+			if (teammateName.length > 0 && teamRunner && opts.teams?.enabled().enabled === true)
+				return startTeammate({ ...call, name: teammateName }, context)
 			// The call decides; failing that the agent's file; failing that the host.
 			const run_in_background =
 				call.run_in_background ??
@@ -2737,6 +2848,11 @@ export async function createSubagentRuntime(
 					maxLength: 16000,
 					description: 'Correction or additional context for this task.',
 				},
+				shutdown: {
+					type: 'boolean',
+					description:
+						'Teammates only: ask this teammate to shut down. The message is the reason. It finishes its current step and approves or refuses; if it does not answer within teams.shutdownGraceSeconds it is stopped.',
+				},
 			},
 			required: ['task_id', 'message'],
 			additionalProperties: false,
@@ -2748,9 +2864,10 @@ export async function createSubagentRuntime(
 		concurrencySafe: false,
 		async execute(input, context) {
 			context.abortSignal.throwIfAborted()
-			const { task_id, message } = input as {
+			const { task_id, message, shutdown } = input as {
 				task_id: string
 				message: string
+				shutdown?: boolean
 			}
 			if (!message.trim())
 				return {
@@ -2781,6 +2898,52 @@ export async function createSubagentRuntime(
 					output: '',
 					error: `Task ${taskId} is stopping, so it cannot take a message. Ask again once it has ended.`,
 				}
+			const teammateOwner =
+				found.kind === 'settled'
+					? found.owned
+					: conversations.get(taskViews.get(String(task.taskId)) ?? '')
+			if (teammateOwner?.teammate && teamRunner) {
+				// Mail to a teammate: written to its mailbox, then handed to it now (it resumes if idle).
+				const target = teammateOwner.teammate
+				await teamTurnFor(context)
+				try {
+					if (shutdown === true) {
+						const asked = await teamRunner.requestShutdown({
+							leadSessionId: target.lead,
+							name: target.name,
+							reason: message,
+						})
+						return {
+							success: true,
+							output: asked.immediate
+								? `Teammate ${target.name} was not running and has left the team.`
+								: `Shutdown requested of teammate ${target.name}. It finishes its current step and approves or refuses; it is stopped if it has not answered in ${asked.graceSeconds} seconds. Its answer reaches you as a message.`,
+							data: {
+								task_id: teammateOwner.publicTaskId,
+								status: 'shutdown_requested',
+								teammate: target.name,
+							},
+						}
+					}
+					await teamRunner.send({
+						leadSessionId: target.lead,
+						from: 'lead',
+						to: target.name,
+						text: message,
+					})
+				} catch (error) {
+					return {
+						success: false,
+						output: '',
+						error: error instanceof Error ? error.message : String(error),
+					}
+				}
+				return {
+					success: true,
+					output: `Message sent to teammate ${target.name}. It reads it at its next step, resuming first if it was idle, and tells you in turn.`,
+					data: { task_id: teammateOwner.publicTaskId, status: 'sent', teammate: target.name },
+				}
+			}
 			if (found.kind === 'settled') {
 				// A finished agent is resumed from its own transcript with the message,
 				// on this turn's gateway, limits and review channel; one the user
@@ -2910,6 +3073,16 @@ export async function createSubagentRuntime(
 				return {
 					success: true,
 					output: `Task ${taskId} is already stopping. No further cancellation sent.`,
+				}
+			// An idle teammate's last turn has ended, but its seat has not: stopping it keeps it from waking again.
+			if (
+				(found.kind === 'settled' || isTerminalAgentTaskState(task.state)) &&
+				stopIdleTeammate(task.taskId, why)
+			)
+				return {
+					success: true,
+					output: `Teammate stopped: ${asked}. It takes no more mail and claims no more tasks.${why ? ` Reason noted: ${why}` : ''}`,
+					data: { task_id: taskId, status: 'stopped' },
 				}
 			if (found.kind === 'settled' || isTerminalAgentTaskState(task.state))
 				return {
@@ -3105,6 +3278,7 @@ export async function createSubagentRuntime(
 		turnId: TurnId,
 		signal: AbortSignal,
 		source: 'operator' | 'parent' = 'operator',
+		mail?: TeamMailLabel,
 	): Promise<SubagentMessageReceipt> => {
 		if (closed) throw new Error('Sub-agent runtime is closed.')
 		if (!message.trim() || message.length > 16_000)
@@ -3126,6 +3300,12 @@ export async function createSubagentRuntime(
 					? 'This agent is already being resumed with an earlier message. Wait for it to start before sending another.'
 					: `Agent "${owned.seed.description}" is already being resumed with an earlier message. Wait for its notification before sending another.`,
 			)
+		// The person typing into a teammate's own view is the person, and the teammate is told so: its
+		// other mail is framed as another session's, so a bare line would not say whose it was.
+		const delivered =
+			owned.teammate && source === 'operator'
+				? `A message from the person, typed while they watch your conversation. It is from the person, not from another session in your team:\n\n${message}`
+				: message
 		owned.busy = true
 		let settleAdmission: () => void = () => {}
 		owned.admitting = new Promise<void>((resolve) => {
@@ -3170,7 +3350,7 @@ export async function createSubagentRuntime(
 			const current = owned.gateway.getTask(owned.task.taskId) ?? owned.task
 			let task: TaskHandle
 			if (!isTerminalAgentTaskState(current.state)) {
-				await owned.gateway.continueTask(current.taskId, message)
+				await owned.gateway.continueTask(current.taskId, delivered)
 				task = current
 			} else {
 				if (owned.workspace !== 'shared')
@@ -3179,7 +3359,8 @@ export async function createSubagentRuntime(
 					)
 				const sessionId = current.childSessionId ?? shown.sessionId
 				if (!sessionId) throw new Error('This task did not establish a child conversation.')
-				const gateway = await gatewayForTurn(turnId)
+				// A teammate stays on its team's turn, whoever wakes it.
+				const gateway = await gatewayForTurn(owned.teammate?.turnId ?? turnId)
 				signal.throwIfAborted()
 				const seed = {
 					...owned.seed,
@@ -3191,7 +3372,14 @@ export async function createSubagentRuntime(
 					task = await gateway.createTask({
 						agentId: owned.agentId,
 						resumeSessionId: sessionId as SessionId,
-						prompt: message,
+						prompt: delivered,
+						...(owned.teammate && opts.teams
+							? {
+									taskStore: opts.teams.taskStoreFor(owned.teammate.team),
+									taskMember: owned.teammate.name,
+									taskTeam: owned.teammate.team,
+								}
+							: {}),
 						workingDirectory: opts.cwd,
 						workspace: { mode: 'shared' },
 						configOverrides: {
@@ -3205,7 +3393,9 @@ export async function createSubagentRuntime(
 							...(() => {
 								const review = childReview(turnId, owned.declaredMode)
 								return {
-									resumeHandler: review.resumeHandler,
+									resumeHandler: owned.teammate
+										? memberReview(owned.teammate, review.resumeHandler)
+										: review.resumeHandler,
 									...(review.reviewAllowedCalls
 										? { reviewAllowedCalls: review.reviewAllowedCalls }
 										: {}),
@@ -3220,15 +3410,20 @@ export async function createSubagentRuntime(
 				}
 				owned.task = task
 				owned.gateway = gateway
-				owned.turnId = turnId
+				owned.turnId = owned.teammate?.turnId ?? turnId
 				taskViews.set(String(task.taskId), viewId)
 				tracker.settle(task)
+				if (owned.teammate) teamRunner?.turnStarted(owned.teammate.team, owned.teammate.name)
 				void gateway.waitForTask(task.taskId).then(
 					(result) => {
 						if (owned.task.taskId === result.taskId) owned.task = result
 						tracker.settle(result)
+						if (owned.teammate) teammateSettled(owned, result)
 					},
-					(error) => tracker.fail(error),
+					(error) => {
+						tracker.fail(error)
+						if (owned.teammate) teammateFailed(owned, error)
+					},
 				)
 				kind = 'started'
 			}
@@ -3238,6 +3433,7 @@ export async function createSubagentRuntime(
 				message,
 				source === 'operator' ? 'operator-to-child' : 'to-child',
 				kind === 'started' ? 'started' : 'queued',
+				source === 'parent' ? mail : undefined,
 			)
 			let auditWarning: string | undefined
 			try {
@@ -3270,11 +3466,616 @@ export async function createSubagentRuntime(
 		}
 	}
 
+	// ─── teammates ───────────────────────────────────────────────────────
+
+	/** The calls an `Agent` call that starts a teammate has handed over, by member name, until `launch` picks them up. */
+	const launching = new Map<
+		string,
+		{
+			readonly call: AgentCallInput
+			readonly context: ChildLaunchContext
+			started?: { readonly taskId: string; readonly state: string }
+		}
+	>()
+	const teamTurnIds = new Map<string, TurnId>()
+	const teamTurnByLead = new Map<string, TurnId>()
+
+	/** The turn a lead's team runs under; made on the first teammate, answering for the same conversation. */
+	const teamTurnFor = async (context: Pick<ToolContext, 'turnId'>): Promise<TurnId> => {
+		const parent = await resolveParent(context.turnId)
+		const key = sessionKey(parent)
+		let turn = teamTurnIds.get(key)
+		if (turn === undefined) {
+			turn = generateTurnId()
+			teamTurnIds.set(key, turn)
+			teamTurnByLead.set(String(parent.sessionId), turn)
+			teamParents.set(turn, parent)
+		}
+		// Asks of a teammate reach the review channel the person last used to speak to the team.
+		teamReviews.set(turn, input.resolveResumeHandler?.(context.turnId))
+		teamReviewAllowed.set(turn, input.resolveReviewAllowedCalls?.(context.turnId))
+		return turn
+	}
+
+	const findTeammate = (
+		team: string,
+		name: string,
+	): { readonly viewId: string; readonly owned: OwnedConversation } | undefined => {
+		const folded = normalizeAgentName(name)
+		for (const [viewId, owned] of conversations)
+			if (owned.teammate?.team === team && normalizeAgentName(owned.teammate.name) === folded)
+				return { viewId, owned }
+		return undefined
+	}
+
+	const teammateOutcome = (
+		handle: TaskHandle,
+	): { state: 'completed' | 'failed' | 'cancelled'; text?: string } => {
+		const state =
+			handle.state === 'completed'
+				? 'completed'
+				: handle.state === 'canceled'
+					? 'cancelled'
+					: 'failed'
+		const value = handle.result?.structuredOutput ?? handle.result?.result
+		const text =
+			typeof value === 'string'
+				? value
+				: value === undefined
+					? handle.result?.lastError
+						? plainChildFailure(handle.result.lastError)
+						: undefined
+					: JSON.stringify(value)
+		return { state, ...(text ? { text } : {}) }
+	}
+
+	/** A teammate's turn ended: the runner decides what it does next, and the lead is told like for any background agent. */
+	const teammateSettled = (owned: OwnedConversation, handle: TaskHandle): void => {
+		const target = owned.teammate
+		if (!target || closed) return
+		// A teammate the lead or the person stopped stays stopped: it is not an idle one to wake again.
+		const viewId = [...conversations].find(([, value]) => value === owned)?.[0]
+		const shown = viewId
+			? activity.getSnapshot().find((entry) => entry.viewId === viewId)
+			: undefined
+		if (shown?.stoppedBy !== undefined) teamRunner?.noteStopped(target.team, target.name)
+		teamRunner?.turnEnded(target.team, target.name, teammateOutcome(handle))
+		void (async () => {
+			const pending = parents.get(target.turnId)
+			const runtime = pending ? await pending.catch(() => undefined) : undefined
+			if (runtime) reportBackgroundCompletion(target.turnId, runtime, handle)
+		})()
+	}
+	const teammateFailed = (owned: OwnedConversation, error: unknown): void => {
+		const target = owned.teammate
+		if (!target || closed) return
+		teamRunner?.turnEnded(target.team, target.name, {
+			state: 'failed',
+			text: error instanceof Error ? error.message : String(error),
+		})
+	}
+
+	/** Hand a teammate's message to whatever shows the lead's conversation. */
+	const showLead = (
+		found: { viewId: string; owned: OwnedConversation } | undefined,
+		from: string,
+		team: string,
+		summary: string,
+		text: string,
+	): void => {
+		const target = found?.owned.teammate
+		if (!found || !target) return
+		const shown = activity.getSnapshot().find((entry) => entry.viewId === found.viewId)
+		for (const listener of [...childMessageListeners]) {
+			try {
+				listener({
+					parentSessionId: target.lead,
+					viewId: found.viewId,
+					agentId: from,
+					description: summary,
+					...(shown?.taskId ? { taskId: shown.taskId } : {}),
+					text,
+					teammate: { team, name: from },
+				})
+			} catch {
+				// One listener failing must not hide the message from the rest.
+			}
+		}
+	}
+
+	const teamEngine: TeammateEngine = {
+		async launch(spec: TeammateStartSpec & { readonly leadSessionId: string }) {
+			const pending = launching.get(spec.member.name)
+			if (!pending) throw new Error('The teammate was not started by a call that can be answered.')
+			const turnId = teamTurnByLead.get(spec.leadSessionId)
+			if (turnId === undefined) throw new Error('The team has no turn to run under.')
+			const { outcome } = await launchChild(
+				{
+					...pending.call,
+					name: spec.member.name,
+					prompt: `${spec.prompt}\n\n${teammateAppendix(spec.member.name, spec.team)}`,
+					run_in_background: true,
+				},
+				pending.context,
+				{
+					teammate: {
+						team: spec.team,
+						name: spec.member.name,
+						lead: spec.leadSessionId,
+						turnId,
+					},
+				},
+			)
+			pending.started = { taskId: String(outcome.handle.taskId), state: outcome.handle.state }
+		},
+		async deliver(team: string, name: string, text: string, mail?: TeamMailLabel) {
+			const found = findTeammate(team, name)
+			if (!found) throw new Error(`${name} is not running in this conversation.`)
+			const target = found.owned.teammate
+			if (!target) throw new Error(`${name} is not a teammate.`)
+			await messageChild(found.viewId, text, target.turnId, lifetime.signal, 'parent', mail)
+		},
+		abort(team: string, name: string) {
+			const found = findTeammate(team, name)
+			if (!found) return
+			// Not through `stopChild`: closing the runtime ends the team after `closed` is set, and that
+			// guard would turn this into nothing while the child kept running.
+			const current = found.owned.gateway.getTask(found.owned.task.taskId) ?? found.owned.task
+			if (isTerminalAgentTaskState(current.state)) return
+			activity.markStopped(found.viewId, 'user')
+			found.owned.gateway.cancelTask(found.owned.task.taskId, 'user')
+		},
+		tellLead(team: string, from: string, summary: string, text: string) {
+			showLead(findTeammate(team, from), from, team, summary, text)
+		},
+		isRunning(team: string, name: string) {
+			const found = findTeammate(team, name)
+			if (!found) return false
+			const current = found.owned.gateway.getTask(found.owned.task.taskId) ?? found.owned.task
+			return !isTerminalAgentTaskState(current.state)
+		},
+	}
+	// The hook events of a team run against the session's hooks, found when each one fires.
+	const teamHookPoints: TeamHookPoints | undefined = opts.resolvePluginManager
+		? {
+				start: (lead, team, name) => teammateStart(opts.resolvePluginManager?.(), lead, team, name),
+				stop: (lead, team, name) => teammateStop(opts.resolvePluginManager?.(), lead, team, name),
+				idle: (lead, team, name) =>
+					teammateIdle(opts.resolvePluginManager?.(), lead, team, name, lifetime.signal),
+			}
+		: undefined
+	const teamRunner: TeamRunner | undefined = opts.teams
+		? new TeamRunner(opts.teams, teamEngine, teamHookPoints)
+		: undefined
+	teamRunner?.onChange(() => notifyTeam())
+
+	/** A teammate's call that is waiting on the lead's person right now, with who asked. */
+	interface TeamAsk {
+		readonly team: string
+		readonly name: string
+		readonly sessionId: string
+		readonly callIds: readonly string[]
+	}
+	const teamAsks = new Set<TeamAsk>()
+
+	// ─── what a screen reads about the team ──────────────────────────────
+
+	const teamListeners = new Set<() => void>()
+	const notifyTeam = (): void => {
+		for (const listener of [...teamListeners]) {
+			try {
+				listener()
+			} catch {
+				// A screen that cannot redraw must not stop the team.
+			}
+		}
+	}
+	const hookedLists = new Map<string, () => void>()
+	/** The team the newest teammate of this conversation belongs to. */
+	const activeTeam = (): string | undefined => {
+		let team: string | undefined
+		for (const owned of conversations.values()) if (owned.teammate) team = owned.teammate.team
+		return team
+	}
+	const teamView: TeamViewSource | undefined = opts.teams
+		? {
+				team: activeTeam,
+				members: () => {
+					const team = activeTeam()
+					if (team === undefined || !teamRunner) return []
+					const run = new Map(teamRunner.snapshot(team).map((entry) => [entry.name, entry]))
+					const rows: TeamMemberView[] = []
+					for (const [viewId, owned] of conversations) {
+						const target = owned.teammate
+						if (!target || target.team !== team) continue
+						const entry = run.get(target.name)
+						// Not tracked any more: it approved a shutdown and left the team.
+						if (!entry) continue
+						const shown = activity.getSnapshot().find((value) => value.viewId === viewId)
+						const asking = [...teamAsks].some(
+							(ask) => ask.team === team && ask.name === target.name,
+						)
+						const state: TeamMemberView['state'] =
+							entry.state === 'stopped'
+								? 'stopped'
+								: entry.state === 'busy'
+									? asking
+										? 'waiting'
+										: 'working'
+									: 'idle'
+						rows.push({
+							name: target.name,
+							viewId,
+							state,
+							since:
+								state === 'idle'
+									? entry.idleSince
+									: state === 'stopped'
+										? entry.idleSince || (shown?.completedAt ?? 0)
+										: 0,
+						})
+					}
+					return rows
+				},
+				left: (viewId) => {
+					const target = conversations.get(viewId)?.teammate
+					if (!target || !teamRunner) return undefined
+					return teamRunner.snapshot(target.team).some((entry) => entry.name === target.name)
+						? undefined
+						: target.name
+				},
+				tasks: async () => {
+					const team = activeTeam()
+					if (team === undefined || !opts.teams) return []
+					const store = opts.teams.taskStoreFor(team)
+					if (!hookedLists.has(team) && typeof store.on === 'function') {
+						hookedLists.set(
+							team,
+							store.on(() => notifyTeam()),
+						)
+					}
+					const list = await store.list()
+					return list.map(
+						(task): TeamTaskView => ({
+							id: String(task.id),
+							subject: task.subject,
+							status: task.status,
+							...(task.owner !== undefined ? { owner: task.owner } : {}),
+							blockedBy: task.blockedBy.map(String),
+							...(task.completedAt !== undefined ? { completedAt: task.completedAt } : {}),
+						}),
+					)
+				},
+				subscribe: (listener) => {
+					teamListeners.add(listener)
+					return () => {
+						teamListeners.delete(listener)
+					}
+				},
+			}
+		: undefined
+
+	/**
+	 * The review channel of one teammate: the lead's own (`inner`), with the member's name on every
+	 * ask. A teammate never asks in a screen of its own. Its ask is put to the lead's person as the
+	 * lead's own calls are, in the lead's mode and under its rules (a sub-agent's asks are routed the
+	 * same way); while it waits, the ask is known by the ids of the calls it holds, so a screen can
+	 * name the member, and the answer goes back to this one call and nowhere else. Nothing a teammate
+	 * writes, or mails, reaches this handler: only the person's answer does.
+	 */
+	const memberReview = (
+		target: { readonly team: string; readonly name: string },
+		inner: ResumeHandler,
+	): ResumeHandler => {
+		return async (request, context) => {
+			if (request.type !== 'tool_review') return inner(request, context)
+			const callIds = request.toolCalls.map((call) => call.id)
+			const plan = request.toolCalls.find((call) => call.name === EXIT_PLAN_MODE_TOOL_NAME)
+			const planText =
+				plan && typeof (plan.input as { plan?: unknown } | null)?.plan === 'string'
+					? ((plan.input as { plan: string }).plan as string)
+					: undefined
+			const ask: TeamAsk = {
+				team: target.team,
+				name: target.name,
+				sessionId: String(request.sessionId),
+				callIds,
+			}
+			teamAsks.add(ask)
+			notifyTeam()
+			teamRunner?.noteAsk(target.team, target.name, {
+				callIds,
+				tools: request.toolCalls.map((call) => call.name),
+				...(planText !== undefined ? { plan: planText } : {}),
+			})
+			// The plan reaches the lead's conversation as a row too, not only the review.
+			if (planText !== undefined)
+				teamEngine.tellLead?.(
+					target.team,
+					target.name,
+					'a plan waiting for your approval',
+					`${target.name} sent a plan. The person is being asked to approve it. You cannot approve it; do not message ${target.name} about it until the answer arrives:\n\n${planText}`,
+				)
+			let decision: Awaited<ReturnType<ResumeHandler>>
+			try {
+				decision = await inner(request, context)
+			} finally {
+				teamAsks.delete(ask)
+				notifyTeam()
+			}
+			const allowed = decision.action === 'approve_tools' || decision.action === 'modify_tools'
+			teamRunner?.noteAnswer(target.team, target.name, {
+				callIds,
+				allow: allowed,
+				...(decision.action === 'reject_tools' && decision.feedback
+					? { feedback: decision.feedback }
+					: {}),
+				...(planText !== undefined ? { plan: true } : {}),
+			})
+			return decision
+		}
+	}
+
+	/**
+	 * The teammate that is asking, for a review request a screen is about to show: the name and team,
+	 * or `undefined` for anyone else's. Found by the ids of the calls and the session that raised them.
+	 */
+	const teammateAsking = (request: {
+		readonly sessionId?: unknown
+		readonly toolCalls?: readonly { readonly id: string }[]
+	}): { readonly team: string; readonly name: string } | undefined => {
+		const ids = new Set((request.toolCalls ?? []).map((call) => call.id))
+		if (ids.size === 0) return undefined
+		for (const ask of teamAsks) {
+			if (request.sessionId !== undefined && String(request.sessionId) !== ask.sessionId) continue
+			if (ask.callIds.some((id) => ids.has(id))) return { team: ask.team, name: ask.name }
+		}
+		return undefined
+	}
+
+	/** An `Agent` call with a name while teams are on: reserve the member, start its child, answer at once. */
+	const startTeammate = async (call: AgentCallInput, context: ToolContext): Promise<ToolResult> => {
+		const runner = teamRunner
+		const name = call.name ?? ''
+		const fail = (error: string): ToolResult => ({ success: false, output: '', error })
+		if (!runner) return fail('Teammates are unavailable in this session.')
+		if (call.subagent_type === FORK_SUBAGENT)
+			return fail(
+				'A teammate keeps a conversation of its own, so it cannot be a fork of this one. Pick another subagent_type, or leave it out and put what it needs in the prompt.',
+			)
+		if (call.workspace === 'worktree')
+			return fail(
+				'A teammate works in the same checkout as you for now, so that it can be woken for more work. Leave out workspace, and give teammates files that do not overlap.',
+			)
+		const problem = agentNameProblem(name, { team: true })
+		if (problem) return fail(problem)
+		const parent = await resolveParent(context.turnId)
+		await teamTurnFor(context)
+		const handover: NonNullable<ReturnType<typeof launching.get>> = { call, context }
+		launching.set(name, handover)
+		try {
+			const { team, member } = await runner.spawn({
+				leadSessionId: String(parent.sessionId),
+				name,
+				prompt: call.prompt,
+				cwd: opts.cwd,
+				...(call.subagent_type !== undefined ? { agentType: call.subagent_type } : {}),
+				...(call.model !== undefined ? { model: call.model } : {}),
+			})
+			const started = handover.started
+			return {
+				success: true,
+				output: `Teammate ${JSON.stringify(name)} started in team ${team} and is working in the background. It keeps its own conversation, shares the team's task list with you, and goes idle between pieces of work. Give it more with send_message (to ${JSON.stringify(name)}); what it says and when it goes idle reach you as notifications. Teammates share your checkout: give them files that do not overlap.`,
+				data: {
+					teammate: member.name,
+					team,
+					color: member.color,
+					...(started ? { task_id: started.taskId, state: started.state } : {}),
+				},
+				launched: true,
+			}
+		} catch (error) {
+			if (error instanceof TeamError) return fail(error.message)
+			throw error
+		} finally {
+			if (launching.get(name) === handover) launching.delete(name)
+		}
+	}
+
+	/**
+	 * A teammate's plan, for the lead's person to read and approve. The tool declares that every call
+	 * needs a person's yes, so the review asks in every mode (the lead's "approve all" and auto modes
+	 * included) and the call runs only after the person approved; it never approves itself, and the
+	 * mode of the lead is not changed by it. A No, with the person's words, comes back as the refusal.
+	 */
+	const teammatePlanTool = defineTool({
+		name: EXIT_PLAN_MODE_TOOL_NAME,
+		description:
+			"Send your plan to the lead for approval before you change anything. Put the whole plan in `plan`. The person reads it in the lead's conversation, with your name on it, and approves it or sends it back with what to change; you wait for the answer and then carry on or revise. Call it when the work is not small, or when you were asked to plan first. You cannot approve a plan for yourself, and nobody else on the team can approve it for you.",
+		inputSchema: mcpJsonSchemaToZod({
+			type: 'object',
+			properties: {
+				plan: {
+					type: 'string',
+					minLength: 1,
+					maxLength: 20000,
+					description: 'The plan: what you will change, in what order, and why.',
+				},
+			},
+			required: ['plan'],
+			additionalProperties: false,
+		}),
+		category: 'custom',
+		permissions: [],
+		// It changes nothing itself; what it asks for is a person's yes, on every call.
+		readOnly: true,
+		destructive: false,
+		requiresApproval: true,
+		concurrencySafe: false,
+		timeoutMs: 30 * 60_000,
+		async execute(_args, context) {
+			context.abortSignal.throwIfAborted()
+			const shown = activity
+				.getSnapshot()
+				.find((entry) => entry.sessionId === String(context.sessionId))
+			const self = shown ? conversations.get(shown.viewId)?.teammate : undefined
+			if (!self || closed || !teamRunner || shown?.stoppedBy !== undefined)
+				return {
+					success: false,
+					output: '',
+					error:
+						'You are not a teammate of a running team, or you were stopped, so there is nobody to approve a plan.',
+				}
+			return {
+				success: true,
+				output: 'The person approved your plan. Go ahead with it.',
+			}
+		},
+	})
+
+	/**
+	 * What a teammate calls to say something to the lead or to another teammate. Its own plain text is
+	 * seen by nobody; this is the only way out. Lives only on a team member's roster.
+	 */
+	const teammateMessageTool = defineTool({
+		name: 'send_message',
+		description:
+			'Send a message to the lead (the main conversation) or to another teammate in your team, by name. Your plain text output is not seen by anyone else; to tell someone something, call this. One recipient per call. It arrives marked as coming from you, another session in the team, never as the person. Do not send routine progress: send what they need to know or decide now.',
+		inputSchema: mcpJsonSchemaToZod({
+			type: 'object',
+			properties: {
+				to: {
+					type: 'string',
+					description: 'A teammate\'s name, or "lead" for the main conversation.',
+				},
+				summary: {
+					type: 'string',
+					maxLength: 120,
+					description: 'A few words saying what the message is about.',
+				},
+				message: {
+					type: 'string',
+					minLength: 1,
+					maxLength: 16000,
+					description: 'What to tell them.',
+				},
+			},
+			required: ['to', 'message'],
+			additionalProperties: false,
+		}),
+		category: 'custom',
+		permissions: [],
+		readOnly: true,
+		destructive: false,
+		concurrencySafe: true,
+		async execute(args, context) {
+			context.abortSignal.throwIfAborted()
+			const { to, message, summary } = args as { to: string; message: string; summary?: string }
+			const refuse = (error: string): ToolResult => ({ success: false, output: '', error })
+			if (!message.trim()) return refuse('Message must not be blank.')
+			const shown = activity
+				.getSnapshot()
+				.find((entry) => entry.sessionId === String(context.sessionId))
+			const owned = shown ? conversations.get(shown.viewId) : undefined
+			const self = owned?.teammate
+			if (!shown || !owned || !self || closed || !teamRunner || shown.stoppedBy !== undefined)
+				return refuse(
+					'Not sent. You cannot use send_message here: you are not a teammate of a running team, or you were stopped.',
+				)
+			const toLead = ['lead', 'main', 'team-lead'].includes(to.trim().toLowerCase())
+			if (toLead && childMessageListeners.size === 0)
+				return refuse(
+					"Not sent. Nothing is showing the lead's conversation, so a message to it would not arrive.",
+				)
+			try {
+				await teamRunner.send({
+					leadSessionId: self.lead,
+					from: self.name,
+					to,
+					text: message,
+					...(summary ? { summary } : {}),
+				})
+			} catch (error) {
+				return refuse(error instanceof Error ? error.message : String(error))
+			}
+			if (toLead) {
+				showLead(
+					{ viewId: shown.viewId, owned },
+					self.name,
+					self.team,
+					summary ?? `teammate ${self.name}`,
+					message,
+				)
+				return { success: true, output: 'Sent to the lead; it reads it with its next turn.' }
+			}
+			return {
+				success: true,
+				output: `Sent to ${to}. It reads it at its next step, resuming first if it was idle.`,
+			}
+		},
+	})
+
+	/** A teammate's answer to the lead's shutdown request: approve and stop after this step, or refuse with a reason. */
+	const teammateShutdownTool = defineTool({
+		name: 'shutdown_response',
+		description:
+			'Answer a shutdown request from the lead. approve: true means you will stop after your current step (finish the call you are on first, do not start new work). approve: false keeps you working and needs a reason, for example work that would be lost. Use it only when a shutdown request is waiting; if you do not answer in time you are stopped anyway.',
+		inputSchema: mcpJsonSchemaToZod({
+			type: 'object',
+			properties: {
+				approve: { type: 'boolean', description: 'True to shut down, false to refuse.' },
+				reason: {
+					type: 'string',
+					maxLength: 2000,
+					description: 'Required when refusing; optional when approving (what is left undone).',
+				},
+			},
+			required: ['approve'],
+			additionalProperties: false,
+		}),
+		category: 'custom',
+		permissions: [],
+		readOnly: true,
+		destructive: false,
+		concurrencySafe: true,
+		async execute(args, context) {
+			context.abortSignal.throwIfAborted()
+			const { approve, reason } = args as { approve: boolean; reason?: string }
+			const refuse = (error: string): ToolResult => ({ success: false, output: '', error })
+			const shown = activity
+				.getSnapshot()
+				.find((entry) => entry.sessionId === String(context.sessionId))
+			const self = shown ? conversations.get(shown.viewId)?.teammate : undefined
+			if (!self || closed || !teamRunner || shown?.stoppedBy !== undefined)
+				return refuse('Not sent. You are not a teammate of a running team, or you were stopped.')
+			try {
+				teamRunner.respondShutdown({
+					team: self.team,
+					name: self.name,
+					approve,
+					...(reason ? { reason } : {}),
+				})
+			} catch (error) {
+				return refuse(error instanceof Error ? error.message : String(error))
+			}
+			return {
+				success: true,
+				output: approve
+					? 'Approved. Stop after your current step: start nothing new and end your turn.'
+					: 'Refused. The lead has your reason; carry on with your work.',
+			}
+		},
+	})
+
 	let closePromise: Promise<void> | undefined
 	const close = (): Promise<void> => {
 		if (closePromise) return closePromise
 		closed = true
 		closePromise = (async () => {
+			teamRunner?.close()
+			for (const off of hookedLists.values()) off()
+			hookedLists.clear()
+			lifetime.abort()
 			labeler.stop()
 			await Promise.all([...parents.keys()].map(releaseTurn))
 			await Promise.all(
@@ -3323,13 +4124,27 @@ export async function createSubagentRuntime(
 			})
 		: undefined
 
+	/** A teammate between turns has an ended task but a live seat: stop the seat. False when the task is not a teammate's, or it is already stopped. */
+	function stopIdleTeammate(taskId: string, why: string | undefined): boolean {
+		if (!teamRunner) return false
+		for (const owned of conversations.values()) {
+			const target = owned.teammate
+			if (!target || owned.task.taskId !== taskId) continue
+			const state = teamRunner.stateOf(target.team, target.name)
+			if (state === undefined || state === 'stopped' || state === 'busy') return false
+			return teamRunner.stop(target.lead, target.name, why)
+		}
+		return false
+	}
+
 	const stopChild = (viewId: string): boolean => {
 		if (closed) return false
 		const owned = conversations.get(viewId)
 		const shown = activity.getSnapshot().find((value) => value.viewId === viewId)
 		if (!owned || !shown || shown.replayed) return false
 		const current = owned.gateway.getTask(owned.task.taskId) ?? owned.task
-		if (isTerminalAgentTaskState(current.state)) return false
+		if (isTerminalAgentTaskState(current.state))
+			return stopIdleTeammate(owned.task.taskId, undefined)
 		activity.markStopped(viewId, 'user')
 		owned.gateway.cancelTask(owned.task.taskId, 'user')
 		return true
@@ -3380,6 +4195,8 @@ export async function createSubagentRuntime(
 		activity,
 		publicTaskIdOf: publicTaskId,
 		liveChildSessionIds: () => liveChildSessions(),
+		teammateAsking: (request) => teammateAsking(request),
+		...(teamView ? { team: teamView } : {}),
 		launchWorkflowAgent,
 		close,
 	}

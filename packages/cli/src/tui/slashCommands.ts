@@ -118,6 +118,8 @@ export type SlashAction =
 	/** User-selected MCP prompts/resources, resolved asynchronously by the session host. */
 	| { kind: 'mcp-person'; args: readonly string[] }
 	| { kind: 'peers'; args: readonly string[] }
+	/** `/team`: the teammates and the team's tasks, or stop one. */
+	| { kind: 'team'; args: readonly string[] }
 	/** Open the list of this conversation's workflow runs. */
 	| { kind: 'workflows' }
 	/** Open the Background dialog: this session's commands, monitors and subagents. */
@@ -1102,6 +1104,14 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 			],
 		},
 		action: (_ctx, args) => ({ kind: 'peers', args }),
+	},
+	{
+		name: 'team',
+		modelRun: 'never',
+		immediate: true,
+		description: 'List your teammates and what each is on, or stop one.',
+		help: { usage: ['/team', '/team tasks', '/team stop <name>'] },
+		action: (_ctx, args) => ({ kind: 'team', args }),
 	},
 	{
 		name: 'workflows',

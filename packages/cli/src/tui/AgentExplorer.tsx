@@ -9,6 +9,7 @@ import {
 	type SubagentActivityStatus,
 	type SubagentNarrationLine,
 } from '../integrations/subagents/activity.js'
+import type { TeamMemberView, TeamTaskView } from '../integrations/teams/view.js'
 import {
 	LARGE_WORKFLOW_WARNING,
 	type LargeRunReason,
@@ -27,6 +28,16 @@ import { PointerRegionsContext } from './pointer/context.js'
 import { elementRect } from './pointer/regions.js'
 import { selectionWindow } from './selection-window.js'
 import { END_WORDS, endWord } from './system-rows.js'
+import {
+	type TeamRailPlan,
+	type TeamSnapshot,
+	foldedIdleText,
+	teamByView,
+	teamNextFade,
+	teamRailPlan,
+	teamStatusText,
+	teamTaskText,
+} from './team-view.js'
 import { truncateChoiceText } from './terminal-choice-text.js'
 import { scriptText, terminalDisplayText } from './terminal-display.js'
 import { theme } from './theme.js'
@@ -230,10 +241,17 @@ export function railAgents(
 	now: number,
 	dismissed: ReadonlySet<string> = new Set(),
 	pinned: string | null = null,
+	team?: TeamRail,
 ): readonly SubagentActivity[] {
 	return agents
 		.filter((agent) => {
 			if (agent.replayed === true) return false
+			// A teammate lives as long as its seat, not as long as its turn: its row follows the team's plan.
+			if (team?.members.has(agent.viewId)) {
+				if (agent.viewId === pinned) return true
+				if (dismissed.has(agent.viewId)) return false
+				return team.plan.shown.has(agent.viewId)
+			}
 			// The agent on screen stays listed, however it ended, so the way back
 			// to the conversation is never a row that has just vanished.
 			if (agent.viewId === pinned && !isWorkflowRunAgent(agent)) return true
@@ -261,9 +279,15 @@ export function railNextEviction(
 	agents: readonly SubagentActivity[],
 	now: number,
 	runs: readonly WorkflowRunView[] = [],
+	team?: TeamRail,
 ): number | undefined {
 	let soonest = nextRunEviction(runs, now, AGENT_RAIL_FINISHED_LINGER_MS)
+	if (team) {
+		const wait = teamNextFade([...team.members.values()], now, team.othersBusy)
+		if (wait !== undefined && (soonest === undefined || wait < soonest)) soonest = wait
+	}
 	for (const agent of agents) {
+		if (team?.members.has(agent.viewId)) continue
 		if (agent.replayed === true || isWorkflowRunAgent(agent) || !isTerminalStatus(agent.status))
 			continue
 		if (leavesAtOnce(agent) || agent.completedAt === undefined) continue
@@ -273,8 +297,44 @@ export function railNextEviction(
 	return soonest
 }
 
-/** Whether `x` stops this agent (it is running) or only clears it (it has finished). */
-export function railActionFor(agent: SubagentActivity): 'stop' | 'clear' {
+/**
+ * The team as the rail reads it: each teammate by the id of its row, which of them are drawn, and
+ * whether anything but the team is running (so the rail is not idle).
+ */
+export interface TeamRail {
+	readonly members: ReadonlyMap<string, TeamMemberView>
+	readonly plan: TeamRailPlan
+	readonly othersBusy: boolean
+	/** Every task on the team's list, for the task a row names. */
+	readonly tasks: readonly TeamTaskView[]
+}
+
+/** The team as the rail reads it, or undefined when there is no team. */
+export function teamRailOf(
+	snapshot: TeamSnapshot,
+	agents: readonly SubagentActivity[],
+	now: number,
+): TeamRail | undefined {
+	if (snapshot.members.length === 0) return undefined
+	const members = teamByView(snapshot.members)
+	const othersBusy = agents.some(
+		(agent) =>
+			agent.replayed !== true && !members.has(agent.viewId) && !isTerminalStatus(agent.status),
+	)
+	return {
+		members,
+		plan: teamRailPlan(snapshot.members, now, othersBusy),
+		othersBusy,
+		tasks: snapshot.tasks,
+	}
+}
+
+/**
+ * Whether `x` stops this agent (it is running) or only clears it (it has finished). A teammate between
+ * turns is still on the team: `x` stops it until it has been stopped.
+ */
+export function railActionFor(agent: SubagentActivity, member?: TeamMemberView): 'stop' | 'clear' {
+	if (member) return member.state === 'stopped' ? 'clear' : 'stop'
 	return isTerminalStatus(agent.status) ? 'clear' : 'stop'
 }
 
@@ -744,6 +804,8 @@ export function layoutWorkflowRow(
 export interface AgentTaskPanelProps {
 	/** Already filtered to what the rail shows — see {@link railAgents}. */
 	readonly agents: readonly SubagentActivity[]
+	/** The team, when teams are on: a teammate's row says its name, its state and its task. */
+	readonly team?: TeamRail
 	/** One row each below the agents — see {@link railWorkflows}. */
 	readonly workflows?: readonly RailWorkflow[]
 	readonly terminalRows: number
@@ -852,6 +914,7 @@ function railStatusBlock(agent: SubagentActivity, now: number, narrow: boolean):
  */
 export function AgentTaskPanel({
 	agents,
+	team,
 	workflows = [],
 	terminalColumns,
 	compact = false,
@@ -866,6 +929,13 @@ export function AgentTaskPanel({
 		setHoveredId((now) => (on ? id : now === id ? null : now))
 	const now = nowOverride ?? ticked
 	const focused = selectedIndex !== undefined
+	/** A teammate is named by its name, not by the type of agent it runs. */
+	const rowName = (agent: SubagentActivity): string =>
+		team?.members.get(agent.viewId)?.name ?? agent.agentId
+	const statusOf = (agent: SubagentActivity): string => {
+		const member = team?.members.get(agent.viewId)
+		return member ? teamStatusText(member, now) : railStatusBlock(agent, now, narrow)
+	}
 	const mainViewed = viewingId === undefined || viewingId === null
 	const mainRowBright = mainViewed || (focused && selectedIndex === 0) || hoveredId === 'main'
 	const narrow = terminalColumns < 64
@@ -889,7 +959,7 @@ export function AgentTaskPanel({
 		narrow ? 14 : AGENT_RAIL_NAME_WIDTH,
 		Math.max(
 			4,
-			...agents.map((agent) => stringWidth(oneLine(agent.agentId))),
+			...agents.map((agent) => stringWidth(oneLine(rowName(agent)))),
 			...workflows.map((workflow) => stringWidth(oneLine(workflow.name))),
 		),
 	)
@@ -899,9 +969,7 @@ export function AgentTaskPanel({
 		0,
 		...items.map((agent) => {
 			const queued = railQueuedText(agent)
-			return (
-				stringWidth(railStatusBlock(agent, now, narrow)) + (queued ? 3 + stringWidth(queued) : 0)
-			)
+			return stringWidth(statusOf(agent)) + (queued ? 3 + stringWidth(queued) : 0)
 		}),
 	)
 	// One step for every workflow row, so the bars and the columns after them line up.
@@ -956,8 +1024,16 @@ export function AgentTaskPanel({
 						const index = start + offset + lead
 						const selected = focused && selectedIndex === index
 						const viewed = viewingId === agent.viewId
-						const finished = isTerminalStatus(agent.status)
-						const status = railStatusBlock(agent, now, narrow)
+						const member = team?.members.get(agent.viewId)
+						const finished = member ? member.state !== 'working' : isTerminalStatus(agent.status)
+						const status = statusOf(agent)
+						const bulletColor = member
+							? member.state === 'waiting'
+								? theme.status.warn
+								: member.state === 'stopped'
+									? theme.status.error
+									: undefined
+							: railBulletColor(agent.status)
 						const bright = viewed || selected || hoveredId === agent.viewId
 						return (
 							<RailRowBox
@@ -974,8 +1050,8 @@ export function AgentTaskPanel({
 								<Box width={2} flexShrink={0}>
 									<Text
 										bold={bright}
-										color={railBulletColor(agent.status) ?? theme.text.primary}
-										dimColor={!bright && railBulletColor(agent.status) === undefined}
+										color={bulletColor ?? theme.text.primary}
+										dimColor={!bright && bulletColor === undefined}
 									>
 										{viewed ? '●' : '◯'}
 									</Text>
@@ -987,7 +1063,7 @@ export function AgentTaskPanel({
 										color={theme.text.primary}
 										wrap="truncate-end"
 									>
-										{terminalDisplayText(oneLine(agent.agentId))}
+										{terminalDisplayText(oneLine(rowName(agent)))}
 									</Text>
 								</Box>
 								<Box flexGrow={1} flexShrink={1} minWidth={0} paddingLeft={2}>
@@ -997,7 +1073,11 @@ export function AgentTaskPanel({
 										color={theme.text.primary}
 										wrap="truncate-end"
 									>
-										{terminalDisplayText(oneLine(railDescription(agent)))}
+										{terminalDisplayText(
+											oneLine(
+												member ? teamTaskText(member, team?.tasks ?? []) : railDescription(agent),
+											),
+										)}
 									</Text>
 								</Box>
 								<Box flexShrink={0} marginLeft={1} minWidth={statusWidth} justifyContent="flex-end">
@@ -1014,6 +1094,15 @@ export function AgentTaskPanel({
 			{!compact && below > 0 ? (
 				<Box>
 					<Text color={theme.text.muted}>↓ {below} more</Text>
+				</Box>
+			) : null}
+			{!compact && team && team.plan.folded > 0 ? (
+				// Not a stop of the rail: the idle teammates are listed by `/team`.
+				<Box>
+					<Box width={4} flexShrink={0}>
+						<Text> </Text>
+					</Box>
+					<Text color={theme.text.muted}>{foldedIdleText(team.plan.folded)}</Text>
 				</Box>
 			) : null}
 			{/* Once there are more agents than the window holds, the row stays (empty
@@ -2748,8 +2837,11 @@ function rowGlyph(row: SubagentActivity['transcript'][number]): string {
  * the row's own glyph (`rowGlyph`), so only the label goes here. Every other
  * row kind keeps its own text unchanged.
  */
-function transcriptRowText(row: SubagentActivity['transcript'][number]): string {
+export function transcriptRowText(row: SubagentActivity['transcript'][number]): string {
 	if (row.kind === 'tool' && row.detail) return `${row.text}\n${row.detail}`
+	// Mail between teammates reads as who wrote it and what, not as the frame the model was given.
+	if (row.kind === 'system' && row.direction === 'to-child' && row.mail?.body !== undefined)
+		return `${row.mail.kind === 'task' ? 'task from' : 'from'} ${row.mail.from}: ${row.mail.body}`
 	if (row.kind === 'system' && row.direction === 'to-child') return `queued from main: ${row.text}`
 	// A failure is its own section: a blank line, the heading, the whole message.
 	if (row.kind === 'system' && row.failure) return `\nError\n${row.text}`

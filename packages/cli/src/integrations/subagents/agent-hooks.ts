@@ -59,6 +59,10 @@ const EVENTS_OF_THE_MAIN_CONVERSATION: ReadonlySet<ShellHookEvent> = new Set<She
 	'directory_added',
 	'instructions_loaded',
 	'user_prompt_expansion',
+	// Fired for the lead's team, on the lead's session.
+	'teammate_idle',
+	'teammate_start',
+	'teammate_stop',
 ])
 
 const MAX_NOTICE_CHARS = 600

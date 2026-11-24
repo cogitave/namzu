@@ -16,6 +16,7 @@ export const TEAMS_ENV = 'NAMZU_TEAMS'
 
 export const DEFAULT_MAX_TEAMMATES = 5
 export const DEFAULT_IDLE_EXIT_MINUTES = 30
+export const DEFAULT_SHUTDOWN_GRACE_SECONDS = 20
 
 export type TeamsOffReason = 'disabled' | 'env-off' | 'headless'
 
@@ -65,11 +66,14 @@ export function teamsEnabled(input: TeamsGateInput): boolean {
 export interface TeamsLimits {
 	readonly maxTeammates: number
 	readonly idleExitMinutes: number
+	/** Seconds a teammate has to answer a shutdown request before it is stopped. */
+	readonly shutdownGraceSeconds: number
 }
 
 export function teamsLimits(config: TeamsConfig | undefined): TeamsLimits {
 	return {
 		maxTeammates: config?.maxTeammates ?? DEFAULT_MAX_TEAMMATES,
 		idleExitMinutes: config?.idleExitMinutes ?? DEFAULT_IDLE_EXIT_MINUTES,
+		shutdownGraceSeconds: config?.shutdownGraceSeconds ?? DEFAULT_SHUTDOWN_GRACE_SECONDS,
 	}
 }

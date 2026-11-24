@@ -1,7 +1,7 @@
 ---
 type: Reference
 title: Teams (SDK)
-description: The membership file, member names, mailboxes and orphan sweep that teammates stand on, with the locking rules, the files and the limits; the runner that starts teammates is not part of this page yet.
+description: The membership file, member names, mailboxes and orphan sweep that teammates stand on, the task list they share, the locking rules, the files and the limits; the runner that starts teammates in the CLI is described in the CLI page.
 resource: packages/sdk/src/teams/
 tags: [sdk, teams, teammates, mailbox, experimental]
 status: draft
@@ -42,6 +42,8 @@ Other processes read and change the same files: a second terminal, Desktop, and 
 
 Every change runs under lock files (the shared `file-lock` protocol: created exclusively, owner pid recorded, taken over when the owner has exited). The order is fixed, the list lock first and then task locks in sorted id order, so two changes cannot wait on each other. `DiskTaskStore`, the per-session store, is unchanged and still guards with in-process locks only.
 
+**Waiting never blocks the process.** Teammates share the lead's process, so a change that has to wait for a lock that another process holds waits on the event loop (up to 100 tries, 5 to 100 ms apart, then an error that says the list is in use), and changes made by one process to one list run one after another through a promise queue in front of the file lock. A terminal keeps drawing and the other teammates keep running while one waits. `lockWait` in `FileTaskStoreConfig` replaces the wait between tries (tests); `sleep` is only the short pause inside a file write on a platform that refuses a rename for a moment. `TeamStore`, by contrast, is synchronous: it waits by blocking the thread for as long as another *process* holds the team's lock, which is a few milliseconds in practice because a lock is held only across one read and one write. Inside one process its calls cannot overlap.
+
 - `claimTask(id, owner)` answers `{ ok: true, task }` or `{ ok: false, code }` with `not_found`, `already_claimed` (another owner), `already_resolved` (completed or failed) or `blocked` (with the blockers not completed). A claim sets the owner and `in_progress`; the same owner claiming again changes nothing. `claim` keeps the `TaskStore` shape (the task or `undefined`).
 - A task is blocked only while a blocker is not completed, so completing a blocker unblocks its dependents with no write. A failed blocker keeps its dependents waiting (nothing downstream should run on work that did not happen); deleting a task removes its edges, which unblocks them.
 - `block` keeps both directions (`blocks` and `blockedBy`), ignores a repeated edge, and refuses a cycle (a task that already waits on the other, directly or through other tasks, or on itself) with a `TaskListError` of code `cycle`.
@@ -49,7 +51,11 @@ Every change runs under lock files (the shared `file-lock` protocol: created exc
 - `reset()` empties the list only when every task is completed (`not_all_completed` otherwise); the mark stays.
 - Events (`task.created`, `task.claimed`, `task.updated`, `task.deleted`) reach listeners of the process that made the change.
 
-The task tools use it when they are built over it (`buildTaskTools(store, { member })`): `task_get` is added (a task in full, with what it waits on), `task_update` to `in_progress` claims under the member name and says why a claim failed, a refused dependency is a plain refusal, and `task_list` shows every task of the list, not only the current turn. Over any other store the tools are exactly as before. In the CLI, `SubagentRuntimeOptions.childTaskStore` hands a list to the children of a turn; no host sets it yet.
+The task tools use it when they are built over it (`buildTaskTools(store, { member })`; a query takes the member from `QueryParams.taskMember`, a task from `CreateTaskOptions.taskMember`): `task_get` is added (a task in full, with what it waits on), `task_update` to `in_progress` claims under the member name and says why a claim failed, a refused dependency is a plain refusal, and `task_list` shows every task of the list, not only the current turn. Over any other store the tools are exactly as before. `CreateTaskOptions.taskStore` and `taskMember` give one child its own list and member name in place of the scheduler's, which is how each teammate gets the team's list under its own name. In the CLI, `SubagentRuntimeOptions.childTaskStore` still hands a list to every child of a turn.
+
+## Members on hooks and on permission requests
+
+`CreateTaskOptions.taskTeam` (and `QueryParams.taskTeam`, `AgentInput.taskTeam`) names the team a member belongs to. With `taskMember` it makes the kernel's `task_created` and `task_completed` hooks carry `teammateName` and `teamName` (`teammate_name` and `team_name` in a shell hook) for that member's own task calls; without it, and on the lead's calls, they are absent. The events a team fires itself, `teammate_idle`, `teammate_start` and `teammate_stop`, are described with the other [hook events](hooks.md#teammates). The ACP permission request (`AcpPermissionRequest`, sent as `AcpRequestPermissionParams`) takes an optional `teammate: { name, team }`: a host that routes a teammate's ask to the person sets it, and a client names the member in the question; the answer is still the person's, to that request only.
 
 ## Removing teams
 
@@ -57,4 +63,4 @@ The task tools use it when they are built over it (`buildTaskTools(store, { memb
 
 ## What is not here yet
 
-The runner that starts a teammate inside the lead's process, `send_message` to a teammate, the use of the task list by teammates and the permission and plan routing are later pieces, each described on its own page when it lands. A separate-process or pane backend is deferred; `TeammateBackend` (`start`, `send`, `stop`, `isAlive`) is the seam it will use.
+The runner that starts a teammate inside the lead's process lives in the CLI ([Teammates](../cli/teams.md#how-a-teammate-runs)) and is the first `TeammateBackend`. The shutdown protocol with its grace period, the permission and plan routing, and a separate-process or pane backend are later pieces; `TeammateBackend` (`start`, `send`, `stop`, `isAlive`) is the seam they use.

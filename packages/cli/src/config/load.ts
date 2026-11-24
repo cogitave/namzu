@@ -1130,13 +1130,18 @@ const CONFIG_READERS: ConfigReaders = {
 	teams: (v, context) => {
 		if (!isConfigMapping(v)) return invalidConfigValue(context, [], 'must be a mapping')
 		const raw = v as Record<string, unknown>
-		const caps = { maxTeammates: 16, idleExitMinutes: 1440 } as const
+		const caps = { maxTeammates: 16, idleExitMinutes: 1440, shutdownGraceSeconds: 600 } as const
 		for (const key of Object.keys(raw)) {
-			if (key !== 'enabled' && key !== 'maxTeammates' && key !== 'idleExitMinutes')
+			if (
+				key !== 'enabled' &&
+				key !== 'maxTeammates' &&
+				key !== 'idleExitMinutes' &&
+				key !== 'shutdownGraceSeconds'
+			)
 				return invalidConfigValue(
 					context,
 					[key],
-					'is not a teams setting (enabled, maxTeammates, idleExitMinutes)',
+					'is not a teams setting (enabled, maxTeammates, idleExitMinutes, shutdownGraceSeconds)',
 				)
 		}
 		// The Settings screen saves its choice as text, so "true" and "false" read as the booleans.
@@ -1144,7 +1149,7 @@ const CONFIG_READERS: ConfigReaders = {
 		else if (raw.enabled === 'false') raw.enabled = false
 		if (raw.enabled !== undefined && typeof raw.enabled !== 'boolean')
 			return invalidConfigValue(context, ['enabled'], 'must be true or false')
-		for (const key of ['maxTeammates', 'idleExitMinutes'] as const) {
+		for (const key of ['maxTeammates', 'idleExitMinutes', 'shutdownGraceSeconds'] as const) {
 			const value = raw[key]
 			if (value === undefined) continue
 			if (
@@ -1160,6 +1165,9 @@ const CONFIG_READERS: ConfigReaders = {
 			...(raw.maxTeammates !== undefined ? { maxTeammates: raw.maxTeammates as number } : {}),
 			...(raw.idleExitMinutes !== undefined
 				? { idleExitMinutes: raw.idleExitMinutes as number }
+				: {}),
+			...(raw.shutdownGraceSeconds !== undefined
+				? { shutdownGraceSeconds: raw.shutdownGraceSeconds as number }
 				: {}),
 		}
 	},

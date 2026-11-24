@@ -60,6 +60,14 @@ export type SubagentActivityStatus =
  */
 export type SubagentMessageDirection = 'to-child' | 'operator-to-child'
 
+/** What a message to a teammate is, and who wrote it (`lead`, or a teammate's name). */
+export interface SubagentMailLabel {
+	readonly kind: 'message' | 'task' | 'stop'
+	readonly from: string
+	/** What was written, without the frame that says whose mail it is. */
+	readonly body?: string
+}
+
 export type SubagentTranscriptRow =
 	| {
 			readonly id: string
@@ -83,6 +91,11 @@ export type SubagentTranscriptRow =
 			 * render as before.
 			 */
 			readonly direction?: SubagentMessageDirection
+			/**
+			 * What a message to a teammate is, when it is one: the screen words the row from it
+			 * (`sent to one`, `task given to one`, `asked one to stop`) instead of calling every one a correction.
+			 */
+			readonly mail?: SubagentMailLabel
 			/** The agent's own error message, verbatim: drawn as an `Error` section in the error colour. */
 			readonly failure?: true
 	  }
@@ -655,6 +668,7 @@ export class SubagentActivityMonitor implements SubagentActivitySource {
 		text: string,
 		direction: SubagentMessageDirection,
 		kind: 'queued' | 'started' = 'queued',
+		mail?: SubagentMailLabel,
 	): void {
 		if (this.closed) return
 		const record = [...this.records.values()].find((entry) => entry.taskId === taskId)
@@ -664,6 +678,7 @@ export class SubagentActivityMonitor implements SubagentActivitySource {
 			kind: 'system',
 			text: bounded(text, MAX_ROW_CODE_UNITS),
 			direction,
+			...(mail ? { mail } : {}),
 		})
 		// A running agent takes a message in at its next tool round; until then
 		// it counts as queued. A finished one is resumed with it instead.

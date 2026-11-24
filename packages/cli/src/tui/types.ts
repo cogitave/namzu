@@ -27,6 +27,7 @@ import type {
 	SandboxConfig,
 	SkillsConfig,
 	StatusLineConfig,
+	TeamsConfig,
 	TuiConfig,
 	TurnLimitsConfig,
 	UpdatesConfig,
@@ -313,6 +314,8 @@ export interface TuiContext {
 	/** See `NamzuCliConfig.statusLine`. Only the interactive terminal runs it. */
 	readonly statusLine?: StatusLineConfig
 	readonly compaction?: CompactionCliConfig
+	/** The `teams` settings as the config files and the `--teams` flag say now, read at every named `Agent` call. */
+	readonly readTeams?: () => TeamsConfig | undefined
 	readonly memory?: MemoryCliConfig
 	/** Configured per-turn limits, also applied when rebuilding a session. */
 	readonly limits?: TurnLimitsConfig
