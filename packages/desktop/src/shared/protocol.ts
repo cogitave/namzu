@@ -616,7 +616,7 @@ export interface PermissionView {
 		 * why it should be asked about even where that application was allowed (it closes, deletes,
 		 * sends or submits).
 		 */
-		computer?: { app?: string; apps?: string[]; consequence?: string }
+		computer?: { app?: string; apps?: string[]; consequence?: string; browserAsk?: string[] }
 		/**
 		 * For a call that changes one of the person's settings: the setting's name and the old and
 		 * new value in the words Settings uses. The card shows these instead of the call's input.
@@ -628,7 +628,7 @@ export interface PermissionView {
 	 * this conversation, instead of asking about one action. "Allow" (`approve_all`) allows them for
 	 * the conversation, "Allow once" (`approve`) answers this action only, and No refuses.
 	 */
-	appRequest?: { apps: string[] }
+	appRequest?: { apps: string[]; browser?: true }
 	/**
 	 * Set by this application on a request that is a question the agent put to the person: the
 	 * card offers the choices and answers with `answerQuestion`, never with `respondPermission`.

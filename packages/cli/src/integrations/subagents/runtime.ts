@@ -114,7 +114,7 @@ import {
 	toolset,
 	wrapUntrusted,
 } from '@namzu/sdk'
-import type { WorktreeHookHost } from '@namzu/sdk'
+import type { TaskStore, WorktreeHookHost } from '@namzu/sdk'
 
 import type { TurnLimitsConfig } from '../../config/schema.js'
 import {
@@ -308,6 +308,12 @@ interface ChildLaunchHooks {
 }
 
 export interface SubagentRuntimeOptions {
+	/**
+	 * The task list each child of a turn works from, called when the turn's first child is launched.
+	 * Absent, or answering undefined, a child has no task tools and no view of the parent's list. Left
+	 * unset by every host until teammates use it: it is the way a team's shared list reaches a member.
+	 */
+	readonly childTaskStore?: () => TaskStore | undefined
 	/**
 	 * An operator is watching and the turn must not wait for its agents: `Agent`
 	 * runs in the background unless the call says `run_in_background: false`, a
@@ -686,8 +692,10 @@ class ParentTaskScheduler extends LocalTaskScheduler {
 		private readonly validateParent: () => Promise<void>,
 		/** What a message to a task already running here needs; defaults to the full check. */
 		private readonly validateContinuation: () => Promise<void> = validateParent,
+		/** The task list the children of this turn work from; absent, a child has no task tools. */
+		childTaskStore?: TaskStore,
 	) {
-		super(manager, context, onEvent)
+		super(manager, context, onEvent, childTaskStore ? { taskStore: childTaskStore } : undefined)
 	}
 
 	override async createTask(options: CreateTaskOptions): Promise<TaskHandle> {
@@ -1122,6 +1130,7 @@ export async function createSubagentRuntime(
 						: undefined,
 					gatewayCheck,
 					gatewayMessage,
+					opts.childTaskStore?.(),
 				)
 				const completionInbox = new CompletionInbox(undefined, {
 					holdsTurnOpen: opts.backgroundByDefault !== true,

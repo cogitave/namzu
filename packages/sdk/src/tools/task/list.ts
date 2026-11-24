@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { selectTaskContext } from '../../store/task/context.js'
+import { isClaimableTaskStore } from '../../store/task/file.js'
 import { type TaskStore, isTerminalTaskStatus } from '../../types/task/index.js'
 import type { ToolDefinition } from '../../types/tool/index.js'
 import { defineTool } from '../defineTool.js'
@@ -26,10 +27,14 @@ export function buildTaskListTool(
 			const all = await taskStore.list({ sessionId: scope.sessionId })
 			// Blockers resolve against every task of the session, shown or not: a
 			// blocker closed in an earlier turn is resolved, not unknown.
+			// A list several sessions share is shown whole, and a blocker only resolves by completing.
+			const shared = isClaimableTaskStore(taskStore)
 			const terminalIds = new Set(
-				all.filter((t) => isTerminalTaskStatus(t.status)).map((t) => t.id),
+				all
+					.filter((t) => (shared ? t.status === 'completed' : isTerminalTaskStatus(t.status)))
+					.map((t) => t.id),
 			)
-			const tasks = selectTaskContext(all, scope)
+			const tasks = shared ? all : selectTaskContext(all, scope)
 
 			const summary = tasks.map((task) => {
 				const unresolvedBlockers = task.blockedBy.filter((bid) => !terminalIds.has(bid))

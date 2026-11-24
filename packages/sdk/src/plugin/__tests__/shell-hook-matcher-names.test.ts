@@ -104,6 +104,7 @@ describe('shellHookMatches on a tool event', () => {
 			'TaskCreate',
 			'TaskUpdate',
 			'TaskList',
+			'TaskGet',
 		]
 		// One written name for each alias key, so a new alias fails here until it is spelled.
 		expect(written.map((each) => each.toLowerCase()).sort()).toEqual(

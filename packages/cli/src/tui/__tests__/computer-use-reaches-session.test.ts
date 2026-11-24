@@ -273,17 +273,20 @@ async function createSession(
 describe('computer use session reachability', () => {
 	it('routes an existing browser window to computer_use only when both tools are ready', async () => {
 		const both = await createSession(true, 'anthropic', true)
-		for await (const _ of both.send([
-			{ role: 'user', content: 'my open browser window' } as never,
-		])) {
+		for await (const _ of both.send(
+			[{ role: 'user', content: 'my open browser window' } as never],
+			{ onQuestion: async () => ({ kind: 'skipped' }) as never },
+		)) {
 			// drain into the mocked query boundary
 		}
 		expect(queryToolNames).toEqual(expect.arrayContaining(['browser', 'computer_use']))
 		expect(querySystemPrompt).toContain('desktop browser window that is already open')
 		expect(querySystemPrompt).toContain('separate Namzu-managed browser profile')
-		expect(querySystemPrompt).toContain('look at it only')
-		expect(querySystemPrompt).toContain('Act on pages through the browser tool')
-		expect(querySystemPrompt).toContain('offer to do it in the Namzu browser profile')
+		expect(querySystemPrompt).toContain('needs their yes')
+		expect(querySystemPrompt).toContain('allow it for this conversation')
+		expect(querySystemPrompt).toContain('continue in the Namzu browser profile')
+		expect(querySystemPrompt).toContain('they click while you guide them from screenshots')
+		expect(querySystemPrompt).not.toMatch(/reload/i)
 
 		querySystemPrompt = ''
 		desktop.failInitialize = true

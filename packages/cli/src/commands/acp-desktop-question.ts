@@ -6,7 +6,7 @@ import {
 } from '../skills/save-card.js'
 import type { SaveSkillAnswer, SaveSkillHost } from '../skills/save.js'
 import type { QuestionAnswer, QuestionFn, UserQuestion } from '../tui/agent.js'
-import { screenQuestionApp } from '../tui/computer-use-screen-approval.js'
+import { browserWindowQuestionApp, screenQuestionApp } from '../tui/computer-use-screen-approval.js'
 
 /**
  * How a question the agent puts to the person reaches the desktop and comes back. The shared
@@ -15,6 +15,10 @@ import { screenQuestionApp } from '../tui/computer-use-screen-approval.js'
  * notification, the desktop answers it with an extension call, and a question nobody can
  * answer any more (the turn stopped, the tool gave up waiting) is told closed.
  */
+/** A question Desktop draws as its own approval card rather than as a question. */
+const cardQuestion = (question: { readonly questionId: string; readonly question: string }) =>
+	screenQuestionApp(question) !== undefined || browserWindowQuestionApp(question) !== undefined
+
 export const QUESTION_NOTIFICATION = 'namzu/session/question'
 export const QUESTION_CLOSED_NOTIFICATION = 'namzu/session/question-closed'
 export const ANSWER_QUESTION_METHOD = 'namzu/session/answer-question'
@@ -158,7 +162,7 @@ export function createQuestionRelay(notify: Notify): QuestionRelay {
 					if (turnSignal.aborted) return resolve({ kind: 'abort' })
 					if (signal?.aborted) return resolve({ kind: 'skip' })
 					// A screen question has its own card; it never reaches here by this channel.
-					if (screenQuestionApp(question) !== undefined) return resolve({ kind: 'skip' })
+					if (cardQuestion(question)) return resolve({ kind: 'skip' })
 					const requestId = randomUUID()
 					let done = false
 					const finish = (answer: QuestionAnswer, tell: boolean) => {
@@ -249,5 +253,5 @@ export function routeQuestions(
 	if (!screen) return relay
 	if (!relay) return screen
 	return (question, signal) =>
-		screenQuestionApp(question) !== undefined ? screen(question, signal) : relay(question, signal)
+		cardQuestion(question) ? screen(question, signal) : relay(question, signal)
 }

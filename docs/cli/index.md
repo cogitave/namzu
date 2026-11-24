@@ -19,7 +19,7 @@
 * [The scheduler service](scheduler-service.md) - Installing the scheduler under systemd, launchd, Windows Task Scheduler and WSL; single owner, upgrades, status, uninstall.
 * [Web search](web-search.md) - Explicit provider-hosted search, source links, and shell-independent activity.
 * [Opening a page in your browser](open-url.md) - The open_url tool: which sessions have it, how it reaches the browser on each platform (the Windows browser under WSL), its review, and what its result claims.
-* [Computer use settings](computer-use-settings.md) - `computerUse.enabled` (off by default, user and managed files only) and `computerUse.deniedApps`, where each is checked, and what the Settings rows do.
+* [Computer use settings](computer-use-settings.md) - `computerUse.enabled` (off by default, user and managed files only), `computerUse.browserWindows` (look, ask or act in your own browser window) and `computerUse.deniedApps`, where each is checked, and what the Settings rows do.
 * [The browser](browser.md) - The browser the interactive terminal drives: which browser runs where, profiles and `namzu browser login`, the `browser.sites` rules, the review screen, the pause when a page needs you, and what the controls do not stop.
 * [Print mode and the prompt argument](print-mode.md) - namzu "<prompt>" and namzu -p "<prompt>": the first message of the session, the headless answer that runs namzu exec, which options -p takes, and the print-only options refused without it.
 * [Startup time](startup.md) - What loads before the first screen or request, the lazy command list, the compile cache, how `exec` treats piped input, and `scripts/bench-startup.mjs` with reference numbers.
@@ -44,6 +44,7 @@ The operator application.
 * [Session storage](session-storage.md) - Every file the CLI keeps under NAMZU_HOME, the one log per session, the rebuildable index, and which files are safe to delete.
 * [Watching a session from another terminal](watching-a-session.md) - `namzu watch` and `namzu send`: follow a running or finished session from a second terminal, say something to it as yourself, what each can and cannot do, states and exit statuses.
 * [Messages between live terminals](peer-messaging.md) - Discover independent terminals on this computer and send attributed context at safe request boundaries, from a terminal or with `namzu peers`.
+* [Teammates](teams.md) - How teammates are turned on (the teams.enabled setting, NAMZU_TEAMS and --teams), the limits that apply, and where they do not run.
 * [Your Namzu network](namzu-network.md) - See your other machines and their sessions, message them, give them roles, and let a new machine join with one Allow.
 * [Accounts in the terminal](accounts.md) - `/auth` and `--account`: choose the account a conversation uses, add a Codex sign-in or labelled API key, and what happens when an account runs out of allowance.
 * [namzu auth](auth.md) - `namzu auth login`, `logout` and `status`: sign in or out, and list stored or detected credentials as usable or expired, never printing a secret.

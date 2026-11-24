@@ -43,18 +43,37 @@ export interface ComputerAppsView {
 	used: string[]
 }
 
-/** The name an application is compared by: no case, no `.exe`, no stray space. */
+/** Browsers whose process name is not how a person says it: the name they know, by lower case process name. */
+const BROWSER_NAMES: Record<string, string> = {
+	'brave-browser': 'Brave',
+	'brave browser': 'Brave',
+	brave: 'Brave',
+	'google-chrome': 'Chrome',
+	'google chrome': 'Chrome',
+	chrome: 'Chrome',
+	msedge: 'Microsoft Edge',
+	'microsoft-edge': 'Microsoft Edge',
+	'microsoft edge': 'Microsoft Edge',
+	firefox: 'Firefox',
+}
+
+/** The name an application is compared by: no case, no `.exe`, and one name for a browser. */
 export function appKey(name: string): string {
-	return name
+	const bare = name
 		.trim()
 		.replace(/\.exe$/i, '')
 		.toLowerCase()
+	// A browser is one application whatever the host calls it: the process, or the name a person knows.
+	const known = BROWSER_NAMES[bare]
+	return known ? known.toLowerCase() : bare
 }
 
-/** An application as a person reads it: no `.exe`, and a lowercase process name starts with a capital. */
+/** An application as a person reads it: no `.exe`, a browser by its own name, and a lowercase process name starts with a capital. */
 export function appLabel(name: string): string {
 	if (name === WHOLE_SCREEN) return name
 	const bare = name.trim().replace(/\.exe$/i, '')
+	const known = BROWSER_NAMES[bare.toLowerCase()]
+	if (known) return known
 	return bare && bare === bare.toLowerCase()
 		? `${bare.charAt(0).toUpperCase()}${bare.slice(1)}`
 		: bare

@@ -526,9 +526,11 @@ describe('removing a machine', () => {
 		const { world, a, b, c } = await trio()
 		await admit(c, b, world.clock)
 		const bId = b.svc.identity()?.machineId as string
-		expect(a.svc.admittedBy(bId)).toEqual([c.svc.identity()?.machineId])
+		// Read before the removal: a removed machine may drop its identity as soon as it hears of it.
+		const cId = c.svc.identity()?.machineId as string
+		expect(a.svc.admittedBy(bId)).toEqual([cId])
 		const result = await a.svc.remove(bId, { cascade: true })
-		expect([...result.removed].sort()).toEqual([bId, c.svc.identity()?.machineId as string].sort())
+		expect([...result.removed].sort()).toEqual([bId, cId].sort())
 	})
 })
 

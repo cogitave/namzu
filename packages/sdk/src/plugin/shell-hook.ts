@@ -382,6 +382,7 @@ const WRITTEN_TOOL_NAMES: Readonly<Record<string, string>> = Object.freeze({
 	taskcreate: 'TaskCreate',
 	taskupdate: 'TaskUpdate',
 	tasklist: 'TaskList',
+	taskget: 'TaskGet',
 })
 
 /**

@@ -199,6 +199,20 @@ export interface NetworkConfig {
 	readonly sameComputer?: boolean
 }
 
+/** See `NamzuCliConfig.teams`. */
+export interface TeamsConfig {
+	/**
+	 * Whether the `Agent` tool, given a name, starts a teammate: a long-lived helper with its own
+	 * conversation that can message the others and share a task list. Default false. The `NAMZU_TEAMS`
+	 * variable and the `--teams` flag turn it on for one run; neither turns it on in a headless run.
+	 */
+	readonly enabled?: boolean
+	/** Most teammates alive at once in one conversation. Default 5; at most 16. */
+	readonly maxTeammates?: number
+	/** Minutes a teammate with nothing to do waits before it ends. Default 30; at most 1440. */
+	readonly idleExitMinutes?: number
+}
+
 /** Release channel the background updater follows. */
 export type UpdateChannel = 'latest' | 'stable'
 
@@ -455,6 +469,12 @@ export interface ComputerUseConfig {
 	 * list; none can take another file's entry out.
 	 */
 	readonly deniedApps?: readonly string[]
+	/**
+	 * What computer use does in a browser window. `look` only looks (a page is the browser tool's),
+	 * `ask` (the default) asks the person the first time in a conversation and acts after their yes,
+	 * `act` clicks and types there like in any other application. A project file can only tighten it.
+	 */
+	readonly browserWindows?: 'look' | 'ask' | 'act'
 }
 
 /** See `NamzuCliConfig.browser`. */
@@ -983,6 +1003,11 @@ export interface NamzuCliConfig {
 	 * only: a repository cannot open a listener on your machine.
 	 */
 	readonly network?: NetworkConfig
+	/**
+	 * Teammates: named helpers with their own conversation that work beside the main one. Off by default.
+	 * Your own config files only: a repository cannot start helpers that spend your limit.
+	 */
+	readonly teams?: TeamsConfig
 	/**
 	 * How the terminal keeps Namzu itself up to date. Absent means the
 	 * defaults: check in the background, install quietly where Namzu may,

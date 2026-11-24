@@ -1117,13 +1117,25 @@ export class Operator {
 		}
 	>()
 	/** The requests that ask whether to allow applications, by request id. */
-	private readonly appRequests = new Map<string, { sessionId: string; apps: string[] }>()
+	private readonly appRequests = new Map<
+		string,
+		{ sessionId: string; apps: string[]; browser?: true }
+	>()
+	/** The requests that put the engine's own browser question to the person, by request id. */
+	private readonly browserQuestions = new Map<string, { sessionId: string; app: string }>()
 	/**
 	 * The questions the agent put to the person, by the id of the waiting request that shows each:
 	 * which conversation asked, and the engine's own id for it. Entries of a turn that ended are
 	 * dropped when the next question opens, and a request that is no longer waiting is never answered.
 	 */
 	private readonly questionRequests = new Map<string, { sessionId: string; requestId: string }>()
+	/** Forgets the open application and browser cards of a conversation whose requests were all cleared. */
+	private dropOpenAskRecords(sessionId: string): void {
+		for (const [id, entry] of this.appRequests)
+			if (entry.sessionId === sessionId) this.appRequests.delete(id)
+		for (const [id, entry] of this.browserQuestions)
+			if (entry.sessionId === sessionId) this.browserQuestions.delete(id)
+	}
 	private grantsFor(sessionId: string): ComputerGrants {
 		let grants = this.computerGrants.get(sessionId)
 		if (!grants) {
@@ -1140,8 +1152,22 @@ export class Operator {
 		this.session(sessionId)
 		if (typeof app !== 'string' || !app.trim() || app.length > 120)
 			throw new Error('Invalid application.')
+		const heldBrowser = this.grantsFor(sessionId).browserAllowed(app)
 		this.grantsFor(sessionId).revoke(app)
 		this.announceComputerApps(sessionId)
+		// The engine holds its own copy of a browser's yes; take it back there too, or it would keep
+		// acting in the browser without asking while this side shows it as taken away.
+		if (heldBrowser) {
+			const session = this.session(sessionId)
+			if (session.client.supportsBrowserRevoke() && session.runtimeSessionId)
+				void session.client
+					.request(
+						'namzu/session/revoke-browser',
+						{ sessionId: session.runtimeSessionId, app },
+						8_000,
+					)
+					.catch(() => {})
+		}
 		return this.grantsFor(sessionId).view()
 	}
 	/** The applications this conversation has allowed and the ones it has used. */
@@ -2678,6 +2704,7 @@ export class Operator {
 				if (session.view.projectId !== view.id) continue
 				session.running = false
 				session.permissions.clear()
+				this.dropOpenAskRecords(session.view.id)
 				if (lost) session.connectionLost = true
 				this.state(session, failure)
 				this.emit({ kind: 'permission-cleared', sessionId: session.view.id })
@@ -6049,6 +6076,7 @@ export class Operator {
 			session.admitting = settlement
 			session.running = false
 			session.permissions.clear()
+			this.dropOpenAskRecords(session.view.id)
 			this.emit({ kind: 'permission-cleared', sessionId: session.view.id })
 			try {
 				await this.refreshRetry(session)
@@ -6578,6 +6606,7 @@ export class Operator {
 			session.admitting = settlement
 			session.running = false
 			session.permissions.clear()
+			this.dropOpenAskRecords(session.view.id)
 			this.emit({ kind: 'permission-cleared', sessionId: session.view.id })
 			if (session.client.supportsTurnRetry()) {
 				try {
@@ -7002,11 +7031,22 @@ export class Operator {
 		session.permissions.delete(requestId)
 		const appRequest = this.appRequests.get(requestId)
 		this.appRequests.delete(requestId)
+		const browserQuestion = this.browserQuestions.get(requestId)
+		this.browserQuestions.delete(requestId)
+		// The person's yes to the engine's browser question is also their yes to the application here,
+		// so Desktop's own card is not drawn for it as well.
+		if (browserQuestion && answer.outcome !== 'reject') {
+			this.grantsFor(sessionId).grant([browserQuestion.app], { browser: true })
+			this.announceComputerApps(sessionId)
+		}
 		if (appRequest) {
 			// The yes of a whole conversation is Namzu's to keep; the engine is told one plain yes,
 			// so its own "approve all" is never set by a question about an application.
 			if (answer.outcome === 'approve_all') {
-				this.grantsFor(sessionId).grant(appRequest.apps)
+				this.grantsFor(sessionId).grant(
+					appRequest.apps,
+					appRequest.browser ? { browser: true } : undefined,
+				)
 				this.announceComputerApps(sessionId)
 			}
 			session.client.answer(
@@ -7016,7 +7056,9 @@ export class Operator {
 							outcome: 'reject',
 							feedback:
 								answer.feedback ??
-								`The person did not allow Namzu to use ${appRequest.apps.join(' and ')} in this conversation.`,
+								(appRequest.browser
+									? `The person said not now to clicking and typing in ${appRequest.apps.join(' and ')} in this conversation.`
+									: `The person did not allow Namzu to use ${appRequest.apps.join(' and ')} in this conversation.`),
 							declined: answer.note ? { note: answer.note } : {},
 						}
 					: { outcome: 'approve' },
@@ -7195,6 +7237,21 @@ export class Operator {
 			const calls = readPermissionCalls(params.toolCalls)
 			// Actions in an application this conversation allowed run without a card; an
 			// application nobody allowed yet is asked about once, in place of its first action.
+			// The engine's browser question, for a browser the person already said yes to on the card
+			// that asked for it, is answered by that yes. Any other browser question is asked.
+			const browserApp =
+				calls.length === 1 && calls[0]?.name === 'browser_window' ? calls[0] : undefined
+			if (browserApp) {
+				const input = browserApp.input
+				const app =
+					typeof input === 'object' && input !== null && !Array.isArray(input)
+						? (input as Record<string, unknown>).app
+						: undefined
+				if (typeof app === 'string' && this.grantsFor(session.view.id).browserAllowed(app)) {
+					project.client.answer(frame.id, { outcome: 'approve' })
+					return
+				}
+			}
 			const decision = this.grantsFor(session.view.id).decide(calls)
 			if (decision.kind === 'allow') {
 				for (const call of calls) {
@@ -7213,13 +7270,32 @@ export class Operator {
 				sessionId: session.view.id,
 				projectId: project.view.id,
 				calls,
-				...(decision.kind === 'ask-app' ? { appRequest: { apps: decision.apps } } : {}),
+				...(decision.kind === 'ask-app'
+					? {
+							appRequest: {
+								apps: decision.apps,
+								...(decision.browser ? { browser: true as const } : {}),
+							},
+						}
+					: {}),
 			}
 			if (decision.kind === 'ask-app')
-				this.appRequests.set(id, { sessionId: session.view.id, apps: decision.apps })
+				this.appRequests.set(id, {
+					sessionId: session.view.id,
+					apps: decision.apps,
+					...(decision.browser ? { browser: true as const } : {}),
+				})
+			else if (browserApp) {
+				const input = browserApp.input as Record<string, unknown> | undefined
+				if (typeof input?.app === 'string')
+					this.browserQuestions.set(id, { sessionId: session.view.id, app: input.app })
+			}
 			this.emit({ kind: 'permission', request })
 			const driving = calls.some(
-				(call) => call.name === 'computer_use' || call.name === 'screen_moment',
+				(call) =>
+					call.name === 'computer_use' ||
+					call.name === 'screen_moment' ||
+					call.name === 'browser_window',
 			)
 			if (driving) this.computerTurns.add(session.view.id)
 			// Anything the pill cannot answer, asked while the agent is driving the computer, needs
@@ -7227,7 +7303,12 @@ export class Operator {
 			// turn that never touched the computer leaves the window where it is.
 			if (
 				this.computerTurns.has(session.view.id) &&
-				!calls.every((call) => call.name === 'computer_use' || call.name === 'screen_moment')
+				!calls.every(
+					(call) =>
+						call.name === 'computer_use' ||
+						call.name === 'screen_moment' ||
+						call.name === 'browser_window',
+				)
 			)
 				this.options.needsMainWindow?.('approval', session.view.id)
 		} else if (

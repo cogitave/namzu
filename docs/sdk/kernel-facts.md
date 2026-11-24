@@ -117,6 +117,7 @@ than read, because reading it would drop the fields this build does not know and
 | Learning experience store | `experience.sqlite` | command line | `PRAGMA user_version` (`LEARNING_EXPERIENCE_STORE_VERSION` = 1) | refuses |
 | Learning guidance | `state.json` beside the store | engine | `schemaVersion` (`learning-guidance` 1; an earlier `resident-agenda` 6 is read to migrate) | refuses a newer record |
 | Peer records | per-terminal record files | engine and command line | `v` (`PEER_RECORD_VERSION` = 1) | not checked beyond the shape check |
+| Team config | `teams/<team>/config.json` under the Namzu home | engine and command line | `version` (`TEAM_CONFIG_VERSION` = 1) | reads as no team |
 | Turn outcome snapshot | with the turn | engine | `v` (`SNAPSHOT_VERSION` = 1) | an unknown version reads as no snapshot |
 | Pal definitions | pal store, `revisions/<n>.json` | engine and command line | `v: 1` | refuses the revision |
 | Pal communication, activity, channels | `state.json`, `permission.json`, `subscription.json`, `route.json` | engine | `schemaVersion` (`pal-communication` 2, `pal-message-operation` 2, `pal-message-permission` 1, `pal-activity-subscription` 1, `pal-activity-subscription-permission` 1, `pal-channel-route` 1) and `v: 1` records | refuses a newer record |

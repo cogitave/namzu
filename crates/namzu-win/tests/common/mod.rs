@@ -7,7 +7,13 @@ use namzu_win_core::protocol::{self, Op, ReplyBody, Request, WireError};
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Child, ChildStdin, Command, Stdio};
-use std::sync::mpsc::{Receiver, channel};
+use std::sync::mpsc::{Receiver, RecvTimeoutError, channel};
+use std::time::Duration;
+
+/// How long the helper may take to answer one request before the test calls it
+/// a hang. Far above any healthy answer; it only turns a hang into a fast,
+/// explained failure and changes no outcome on a healthy runner.
+const REPLY_BOUND: Duration = Duration::from_secs(90);
 
 /// The helper as a child process.
 pub struct Helper {
@@ -56,12 +62,25 @@ impl Helper {
         id
     }
 
+    fn send_quiet(&mut self, request: &Request) -> Option<u64> {
+        let id = self.next_id;
+        self.next_id += 1;
+        let line = protocol::encode_request(id, request);
+        (writeln!(self.stdin, "{line}").is_ok() && self.stdin.flush().is_ok()).then_some(id)
+    }
+
     pub fn await_reply(&mut self, id: u64, op: Op) -> Result<ReplyBody, WireError> {
         loop {
             let line = match self.parked.remove(&id) {
                 Some(line) => line,
                 None => {
-                    let line = self.lines.recv().expect("the helper ended");
+                    let line = match self.lines.recv_timeout(REPLY_BOUND) {
+                        Ok(line) => line,
+                        Err(RecvTimeoutError::Timeout) => {
+                            panic!("HANG: no reply to request {id} ({op:?}) after {REPLY_BOUND:?}")
+                        }
+                        Err(RecvTimeoutError::Disconnected) => panic!("the helper ended"),
+                    };
                     let value: serde_json::Value = serde_json::from_str(&line).unwrap();
                     let got = value["id"].as_u64().unwrap();
                     if got != id {
@@ -86,7 +105,20 @@ impl Helper {
 
 impl Drop for Helper {
     fn drop(&mut self) {
-        let _ = self.call(Request::Quit);
+        // Never panics (this runs while a failed test unwinds) and never waits
+        // on a helper that has stopped answering: it is ended instead.
+        let id = self.send_quiet(&Request::Quit);
+        if id.is_some() {
+            let deadline = std::time::Instant::now() + REPLY_BOUND;
+            while std::time::Instant::now() < deadline {
+                if matches!(self.child.try_wait(), Ok(Some(_))) {
+                    return;
+                }
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            eprintln!("the helper did not end after quit; killing it");
+        }
+        let _ = self.child.kill();
         let _ = self.child.wait();
     }
 }

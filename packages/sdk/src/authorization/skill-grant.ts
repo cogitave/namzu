@@ -115,6 +115,7 @@ export const SKILL_TOOL_NAME_ALIASES: Readonly<Record<string, string>> = Object.
 	taskcreate: 'task_create',
 	taskupdate: 'task_update',
 	tasklist: 'task_list',
+	taskget: 'task_get',
 })
 
 /**

@@ -45,6 +45,8 @@ const CONSTANTS: Record<string, { version: number; onDisk: boolean }> = {
 	'store/schema.ts#INITIAL_SCHEMA_VERSION': { version: 1, onDisk: false },
 	'store/session-index/sqlite.ts#SESSION_INDEX_VERSION': { version: 1, onDisk: true },
 	'store/session-log/conformance.ts#SESSION_LOG_CONTRACT_VERSION': { version: 2, onDisk: false },
+	// New with teams: no older engine writes or reads a team directory, so nothing older misreads it.
+	'teams/types.ts#TEAM_CONFIG_VERSION': { version: 1, onDisk: true },
 	'types/session/checkpoint.ts#CHECKPOINT_DOCUMENT_VERSION': { version: 1, onDisk: true },
 	'types/session/records.ts#SESSION_RECORD_SCHEMA_VERSION': { version: 1, onDisk: true },
 	'types/session/turn-state.ts#TURN_STATE_VERSION': { version: 1, onDisk: true },

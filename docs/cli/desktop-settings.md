@@ -134,7 +134,7 @@ engine older than the field sends neither, and Desktop draws its rows with no he
   and **Terminal app: message box** (`tui.*`, `statusLine`, `composerTriggers.*`) and **Command line** (`format`,
   `quiet`, `profiles`). The app's own **Terminal tabs** rows come first.
 - Updates: the app's own rows, then **Command line** (`updates.channel`, `updates.auto`, `updates.check`).
-- Tools: `computerUse.enabled` and `computerUse.deniedApps` under a *Computer use* heading ([Computer use settings](computer-use-settings.md); off by default, the list's note shows while the switch is off), `browser.enabled`, `codeAnalysis.enabled` and `imageGeneration.enabled` ([Image generation](image-generation.md)), which a Desktop conversation honours as well as
+- Tools: `computerUse.enabled`, `computerUse.browserWindows` and `computerUse.deniedApps` under a *Computer use* heading ([Computer use settings](computer-use-settings.md); off by default, the list's note shows while the switch is off), `browser.enabled`, `codeAnalysis.enabled` and `imageGeneration.enabled` ([Image generation](image-generation.md)), which a Desktop conversation honours as well as
   the terminal app.
   After the engine's **Browser** rows Tools draws a **Built-in browser** heading with the app's own rows for
   the pane beside a conversation (*Auto-open files Namzu writes*, *Keep cookies*, *Where Namzu browses*, *Open links in built-in
