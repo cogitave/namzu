@@ -8,10 +8,21 @@ import type {
 	ComputerUseResult,
 	DisplayGeometry,
 	DisplayInfo,
+	FocusWindowResult,
 	Point,
 	ScreenshotResult,
+	UiActResult,
+	UiElementAction,
+	UiSnapshot,
+	UiSnapshotOptions,
+	WindowInfo,
+	WindowInputAction,
+	WindowInputResult,
+	WindowScreenshotResult,
 } from '@namzu/sdk'
+import type { MacA11yHandle } from '../a11y/macos.js'
 import { hasExecutable, runCommand, runCommandOrThrow } from '../util/spawn.js'
+import { MacAxSurface, type PickFileResult } from './darwin-ax.js'
 import { ActionCapabilityError, type Adapter, AdapterUnavailableError } from './types.js'
 
 // ---------------------------------------------------------------------------
@@ -66,6 +77,57 @@ const MODIFIER_ALIASES: Readonly<Record<string, 'command' | 'control' | 'option'
 	shift: 'shift',
 }
 
+/** Virtual key codes of the printable keys on a US layout, for shortcuts (`cmd+a`). */
+const ANSI_KEY_CODES: Readonly<Record<string, number>> = {
+	a: 0,
+	s: 1,
+	d: 2,
+	f: 3,
+	h: 4,
+	g: 5,
+	z: 6,
+	x: 7,
+	c: 8,
+	v: 9,
+	b: 11,
+	q: 12,
+	w: 13,
+	e: 14,
+	r: 15,
+	y: 16,
+	t: 17,
+	'1': 18,
+	'2': 19,
+	'3': 20,
+	'4': 21,
+	'6': 22,
+	'5': 23,
+	'=': 24,
+	'9': 25,
+	'7': 26,
+	'-': 27,
+	'8': 28,
+	'0': 29,
+	']': 30,
+	o: 31,
+	u: 32,
+	'[': 33,
+	i: 34,
+	p: 35,
+	l: 37,
+	j: 38,
+	"'": 39,
+	k: 40,
+	';': 41,
+	'\\': 42,
+	',': 43,
+	'/': 44,
+	n: 45,
+	m: 46,
+	'.': 47,
+	'`': 50,
+}
+
 interface ParsedKeyCombo {
 	readonly modifiers: readonly ('command' | 'control' | 'option' | 'shift')[]
 	readonly mainKey: string
@@ -87,6 +149,14 @@ export function parseKeyCombo(input: string): ParsedKeyCombo {
 		return normalized
 	})
 	return { modifiers: mods, mainKey }
+}
+
+/** A key combination as a virtual key code and modifier names, for events posted to a window. */
+export function keyEventOf(input: string): { code: number; flags: readonly string[] } {
+	const { modifiers, mainKey } = parseKeyCombo(input)
+	const code = KEY_CODES[mainKey.toLowerCase()] ?? ANSI_KEY_CODES[mainKey.toLowerCase()]
+	if (code === undefined) throw new Error(`DarwinAdapter: unknown key "${mainKey}"`)
+	return { code, flags: modifiers }
 }
 
 function modifiersClause(mods: readonly ('command' | 'control' | 'option' | 'shift')[]): string {
@@ -125,6 +195,13 @@ async function probe(): Promise<ProbeResult> {
 // Adapter
 // ---------------------------------------------------------------------------
 
+export interface DarwinAdapterOptions {
+	/** The accessibility helper; absent, windows, the tree and scroll are not offered. */
+	readonly ax?: MacA11yHandle
+	/** For tests: pixels per point instead of the display's. */
+	readonly scale?: () => Promise<number>
+}
+
 /**
  * Units: the host contract is physical pixels. `screencapture` writes the
  * backing store (2880x1800 on a 1440x900-point Retina panel), while
@@ -145,9 +222,25 @@ export class DarwinAdapter implements Adapter {
 	/** Captured pixels per point on the main display, from the latest capture. */
 	private pixelsPerPoint: number | undefined
 
-	private constructor(probeResult: ProbeResult) {
+	private readonly ax: MacAxSurface | undefined
+	readonly backend: string
+	readonly fallbackReason: string | undefined
+
+	private constructor(probeResult: ProbeResult, ax?: MacAxSurface, note?: string) {
 		this.hasCliclick = probeResult.hasCliclick
+		this.ax = ax
+		this.backend = ax ? 'osascript + namzu-helper' : 'osascript'
+		this.fallbackReason = note
 		this.capabilities = Object.freeze({
+			...(ax
+				? {
+						windows: true,
+						windowCapture: true,
+						windowScroll: true,
+						uiTree: true,
+						maxClickCount: 3 as const,
+					}
+				: {}),
 			displayServer: 'darwin',
 			screenshot: probeResult.hasScreencapture,
 			mouse: probeResult.hasOsascript,
@@ -162,6 +255,7 @@ export class DarwinAdapter implements Adapter {
 				...(probeResult.hasCliclick
 					? ['cursor_position' as const, 'mouse_move' as const, 'mouse_drag' as const]
 					: []),
+				...(ax ? ['scroll' as const] : []),
 			]),
 			mouseClickButtons: Object.freeze(
 				probeResult.hasCliclick ? ['left' as const, 'right' as const] : ['left' as const],
@@ -170,7 +264,11 @@ export class DarwinAdapter implements Adapter {
 		})
 	}
 
-	static async create(): Promise<DarwinAdapter> {
+	/**
+	 * `options.ax` is the accessibility helper's host (see `createMacA11yHost`); it is built and started
+	 * here, and when it cannot be the adapter works as before, with `fallbackReason` saying why.
+	 */
+	static async create(options: DarwinAdapterOptions = {}): Promise<DarwinAdapter> {
 		const probeResult = await probe()
 		const missing: string[] = []
 		if (!probeResult.hasScreencapture) missing.push('screencapture')
@@ -181,7 +279,85 @@ export class DarwinAdapter implements Adapter {
 				missing,
 			)
 		}
-		return new DarwinAdapter(probeResult)
+		let surface: MacAxSurface | undefined
+		let note: string | undefined
+		if (options.ax) {
+			const prepared = await options.ax.prepare()
+			if (prepared.ok) {
+				const adapterScale = options.scale
+				surface = new MacAxSurface({
+					host: options.ax.host,
+					scale: adapterScale ?? (async () => (await readMainDisplay()).scaleFactor),
+					keyEvent: keyEventOf,
+				})
+				const perms = await options.ax.host.permissions().catch(() => undefined)
+				if (perms && perms.steps.length > 0)
+					note = `${perms.app} still needs permission: ${perms.steps.join(' ')}`
+			} else {
+				note = `the macOS accessibility helper is not in use: ${prepared.reason}`
+			}
+		}
+		const adapter = new DarwinAdapter(probeResult, surface, note)
+		if (surface && !options.scale) surface.bindScale(() => adapter.scale())
+		return adapter
+	}
+
+	async dispose(): Promise<void> {
+		await this.ax?.close()
+	}
+
+	async release(): Promise<void> {
+		this.ax?.release()
+	}
+
+	async listWindows(): Promise<readonly WindowInfo[]> {
+		return this.requireAx().listWindows()
+	}
+
+	async focusWindow(id: string): Promise<FocusWindowResult> {
+		return this.requireAx().focusWindow(id)
+	}
+
+	async captureWindow(id: string): Promise<WindowScreenshotResult> {
+		return this.requireAx().captureWindow(id)
+	}
+
+	async executeWindow(
+		captureId: string,
+		action: WindowInputAction,
+	): Promise<WindowInputResult | undefined> {
+		return this.requireAx().executeWindow(captureId, action)
+	}
+
+	async settleAfterInput(
+		request: { readonly windowId?: string; readonly budgetMs: number },
+		signal?: AbortSignal,
+	): Promise<{ readonly waitedMs: number; readonly changed: boolean } | undefined> {
+		return this.ax?.settleAfterInput(request, signal)
+	}
+
+	async uiSnapshot(windowId?: string | number, options?: UiSnapshotOptions): Promise<UiSnapshot> {
+		return this.requireAx().uiSnapshot(windowId, options)
+	}
+
+	async uiAct(ref: string, action: UiElementAction, value?: string): Promise<UiActResult> {
+		return this.requireAx().uiAct(ref, action, value)
+	}
+
+	/** Picks a file in the open or save panel in front, through its accessibility tree. macOS only. */
+	async uiPickFile(
+		path: string,
+		options?: { readonly windowId?: string | number; readonly confirm?: boolean },
+	): Promise<PickFileResult> {
+		return this.requireAx().pickFile(path, options)
+	}
+
+	private requireAx(): MacAxSurface {
+		if (!this.ax)
+			throw new AdapterUnavailableError(
+				this.fallbackReason ?? 'the macOS accessibility helper is not running',
+			)
+		return this.ax
 	}
 
 	/** The main display in physical pixels (the capture's), with pixels per point. */
@@ -243,10 +419,14 @@ export class DarwinAdapter implements Adapter {
 				await this.mouseDrag(action.from, action.to)
 				return { type: 'ok' }
 			case 'scroll':
+				if (this.ax) {
+					await this.ax.scrollAt(action.at, action.direction, action.amount)
+					return { type: 'ok' }
+				}
 				throw new ActionCapabilityError(
 					action.type,
 					'mouse',
-					'scroll is not supported on macOS without a native CoreGraphics binding; use keyboard page navigation instead',
+					'scroll is not supported on macOS without the Namzu helper (it builds with the Xcode Command Line Tools); use keyboard page navigation instead',
 				)
 			case 'type_text':
 				await this.typeText(action.text)

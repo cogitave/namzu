@@ -30,8 +30,15 @@ export interface A11yProcess {
 }
 
 export interface WindowsA11yOptions {
-	/** Windows PowerShell, as this process starts it. */
-	readonly powershell: string
+	/** Windows PowerShell, as this process starts it. Not needed when `spawnHelper` is given. */
+	readonly powershell?: string
+	/** Names the backend for diagnosis. Default `windows-uia`. */
+	readonly id?: string
+	/**
+	 * Whether the Windows helper script is written first. Default true; a helper that is its own program
+	 * (the macOS one) greets by itself and takes no script.
+	 */
+	readonly greeting?: boolean
 	readonly env?: NodeJS.ProcessEnv
 	/** For tests. */
 	readonly spawnHelper?: () => A11yProcess
@@ -41,7 +48,7 @@ export interface WindowsA11yOptions {
 
 function spawnPowerShell(options: WindowsA11yOptions): A11yProcess {
 	const child = spawn(
-		options.powershell,
+		options.powershell ?? 'powershell.exe',
 		[
 			'-NoProfile',
 			'-NonInteractive',
@@ -99,8 +106,13 @@ interface Pending {
 /** The helper's window id (an HWND) → the host's string, the same `0x…` form the adapter uses. */
 const windowIdOf = (hwnd: number): string => `0x${hwnd.toString(16)}`
 
-function hwndOf(windowId: string): number {
-	const text = windowId.trim().toLowerCase()
+function hwndOf(windowId: string | number): number {
+	if (typeof windowId === 'number') {
+		if (!Number.isSafeInteger(windowId) || windowId <= 0)
+			throw new A11yError('bad_window_id', 'not a window id this backend handed out')
+		return windowId
+	}
+	const text = String(windowId).trim().toLowerCase()
 	const value = /^0x[0-9a-f]+$/.test(text)
 		? Number.parseInt(text.slice(2), 16)
 		: /^\d+$/.test(text)
@@ -131,7 +143,7 @@ const records = (value: unknown): Record<string, unknown>[] =>
  * a second end, or a helper that never came up, leaves it off.
  */
 export class WindowsA11yHost implements AccessibilityBackend {
-	readonly id = 'windows-uia'
+	readonly id: string
 
 	private proc: A11yProcess | undefined
 	private starting: Promise<boolean> | undefined
@@ -143,7 +155,9 @@ export class WindowsA11yHost implements AccessibilityBackend {
 	private nextId = 1
 	private readonly pending = new Map<number, Pending>()
 
-	constructor(private readonly options: WindowsA11yOptions) {}
+	constructor(protected readonly options: WindowsA11yOptions) {
+		this.id = options.id ?? 'windows-uia'
+	}
 
 	get isReady(): boolean {
 		return this.up && !this.dead && !this.closed
@@ -234,7 +248,7 @@ export class WindowsA11yHost implements AccessibilityBackend {
 		}
 	}
 
-	async seq(windowId?: string, signal?: AbortSignal): Promise<A11ySeq> {
+	async seq(windowId?: string | number, signal?: AbortSignal): Promise<A11ySeq> {
 		const reply = await this.request(
 			'seq',
 			windowId === undefined ? {} : { hwnd: hwndOf(windowId) },
@@ -351,7 +365,7 @@ export class WindowsA11yHost implements AccessibilityBackend {
 		}
 	}
 
-	private async request(
+	protected async request(
 		cmd: string,
 		payload: Record<string, unknown>,
 		limitMs: number,
@@ -470,7 +484,7 @@ export class WindowsA11yHost implements AccessibilityBackend {
 					resolve(true)
 				}
 			})
-			proc.write(a11yScriptLine())
+			if (this.options.greeting !== false) proc.write(a11yScriptLine())
 		})
 		return this.starting
 	}
@@ -481,7 +495,7 @@ function rect(value: unknown): A11yRect {
 	return { x: num(r[0]), y: num(r[1]), width: num(r[2]), height: num(r[3]) }
 }
 
-function toNode(n: Record<string, unknown>): A11yNode {
+export function toNode(n: Record<string, unknown>): A11yNode {
 	const toggle = n.toggle
 	const expand = n.expand
 	return {

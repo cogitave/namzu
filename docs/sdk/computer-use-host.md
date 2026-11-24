@@ -296,7 +296,8 @@ direction, ended by its input closing). Everything it answers is behind the
 platform-neutral `AccessibilityBackend` interface (`a11y/interface.ts`, its
 types free of Windows terms: a window is a `windowId` string, rectangles are
 virtual-desktop physical pixels), so a macOS or a Linux backend only adds a
-file that implements it. The Windows implementation is `WindowsA11yHost`.
+file that implements it. The Windows implementation is `WindowsA11yHost`; the
+macOS one is described in [The macOS helper](#the-macos-helper-windows-the-controls-tree-and-scroll).
 
 | Question | What answers it |
 | --- | --- |
@@ -417,6 +418,188 @@ the wait 350 to 370 ms sooner for a window that changes and takes the same
 time as before for one that does not. A change that already happened when the
 wait starts (the marker was taken before it) is counted: such a wait returns
 after 1 to 2 ms.
+
+## The macOS helper: windows, the controls tree and scroll
+
+On macOS the adapter alone offered a screenshot, a left click, typing and
+keys. With the helper it also offers `list_windows`, `focus_window`, window
+screenshots with window-scoped input, `ui_snapshot` and `ui_act` (press, set a
+value, toggle, select, expand and collapse), `wait_for`, `batch` and scroll,
+through the same SDK tool and the same diff-first behaviour as Windows: the
+SDK part does not know the platform.
+
+### What it is
+
+"Namzu Helper" is a small Swift app (`packages/computer-use/helper-macos/main.swift`,
+no Dock icon) that LaunchServices starts in the person's own desktop session
+with `open -g -a`. The CLI talks to it over a unix socket under the Namzu home
+(`<NAMZU_HOME>/computer-use/macos/h-<hash>.sock`, folder mode 0700, socket
+mode 0600, and the helper checks the peer's user id), one JSON object per line,
+the same protocol and the same client class the Windows helper uses
+(`MacA11yHost extends WindowsA11yHost`), so retries, limits, cancellation and
+restart behave the same. The helper reads the tree with batched attribute reads
+(`AXUIElementCopyMultipleAttributeValues`), acts with AX actions (`AXPress`,
+`AXValue`, `AXExpanded`, `AXSelected`, `AXScrollToVisible`, `AXShowMenu`,
+`AXRaise`), watches a window's process with an `AXObserver` (events, not
+sleeping, so `wait_for` and the settle after an input end when the window is
+quiet), captures one window by id with ScreenCaptureKit (`screencapture -l` is
+the fallback) and posts input to the window's process. It sets
+`AXManualAccessibility` (and `AXEnhancedUserInterface`) on Chromium and
+Electron applications before reading them, and never on any other.
+
+It is an app, and not a command, because macOS gives Accessibility and Screen
+Recording to a signed program: a command started from a terminal or from sshd
+borrows the terminal's or sshd's permission, which is usually none. Started by
+LaunchServices the helper is its own program, so the person turns two switches
+on once, for "Namzu Helper", and every later session works.
+
+### How it is built and shipped
+
+The source travels in the package and is compiled on the person's Mac the
+first time it is needed: `swiftc` (Xcode Command Line Tools), an `Info.plist`
+with `LSUIElement`, and a `codesign` with a local identity (below), into one
+stable path, `<NAMZU_HOME>/computer-use/macos/Namzu Helper.app`. A newer source
+replaces the app in place and moves the old one to
+`<NAMZU_HOME>/computer-use/macos/replaced/<old digest>-<time>/` (a helper still
+running from it keeps its files). What was built and how it was signed is in
+`helper-build.json` beside it. On an M-series Mac mini the build takes 3 to 4
+seconds. The choice against a prebuilt binary per architecture: a binary that
+keeps its permission across versions has to be signed with a paid developer
+identity, and one downloaded from the internet has to be notarised to open
+without a warning; compiling the source the person can read needs neither,
+never needs `sudo`, and costs only the Command Line Tools a developer's Mac
+already has. Without them the adapter works as before and says
+`xcode-select --install` once (checked with `xcode-select -p`, since without the
+tools `swiftc` is only a shim). The socket is keyed by the source digest
+(`h-<digest>.sock`), so an old helper still running ends by itself after 15
+quiet minutes and never answers a newer client.
+
+**Why a local signing identity, and not an ad-hoc signature.** macOS keeps the
+Accessibility switch against the signed app's *designated requirement*. An
+ad-hoc signature has none that outlives a build (it is the code's own hash), so
+every rebuild is a new program and the switches are turned on again; and on
+macOS 27, where Accessibility is named "Device Control and Data Access", an
+ad-hoc app is not trusted at all even with its switch on (measured on macOS
+27.2: the switch was on and `AXIsProcessTrusted` stayed false). So the first
+build makes one self-signed code-signing identity for this Namzu home: an
+`openssl` certificate with the code-signing extended key usage, imported with
+`security import -T /usr/bin/codesign` into a keychain of its own,
+`<NAMZU_HOME>/computer-use/macos/signing/namzu-signing.keychain-db`, opened with
+a random password kept 0600 next to it (`kc.pw`; `cert.pem` is the public
+certificate; the loose private key is deleted after the import).
+`set-key-partition-list` lets `codesign` use the key without a prompt. The
+login keychain is never read or written, and the person's keychain search list
+is put back as it was if `create-keychain` changed it. The requirement is then
+`identifier "com.namzu.helper" and certificate leaf = H"<sha1>"`, the same for
+every build signed with this identity, so the grant outlives rebuilds and
+version upgrades, and the app stays at one path. The identity is made once and
+reused. If it cannot be made (no `openssl`, a locked-down keychain), the build
+says so in a plain sentence and signs ad hoc, as a macOS before 27 accepts; the
+helper then retries the identity once a day and replaces the app only when it
+signs with the identity (a retry that cannot compile keeps the working app).
+
+Housekeeping: the keychain is set to lock after 300 seconds and is locked again
+after every signature. A keychain that is missing, corrupt, or does not list the
+certificate (checked with `security find-identity`) is moved to
+`signing.broken-<time>` and a new identity is made; since that is a different
+certificate, macOS needs the permissions again, and the helper says to remove the
+old row first. On a Mac the system `/usr/bin/openssl` is used; any other OpenSSL
+3 is asked for the old PKCS#12 algorithms that `security import` reads. A build
+and the swap of the app run under `build.lock` in the macOS folder, the new app
+replaces the old by two renames (the old one put back if the second fails), and
+only the last three apps in `replaced/` are kept. The keychain password is on
+the argv of `security` for a moment while the keychain is made, opened and
+imported into; that is the password of a local key that signs only this helper,
+and it is already kept 0600 next to the keychain.
+
+### What the person must click
+
+Both switches are under System Settings > Privacy & Security, for "Namzu Helper":
+
+- **Accessibility** (on macOS 27, **Device Control and Data Access**; the helper
+  picks the name from the OS version) lets it read and act on other
+  applications' controls and post input to them. Without it `ui_snapshot` and
+  `ui_act` fail with the sentence "Accessibility is off for Namzu Helper. Open
+  System Settings > …".
+- **Screen & System Audio Recording** lets it capture a window and read other
+  applications' window titles. Without it window screenshots fail the same
+  way and `list_windows` lists windows with empty titles.
+
+Each step also tells the person to remove an older "Namzu Helper" row first
+if the list has one (a row left by an earlier build of another identity stays
+in the list and shadows the new app).
+
+The adapter reports what is still off in `fallbackReason`
+(`Namzu Helper still needs permission: …`), and the helper answers
+`permissions` with the plain steps. The `selfcheck` command lists each of
+these as a check with a detail, and `selftest` has the helper read, press,
+toggle and set a value on a window of its own (it needs no grant). The helper's own windows are read on its main thread, because AppKit answers accessibility calls about a process's own windows on the calling thread; every request also has a time limit after which the client gets an `op_timeout` answer, so one stuck request never silences the rest.
+
+### Open and save panels
+
+A file panel is not reached by posted key events (its shortcuts, such as
+Cmd+Shift+G, go to the application, and the panel is another process). The
+adapter's `uiPickFile(path)` (`DarwinAdapter.uiPickFile`) drives it through its
+accessibility tree instead, trying in order: a "Go to the folder" sheet that is
+open (path field and Go button); a path or name field of the panel itself (a
+save panel's "Save As:"; the search field and the file names inside the browser
+are never used); a "Go to Folder" control; and otherwise it walks the browser,
+selecting the sidebar's home (or the startup disk) and then each folder and the
+file by its name, because an open panel has no field that takes a path. It then
+presses the default button (Open, Choose, Select or Save) unless `confirm:
+false`; when selecting the file already opened it, which closes the panel under
+the call, that is reported as done. It returns `{ ok, detail, via }` with `via`
+one of `go_sheet`, `path_field`, `browse`. Measured on macOS 27.2 with TextEdit's
+Open panel: `browse`, a file three folders deep, about 6 seconds. While browsing, an
+entry already selected is never taken again for the next step (a folder with a
+same-named folder inside it), and the folder must show up in a new column first.
+A panel does not list hidden folders (dot folders), so a path through one is
+reported as not in the folder the panel shows; give the panel a Go to Folder sheet
+or a path field for that.
+
+### Differences from Windows
+
+- Window ids are `CGWindowID`s in decimal (`501`; the hex form is accepted, and so is a number, everywhere a window id is taken).
+  Rectangles are physical pixels of the main display (points times its
+  backing scale), the capture's unit; a display with another scale is
+  reported with its own `scale` in `displays`.
+- Only windows on screen are listed; a minimised window or one on another
+  Space is not (the OS does not list it), so `minimized` is always false.
+- Controls are named by their role as AX reports it (`AXButton`, `AXTextField`);
+  `role` filters accept it with or without `AX`. A control's `ref` is built from
+  the control's identity inside the helper and stays the same across snapshots
+  while the control exists; once it is rebuilt the helper finds it again by its
+  `AXIdentifier`, or its role and name and place, and says `STALE_REF` or
+  `AMBIGUOUS_TARGET` when it cannot decide.
+- The window's tree ends with the application's menu bar. Menu bar items and
+  menu items show how many children they hide, and a snapshot with `root` set
+  to one opens its menu (`Format > Font`) without reading every menu of the
+  window.
+- Window input is posted to the window's process, not to the front: it needs no
+  raise, and the result says `delivered_unverified` (macOS does not tell the
+  sender whether an app used an event). `delivery_mode: foreground` raises the
+  window first.
+- A wait watches one process: an event from another window of the same program
+  also ends a wait, and `newWindows` lists the windows that appeared.
+- `ui_snapshot` of a Chromium or Electron window reads it with accessibility
+  switched on (the adapter asks the helper for this on every read); the
+  application then builds a larger tree for the rest of its life.
+
+### What it measured
+
+On a Mac mini (macOS 27.2, arm64, 1920 by 1080 at scale 1), the client side
+included, 20 runs, min / median / max in milliseconds:
+
+| Call | min / median / max |
+| --- | --- |
+| first use: compile, sign, launch, greeting | 4 145 (one run) |
+| a client connecting to a running helper | 1 |
+| `windows` (5 windows) | 1.10 / 1.36 / 23.55 |
+| `displays` | 0.17 / 0.20 / 1.03 |
+| `permissions` | 0.10 / 0.14 / 4.98 |
+
+The calls that need a permission (the tree, `act`, capture, input, waiting)
+were not measured on a real desktop until a person turns the two switches on.
 
 ## Windows driver session recovery
 
