@@ -38,6 +38,7 @@ import {
 } from './computer-use-coordinates.js'
 import {
 	type FittedImage,
+	HIGH_RES_SCREENSHOT_LIMITS,
 	STANDARD_SCREENSHOT_LIMITS,
 	type ScreenshotLimits,
 	cropAndFitPng,
@@ -52,6 +53,26 @@ export {
 	screenshotTargetSize,
 } from './computer-use-image.js'
 export type { ImageSize, ScreenshotLimits } from './computer-use-image.js'
+
+/**
+ * The limits to fit a screenshot to for `model`: the high-resolution tier for
+ * a model known to read it (the 4.7 and later models of the vendor behind that
+ * tier, with or without a vendor prefix or a dated suffix), the standard tier for every
+ * other model, including one the table does not know. A wrong "high" costs a
+ * rejected tool result; a wrong "standard" only costs detail, so an unknown
+ * model gets the standard tier.
+ */
+export function screenshotLimitsForModel(model: string | undefined): ScreenshotLimits {
+	if (model === undefined) return STANDARD_SCREENSHOT_LIMITS
+	const match = /claude-(?:opus|sonnet|haiku|fable)-(\d+)(?:[-.](\d{1,2})(?!\d))?/i.exec(model)
+	if (!match) return STANDARD_SCREENSHOT_LIMITS
+	const major = Number(match[1])
+	const minor = match[2] === undefined ? 0 : Number(match[2])
+	// A dated id such as `claude-sonnet-4-20250514` has no minor: the date is not one.
+	return major > 4 || (major === 4 && minor >= 7)
+		? HIGH_RES_SCREENSHOT_LIMITS
+		: STANDARD_SCREENSHOT_LIMITS
+}
 
 export const COMPUTER_USE_TOOL_NAME = 'computer_use' as const
 
@@ -162,9 +183,11 @@ export interface ComputerUseToolOptions {
 	 * What every screenshot and zoom image is fitted to before the model sees
 	 * it. Default {@link STANDARD_SCREENSHOT_LIMITS}, which every current vision
 	 * model takes without a further resize; {@link HIGH_RES_SCREENSHOT_LIMITS}
-	 * only when every model the session can reach is on that tier.
+	 * only when every model the session can reach is on that tier. A function
+	 * is asked before every capture, for a session whose model changes between
+	 * turns; see {@link screenshotLimitsForModel}.
 	 */
-	readonly screenshotLimits?: ScreenshotLimits
+	readonly screenshotLimits?: ScreenshotLimits | (() => ScreenshotLimits)
 	/**
 	 * Milliseconds to wait after an action before the screenshot it returns,
 	 * so a menu has opened or a page has started to paint. Default 500.
@@ -767,7 +790,7 @@ function buildDescription(
 		)
 	lines.push(
 		'Coordinates: every x/y you send is a pixel of the most recent screenshot this tool returned — origin at its top-left, x to the right, y down — never a screen pixel. Each screenshot states its id and size (for example "s3: 1456x819"); stay inside it. Display screenshots map onto the display. To aim at an earlier display screenshot, pass its id as screenshot_id.',
-		'Take a screenshot before your first click on pixels.',
+		'Click coordinates need a screenshot to refer to; any action that changes something already returns one, so take one yourself only when none has been shown yet.',
 		"Look at the screen before you say what state an application is in. Never click links with computer use: a page is the browser tool's. Prefer a connected tool or a command line to the screen when one does the job.",
 	)
 	if (settings.screenshotAfterActions)
@@ -775,7 +798,7 @@ function buildDescription(
 			`After any action that changes something, the tool waits ${settings.settleMs} ms and returns a new screenshot — do not call screenshot again after acting.`,
 		)
 	lines.push(
-		'zoom returns a closer, sharper view of region {x, y, width, height} of the screenshot; your coordinates still refer to the screenshot, not to the zoomed image.',
+		`zoom returns a closer, sharper view of region {x, y, width, height} of the screenshot; your coordinates still refer to the screenshot, not to the zoomed image. It is for reading small text that ${available.includes('ui_snapshot') ? "the window's controls do not name" : 'the screenshot shows too small'}, not a step to take before acting: act on what you can already see.`,
 		`wait pauses for ms milliseconds (at most ${settings.maxWaitMs} per call, a batch's waits together) and then shows the screen.${available.includes('wait_for') ? ' Prefer wait_for to a fixed wait whenever you know what you are waiting for.' : ''}`,
 	)
 	if (available.includes('batch'))
@@ -1280,7 +1303,7 @@ function batchLabel(
 // ---------------------------------------------------------------------------
 
 interface ResolvedSettings {
-	readonly limits: ScreenshotLimits
+	readonly limits: () => ScreenshotLimits
 	readonly settleMs: number
 	readonly screenshotAfterActions: boolean
 	readonly maxBatchActions: number
@@ -1294,18 +1317,22 @@ function resolveSettings(options: ComputerUseToolOptions): ResolvedSettings {
 			throw new RangeError(`createComputerUseTool: ${name} must be an integer ≥ ${min}`)
 		return value
 	}
-	const limits = options.screenshotLimits ?? STANDARD_SCREENSHOT_LIMITS
-	if (
-		!Number.isSafeInteger(limits.maxLongEdge) ||
-		!Number.isSafeInteger(limits.maxTiles) ||
-		limits.maxLongEdge < 28 ||
-		limits.maxTiles < 1
-	)
-		throw new RangeError(
-			'createComputerUseTool: screenshotLimits needs an integer maxLongEdge ≥ 28 and maxTiles ≥ 1',
+	const source = options.screenshotLimits ?? STANDARD_SCREENSHOT_LIMITS
+	const check = (limits: ScreenshotLimits): ScreenshotLimits => {
+		if (
+			!Number.isSafeInteger(limits.maxLongEdge) ||
+			!Number.isSafeInteger(limits.maxTiles) ||
+			limits.maxLongEdge < 28 ||
+			limits.maxTiles < 1
 		)
+			throw new RangeError(
+				'createComputerUseTool: screenshotLimits needs an integer maxLongEdge ≥ 28 and maxTiles ≥ 1',
+			)
+		return limits
+	}
+	check(typeof source === 'function' ? source() : source)
 	return {
-		limits,
+		limits: () => check(typeof source === 'function' ? source() : source),
 		settleMs: count(options.settleMs, DEFAULT_SETTLE_MS, 0, 'settleMs'),
 		screenshotAfterActions: options.screenshotAfterActions ?? true,
 		maxBatchActions: count(
@@ -1714,7 +1741,7 @@ export function createComputerUseTool(
 				windowId,
 				callSignal,
 			)
-			const image = await fitPng(shot.data, settings.limits)
+			const image = await fitPng(shot.data, settings.limits())
 			if (image.sourceWidth !== shot.width || image.sourceHeight !== shot.height)
 				throw new StepFailure(
 					'the window PNG dimensions changed during capture; take a new screenshot',
@@ -1729,7 +1756,7 @@ export function createComputerUseTool(
 		if (result.type !== 'screenshot')
 			throw new Error(`computer_use: the host answered a screenshot with "${result.type}"`)
 		const shot = result.result
-		const image = await fitPng(shot.data, settings.limits)
+		const image = await fitPng(shot.data, settings.limits())
 		const display = shot.display ?? assumedDisplay(image.sourceWidth, image.sourceHeight)
 		return { frame: frames.record(image, display), image }
 	}
@@ -2521,7 +2548,11 @@ export function createComputerUseTool(
 		const shrink = display.width / frame.imageWidth
 		const shrunkNote =
 			shrink >= 2
-				? ` The display is ${Math.round(shrink * 10) / 10} times larger than this image, so small text is hard to read here: use zoom on the area to read it at full detail.`
+				? ` The display is ${Math.round(shrink * 10) / 10} times larger than this image, so small text is hard to read here.${
+						windowCaptureAvailable(host, caps)
+							? ' For the application you are working in, take a window screenshot (list_windows, then screenshot with its window_id): it is close to full size.'
+							: ''
+					}`
 				: ''
 		return scaled
 			? `Screenshot ${frame.id}: ${frame.imageWidth}x${frame.imageHeight} pixels, showing the ${display.width}x${display.height} display. Send coordinates in this image's pixels (x 0–${frame.imageWidth - 1}, y 0–${frame.imageHeight - 1}); the tool maps them onto the display.${shrunkNote}`
@@ -2603,10 +2634,10 @@ export function createComputerUseTool(
 		if (frame.window) {
 			if (!frame.window.data)
 				throw new StepFailure(`window screenshot ${frame.id} is stale; capture the window again`)
-			fitted = await cropAndFitPng(frame.window.data, rect, settings.limits)
+			fitted = await cropAndFitPng(frame.window.data, rect, settings.limits())
 		} else if (caps.regionCapture === true && typeof host.captureRegion === 'function') {
 			const piece = await host.captureRegion(rect, callSignal)
-			fitted = await fitPng(piece.data, settings.limits)
+			fitted = await fitPng(piece.data, settings.limits())
 		} else {
 			const result = await host.execute({ type: 'screenshot' }, callSignal)
 			if (result.type !== 'screenshot')
@@ -2631,7 +2662,7 @@ export function createComputerUseTool(
 					width: Math.max(1, Math.min(size.width, Math.ceil((rect.x + rect.width) * sx)) - left),
 					height: Math.max(1, Math.min(size.height, Math.ceil((rect.y + rect.height) * sy)) - top),
 				},
-				settings.limits,
+				settings.limits(),
 			)
 		}
 		const detail = fitted.width / onImage.width

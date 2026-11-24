@@ -39,6 +39,7 @@ import {
 	palConversationGreeting,
 	query,
 	resumeSession,
+	screenshotLimitsForModel,
 	toolset,
 } from '@namzu/sdk'
 import { readStoredTurnGuards, resolveTurnGuards, turnConfigFields } from '../config/turn-guards.js'
@@ -388,6 +389,7 @@ export async function createPalAgentSession(
 			}
 			const allTools = getBuiltinTools()
 			const computerTool = createComputerUseTool(computer, {
+				screenshotLimits: screenshotLimitsForModel(model),
 				unavailableReason: computerUseUnavailableReason(provider, model),
 			})
 			tools = [

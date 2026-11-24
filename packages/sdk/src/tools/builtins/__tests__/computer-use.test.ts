@@ -21,8 +21,10 @@ import {
 	COMPUTER_USE_TOOL_NAME,
 	type ComputerUseToolOptions,
 	HIGH_RES_SCREENSHOT_LIMITS,
+	STANDARD_SCREENSHOT_LIMITS,
 	computerUseUnavailableReason,
 	createComputerUseTool,
+	screenshotLimitsForModel,
 } from '../computer-use.js'
 
 /** A solid PNG of the given size. */
@@ -235,13 +237,41 @@ describe('createComputerUseTool', { timeout: 30_000 }, () => {
 			expect(textOf(result)).toContain('1280x800 pixels, the display at full size')
 		})
 
-		it('tells the model to zoom when the image is at least twice as small as the display', async () => {
+		it('says the display is larger than the image, without telling the model to zoom', async () => {
 			// An ultrawide display fitted to the standard limits is a sliver: 5120x1440 becomes 1568x441.
 			const { host } = makeHost({ width: 5120, height: 1440 })
 			const result = await run(createComputerUseTool(host, FAST), { type: 'screenshot' })
 			expect(imageOf(result)).toEqual({ width: 1568, height: 441 })
 			expect(textOf(result)).toContain('The display is 3.3 times larger than this image')
-			expect(textOf(result)).toContain('use zoom on the area')
+			expect(textOf(result)).not.toContain('zoom')
+			// No window capture on this host, so there is no window to point at either.
+			expect(textOf(result)).not.toContain('window_id')
+		})
+
+		it('points at a window screenshot, not zoom, when the host can capture a window', async () => {
+			const { host } = makeHost({
+				width: 5120,
+				height: 1440,
+				windows: [],
+				capabilities: { windows: true, windowCapture: true, windowScroll: false },
+			})
+			Object.assign(host, {
+				captureWindow: async () => undefined,
+				executeWindow: async () => undefined,
+			})
+			const result = await run(createComputerUseTool(host, FAST), { type: 'screenshot' })
+			expect(textOf(result)).toContain('take a window screenshot')
+			expect(textOf(result)).toContain('window_id')
+			expect(textOf(result)).not.toContain('zoom')
+		})
+
+		it('offers zoom as a way to read small text, not as a step before acting', () => {
+			const { host } = makeHost()
+			const description = createComputerUseTool(host, FAST).description
+			expect(description).toContain('zoom returns a closer, sharper view')
+			expect(description).toContain('not a step to take before acting')
+			expect(description).not.toContain('Take a screenshot before your first click')
+			expect(description).toContain('any action that changes something already returns one')
 		})
 
 		it('does not add the zoom hint for a modest shrink or a full-size image', async () => {
@@ -264,6 +294,21 @@ describe('createComputerUseTool', { timeout: 30_000 }, () => {
 			const result = await run(tool, { type: 'screenshot' })
 			expect(imageOf(result)).toEqual({ width: 2000, height: 1000 })
 			expect(textOf(result)).toContain('2000x1000 pixels, the display at full size')
+		})
+
+		it('asks a function for the limits before every capture, so a model switch changes the tier', async () => {
+			const { host } = makeHost({ width: 2000, height: 1000 })
+			let model = 'claude-sonnet-4-6'
+			const tool = createComputerUseTool(host, {
+				...FAST,
+				screenshotLimits: () => screenshotLimitsForModel(model),
+			})
+			expect(imageOf(await run(tool, { type: 'screenshot' }))).toEqual({ width: 1568, height: 784 })
+			model = 'claude-opus-4-7'
+			expect(imageOf(await run(tool, { type: 'screenshot' }))).toEqual({
+				width: 2000,
+				height: 1000,
+			})
 		})
 
 		it('assumes one display at the origin for a host that reports none', async () => {
@@ -1864,5 +1909,36 @@ describe('createComputerUseTool', { timeout: 30_000 }, () => {
 				createComputerUseTool(host, { screenshotLimits: { maxLongEdge: 10, maxTiles: 1 } }),
 			).toThrow(RangeError)
 		})
+	})
+})
+
+describe('screenshotLimitsForModel', () => {
+	it.each([
+		'claude-opus-4-7',
+		'claude-opus-4-8',
+		'claude-opus-4-7-20260301',
+		'anthropic/claude-opus-4.7',
+		'claude-opus-5',
+		'claude-sonnet-5-20260514',
+		'claude-fable-5',
+	])('gives %s the high tier', (model) => {
+		expect(screenshotLimitsForModel(model)).toBe(HIGH_RES_SCREENSHOT_LIMITS)
+	})
+
+	it.each([
+		'claude-opus-4-6',
+		'claude-sonnet-4-5',
+		'claude-sonnet-4-20250514',
+		'claude-haiku-4-5',
+		'claude-3-5-sonnet-20241022',
+		'gpt-5.1',
+		'deepseek-v4.1-flash',
+		'some-future-model',
+	])('keeps %s on the standard tier', (model) => {
+		expect(screenshotLimitsForModel(model)).toBe(STANDARD_SCREENSHOT_LIMITS)
+	})
+
+	it('uses the standard tier when the model is not known', () => {
+		expect(screenshotLimitsForModel(undefined)).toBe(STANDARD_SCREENSHOT_LIMITS)
 	})
 })

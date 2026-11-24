@@ -36,11 +36,23 @@ than `maxTiles` 28-pixel patches.
 
 The standard limits are taken unchanged by every current vision model: they
 are Anthropic's standard tier, and inside OpenAI's `detail: "high"` budget
-(2048 px, 2 500 32-pixel patches). Choose the high-resolution limits only when
-every model the session can reach is on Anthropic's high-resolution tier
-(its 4.7 and later models): a standard-tier model rejects such an image in a tool
-result, OpenAI shrinks anything over 2048 px, and a request carrying more than
-20 images caps each at 2000 px.
+(2048 px, 2 500 32-pixel patches). The high-resolution limits are for a model
+known to take them: Anthropic's 4.7 and later models. A standard-tier model
+rejects such an image in a tool result, OpenAI shrinks anything over 2048 px,
+and a request carrying more than 20 images caps each at 2000 px.
+
+`screenshotLimits` is either one set of limits or a function returning them,
+asked before every capture. `screenshotLimitsForModel(model)` is the rule the
+CLI uses: the high tier for an Anthropic model of version 4.7 or later (a vendor
+prefix, a `.` or `-` separator and a dated suffix are all read), the standard
+tier for every other model and for one it does not know, because a wrong
+"high" costs a rejected result and a wrong "standard" only costs detail. The
+CLI passes `() => screenshotLimitsForModel(turnModel)`, so Auto routing or
+`/model` changes the tier with the model. A 3840x2160 display is shown at
+1568x882 on the standard tier and 2576x1449 on the high one: about 1.6 times
+the pixels on each side, at roughly three times the image tokens (1 568 versus
+4 784 patches at most), which is why the tier follows the model and is not a
+default.
 
 Each screenshot is numbered (`s1`, `s2`, …) and its tool result starts with
 one line of text before the image:
@@ -50,11 +62,12 @@ Screenshot s3: 1568x656 pixels, showing the 3440x1440 display. Send coordinates 
 ```
 
 When the display is at least twice as large as the image (a 5120×1440 ultrawide
-fitted to 1568×441, a 3.3 times shrink), the line ends with a sentence telling
-the model so and to use `zoom` on the area to read small text at full detail:
-`The display is 3.3 times larger than this image, so small text is hard to read
-here: use zoom on the area to read it at full detail.` A smaller shrink adds
-nothing.
+fitted to 1568×441, a 3.3 times shrink), the line ends with a sentence saying
+so: `The display is 3.3 times larger than this image, so small text is hard to
+read here.` On a host that captures a single window it adds a pointer to a
+window screenshot of the application in use (`list_windows`, then `screenshot`
+with its `window_id`), which is close to full size, in place of a pointer to
+`zoom`. A smaller shrink adds nothing.
 
 Every x/y the model sends is a pixel of the latest screenshot (or of the one
 named in `screenshot_id`), never a screen pixel. The tool maps image pixel
@@ -142,7 +155,12 @@ captured window or the display's focused window.
 fresh full capture). For a window frame, it crops the captured window PNG
 without taking another driver snapshot, which preserves its capture token.
 Both paths fit the crop without enlarging it. Coordinates still refer to the
-screenshot it came from; zoom never starts a new coordinate space.
+screenshot it came from; zoom never starts a new coordinate space. The tool
+description presents `zoom` as the way to read small text that the window's
+controls (`ui_snapshot`) do not name, not as a step before acting. Likewise it
+no longer asks for a screenshot before the first pixel click: an action that
+changes something already returns one, and a coordinate sent before any
+screenshot exists is still refused with that reason.
 
 `list_windows` and `focus_window` are offered only when the host declares
 `windows` and implements both methods. The list gives each window's id,

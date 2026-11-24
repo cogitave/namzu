@@ -2,6 +2,7 @@
 
 ## 2026-11-24
 
+- **Update** [The computer_use tool](sdk/computer-actions.md): the tool stops steering the model to `zoom` (the display-shrink sentence points at a window screenshot instead, and the description presents zoom as a way to read small text the controls do not name), drops "take a screenshot before your first click" in favour of the screenshot every action already returns, and `screenshotLimits` may be a function; new `screenshotLimitsForModel` gives Anthropic's 4.7 and later models the high-resolution tier (2576 px, 4784 patches) and everything else the standard one, and the CLI sizes each capture by the model answering the turn. `.changeset/sdk-computer-use-capture-detail.md`, `.changeset/cli-computer-use-capture-detail.md`.
 - **Update** [Extensions](cli/extensions.md): an extension shows as running only after its query endpoint accepts a connection (one that does not open within 10 seconds is restarted), so a query right after "running" no longer finds nothing there. `.changeset/cli-extension-query-ready.md`.
 
 ## 2026-11-23

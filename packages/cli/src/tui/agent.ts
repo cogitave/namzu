@@ -217,6 +217,7 @@ import {
 	readyWhen,
 	resolveContextWindow,
 	resumeSession,
+	screenshotLimitsForModel,
 	seedObservationLedger,
 	sessionStartHookContext,
 	stripModelWindowSuffix,
@@ -4079,6 +4080,9 @@ export async function createAgentSession(
 	// both change the model between turns, so this is read live, per turn.
 	const textOnlyModels = new TextOnlyModels()
 	let turnReadsImages = textOnlyModels.reads(provider, model)
+	// The model answering the turn in flight: its image tier sizes every screenshot, and Auto or
+	// `/model` can change it between turns.
+	let turnModel = model
 	// The model sees the desktop only as an image in a tool result. A driver
 	// that declares it cannot carry one would hand the model a line of text
 	// for every screenshot while each click reported success — the model
@@ -4138,6 +4142,7 @@ export async function createAgentSession(
 				await candidate.initialize()
 				const advisor = createPickAdvisor(decisionPoints)
 				computerUseTool = createComputerUseTool(candidate, {
+					screenshotLimits: () => screenshotLimitsForModel(turnModel),
 					...(advisor ? { advisor } : {}),
 					...(options.deniedComputerApps?.length ? { deniedApps: options.deniedComputerApps } : {}),
 					...(options.onComputerObservation
@@ -7564,6 +7569,7 @@ export async function createAgentSession(
 						const turnSkills = await turnSkillsFor(autoRoute?.model ?? model)
 						const turnProvider = autoRoute?.provider ?? providerForSession(turnScope.sessionId)
 						turnReadsImages = textOnlyModels.reads(turnProvider, autoRoute?.model ?? model)
+						turnModel = autoRoute?.model ?? model
 						// `toolLoadingDeferred` is already baked into
 						// `sessionToolsets` (see its construction above) — availability
 						// is derived from the turn's own revealed-tool history now, not
