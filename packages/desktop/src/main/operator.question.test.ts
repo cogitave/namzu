@@ -34,13 +34,13 @@ const QUESTION = {
 	],
 }
 
-function harness() {
+function harness(extraEnv: Record<string, string> = {}) {
 	const events = new EventEmitter()
 	const owner = new Operator(
 		{
 			program: process.execPath,
 			args: [fileURLToPath(new URL('./__fixtures__/rpc-process.mjs', import.meta.url))],
-			env: { ...process.env, FIXTURE_QUESTION: JSON.stringify(QUESTION) },
+			env: { ...process.env, FIXTURE_QUESTION: JSON.stringify(QUESTION), ...extraEnv },
 		},
 		(event) => events.emit('update', event),
 	)
@@ -169,4 +169,54 @@ it('closes the card when the reply is stopped while the question waits', async (
 	await expect(owner.answerQuestion(session.id, request.id, { kind: 'skip' })).rejects.toThrow(
 		'no longer open',
 	)
+})
+
+const SKILL_CARD = {
+	name: 'release-notes',
+	description: 'Write release notes. Use when asked for release notes.',
+	file: '---\nname: release-notes\n---\n\n1. List merged PRs.',
+	hiddenCharacters: false,
+	warnings: [],
+	suggested: 'user',
+	targets: [
+		{ scope: 'user', path: '~/.namzu/skills/release-notes/SKILL.md', shadows: [] },
+		{ scope: 'project', path: './.namzu/skills/release-notes/SKILL.md', shadows: [] },
+	],
+	shadowsExisting: false,
+}
+
+it('carries a skill the agent drafted on the waiting request, and answers it like any question', async () => {
+	const { owner, question, wait } = harness({ FIXTURE_SKILL_SAVE: JSON.stringify(SKILL_CARD) })
+	const project = await owner.openProject(process.cwd())
+	const session = await owner.newConversation(project.id)
+	const asked = question()
+	const sent = owner.send(session.id, 'save the skill')
+	const request = await asked
+	expect(request.skillSave).toMatchObject({ name: 'release-notes', suggested: 'user' })
+	expect(request.skillSave?.targets.map((target) => target.scope)).toEqual(['user', 'project'])
+	// It waits for the person: it is a question, never answered by an approval.
+	expect(owner.needsYou()).toEqual([session.id])
+	expect(() => owner.respondPermission(session.id, request.id, { outcome: 'approve' })).toThrow(
+		'answer it with its own card',
+	)
+	const cleared = wait(
+		(event) => event.kind === 'permission-cleared' && event.requestId === request.id,
+	)
+	await owner.answerQuestion(session.id, request.id, {
+		kind: 'answer',
+		answers: [{ questionId: 'skill-save', selectedOptionIds: ['project'] }],
+	})
+	await cleared
+	await sent
+})
+
+it('leaves a plain question without a skill', async () => {
+	const { owner, question } = harness()
+	const project = await owner.openProject(process.cwd())
+	const session = await owner.newConversation(project.id)
+	const asked = question()
+	const sent = owner.send(session.id, 'make the deck')
+	expect((await asked).skillSave).toBeUndefined()
+	await owner.cancel(session.id)
+	await sent
 })

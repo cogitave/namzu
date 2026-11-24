@@ -253,6 +253,11 @@ export interface EnvironmentFacts {
 	 * on or off, so turning it on never rewrites the cached prompt prefix.
 	 */
 	readonly computerUseOffer?: boolean
+	/**
+	 * What this session can do with skills: `save` is true when the `save_skill` tool is among its
+	 * tools (the interactive terminal and the desktop app), false for a run nobody confirms in.
+	 */
+	readonly skills?: { readonly save: boolean }
 	/** The switch is on but the desktop did not start: why, in one line. */
 	readonly computerUseFailure?: string
 }
@@ -389,6 +394,17 @@ const FACTS_FRAMING =
 export const COMPUTER_USE_OFFER_FACT =
 	'Computer use (seeing the screen, the mouse and the keyboard) is a switch the person controls. When no computer_use tool is in your tool list it is off, or it is on and could not start (a reason is given to you when that is so). The person turns it on with /config computerUse.enabled on (or Settings, Tools), and the tool appears from their next message. You never turn it on yourself; if you need it, say so in one line and tell them that.'
 
+/** What a session knows about creating skills, so a question about it is answered without a search. */
+export function skillFactLines(save: boolean): string[] {
+	if (!save)
+		return [
+			'Skills: saving a skill is not available in this place (no save_skill tool). A question about creating skills is answered directly, without exploring the file system; show a draft if asked and say plainly that saving is not available in this place. Never tell the person to open a terminal.',
+		]
+	return [
+		'Skills: a skill is a folder with one SKILL.md (a name, a description, instructions) that later conversations load. Create or improve one with the skill-creator skill (interview, show the draft, then save with the save_skill tool: the person sees the whole file, picks where it goes or cancels, and it is usable from their next message). Never write a SKILL.md into a skills folder by hand. A question about creating skills is answered directly, without exploring the file system. Do not tell the person to open a terminal.',
+	]
+}
+
 export function composeEnvironmentPrompt(
 	facts: EnvironmentFacts,
 	options: EnvironmentPromptOptions = {},
@@ -432,6 +448,7 @@ export function composeEnvironmentPrompt(
 	if (facts.boundary) lines.push(...boundaryLines(facts.boundary, stable))
 	if (facts.wsl) lines.push(...wslLines(facts.wsl, facts.boundary))
 	if (facts.host === 'desktop') lines.push(DESKTOP_PREVIEW_FACT)
+	if (facts.skills) lines.push(...skillFactLines(facts.skills.save))
 	if (facts.computerUseOffer) lines.push(COMPUTER_USE_OFFER_FACT)
 	if (facts.computerUseOffer && facts.computerUseFailure)
 		lines.push(

@@ -33,10 +33,32 @@ export interface QuestionItem {
 	allowFreeText: boolean
 }
 
+/**
+ * A skill the agent drafted, for the person to save or not: the host sends it with the question
+ * whose three options (`user`, `project`, `cancel`) answer it. The host computed every field.
+ */
+export interface SkillSaveCard {
+	name: string
+	description: string
+	/** The whole file, with invisible characters shown as `<U+XXXX>`. */
+	file: string
+	hiddenCharacters: boolean
+	warnings: string[]
+	suggested: 'user' | 'project'
+	/** User first, project second. */
+	targets: { scope: 'user' | 'project'; path: string; shadows: string[] }[]
+	shadowsExisting: boolean
+}
+
+/** The id of the question a skill-save card answers, and its options. */
+export const SKILL_SAVE_QUESTION_ID = 'skill-save'
+export type SkillSaveChoice = 'user' | 'project' | 'cancel'
+
 export interface QuestionNotice {
 	sessionId: string
 	requestId: string
 	questions: QuestionItem[]
+	skillSave?: SkillSaveCard
 }
 
 export interface QuestionClosedNotice {
@@ -125,12 +147,64 @@ export function readQuestionItems(value: unknown): QuestionItem[] | undefined {
 	return single ? [single] : undefined
 }
 
+const MAX_SKILL_FILE = 200_000
+
+const flag = (value: unknown): value is boolean => typeof value === 'boolean'
+
+const lines = (value: unknown): string[] | undefined => {
+	if (!Array.isArray(value) || value.length > 24) return undefined
+	return value.every((item) => typeof item === 'string' && item.length <= 600)
+		? (value as string[])
+		: undefined
+}
+
+/** The skill-save card a host sent, or `undefined` when any part of it does not read. */
+export function readSkillSaveCard(value: unknown): SkillSaveCard | undefined {
+	if (!record(value)) return undefined
+	const name = text(value.name, 64)
+	const description = text(value.description, 1024)
+	const file =
+		typeof value.file === 'string' && value.file.length <= MAX_SKILL_FILE ? value.file : ''
+	const warnings = lines(value.warnings)
+	const suggested =
+		value.suggested === 'project' ? 'project' : value.suggested === 'user' ? 'user' : ''
+	if (!name || !description || !file.trim() || !warnings || !suggested) return undefined
+	if (!flag(value.hiddenCharacters) || !flag(value.shadowsExisting)) return undefined
+	if (!Array.isArray(value.targets) || value.targets.length !== 2) return undefined
+	const targets: SkillSaveCard['targets'] = []
+	for (const [index, entry] of value.targets.entries()) {
+		if (!record(entry)) return undefined
+		const scope = index === 0 ? 'user' : 'project'
+		const path = text(entry.path, 1000)
+		const shadows = lines(entry.shadows)
+		if (entry.scope !== scope || !path || !shadows) return undefined
+		targets.push({ scope, path, shadows })
+	}
+	return {
+		name,
+		description,
+		file,
+		hiddenCharacters: value.hiddenCharacters,
+		warnings,
+		suggested,
+		targets,
+		shadowsExisting: value.shadowsExisting,
+	}
+}
+
 export function readQuestionNotice(params: unknown): QuestionNotice | undefined {
 	if (!record(params)) return undefined
 	const sessionId = id(params.sessionId)
 	const requestId = id(params.requestId)
 	const questions = readQuestionItems(params.question)
-	return sessionId && requestId && questions ? { sessionId, requestId, questions } : undefined
+	if (!sessionId || !requestId || !questions) return undefined
+	// A skill-save card that does not read is no card at all: the whole request is dropped, so the
+	// host (which is waiting) is told "skipped", which saving reads as a cancel.
+	if (params.skillSave !== undefined) {
+		const skillSave = readSkillSaveCard(params.skillSave)
+		return skillSave ? { sessionId, requestId, questions, skillSave } : undefined
+	}
+	return { sessionId, requestId, questions }
 }
 
 /**

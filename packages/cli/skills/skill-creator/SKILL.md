@@ -13,13 +13,20 @@ skill is ever used, and the body decides whether it works.
 
 You write a skill **only through the `save_skill` tool**. Never write a
 `SKILL.md` with `write`, `edit` or a shell command. `save_skill` shows the
-operator the whole file and where it would go, and saves nothing until they
-pick "Save to user" or "Save to project". If they cancel, ask what to change.
+person the whole file and where it would go (their own skills, or this
+project), and saves nothing until they choose a place. If they cancel, ask
+what to change. A saved skill is usable from their next message.
 
 If `save_skill` is not among your tools (a headless `namzu exec` run, a
 scheduled run, or an agent you started), do not try another way to save.
-Show the draft in your reply and tell the operator to run `/skills new` in the
-interactive terminal (`namzu`) to save it.
+Show the full draft in your reply and say plainly that saving is not
+available in this place. Do not tell the person to open a terminal or to run
+a command; they can copy the draft, and a conversation in the app or the
+terminal where saving is available will save it.
+
+If the person only asks whether you can create skills, answer in a few
+sentences from what you know (you interview them, show a draft, and save it
+after they confirm) and offer to start; do not explore the file system.
 
 ## Mode 1: a new skill, by interview
 
@@ -57,8 +64,10 @@ Then draft:
   `/skills save` sends, does not count; go by the user's own messages. The
   name stays lowercase ASCII.
 
-Show the draft in your reply and ask the user to confirm or correct it. After
-they agree, call `save_skill` with `name`, `description`, `body`, a suggested
+Show the draft in your reply and ask the user to confirm or correct it. Offer
+to try it first: propose two or three sample requests that should trigger the
+skill, and, if they agree, work through one of them following the draft, then
+fix the draft where it fell short. After they agree, call `save_skill` with `name`, `description`, `body`, a suggested
 `scope` (`user` for a personal habit that applies anywhere, `project` for this
 repository's own procedures) and `origin: "created"`. To update an existing
 skill, keep its name and pass `replaces` with that same name; the confirmation

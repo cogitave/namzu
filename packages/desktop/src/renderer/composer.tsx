@@ -74,6 +74,7 @@ import {
 	ComposerPermissions,
 	ComposerSettings,
 } from './composer-settings.js'
+import { ComposerSkillSave } from './composer-skill-save.js'
 import { ComposerSlashMenu, SLASH_MENU_ID } from './composer-slash-menu.js'
 import { ComposerSurface } from './composer-surface.js'
 import { prepareIndex } from './file-panel/file-search.js'
@@ -976,7 +977,16 @@ export function Composer({
 							disabled={approvalDisabled}
 							aria-label="Action approval controls"
 						>
-							{permissions[0].question && onAnswerQuestion ? (
+							{permissions[0].skillSave && onAnswerQuestion ? (
+								<ComposerSkillSave
+									key={permissions[0].id}
+									permission={permissions[0]}
+									count={permissions.length}
+									onAnswer={(permission, response) =>
+										approvalDisabled ? false : onAnswerQuestion(permission, response)
+									}
+								/>
+							) : permissions[0].question && onAnswerQuestion ? (
 								<ComposerQuestion
 									key={permissions[0].id}
 									permission={permissions[0]}

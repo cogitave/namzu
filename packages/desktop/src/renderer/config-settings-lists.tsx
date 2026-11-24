@@ -42,6 +42,7 @@ import {
 	toolSpellingProblem,
 } from '../shared/config-settings-values.js'
 import { Switch } from './settings-row.js'
+import { NEW_SKILL_EVENT, SKILLS_CHANGED_EVENT } from './skill-create.js'
 import { Button } from './ui/button.js'
 import type { ConfigSettingsControls, ModelChoiceGroup } from './use-config-settings.js'
 
@@ -464,14 +465,24 @@ export function SkillSwitchesView({
 	rows,
 	onSwitch,
 	onRemoveUnknown,
+	onNewSkill,
 }: {
 	label: string
 	rows: ReturnType<typeof skillSwitchRows>
 	onSwitch: (name: string, on: boolean) => void
 	onRemoveUnknown: (name: string) => void
+	/** Starts a conversation that creates a skill; absent where this window cannot. */
+	onNewSkill?: () => void
 }) {
 	return (
 		<div className="settings-config-list">
+			{onNewSkill && (
+				<div className="settings-config-actions">
+					<Button variant="outline" size="sm" onClick={onNewSkill}>
+						New skill
+					</Button>
+				</div>
+			)}
 			{rows.installed.length === 0 && rows.unknown.length === 0 && (
 				<p className="settings-note">No skills are installed.</p>
 			)}
@@ -526,9 +537,12 @@ function useInstalledSkills(config: ConfigSettingsControls) {
 			)
 		void load()
 		window.addEventListener('focus', load)
+		// A skill saved from a conversation lists at once, without waiting for the window to refocus.
+		window.addEventListener(SKILLS_CHANGED_EVENT, load)
 		return () => {
 			current = false
 			window.removeEventListener('focus', load)
+			window.removeEventListener(SKILLS_CHANGED_EVENT, load)
 		}
 	}, [read])
 	return read ? skills : null
@@ -563,6 +577,7 @@ export function SkillSwitches({
 				const next = withoutItem(Array.isArray(value) ? (value as string[]) : [], name)
 				save(next.length === 0 ? undefined : next)
 			}}
+			onNewSkill={() => window.dispatchEvent(new Event(NEW_SKILL_EVENT))}
 		/>
 	)
 }

@@ -2562,6 +2562,10 @@ export const EAGER_TOOLS_WHEN_DEFERRED = [
 	COMMAND_TOOL_NAME,
 	// query mounts discovery when absent; an existing discovery tool must stay ready.
 	'search_tools',
+	// Present only where a person confirms a save (the terminal and the desktop app). A model that
+	// has just shown a draft must be able to call it at once: behind a search it stalled or told
+	// the person the tool did not exist.
+	SAVE_SKILL_TOOL_NAME,
 ] as const
 export { DEFERRED_TOOL_GUIDANCE }
 
@@ -6316,6 +6320,7 @@ export async function createAgentSession(
 				...scratchpadFact(paths, entry.sessionId),
 				boundary: boundaryFor(false),
 				...(wsl ? { wsl } : {}),
+				skills: { save: hasSaveSkillTool },
 				...(computerUseOffered ? { computerUseOffer: true, ...computerUseFailureFact() } : {}),
 			})
 			const resumePlanPath =
@@ -7690,6 +7695,7 @@ export async function createAgentSession(
 								boundary: boundaryFor(opts?.onPermission !== undefined, undefined),
 								...(wsl ? { wsl } : {}),
 								...(options.desktop ? { host: 'desktop' as const } : {}),
+								skills: { save: hasSaveSkillTool },
 								...(computerUseOffered
 									? { computerUseOffer: true, ...computerUseFailureFact() }
 									: {}),

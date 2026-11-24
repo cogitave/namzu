@@ -38,8 +38,16 @@ describe('where the schedule tools are registered', () => {
 		])
 	})
 
-	it('only the App hands a session extra tools, and agent.ts adds them to the main registry alone', () => {
-		expect(filesMentioning(/extraTools:/)).toEqual(['tui/App.tsx'])
+	it('only the App and the desktop host hand a session extra tools, and agent.ts adds them to the main registry alone', () => {
+		expect(filesMentioning(/extraTools:/)).toEqual(['commands/acp.ts', 'tui/App.tsx'])
+		// The desktop host hands over the skill-save tool alone: never the schedule tools.
+		const acp = readFileSync(join(SRC, 'commands/acp.ts'), 'utf8')
+		const extra = acp.slice(
+			acp.indexOf('extraTools: ['),
+			acp.indexOf(']', acp.indexOf('extraTools: [')),
+		)
+		expect(extra).toContain('buildSaveSkillTool(')
+		expect(extra).not.toMatch(/buildScheduleTools|buildSessionLoopTools/)
 		const agent = readFileSync(join(SRC, 'tui/agent.ts'), 'utf8')
 		const buildToolsAt = agent.indexOf('buildTools: () => {')
 		const extraAt = agent.indexOf(

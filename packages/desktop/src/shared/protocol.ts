@@ -52,7 +52,7 @@ import type {
 	PalSubscriptionDisable,
 } from './pal-communication-protocol.js'
 import type { PalComputerSetupState } from './pal-computer-setup.js'
-import type { QuestionItem, QuestionResponse } from './question-protocol.js'
+import type { QuestionItem, QuestionResponse, SkillSaveCard } from './question-protocol.js'
 import type {
 	DataFolderKind,
 	DesktopInfo,
@@ -635,6 +635,11 @@ export interface PermissionView {
 	 * Its one call is named for the question tool, so the status mark reads it as "Question waiting".
 	 */
 	question?: { questions: QuestionItem[] }
+	/**
+	 * Set with `question` on the request that asks whether to save a skill the agent drafted: the
+	 * card shows the file and answers with `answerQuestion` (`user`, `project` or `cancel`).
+	 */
+	skillSave?: SkillSaveCard
 }
 /**
  * Reject carries the person's note to the model (`feedback`) and, apart from any wrapper, as they wrote it (`note`) for the record; approve carries nothing.
