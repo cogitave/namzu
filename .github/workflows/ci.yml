@@ -575,6 +575,81 @@ jobs:
           node --import tsx --test scripts/__tests__/verify-consumer-install-snapshot.test.ts
           bash .github/scripts/verify-consumer-install.sh
 
+  # The Rust workspace (`crates/`, `conformance/`). Nothing here needs node:
+  # the pure core is tested on Linux, and the vectors in `conformance/namzu-win/`
+  # are the same files the TypeScript codec's tests read in `check`.
+  # `--locked` everywhere: a build that rewrites Cargo.lock is not the build
+  # that was reviewed.
+  rust:
+    name: Rust (Linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 1
+
+      # The channel and components come from rust-toolchain.toml.
+      - run: rustup toolchain install 1.99.1 --profile minimal --component rustfmt --component clippy
+
+      - name: Rust format check
+        run: cargo fmt --all --check
+
+      - name: Rust lint
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+      - name: Rust tests
+        run: cargo test --workspace --locked
+
+  # The Windows helper, built where it will run. Both targets are built on the
+  # one Windows runner (the arm64 one by cross-compiling); only the x64 build is
+  # run, because the runner is x64. Nothing here runs on a person's machine.
+  # The executables are uploaded unsigned, with a checksum, for whoever
+  # fetches the run's artifacts; delivery to users is a later change.
+  windows-helper:
+    name: Windows helper (${{ matrix.target }})
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        include:
+          - target: x86_64-pc-windows-msvc
+            gates: true
+          - target: aarch64-pc-windows-msvc
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 1
+
+      - run: rustup toolchain install 1.99.1 --profile minimal --component rustfmt --component clippy --target ${{ matrix.target }}
+
+      - name: Build the Windows helper
+        run: cargo build --release --locked --target ${{ matrix.target }} -p namzu-win
+        env:
+          NAMZU_WIN_BUILD_HASH: ${{ github.sha }}
+
+      # Runs the helper's own tests on the OS it is for: the stdio test against
+      # the real executable, and a read of a window the test creates itself
+      # (list, snapshot, identity, resolve, wait for a change, cancel). x64
+      # only: the arm64 build cannot run on this runner.
+      - name: Test the Windows helper
+        if: matrix.gates
+        run: cargo test --workspace --locked --target ${{ matrix.target }}
+
+      - name: Record the helper checksum
+        shell: bash
+        run: |
+          cd target/${{ matrix.target }}/release
+          sha256sum namzu-win.exe | tee namzu-win.exe.sha256
+
+      - name: Upload the helper
+        uses: actions/upload-artifact@v4
+        with:
+          name: namzu-win-${{ matrix.target }}
+          path: |
+            target/${{ matrix.target }}/release/namzu-win.exe
+            target/${{ matrix.target }}/release/namzu-win.exe.sha256
+          if-no-files-found: error
+          retention-days: 14
+
   # Documentation gate. Separate from Build & Test for one reason: its drift
   # check compares a document's last commit against its `resource:`'s last
   # commit, and `git log` cannot answer that on the shallow checkout the matrix
@@ -649,7 +724,7 @@ jobs:
   # download; it also expires within minutes. It is never printed.
   validated-tree:
     name: Record the validated tree
-    needs: [check, docs, sdk-coverage, test-sdk, test-cli, publish-shape, publish-install]
+    needs: [check, docs, sdk-coverage, test-sdk, test-cli, publish-shape, publish-install, rust, windows-helper]
     if: ${{ success() && (github.event_name == 'pull_request' || github.event_name == 'merge_group') }}
     runs-on: ubuntu-latest
     permissions:

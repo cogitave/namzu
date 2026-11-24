@@ -1,7 +1,7 @@
 export { WindowsA11yHost } from './a11y.js'
 export type { A11yProcess, WindowsA11yOptions } from './a11y.js'
 export { A11Y_BOOTSTRAP, A11Y_HELPER_SCRIPT, a11yScriptLine } from './a11y-script.js'
-export { A11Y_ENV, a11yDisabledByEnv, createWindowsA11yHost } from './windows.js'
+export { A11Y_ENV, WIN_HELPER_ENV, a11yDisabledByEnv, createWindowsA11yHost } from './windows.js'
 export type { WindowsA11yFactoryOptions } from './windows.js'
 export { A11yError } from './interface.js'
 export type {

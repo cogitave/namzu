@@ -21,7 +21,14 @@ const REPO_ROOT = join(import.meta.dirname, '..', '..')
 const SCRIPT = join(REPO_ROOT, '.github', 'scripts', 'check-workflow-gate-parity.mjs')
 const GUARD = "steps.revalidation.outputs.skip != 'true'"
 
-const EXEMPT = ['Evals', 'SDK coverage (produce summary)', 'SDK coverage floor gate', 'Process-level regression tests']
+const EXEMPT = [
+	'Evals',
+	'SDK coverage (produce summary)',
+	'SDK coverage floor gate',
+	'Process-level regression tests',
+	'Build the Windows helper',
+	'Test the Windows helper',
+]
 
 function workflow(stepList, { preamble = '', jobKeys = '', trailer = '' } = {}) {
 	const body = stepList
