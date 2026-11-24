@@ -1,15 +1,22 @@
 // A computer-use host whose only window is a browser (Brave on a SharePoint admin page), for e2e and live
 // model runs. Nothing reaches a display: a picture is drawn, every click is recorded in a file named by
 // NAMZU_E2E_BROWSER_LOG (when set), and `listWindows` answers the one window. See fake-browser-computer-hooks.mjs.
-import { appendFileSync } from "node:fs";
-import { screenPng } from "./computer-stub.mjs";
+import { appendFileSync, readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
+// What the window shows: a SharePoint admin page drawn once (1000x640), so a model has real controls to aim at.
+const page = readFileSync(
+	join(dirname(fileURLToPath(import.meta.url)), "fake-browser-page.png"),
+);
+const WIDTH = 1000;
+const HEIGHT = 640;
 const win = {
 	id: "0x4a00007",
 	title: "Active sites - SharePoint admin center - Brave",
 	app: process.env.NAMZU_E2E_BROWSER_APP ?? "brave-browser",
 	pid: 4242,
-	bounds: { x: 0, y: 0, width: 640, height: 400 },
+	bounds: { x: 0, y: 0, width: WIDTH, height: HEIGHT },
 	focused: true,
 	minimized: false,
 };
@@ -36,17 +43,17 @@ export class SubprocessComputerUseHost {
 	async initialize() {}
 	async dispose() {}
 	async getDisplayGeometry() {
-		return { width: 640, height: 400, scaleFactor: 1 };
+		return { width: WIDTH, height: HEIGHT, scaleFactor: 1 };
 	}
 	async execute(action) {
 		if (action.type === "screenshot")
 			return {
 				type: "screenshot",
 				result: {
-					data: screenPng(640, 400),
+					data: page,
 					mimeType: "image/png",
-					width: 640,
-					height: 400,
+					width: WIDTH,
+					height: HEIGHT,
 				},
 			};
 		log({ via: "execute", action });
@@ -60,10 +67,10 @@ export class SubprocessComputerUseHost {
 	}
 	async captureWindow() {
 		return {
-			data: screenPng(640, 400),
+			data: page,
 			mimeType: "image/png",
-			width: 640,
-			height: 400,
+			width: WIDTH,
+			height: HEIGHT,
 			window: win,
 			captureId: "cap-1",
 		};
