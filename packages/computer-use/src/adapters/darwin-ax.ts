@@ -645,10 +645,14 @@ export class MacAxSurface {
 			return { ok: false, detail: `the panel's sidebar has no "${start}" entry to start from`, via }
 		const first = await this.uiAct(sidebarRow.ref, 'select')
 		if (!first.ok) return { ok: false, detail: first.detail ?? `${start} did not open`, via }
+		// Entries already chosen: right after a folder opens its old column can still be the last one listed,
+		// and a same-named entry there (a/a) must not be taken for the next step.
+		const chosen = new Set<string>()
 		for (const [index, part] of parts.entries()) {
 			const last = index === parts.length - 1
-			const hit = await this.waitForEntry(read, part)
+			const hit = await this.waitForEntry(read, part, chosen)
 			if (!hit) return { ok: false, detail: `"${part}" is not in the folder the panel shows`, via }
+			chosen.add(hit.element.ref)
 			const act = isRole(hit.element, 'group', 'row') ? 'select' : 'invoke'
 			const done = await this.uiAct(hit.element.ref, act)
 			if (!done.ok) {
@@ -671,10 +675,11 @@ export class MacAxSurface {
 		}
 	}
 
-	/** The browser entry named `name`, in the rightmost column; the panel needs a moment to list a folder. */
+	/** The browser entry named `name`, in the rightmost column, not one in `skip`; the panel needs a moment to list a folder. */
 	private async waitForEntry(
 		read: (query?: string) => Promise<readonly Located[]>,
 		name: string,
+		skip: ReadonlySet<string> = new Set(),
 	): Promise<{ readonly element: UiElement } | undefined> {
 		for (let attempt = 0; attempt < 8; attempt++) {
 			const found = (await read(name)).filter(
@@ -686,10 +691,13 @@ export class MacAxSurface {
 			const hit = found.at(-1)
 			// The entry is the row (a list) or the item (a column) that holds the name; `select` picks it. A name
 			// whose holder is not in the tree is pressed itself.
-			const entry =
-				hit &&
-				(lastOf(hit.ancestors, (a) => a.ref !== '' && isRole(a, 'group', 'row')) ??
-					(hit.element.ref !== '' ? hit.element : undefined))
+			const entries = found.flatMap((h) => {
+				const e =
+					lastOf(h.ancestors, (a) => a.ref !== '' && isRole(a, 'group', 'row')) ??
+					(h.element.ref !== '' ? h.element : undefined)
+				return e && !skip.has(e.ref) ? [e] : []
+			})
+			const entry = hit && entries.at(-1)
 			if (entry) return { element: entry }
 			await (
 				this.options.wait ?? ((ms) => new Promise<void>((resolve) => setTimeout(resolve, ms)))

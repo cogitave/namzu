@@ -1,5 +1,14 @@
-import { createHash } from 'node:crypto'
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { createHash, randomBytes } from 'node:crypto'
+import {
+	existsSync,
+	mkdirSync,
+	readFileSync,
+	readdirSync,
+	renameSync,
+	rmSync,
+	statSync,
+	writeFileSync,
+} from 'node:fs'
 import { type Socket, connect } from 'node:net'
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -11,6 +20,7 @@ import { A11yError } from './interface.js'
 import {
 	type MacSigningIdentity,
 	ensureSigningIdentity,
+	lockSigningKeychain,
 	macSigningDir,
 	unlockSigningKeychain,
 } from './macos-signing.js'
@@ -182,127 +192,243 @@ export async function ensureMacHelper(options: EnsureMacHelperOptions): Promise<
 	const paths = macHelperPaths(options.env, macHelperSourceHash(source))
 	const run = options.run ?? runCommand
 	const env = cleanEnv(options.env)
-	const state = readState(paths.state)
-	let identity: MacSigningIdentity | undefined
-	if (existsSync(paths.executable) && state?.hash === paths.hash) {
-		if (state.signing === 'identity') return paths
-		if (Date.now() < (state.retryAfter ?? 0)) return paths
-		// Built ad hoc earlier: try the identity again once a day, and rebuild only if it can be made now.
-		identity = await ensureSigningIdentity({ root: paths.root, env, run })
-		if (!identity) {
-			writeState(paths.state, { ...state, retryAfter: Date.now() + RETRY_IDENTITY_MS })
-			return paths
+	const current = (): BuildState | undefined => {
+		const state = readState(paths.state)
+		return existsSync(paths.executable) && state?.hash === paths.hash ? state : undefined
+	}
+	const done = current()
+	if (done?.signing === 'identity') return paths
+	if (done && Date.now() < (done.retryAfter ?? 0)) return paths
+	mkdirSync(paths.root, { recursive: true, mode: 0o700 })
+	const release = await takeBuildLock(paths.root, () => current() !== undefined)
+	if (!release) return paths
+	try {
+		return await buildMacHelper(options, paths, run, env)
+	} finally {
+		release()
+	}
+}
+
+const LOCK_STALE_MS = 10 * 60 * 1000
+
+/**
+ * One build at a time per Namzu home. Resolves a release function, or
+ * `undefined` when another process finished a usable app while this one waited.
+ */
+async function takeBuildLock(
+	root: string,
+	ready: () => boolean,
+): Promise<(() => void) | undefined> {
+	const lock = join(root, 'build.lock')
+	for (let attempt = 0; attempt < 240; attempt++) {
+		try {
+			writeFileSync(lock, `${process.pid}\n`, { flag: 'wx', mode: 0o600 })
+			return () => rmSync(lock, { force: true })
+		} catch {
+			if (ready()) return undefined
+			let holder = 0
+			let age = 0
+			try {
+				holder = Number.parseInt(readFileSync(lock, 'utf8'), 10)
+				age = Date.now() - statSync(lock).mtimeMs
+			} catch {
+				continue
+			}
+			let alive = true
+			try {
+				process.kill(holder, 0)
+			} catch {
+				alive = false
+			}
+			if (!alive || age > LOCK_STALE_MS) rmSync(lock, { force: true })
+			else await new Promise<void>((resolve) => setTimeout(resolve, 500))
 		}
+	}
+	return undefined
+}
+
+async function buildMacHelper(
+	options: EnsureMacHelperOptions,
+	paths: MacHelperPaths,
+	run: typeof runCommand,
+	env: NodeJS.ProcessEnv,
+): Promise<MacHelperPaths> {
+	const state = readState(paths.state)
+	const haveApp = existsSync(paths.executable) && state?.hash === paths.hash
+	// Built ad hoc earlier: the identity is tried again once a day, and the app is replaced only if it signs with it.
+	const retrying = haveApp
+	const giveUp = (error: A11yError): MacHelperPaths => {
+		if (!retrying || !state) throw error
+		writeState(paths.state, { ...state, retryAfter: Date.now() + RETRY_IDENTITY_MS })
+		return paths
+	}
+	let regrant = false
+	const onBroken = (): void => {
+		regrant = true
+	}
+	let identity: MacSigningIdentity | undefined
+	if (retrying) {
+		identity = await ensureSigningIdentity({ root: paths.root, env, run, onBroken })
+		if (!identity) return giveUp(new A11yError('build_failed', 'no signing identity'))
 	}
 	const has = options.hasTool ?? hasExecutable
 	const noCompiler = new A11yError('no_compiler', NO_COMPILER_TEXT)
-	if (!(await has('swiftc'))) throw noCompiler
+	if (!(await has('swiftc'))) return giveUp(noCompiler)
 	// Without the Command Line Tools /usr/bin/swiftc is still there, as a shim
 	// that opens an install dialog, so presence on PATH proves nothing.
 	const developerDir = await run('xcode-select', ['-p'], {
 		timeoutMs: 5_000,
 		env,
 	}).catch(() => undefined)
-	if (!developerDir || developerDir.exitCode !== 0) throw noCompiler
+	if (!developerDir || developerDir.exitCode !== 0) return giveUp(noCompiler)
 	options.onNotice?.(
 		`Namzu is building its macOS helper (${MAC_HELPER_NAME}) from source, once. It takes a few seconds.`,
 	)
-	mkdirSync(paths.root, { recursive: true, mode: 0o700 })
-	const stage = join(paths.root, `build-${paths.hash}-${process.pid}`)
-	const app = join(stage, `${MAC_HELPER_NAME}.app`)
-	mkdirSync(join(app, 'Contents', 'MacOS'), { recursive: true, mode: 0o700 })
-	writeFileSync(join(app, 'Contents', 'Info.plist'), macHelperInfoPlist(paths.hash))
-	const compile = await run(
-		'swiftc',
-		[
-			'-O',
-			'-swift-version',
-			'5',
-			options.sourcePath ?? macHelperSourcePath(),
-			'-o',
-			join(app, 'Contents', 'MacOS', EXECUTABLE),
-			'-framework',
-			'AppKit',
-			'-framework',
-			'ApplicationServices',
-			'-framework',
-			'ScreenCaptureKit',
-		],
-		{ timeoutMs: 300_000, env },
+	const stage = join(
+		paths.root,
+		`build-${paths.hash}-${process.pid}-${randomBytes(4).toString('hex')}`,
 	)
-	if (compile.exitCode !== 0) {
-		rmSync(stage, { recursive: true, force: true })
-		if (/xcode-select|developer tools/i.test(compile.stderr)) throw noCompiler
-		throw new A11yError(
-			'build_failed',
-			`the macOS helper did not compile: ${compile.stderr.trim().slice(0, 600)}`,
-		)
-	}
-	let why = ''
-	identity ??= await ensureSigningIdentity({
-		root: paths.root,
-		env,
-		run,
-		onFailure: (reason) => {
-			why = reason
-		},
-	})
-	let signedBy: MacSigningIdentity | undefined
-	if (identity && (await unlockSigningKeychain(identity, env, run))) {
-		const sign = await run(
-			'codesign',
+	const app = join(stage, `${MAC_HELPER_NAME}.app`)
+	try {
+		mkdirSync(join(app, 'Contents', 'MacOS'), { recursive: true, mode: 0o700 })
+		writeFileSync(join(app, 'Contents', 'Info.plist'), macHelperInfoPlist(paths.hash))
+		const compile = await run(
+			'swiftc',
 			[
-				'--force',
-				'--keychain',
-				identity.keychain,
-				'--sign',
-				identity.identity,
-				'--identifier',
-				MAC_HELPER_BUNDLE_ID,
-				app,
+				'-O',
+				'-swift-version',
+				'5',
+				options.sourcePath ?? macHelperSourcePath(),
+				'-o',
+				join(app, 'Contents', 'MacOS', EXECUTABLE),
+				'-framework',
+				'AppKit',
+				'-framework',
+				'ApplicationServices',
+				'-framework',
+				'ScreenCaptureKit',
 			],
-			{ timeoutMs: 60_000, env },
+			{ timeoutMs: 300_000, env },
 		)
-		if (sign.exitCode === 0) signedBy = identity
-		else why = sign.stderr.trim()
-	} else if (identity) why = 'the signing keychain would not open'
-	if (!signedBy) {
-		options.onNotice?.(NO_IDENTITY_NOTICE(why || 'the tools it needs are missing'))
-		const sign = await run(
-			'codesign',
-			['--force', '--sign', '-', '--identifier', MAC_HELPER_BUNDLE_ID, app],
-			{ timeoutMs: 60_000, env },
-		)
-		if (sign.exitCode !== 0) {
-			rmSync(stage, { recursive: true, force: true })
-			throw new A11yError(
-				'build_failed',
-				`the macOS helper did not sign: ${sign.stderr.trim().slice(0, 600)}`,
+		if (compile.exitCode !== 0) {
+			if (/xcode-select|developer tools/i.test(compile.stderr)) return giveUp(noCompiler)
+			return giveUp(
+				new A11yError(
+					'build_failed',
+					`the macOS helper did not compile: ${compile.stderr.trim().slice(0, 600)}`,
+				),
 			)
 		}
-	}
-	try {
-		// The old app is moved aside, not deleted: a helper still running from it keeps its files.
-		if (existsSync(paths.bundle)) {
-			const aside = join(paths.root, 'replaced', `${state?.hash ?? 'old'}-${Date.now()}`)
-			mkdirSync(aside, { recursive: true, mode: 0o700 })
-			renameSync(paths.bundle, join(aside, `${MAC_HELPER_NAME}.app`))
+		let why = ''
+		const make = (): Promise<MacSigningIdentity | undefined> =>
+			ensureSigningIdentity({
+				root: paths.root,
+				env,
+				run,
+				onBroken,
+				onFailure: (reason) => {
+					why = reason
+				},
+			})
+		const signWith = async (id: MacSigningIdentity): Promise<boolean> => {
+			try {
+				if (!(await unlockSigningKeychain(id, env, run))) {
+					why = 'the signing keychain would not open'
+					return false
+				}
+				const sign = await run(
+					'codesign',
+					[
+						'--force',
+						'--keychain',
+						id.keychain,
+						'--sign',
+						id.identity,
+						'--identifier',
+						MAC_HELPER_BUNDLE_ID,
+						app,
+					],
+					{ timeoutMs: 60_000, env },
+				)
+				if (sign.exitCode !== 0) why = sign.stderr.trim()
+				return sign.exitCode === 0
+			} finally {
+				await lockSigningKeychain(id.keychain, env, run)
+			}
 		}
-		renameSync(app, paths.bundle)
+		identity ??= await make()
+		let signedBy: MacSigningIdentity | undefined
+		if (identity && (await signWith(identity))) signedBy = identity
+		else if (identity) {
+			// The identity listed fine but would not open or sign: set it aside once and make a new one.
+			const dir = macSigningDir(paths.root)
+			try {
+				renameSync(dir, `${dir}.broken-${Date.now()}`)
+				regrant = true
+				const fresh = await make()
+				if (fresh && (await signWith(fresh))) signedBy = fresh
+			} catch {
+				// Stays ad hoc below, with the reason.
+			}
+		}
+		if (retrying && !signedBy) return giveUp(new A11yError('build_failed', why))
+		if (!signedBy) {
+			options.onNotice?.(NO_IDENTITY_NOTICE(why || 'the tools it needs are missing'))
+			const sign = await run(
+				'codesign',
+				['--force', '--sign', '-', '--identifier', MAC_HELPER_BUNDLE_ID, app],
+				{ timeoutMs: 60_000, env },
+			)
+			if (sign.exitCode !== 0)
+				throw new A11yError(
+					'build_failed',
+					`the macOS helper did not sign: ${sign.stderr.trim().slice(0, 600)}`,
+				)
+		}
+		if (regrant)
+			options.onNotice?.(
+				`Namzu made a new signing identity for ${MAC_HELPER_NAME}, so macOS needs the permissions again: remove the old "${MAC_HELPER_NAME}" row in Privacy & Security first, then turn them on for the new one.`,
+			)
+		// The old app is moved aside, not deleted (a helper still running from it keeps its files), and
+		// moved back if the new one cannot take its place.
+		let aside: string | undefined
+		if (existsSync(paths.bundle)) {
+			const dir = join(paths.root, 'replaced', `${state?.hash ?? 'old'}-${Date.now()}`)
+			mkdirSync(dir, { recursive: true, mode: 0o700 })
+			aside = join(dir, `${MAC_HELPER_NAME}.app`)
+			renameSync(paths.bundle, aside)
+		}
+		try {
+			renameSync(app, paths.bundle)
+		} catch (error) {
+			if (aside && !existsSync(paths.bundle)) renameSync(aside, paths.bundle)
+			throw error
+		}
 		writeState(
 			paths.state,
 			signedBy
 				? { hash: paths.hash, signing: 'identity', identity: signedBy.identity }
 				: { hash: paths.hash, signing: 'adhoc', retryAfter: Date.now() + RETRY_IDENTITY_MS },
 		)
-	} catch (error) {
-		// Another process finished the same build first.
-		if (!existsSync(paths.executable)) throw error
+		pruneReplaced(join(paths.root, 'replaced'))
+		return paths
 	} finally {
 		// This build's own staging folder, nothing else.
 		rmSync(stage, { recursive: true, force: true })
 	}
-	return paths
+}
+
+/** Keeps the last few moved-aside apps (names start with the time-ordered suffix) and drops older ones. */
+function pruneReplaced(dir: string, keep = 3): void {
+	try {
+		const entries = readdirSync(dir)
+			.map((name) => ({ name, time: Number(name.slice(name.lastIndexOf('-') + 1)) || 0 }))
+			.sort((a, b) => b.time - a.time)
+		for (const old of entries.slice(keep))
+			rmSync(join(dir, old.name), { recursive: true, force: true })
+	} catch {
+		// Nothing to prune.
+	}
 }
 
 /** Starts the helper through LaunchServices, in the GUI session, without bringing it forward. */

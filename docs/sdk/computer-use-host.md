@@ -495,7 +495,22 @@ every build signed with this identity, so the grant outlives rebuilds and
 version upgrades, and the app stays at one path. The identity is made once and
 reused. If it cannot be made (no `openssl`, a locked-down keychain), the build
 says so in a plain sentence and signs ad hoc, as a macOS before 27 accepts; the
-helper then retries the identity once a day and rebuilds when it can be made.
+helper then retries the identity once a day and replaces the app only when it
+signs with the identity (a retry that cannot compile keeps the working app).
+
+Housekeeping: the keychain is set to lock after 300 seconds and is locked again
+after every signature. A keychain that is missing, corrupt, or does not list the
+certificate (checked with `security find-identity`) is moved to
+`signing.broken-<time>` and a new identity is made; since that is a different
+certificate, macOS needs the permissions again, and the helper says to remove the
+old row first. On a Mac the system `/usr/bin/openssl` is used; any other OpenSSL
+3 is asked for the old PKCS#12 algorithms that `security import` reads. A build
+and the swap of the app run under `build.lock` in the macOS folder, the new app
+replaces the old by two renames (the old one put back if the second fails), and
+only the last three apps in `replaced/` are kept. The keychain password is on
+the argv of `security` for a moment while the keychain is made, opened and
+imported into; that is the password of a local key that signs only this helper,
+and it is already kept 0600 next to the keychain.
 
 ### What the person must click
 
@@ -535,7 +550,12 @@ presses the default button (Open, Choose, Select or Save) unless `confirm:
 false`; when selecting the file already opened it, which closes the panel under
 the call, that is reported as done. It returns `{ ok, detail, via }` with `via`
 one of `go_sheet`, `path_field`, `browse`. Measured on macOS 27.2 with TextEdit's
-Open panel: `browse`, a file three folders deep, about 6 seconds.
+Open panel: `browse`, a file three folders deep, about 6 seconds. While browsing, an
+entry already selected is never taken again for the next step (a folder with a
+same-named folder inside it), and the folder must show up in a new column first.
+A panel does not list hidden folders (dot folders), so a path through one is
+reported as not in the folder the panel shows; give the panel a Go to Folder sheet
+or a path field for that.
 
 ### Differences from Windows
 

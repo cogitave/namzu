@@ -11,6 +11,7 @@ import {
 	mkdtempSync,
 	readFileSync,
 	readdirSync,
+	rmSync,
 	statSync,
 	writeFileSync,
 } from 'node:fs'
@@ -567,7 +568,9 @@ describe('input to a captured window', () => {
 })
 
 /** Stand-ins for swiftc, openssl, security and codesign that leave what the real ones leave. */
-function toolbox(options: { failIdentity?: boolean } = {}) {
+function toolbox(
+	options: { failIdentity?: boolean; openssl3?: boolean; unlockFails?: () => boolean } = {},
+) {
 	const calls: string[][] = []
 	const run = (async (command: string, args: readonly string[]) => {
 		calls.push([command, ...args])
@@ -595,6 +598,14 @@ function toolbox(options: { failIdentity?: boolean } = {}) {
 			return ok(
 				`SHA1 Fingerprint=${'2DE953B1FAC53DB03456E6D4BC358CF84713CDA4'.match(/../g)?.join(':')}\n`,
 			)
+		if (command === 'openssl' && args[0] === 'version')
+			return ok(options.openssl3 ? 'OpenSSL 3.2.1 30 Jan 2024\n' : 'LibreSSL 3.3.6\n')
+		if (command === 'security' && args[0] === 'find-identity')
+			return existsSync(args.at(-1) as string)
+				? ok('  1) 2DE953B1FAC53DB03456E6D4BC358CF84713CDA4 "Namzu Helper Local Signing"\n')
+				: { ...ok(), exitCode: 1, stderr: 'no such keychain' }
+		if (command === 'security' && args[0] === 'unlock-keychain' && options.unlockFails?.())
+			return { ...ok(), exitCode: 1, stderr: 'bad password' }
 		if (command === 'security' && args[0] === 'create-keychain')
 			writeFileSync(args.at(-1) as string, 'KEYCHAIN')
 		if (command === 'security' && args[0] === 'list-keychains' && args.length === 3)
@@ -829,6 +840,82 @@ describe('the helper build, signed with a local identity', () => {
 		expect(existsSync(join(second.root, 'replaced', aside[0] as string, 'Namzu Helper.app'))).toBe(
 			true,
 		)
+	})
+
+	it('locks the signing keychain again after the identity is made and after every signature', async () => {
+		const home = mkdtempSync(join(tmpdir(), 'mac-home-'))
+		const { calls, run } = toolbox()
+		await ensureMacHelper({ env: { NAMZU_HOME: home }, run, hasTool: async () => true })
+		const names = calls.map((c) => c[1])
+		expect(calls.find((c) => c[1] === 'set-keychain-settings')).toEqual(
+			expect.arrayContaining(['-t', '300', '-l']),
+		)
+		expect(names.lastIndexOf('lock-keychain')).toBeGreaterThan(
+			calls.findIndex((c) => c[0] === 'codesign'),
+		)
+		expect(names.filter((n) => n === 'lock-keychain').length).toBeGreaterThanOrEqual(2)
+	})
+
+	it('sets a keychain that does not hold the identity aside and makes a new one, telling the person', async () => {
+		const home = mkdtempSync(join(tmpdir(), 'mac-home-'))
+		const first = toolbox()
+		const env = { NAMZU_HOME: home }
+		const paths = await ensureMacHelper({ env, run: first.run, hasTool: async () => true })
+		rmSync(join(paths.signing, 'namzu-signing.keychain-db'))
+		const other = join(home, 'other.swift')
+		writeFileSync(other, `${readFileSync(sourcePath, 'utf8')}\n// changed\n`)
+		const second = toolbox()
+		const notices: string[] = []
+		await ensureMacHelper({
+			env,
+			run: second.run,
+			hasTool: async () => true,
+			sourcePath: other,
+			onNotice: (n) => notices.push(n),
+		})
+		expect(second.calls.filter((c) => c[0] === 'openssl' && c[1] === 'req')).toHaveLength(1)
+		expect(readdirSync(paths.root).some((n) => n.startsWith('signing.broken-'))).toBe(true)
+		expect(existsSync(join(paths.signing, 'namzu-signing.keychain-db'))).toBe(true)
+		expect(notices.some((n) => /remove the old "Namzu Helper" row/.test(n))).toBe(true)
+	})
+
+	it('asks OpenSSL 3 for the old PKCS#12 algorithms that security import reads', async () => {
+		const home = mkdtempSync(join(tmpdir(), 'mac-home-'))
+		const { calls, run } = toolbox({ openssl3: true })
+		await ensureMacHelper({ env: { NAMZU_HOME: home }, run, hasTool: async () => true })
+		const p12 = calls.find((c) => c[0] === 'openssl' && c[1] === 'pkcs12') ?? []
+		expect(p12).toEqual(expect.arrayContaining(['-certpbe', 'PBE-SHA1-3DES', '-macalg', 'sha1']))
+		const plain = toolbox()
+		await ensureMacHelper({
+			env: { NAMZU_HOME: mkdtempSync(join(tmpdir(), 'mac-home-')) },
+			run: plain.run,
+			hasTool: async () => true,
+		})
+		expect(
+			plain.calls.find((c) => c[0] === 'openssl' && c[1] === 'pkcs12')?.includes('-certpbe'),
+		).toBe(false)
+	})
+
+	it('keeps the working ad-hoc app when the daily retry cannot compile, and keeps only a few old apps', async () => {
+		const home = mkdtempSync(join(tmpdir(), 'mac-home-'))
+		const env = { NAMZU_HOME: home }
+		const failing = toolbox({ failIdentity: true })
+		const paths = await ensureMacHelper({ env, run: failing.run, hasTool: async () => true })
+		const state = JSON.parse(readFileSync(paths.state, 'utf8')) as object
+		writeFileSync(paths.state, JSON.stringify({ ...state, retryAfter: 1 }))
+		const again = await ensureMacHelper({ env, run: toolbox().run, hasTool: async () => false })
+		expect(again.bundle).toBe(paths.bundle)
+		expect(existsSync(paths.executable)).toBe(true)
+		expect(
+			(JSON.parse(readFileSync(paths.state, 'utf8')) as { retryAfter: number }).retryAfter,
+		).toBeGreaterThan(Date.now())
+		// Five rebuilds leave three moved-aside apps.
+		for (let i = 0; i < 5; i++) {
+			const src = join(home, `s${i}.swift`)
+			writeFileSync(src, `${readFileSync(sourcePath, 'utf8')}\n// ${i}\n`)
+			await ensureMacHelper({ env, run: toolbox().run, hasTool: async () => true, sourcePath: src })
+		}
+		expect(readdirSync(join(paths.root, 'replaced')).length).toBeLessThanOrEqual(3)
 	})
 
 	it('falls back to an ad-hoc signature, says so in a plain sentence, and tries the identity again later', async () => {
@@ -1102,6 +1189,53 @@ describe('picking a file in an open or save panel through the tree', () => {
 			ok: false,
 			detail: expect.stringContaining('"missing" is not in the folder'),
 		})
+	})
+
+	it('does not take a same-named entry of the old column for the next step', async () => {
+		let state = -1
+		let stale = 0
+		const nodes = () => {
+			const base = [
+				WIN('Open'),
+				node(1, 0, 'AXButton', 'Cancel', { actions: ['invoke'] }),
+				node(2, 0, 'AXButton', 'Open', { actions: ['invoke'] }),
+				node(5, 0, 'AXOutline', 'sidebar'),
+				node(6, 5, 'AXRow', '', { actions: ['selectionItem'] }),
+				node(7, 6, 'AXStaticText', 'me'),
+				node(8, 0, 'AXBrowser', 'column view'),
+				node(9, 8, 'AXList', ''),
+				node(10, 9, 'AXGroup', '', { actions: ['invoke'] }),
+				node(11, 10, 'AXTextField', '', { value: 'docs', actions: ['value'] }),
+			]
+			if (state >= 1 && stale <= 0)
+				base.push(
+					node(12, 8, 'AXList', ''),
+					node(13, 12, 'AXGroup', '', { actions: ['invoke'] }),
+					node(14, 13, 'AXTextField', '', { value: 'docs', actions: ['value'] }),
+				)
+			stale -= 1
+			return base
+		}
+		const { surface, helper } = setup({
+			snapshot: () => tree(nodes()),
+			act: (request) => {
+				const id = (request.fingerprint as { nameHash: string }).nameHash
+				if (id === '6') state = 0
+				if (id === '10') {
+					state = 1
+					stale = 3
+				}
+				return { done: true }
+			},
+		})
+		await surface.pickFile('/Users/me/docs/docs', { windowId: 501, home: '/Users/me' })
+		const acts = helper.asked.filter((r) => r.cmd === 'act')
+		expect(acts.map((a) => (a.fingerprint as { nameHash: string }).nameHash)).toEqual([
+			'6',
+			'10',
+			'13',
+			'2',
+		])
 	})
 
 	it('counts the file as picked when the panel closes under the last press', async () => {
