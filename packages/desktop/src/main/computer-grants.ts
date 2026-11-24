@@ -10,6 +10,8 @@ import type { PermissionView } from '../shared/protocol.js'
 export const COMPUTER_TOOL = 'computer_use'
 /** The agent's question that an application needs the real keyboard and mouse for a moment. */
 export const SCREEN_MOMENT_TOOL = 'screen_moment'
+/** The agent's question whether it may click and type in the person's own browser window. */
+export const BROWSER_WINDOW_TOOL = 'browser_window'
 
 type Call = PermissionView['calls'][number]
 
@@ -18,7 +20,7 @@ export type ComputerDecision =
 	/** Every action is in an application this conversation allowed: answer yes without a card. */
 	| { kind: 'allow' }
 	/** Some application has not been allowed: ask once about it, not about each action. */
-	| { kind: 'ask-app'; apps: string[] }
+	| { kind: 'ask-app'; apps: string[]; browser?: true }
 	/** Draw the ordinary card: the request holds something these grants do not cover. */
 	| { kind: 'ask' }
 
@@ -34,6 +36,8 @@ const record = (value: unknown): value is Record<string, unknown> =>
 export class ComputerGrants {
 	private readonly granted = new Map<string, string>()
 	private readonly used = new Map<string, string>()
+	/** Browsers the person allowed to be clicked and typed in, by the card that says so. */
+	private readonly browsers = new Set<string>()
 
 	/** `ownApps` names this application's own windows: the agent is never allowed to approve itself. */
 	constructor(private readonly ownApps: () => readonly string[]) {}
@@ -54,6 +58,8 @@ export class ComputerGrants {
 	decide(calls: readonly Call[]): ComputerDecision {
 		if (calls.length === 0) return { kind: 'ask' }
 		const missing = new Map<string, string>()
+		// Browsers the engine itself will put its question about: asked once, in the browser's words.
+		const missingBrowsers = new Map<string, string>()
 		for (const call of calls) {
 			if (call.name === SCREEN_MOMENT_TOOL) {
 				const raw = record(call.input) ? call.input.app : undefined
@@ -66,26 +72,49 @@ export class ComputerGrants {
 			// closes, deletes, sends or submits: the person answers for that one.
 			if (call.alwaysAsk === true || call.computer?.consequence) return { kind: 'ask' }
 			// A batch can act in several applications; each needs its own yes.
+			const browserAsk = new Set((call.computer?.browserAsk ?? []).map(appKey))
 			for (const app of this.appsOf(call)) {
 				// Namzu's own window is not an application it may be allowed into: a click there
 				// could answer its own question.
 				if (this.own(app)) return { kind: 'ask' }
-				if (!this.granted.has(appKey(app))) missing.set(appKey(app), appLabel(app))
+				if (browserAsk.has(appKey(app))) {
+					// An acting call the engine will ask about needs the browser's own yes; the plain
+					// yes that a look was given does not cover clicking and typing.
+					if (!this.browsers.has(appKey(app))) missingBrowsers.set(appKey(app), appLabel(app))
+					continue
+				}
+				if (this.granted.has(appKey(app))) continue
+				missing.set(appKey(app), appLabel(app))
 			}
 		}
-		return missing.size > 0 ? { kind: 'ask-app', apps: [...missing.values()] } : { kind: 'allow' }
+		if (missing.size > 0) return { kind: 'ask-app', apps: [...missing.values()] }
+		// One card per browser: the ordinary application card is not drawn for it as well.
+		if (missingBrowsers.size > 0)
+			return { kind: 'ask-app', apps: [...missingBrowsers.values()], browser: true }
+		return { kind: 'allow' }
 	}
 
-	/** The person allowed these applications for the conversation. */
-	grant(apps: readonly string[]): void {
+	/**
+	 * The person allowed these applications for the conversation. `browser` marks that the card they
+	 * answered was the browser's (click and type in it), which also answers the engine's own
+	 * browser question for it.
+	 */
+	grant(apps: readonly string[], options: { browser?: boolean } = {}): void {
 		for (const app of apps) {
 			this.granted.set(appKey(app), appLabel(app))
 			this.used.set(appKey(app), appLabel(app))
+			if (options.browser) this.browsers.add(appKey(app))
 		}
+	}
+
+	/** Whether the person already said yes to clicking and typing in this browser. */
+	browserAllowed(app: string): boolean {
+		return this.browsers.has(appKey(app))
 	}
 
 	/** The person took an application back. Returns whether it was allowed. */
 	revoke(app: string): boolean {
+		this.browsers.delete(appKey(app))
 		return this.granted.delete(appKey(app))
 	}
 

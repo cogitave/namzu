@@ -53,6 +53,10 @@ if (process.env.NAMZU_E2E_CLOCK_PRELOAD) createRequire(import.meta.url)(process.
 // else about the CLI changes; without the variable the real package is used.
 if (process.env.NAMZU_E2E_PAL_COMPUTER === "fake" || process.env.NAMZU_E2E_PAL_COMPUTER === "fake-fails")
 	register(pathToFileURL(join(here, "fake-pal-computer-hooks.mjs")).href);
+// A flow about a browser window asks for a computer whose only window is a browser: the optional
+// computer-use package keeps everything but its host. Nothing else changes.
+if (process.env.NAMZU_E2E_BROWSER_COMPUTER === "1")
+	register(pathToFileURL(join(here, "fake-browser-computer-hooks.mjs")).href);
 // A flow that needs a slow answer asks for it: the first per-conversation provider read is held back, as
 // a busy machine holds it, so a change of model made meanwhile overtakes it. Nothing else changes.
 const holdMs = Number(process.env.NAMZU_E2E_HOLD_FIRST_PROVIDER_READ_MS ?? 0);

@@ -152,7 +152,12 @@ export interface AcpRequestPermissionParams {
 		 * was allowed (it closes, deletes, sends or submits). Absent on other calls
 		 * and from an older agent.
 		 */
-		readonly computer?: { readonly app?: string; readonly consequence?: string }
+		readonly computer?: {
+			readonly app?: string
+			readonly consequence?: string
+			/** Browsers this call acts in that the engine will put its own question about. */
+			readonly browserAsk?: readonly string[]
+		}
 	}[]
 }
 

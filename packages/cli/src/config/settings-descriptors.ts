@@ -1522,6 +1522,46 @@ const DECLARED: readonly SettingDescriptor[] = [
 		},
 	),
 	d(
+		'teams.enabled',
+		'agent',
+		'Teammates',
+		'Let Namzu start named helpers that keep their own conversation, message each other and share a task list while you talk to the main one. Each one uses your limit. Off by default; the --teams flag or NAMZU_TEAMS=1 turns it on for one run. Not used in one-shot runs.',
+		on,
+		{
+			group: 'helpers-workflows',
+			keywords: ['teams', 'team', 'teammates', 'helpers', 'multi-agent', 'agent team'],
+			default: false,
+			confirm: 'Namzu may start several helpers at once, and each of them spends your limit.',
+			confirmWhen: 'on',
+		},
+	),
+	d(
+		'teams.maxTeammates',
+		'agent',
+		'Most teammates at once',
+		'How many teammates one conversation may have alive at the same time.',
+		num(1, 16),
+		{
+			group: 'helpers-workflows',
+			keywords: ['teams', 'teammates', 'limit', 'how many helpers'],
+			default: 5,
+			shownWhen: { path: 'teams.enabled', is: 'true' },
+		},
+	),
+	d(
+		'teams.idleExitMinutes',
+		'agent',
+		'Teammate idle time',
+		'How long a teammate with nothing to do waits before it ends. A message to it later brings it back with its conversation.',
+		num(1, 1440, 'min'),
+		{
+			group: 'helpers-workflows',
+			keywords: ['teams', 'teammates', 'idle', 'timeout'],
+			default: 30,
+			shownWhen: { path: 'teams.enabled', is: 'true' },
+		},
+	),
+	d(
 		'goal.confirmedBy',
 		'agent',
 		'When a goal counts as done',
@@ -2092,6 +2132,35 @@ const DECLARED: readonly SettingDescriptor[] = [
 			confirm:
 				'Namzu will be able to see your screen and use the mouse and keyboard in apps on this computer. It still asks before it uses an app.',
 			confirmWhen: 'on',
+		},
+	),
+	d(
+		'computerUse.browserWindows',
+		'tools',
+		'Browser windows',
+		'What Namzu does in a browser window you already have open.',
+		pick(
+			['look', 'Only look', 'Namzu sees the window but does not click or type in it.'],
+			[
+				'ask',
+				'Ask me',
+				'The first time in a conversation Namzu asks whether it may click and type in that browser. Your answer covers every window of that browser until the conversation ends; switching this to Only look takes it back.',
+			],
+			[
+				'act',
+				'Click and type',
+				'Namzu clicks and types in browser windows like in other apps. It is told to ask before it sends, deletes, pays or changes admin settings, and it does not type into a password field.',
+			],
+		),
+		{
+			group: 'computer-use',
+			keywords: ['browser windows', 'browser', 'click in browser', 'open browser', 'computer use'],
+			default: 'ask',
+			requires: {
+				path: 'computerUse.enabled',
+				is: 'true',
+				note: 'Computer use is off, so this does nothing yet.',
+			},
 		},
 	),
 	d(

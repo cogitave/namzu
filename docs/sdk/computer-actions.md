@@ -451,7 +451,7 @@ How far the tool works in a window depends on the kind of application, by
 
 | Kind | Examples | The tool may |
 | --- | --- | --- |
-| Browser | `chrome`, `msedge`, `firefox`, `brave`, `safari`, `chromium` | look only: screenshots, zoom, tree reads, scroll, `focus_window`. A click, drag, `ui_act`, `ui_do`, `type_text` or a `key` that is not a page-moving key (`PAGE_UP`, `PAGE_DOWN`, `HOME`, `END`, arrows, `SPACE`) is refused with *only looks at <app>, a browser … Use the browser tool to act on a page*. |
+| Browser | `chrome`, `msedge`, `firefox`, `brave`, `safari`, `chromium` | look only by default (`browserWindows: 'look'`): screenshots, zoom, tree reads, scroll, `focus_window`. With `browserWindows: 'act'`, or `'ask'` once a person allowed that browser for the conversation through `askBrowserWindow`, a browser is worked like any other application (`ask` with no `askBrowserWindow` stays look only). The tool exposes `browserGrants()` and `revokeBrowserGrant(app)`. Refused, it says the three ways forward: allow it, Namzu's own browser, or the person clicks while the model guides. A click, drag, `ui_act`, `ui_do`, `type_text` or a `key` that is not a page-moving key (`PAGE_UP`, `PAGE_DOWN`, `HOME`, `END`, arrows, `SPACE`) is refused with *only looks at <app>, a browser … Use the browser tool to act on a page*. |
 | Terminal or editor | `WindowsTerminal`, `konsole`, `Code`, `idea64`, `devenv`, `sublime_text` | look and click. `type_text`, `key` and a `set_value` are refused with a pointer to the shell tool (a command) or the edit tools (a file). |
 | Anything else | `notepad`, `gnome-calculator` | everything the host offers. |
 
@@ -468,7 +468,7 @@ The description also tells the model to look at the screen before stating an
 application's state, never to click links with computer use, and to prefer a
 connected tool or a command line to the screen when one does the job. The
 terminal session's system prompt says a desktop browser window that is already
-open is looked at only and pages are acted on through the browser tool.
+open is looked at only under `computerUse.browserWindows: look`; under `ask` (the default) or `act` it says clicking and typing there needs the person's yes, or has it, and names the three ways forward ([Computer use settings](../cli/computer-use-settings.md#browser-windows)).
 
 ## Nothing is typed into a terminal
 

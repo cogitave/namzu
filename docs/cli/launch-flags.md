@@ -55,6 +55,7 @@ These options change what one launch starts with. All are session-only: nothing 
 | `--tools <list>` | offers the model only these tools |
 | `-n`, `--name <name>` | names the conversation |
 | `--bare` | minimal start, see below |
+| `--teams` | lets the `Agent` tool start named teammates for this launch, see [Teammates](teams.md) |
 | `--debug-file <path>` | writes every log record to a file |
 | `--settings <file-or-json>` | adds one settings layer |
 | `--mcp-config <file-or-json>`, `--strict-mcp-config` | adds tool servers, or uses only those |

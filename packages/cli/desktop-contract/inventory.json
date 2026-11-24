@@ -152,6 +152,9 @@
     "questionAnswer": [
       "namzu/session/answer-question"
     ],
+    "browserRevoke": [
+      "namzu/session/revoke-browser"
+    ],
     "pals": [
       "namzu/pals/list",
       "namzu/pals/get",

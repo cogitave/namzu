@@ -56,6 +56,7 @@ export type ConfigSessionOptions = Pick<
 	| 'imageGeneration'
 	| 'additionalDirectories'
 	| 'deniedComputerApps'
+	| 'browserWindows'
 >
 
 /**
@@ -118,6 +119,8 @@ export const SESSION_KEY_MAP: Readonly<Record<keyof NamzuCliConfig, string>> = {
 	tui: 'excluded: terminal display settings',
 	updates: 'excluded: the self-updater, not a session',
 	network: 'excluded: read by the terminal app that runs the Namzu network, not by a session',
+	teams:
+		'excluded: read at each named Agent call through the teams gate (`integrations/teams/enabled.ts`), not carried in the session options',
 	modelCatalogueRefresh: 'excluded: read by the catalogue refresher at start, not by a session',
 	shareDesktopSignIn: 'excluded: read where a stored sign-in is looked up, not by a session',
 	hypermode: 'excluded: a per-turn send option, see `turnOptionsFromConfig`',
@@ -168,6 +171,9 @@ export function sessionOptionsFromConfig(
 		...(additionalDirectories.length > 0 ? { additionalDirectories } : {}),
 		...(config.computerUse?.deniedApps?.length
 			? { deniedComputerApps: config.computerUse.deniedApps }
+			: {}),
+		...(config.computerUse?.browserWindows
+			? { browserWindows: config.computerUse.browserWindows }
 			: {}),
 		// `!== undefined`, not truthiness: an empty list is the operator turning
 		// the default screen OFF, and a falsy check would drop it.

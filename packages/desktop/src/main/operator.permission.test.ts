@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events'
 import { fileURLToPath } from 'node:url'
-import { afterEach, expect, it } from 'vitest'
+import { afterEach, expect, it, vi } from 'vitest'
 import type { DesktopEvent, PermissionView } from '../shared/protocol.js'
 import { Operator } from './operator.js'
 
@@ -268,4 +268,152 @@ it('never lets the agent into Namzu’s own window', async () => {
 	owner.respondPermission(session.id, review.id, { outcome: 'reject' })
 	// Nothing about Namzu itself was granted or listed as an application the agent may drive.
 	expect(owner.computerApps(session.id).granted).toEqual([])
+})
+
+const braveCall = (extra: Record<string, unknown> = {}) =>
+	computerCall({ computer: { app: 'brave-browser', browserAsk: ['brave-browser'] }, ...extra })
+
+it('asks once about a browser the engine will ask about, in the browser’s words, and its yes covers the conversation', async () => {
+	const { owner, permission, wait, events } = harness({
+		FIXTURE_COMPUTER_CALLS: JSON.stringify([braveCall()]),
+	})
+	const project = await owner.openProject(process.cwd())
+	const session = await owner.newConversation(project.id)
+	const asked = permission()
+	owner.send(session.id, 'Click in Brave')
+	const review = await asked
+	expect(review.appRequest).toEqual({ apps: ['Brave'], browser: true })
+	const ended = wait((event) => event.kind === 'state' && !event.running)
+	owner.respondPermission(session.id, review.id, { outcome: 'approve_all' })
+	await ended
+	expect(owner.computerApps(session.id).granted).toEqual(['Brave'])
+	// The next action in this browser raises no card of Desktop's.
+	let cards = 0
+	events.on('update', (event: DesktopEvent) => {
+		if (event.kind === 'permission') cards++
+	})
+	const second = wait((event) => event.kind === 'state' && !event.running)
+	owner.send(session.id, 'Click again')
+	await second
+	expect(cards).toBe(0)
+})
+
+it('tells the agent not now for a browser and grants nothing', async () => {
+	const { owner, permission, wait } = harness({
+		FIXTURE_COMPUTER_CALLS: JSON.stringify([braveCall()]),
+	})
+	const project = await owner.openProject(process.cwd())
+	const session = await owner.newConversation(project.id)
+	const asked = permission()
+	owner.send(session.id, 'Click in Brave')
+	const review = await asked
+	const ended = wait((event) => event.kind === 'state' && !event.running)
+	owner.respondPermission(session.id, review.id, { outcome: 'reject' })
+	await ended
+	expect(
+		(await owner.openConversation(project.id, session.id)).thread?.messages.at(-1)?.text,
+	).toContain('not now to clicking and typing in Brave')
+	expect(owner.computerApps(session.id).granted).toEqual([])
+})
+
+it('keeps the ordinary card for a browser the engine will not ask about', async () => {
+	const { owner, permission } = harness({
+		FIXTURE_COMPUTER_CALLS: JSON.stringify([computerCall({ computer: { app: 'brave-browser' } })]),
+	})
+	const project = await owner.openProject(process.cwd())
+	const session = await owner.newConversation(project.id)
+	const asked = permission()
+	owner.send(session.id, 'Look at Brave')
+	const review = await asked
+	expect(review.appRequest).toEqual({ apps: ['Brave'] })
+	owner.respondPermission(session.id, review.id, { outcome: 'reject' })
+})
+
+it('draws the engine’s browser question once, and a yes to it also allows the application', async () => {
+	const { owner, permission, wait, events } = harness({
+		FIXTURE_COMPUTER_CALLS: JSON.stringify([
+			{ name: 'browser_window', input: { app: 'brave-browser' }, alwaysAsk: true },
+		]),
+	})
+	const project = await owner.openProject(process.cwd())
+	const session = await owner.newConversation(project.id)
+	const asked = permission()
+	owner.send(session.id, 'Click in Brave')
+	const review = await asked
+	expect(review.appRequest).toBeUndefined()
+	const ended = wait((event) => event.kind === 'state' && !event.running)
+	owner.respondPermission(session.id, review.id, { outcome: 'approve' })
+	await ended
+	expect(owner.computerApps(session.id).granted).toEqual(['Brave'])
+	// Asked again in the same conversation: the person's yes answers it, no second card.
+	let cards = 0
+	events.on('update', (event: DesktopEvent) => {
+		if (event.kind === 'permission') cards++
+	})
+	const again = wait((event) => event.kind === 'state' && !event.running)
+	owner.send(session.id, 'And again')
+	await again
+	expect(cards).toBe(0)
+	// Taken back, it is asked again.
+	owner.revokeComputerApp(session.id, 'Brave')
+	const third = permission()
+	owner.send(session.id, 'Once more')
+	const card = await third
+	expect(card.calls[0]?.name).toBe('browser_window')
+	owner.respondPermission(session.id, card.id, { outcome: 'reject' })
+})
+
+it('forgets the open browser and application cards of a turn that was stopped', async () => {
+	const { owner, permission, wait } = harness({
+		FIXTURE_COMPUTER_CALLS: JSON.stringify([braveCall()]),
+	})
+	const project = await owner.openProject(process.cwd())
+	const session = await owner.newConversation(project.id)
+	const asked = permission()
+	owner.send(session.id, 'Click in Brave')
+	await asked
+	const held = owner as unknown as {
+		appRequests: Map<string, unknown>
+		browserQuestions: Map<string, unknown>
+	}
+	expect(held.appRequests.size).toBe(1)
+	const ended = wait((event) => event.kind === 'permission-cleared')
+	await owner.cancel(session.id)
+	await ended
+	expect(held.appRequests.size).toBe(0)
+	expect(held.browserQuestions.size).toBe(0)
+})
+
+it('tells the engine when the person takes a browser back, so both sides drop the yes', async () => {
+	const { owner, permission, wait } = harness({
+		FIXTURE_COMPUTER_CALLS: JSON.stringify([braveCall()]),
+		FIXTURE_REVOKE_BROWSER: '1',
+	})
+	const project = await owner.openProject(process.cwd())
+	const session = await owner.newConversation(project.id)
+	const asked = permission()
+	owner.send(session.id, 'Click in Brave')
+	const review = await asked
+	const ended = wait((event) => event.kind === 'state' && !event.running)
+	owner.respondPermission(session.id, review.id, { outcome: 'approve_all' })
+	await ended
+	const client = (
+		owner as unknown as {
+			session(id: string): {
+				client: { request(method: string, params: unknown): Promise<unknown> }
+			}
+		}
+	).session(session.id).client
+	const request = vi.spyOn(client, 'request')
+	owner.revokeComputerApp(session.id, 'Brave')
+	expect(owner.computerApps(session.id).granted).toEqual([])
+	expect(request).toHaveBeenCalledWith(
+		'namzu/session/revoke-browser',
+		expect.objectContaining({ app: 'Brave' }),
+		expect.anything(),
+	)
+	// Revoking an application that was never a browser yes sends the engine nothing.
+	request.mockClear()
+	owner.revokeComputerApp(session.id, 'Notepad')
+	expect(request).not.toHaveBeenCalled()
 })

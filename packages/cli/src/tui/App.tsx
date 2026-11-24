@@ -7016,6 +7016,11 @@ function AppBody({
 							...(activeCtx.computerUse?.deniedApps?.length
 								? { deniedComputerApps: activeCtx.computerUse.deniedApps }
 								: {}),
+							...(activeCtx.readBrowserWindows
+								? { readBrowserWindows: activeCtx.readBrowserWindows }
+								: activeCtx.computerUse?.browserWindows
+									? { browserWindows: activeCtx.computerUse.browserWindows }
+									: {}),
 							// The terminal is watched live: the quiet-stretch nudge, unless the
 							// config turned it off.
 							...(() => {

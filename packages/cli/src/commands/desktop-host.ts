@@ -2081,6 +2081,22 @@ export function createDesktopHostExtensions(
 					},
 				}
 			: {}),
+		/** The person took a browser's click-and-type yes back; the engine asks again. */
+		...(runtime.revokeBrowserGrant
+			? {
+					'namzu/session/revoke-browser': async (params: Record<string, unknown>) => {
+						if (Object.keys(params).some((key) => !['sessionId', 'app'].includes(key)))
+							throw new Error('Revoking a browser accepts only sessionId and app.')
+						const app = text(params, 'app')
+						if (app.length > 120) throw new Error('Invalid application.')
+						return {
+							revoked: (
+								runtime.revokeBrowserGrant as NonNullable<CliAcpRuntime['revokeBrowserGrant']>
+							)(await ownedSession(params), app),
+						}
+					},
+				}
+			: {}),
 		'namzu/jobs/list': async (params: Record<string, unknown>) =>
 			runtime.jobs(await ownedReadSession(params)),
 		'namzu/jobs/read': async (params: Record<string, unknown>) =>

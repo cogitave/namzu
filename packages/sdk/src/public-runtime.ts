@@ -667,6 +667,8 @@ export {
 // closed), and the refusal of a task store bound to another session.
 export { selectTaskContext } from './store/task/context.js'
 export { TaskSessionMismatchError } from './store/task/disk.js'
+// The task list several sessions share (teams): lock files, claim result codes, both-way dependencies.
+export { FileTaskStore, TaskListError, isClaimableTaskStore } from './store/task/file.js'
 // Cross-process possession of a session: its `lease.json`. Listing what is
 // waiting (pending decisions, turns, children) is `SessionIndex`'s job, which
 // comes through `./store/session-index/index.js` at the end of this file.
@@ -1886,6 +1888,9 @@ export type { SingleHandoffDeps } from './session/handoff/single.js'
 export type { InterventionChainLoader } from './session/intervention/prev-artifact.js'
 export type {
 	ActionInput,
+	BrowserWindowAnswer,
+	BrowserWindowQuestion,
+	BrowserWindowsSetting,
 	ComputerUseAdvice,
 	ComputerUseAdvisor,
 	ComputerUseAdvisorCandidate,
@@ -2111,6 +2116,30 @@ export {
 	udsPeerAddress,
 	writePeerRecord,
 } from './peers/index.js'
+// ─── teams (@experimental) ──────────────────────────────────────────────
+//
+// Named helpers beside the main conversation: the membership file with its lock, a mailbox each, and
+// the seam a teammate runner plugs into. See `teams/index.ts`.
+
+export {
+	MAIL_KINDS,
+	MAX_MAIL_ENTRIES,
+	MAX_MAIL_TEXT_BYTES,
+	MailEntrySchema,
+	MailKindSchema,
+	normalizeTeamName,
+	TEAM_COLORS,
+	TEAM_CONFIG_VERSION,
+	TEAM_CREATE_GRACE_MS,
+	TEAM_LEAD_NAME,
+	TeamBackendKindSchema,
+	TeamConfigSchema,
+	TeamMemberSchema,
+	TeamStore,
+	TeamStoreError,
+	teamNameProblem,
+	teammateNameProblem,
+} from './teams/index.js'
 // ─── your Namzu network (@experimental) ───────────────────────────────────
 //
 // Machines of one person find each other, share a roster of sessions and

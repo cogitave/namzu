@@ -1,6 +1,6 @@
 ---
 name: document
-description: Write a document as one Markdown file. Use when a document file is asked for; a research or analysis request is answered in the reply, except by deep-research. Not for Word, PDF, slides or sheets.
+description: Write a document or report as one Markdown file. Use when asked for a document file, or a Word, sheet or slide file (this says what is possible); a research or analysis request is answered in the reply, except by deep-research. Not for a PDF: use the `pdf` skill.
 invocation: both
 ---
 
@@ -10,13 +10,22 @@ A document here is one Markdown file. Desktop shows it beside the conversation
 as a page, with an outline, and the person can copy it or open it in their own
 program. Write the file, then say in one reply what you made.
 
-## What is not available yet
+## Which file, and what is possible
 
-Word (`.docx`), PDF, slides and spreadsheet files cannot be made yet. If the
-person asks for one, say so in one plain sentence, write the Markdown file
-instead, and tell them they can paste or open it in the program they use. Do
-not write a script that needs a library the machine may not have, and do not
-pretend a Markdown file is a Word file.
+Markdown is the default and always works. For anything else, say what the
+machine allows in one or two plain sentences and never name or hand over a file
+you did not write.
+
+- **A PDF:** use the `pdf` skill. Write and read back the Markdown first when
+  the content is yours to write; the skill makes the PDF when a renderer exists.
+- **Word, spreadsheet or slide files:** if another skill or tool in this
+  session makes that format, use it. Otherwise not made here. Offer the Markdown file,
+  a CSV for tabular data, or a PDF. Do not write a script that needs a library
+  the machine may not have, and do not give a Markdown or CSV file a `.docx`,
+  `.xlsx` or `.pptx` name.
+- Ask only when the person did not say which they want, in one short question
+  ("Markdown or a PDF?"); write the Markdown meanwhile if the choice does not
+  change it.
 
 ## Steps
 
@@ -104,4 +113,4 @@ Update the date line only if the person asks.
 
 - Write a document into a folder the project does not own.
 - Replace an existing file the person did not ask to change.
-- Claim a Word, PDF, slide or spreadsheet file exists when you wrote Markdown.
+- Claim a PDF, Word, slide or spreadsheet file exists when you wrote Markdown or CSV.

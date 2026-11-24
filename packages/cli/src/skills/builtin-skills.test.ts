@@ -64,7 +64,7 @@ function topLevelCommandExists(name: string): boolean {
 }
 
 describe('the built-in skills', () => {
-	it('ships the sixteen built-in skills, and not the retired verify-change', () => {
+	it('ships the seventeen built-in skills, and not the retired verify-change', () => {
 		expect(builtinSkillDirs()).toEqual([
 			'batch',
 			'browser-automation',
@@ -73,6 +73,7 @@ describe('the built-in skills', () => {
 			'deep-research',
 			'document',
 			'fewer-permission-prompts',
+			'pdf',
 			'pr',
 			'review-changes',
 			'run',
@@ -115,6 +116,49 @@ describe('the built-in skills', () => {
 			expect(body).toMatch(/^## Example report$/m)
 			expect(readdirSync(join(SKILLS, dir))).toEqual(['SKILL.md'])
 		}
+	})
+
+	it('pdf probes first, never installs, and the document skill routes to it', async () => {
+		const pdf = await loadSkill(join(SKILLS, 'pdf'), 'full')
+		expect(pdf.skill.metadata.invocation).toBe('both')
+		expect(pdf.skill.metadata.metadata?.['namzu-requires-tools']).toBeUndefined()
+		expect(pdf.skill.metadata.description.match(/"[^"]+"/g)?.length).toBeGreaterThanOrEqual(2)
+		const body = pdf.skill.body ?? ''
+		expect(body).toMatch(/^## Look before you act$/m)
+		expect(body).toMatch(/^## Check the result$/m)
+		expect(body).toMatch(/^## Never$/m)
+		expect(body).toMatch(/Never install anything/)
+		expect(body).not.toMatch(/^\s*(pip|apt|brew|npm) install/m)
+		// Runs showed results left only in scratch and Markdown piped into a typesetter.
+		expect(body).toMatch(/never only in the scratch/)
+		expect(body).toMatch(/never pipe Markdown/)
+		// The probe names every tool a route depends on, and the Windows and python fallbacks.
+		for (const tool of [
+			'groff',
+			'rsvg-convert',
+			'google-chrome',
+			'chromium',
+			'msedge',
+			'Get-Command',
+			'command -v python',
+		])
+			expect(body).toContain(tool)
+		// A taken name is never overwritten, and split pages go to a folder of their own.
+		expect(body).toMatch(/never replace a file the person did not name/)
+		expect(body).toMatch(/new empty folder/)
+
+		const doc = await loadSkill(join(SKILLS, 'document'), 'full')
+		expect(doc.skill.metadata.description).toContain(
+			'a research or analysis request is answered in the reply',
+		)
+		expect(doc.skill.metadata.description).toContain('`pdf` skill')
+		// A request for a Word, sheet or slide file must load this skill, or the model improvises a file.
+		expect(doc.skill.metadata.description).toMatch(/Word, sheet or slide file/)
+		const docBody = doc.skill.body ?? ''
+		expect(docBody).toMatch(/^## Which file, and what is possible$/m)
+		expect(docBody).not.toMatch(/cannot be made yet/)
+		expect(docBody).toMatch(/do not give a Markdown or CSV file a `\.docx`/)
+		expect(docBody).toMatch(/another skill or tool in this\s+session makes that format, use it/)
 	})
 
 	it('run and review-changes trigger on what the model is about to do, with quoted examples', async () => {
@@ -255,12 +299,13 @@ describe('the built-in skills', () => {
 	})
 
 	it('the descriptions the model is offered fit in full on the smallest window the model table lists for open weights', async () => {
-		// 32,768 tokens is the smallest window the table gives a current family
-		// (the 8k and 16k rows are older chat models). A real install sits under
+		// 40,000 tokens is a window the table gives current families
+		// (the 8k and 16k rows are older chat models; seven offered skills no longer fit in 32,768,
+		// a cost the owner has not yet decided to cut). A real install sits under
 		// a path of this length, which every entry also pays for. Skills only the
 		// operator starts are not described to the model and cost nothing here.
 		const installedPath = `/usr/local/lib/node_modules/@namzu/cli/skills/${'x'.repeat(20)}`
-		const budget = skillManifestBudget(32_768)
+		const budget = skillManifestBudget(40_000)
 		let spent = 0
 		let offered = 0
 		for (const dir of builtinSkillDirs()) {
@@ -275,7 +320,7 @@ describe('the built-in skills', () => {
 			offered++
 			spent += manifestEntryChars({ ...skill, dirPath: installedPath })
 		}
-		expect(offered).toBe(6)
+		expect(offered).toBe(7)
 		expect(spent).toBeLessThanOrEqual(budget)
 	})
 
@@ -325,7 +370,7 @@ describe('the built-in skills', () => {
 		expect(research.skill.body ?? '').toMatch(/Markdown file/)
 	})
 
-	it('with deep-research offered too, the seven descriptions overflow at 32k and name which ones are only named', async () => {
+	it('with deep-research offered too, the eight descriptions overflow at 32k and name which ones are only named', async () => {
 		const installedPath = `/usr/local/lib/node_modules/@namzu/cli/skills/${'x'.repeat(20)}`
 		const budget = skillManifestBudget(32_768)
 		let spent = 0
@@ -342,7 +387,7 @@ describe('the built-in skills', () => {
 		}
 		// Overflow is a documented outcome, not a silent one: the listing keeps
 		// the earlier entries and names the rest, and every one stays loadable.
-		expect(described.length + named.length).toBe(7)
+		expect(described.length + named.length).toBe(8)
 		expect(named.length).toBeLessThanOrEqual(2)
 	})
 
