@@ -16,14 +16,46 @@ computerUse:
   deniedApps:              # apps the computer tools never act in
     - Banking
     - Password Manager
+  browserWindows: ask      # look | ask (default) | act: what happens in a browser window you have open
 ```
 
 | Key | Default | Who may set it |
 | --- | --- | --- |
 | `enabled` | `false` | **Only the user file and the managed file** can turn it on. A project file or local file can only say `false`; its `true` is dropped. The managed file wins over the user file, so an administrator can lock it off. |
+| `browserWindows` | `ask` | The user file and the managed file set it (the managed one wins). A project or local file can only **tighten** it (`act` to `ask` to `look`); a looser value is dropped, so a repository cannot make a clone of itself click in your browser. |
 | `deniedApps` | empty | Any file. The lists add up across files and no file removes another's entry (a name matches without regard to case, spaces or a trailing `.exe`). |
 
 Neither is read from the environment.
+
+## Browser windows
+
+A browser window you already have open (your own sign-ins, your admin pages) is not Namzu's own browser: the
+`browser` tool drives a separate profile where you have not signed in. `computerUse.browserWindows` says what
+`computer_use` may do in your window.
+
+| Value | What happens |
+| --- | --- |
+| `look` | Namzu sees the window (screenshots, controls, scroll) and does not click or type in it. This was the only behaviour before the setting. |
+| `ask` (default) | Looking is free: a screenshot or a list of windows aimed at a browser never raises the browser card (Desktop's ordinary app card applies, and it records no browser yes). The first action that acts, aimed at a browser window, in a conversation asks you: *Let Namzu click and type in Brave in this conversation?* with *Allow for this conversation* and *Not now*. Only your answer allows it, for that browser in that conversation. |
+| `act` | Namzu clicks and types in browser windows like in any other app. |
+
+Under `ask` the question is the engine's own and goes through the same channel as the screen question: the
+terminal's question card, and in Desktop an approval card (`browser_window`, marked `alwaysAsk`). No permission mode
+answers it, auto and a remembered *allow for this conversation* included, and a run with nobody to ask (`exec`,
+a scheduled task) never gets the grant and stays look-only. *Not now* holds for the rest of the turn so the model
+does not ask twice. The grant is per browser and per conversation (a new conversation asks again) and the tool can
+take it back (`revokeBrowserGrant`). The setting is read at every call: switching *Browser windows* to *Only look* in `/config` or Settings takes every grant back from the next action. A grant covers every window of that browser, private ones and other profiles included, and Desktop asks once per browser: under `ask` the card for the first action in a browser is the browser card (*Let Namzu click and type in Brave in this conversation?*, *Allow for this conversation* / *Not now*, no *Allow once* because the grant is for the conversation), and its yes is both Desktop's per-app allowance and the engine's browser grant, so the app card (*Allow Namzu to use Brave*) is not drawn as well. The engine names the browsers it will ask about on the permission request (`computer.browserAsk`); a yes to the engine's own question (a browser nobody allowed through the first card) also allows the app in Desktop. Under `look` Desktop's ordinary app card is the only card, under `act` too. *Not now* refuses the action and grants neither side; taking the browser back in Desktop (conversation details) asks again on both sides: Desktop sends the engine `namzu/session/revoke-browser` (`{ sessionId, app }`, optional group `browserRevoke`, answered `{ revoked }`) so the engine drops its own grant too. Cards still open when a reply is stopped are forgotten with it. There is no other revoke row yet; the grant ends with the conversation. With nobody to ask when the conversation starts (no question channel), the tool and the prompt say look-only.
+
+What still asks, with or without the grant: Namzu is told to ask, and the engine enforces only part of it. The tool refuses `type_text` while the focused control of the latest `ui_snapshot` is a password field, and `ui_act set_value` on one, in a browser; the rest is the model's guidance and the review cards, and `auto` or `bypass` do not add a per-click question. The tool treats a key or control named like deleting, sending,
+posting, publishing, submitting, paying, accepting or agreeing, confirming, or a password, passcode or card number as
+a consequence to answer for, every click is still a change that a review asks about, and the model is told to
+stop and ask before it types into a password field, submits payment or personal data, sends or posts, deletes,
+accepts terms or changes organisation-wide admin settings. A denied app (`deniedApps`) stays off limits whatever
+this says.
+
+When an action on a browser window is refused or not granted yet, the tool result gives the model three ways forward to
+offer in plain words: allow it for this conversation (or, under `look`, change *Browser windows* in Settings);
+continue in Namzu's own browser, where you sign in once; or you click while Namzu guides from screenshots.
 
 ## What `enabled` does
 

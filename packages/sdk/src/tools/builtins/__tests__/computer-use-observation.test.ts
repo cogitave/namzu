@@ -269,7 +269,7 @@ describe('what the person is shown of a call', { timeout: 30_000 }, () => {
 				...first,
 				data: { firstUseOf: 'msedge.exe' },
 			}),
-		).toMatchObject({ label: 'Using Msedge' })
+		).toMatchObject({ label: 'Using Microsoft Edge' })
 		const second = await run(tool, { type: 'mouse_click', at: { x: 120, y: 120 } })
 		expect(second.data).not.toHaveProperty('firstUseOf')
 		const other = await run(tool, { type: 'mouse_click', at: { x: 1000, y: 100 } })

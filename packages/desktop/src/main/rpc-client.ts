@@ -85,6 +85,11 @@ export class RuntimeClient extends EventEmitter {
 	supportsQuestionAnswer(): boolean {
 		return this.questionAnswer
 	}
+	private browserRevoke = false
+	/** The engine takes back a browser's click-and-type yes when the person revokes it here. */
+	supportsBrowserRevoke(): boolean {
+		return this.browserRevoke
+	}
 	private conversationActions = false
 	supportsConversationActions(): boolean {
 		return this.conversationActions
@@ -429,6 +434,7 @@ export class RuntimeClient extends EventEmitter {
 		this.liveInput = offers('liveInput')
 		this.livePermissionMode = offers('livePermissionMode')
 		this.questionAnswer = offers('questionAnswer')
+		this.browserRevoke = offers('browserRevoke')
 		this.pals = offers('pals')
 		this.palInboxStart = offers('palInboxStart')
 		this.palComputerControl = offers('palComputerControl')

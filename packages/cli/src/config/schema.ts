@@ -469,6 +469,12 @@ export interface ComputerUseConfig {
 	 * list; none can take another file's entry out.
 	 */
 	readonly deniedApps?: readonly string[]
+	/**
+	 * What computer use does in a browser window. `look` only looks (a page is the browser tool's),
+	 * `ask` (the default) asks the person the first time in a conversation and acts after their yes,
+	 * `act` clicks and types there like in any other application. A project file can only tighten it.
+	 */
+	readonly browserWindows?: 'look' | 'ask' | 'act'
 }
 
 /** See `NamzuCliConfig.browser`. */

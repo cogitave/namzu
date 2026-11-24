@@ -293,6 +293,11 @@ export interface TuiContext {
 	 * Absent: the value in `computerUse` at launch stands.
 	 */
 	readonly readComputerUseEnabled?: () => boolean
+	/**
+	 * `computerUse.browserWindows` as the settings files say it now, read at every computer use
+	 * call: switching it to `look` in an open conversation takes back what the person allowed.
+	 */
+	readonly readBrowserWindows?: () => 'look' | 'ask' | 'act'
 	/** See `NamzuCliConfig.codeAnalysis`. */
 	readonly codeAnalysis?: CodeAnalysisConfig
 	/** See `NamzuCliConfig.imageGeneration`. */

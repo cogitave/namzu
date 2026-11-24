@@ -26,7 +26,7 @@ const text = (value: unknown, max: number): string | undefined =>
 /** What the agent said about a computer call, bounded; anything else is an ordinary call. */
 function readComputerCall(
 	value: unknown,
-): { app?: string; apps?: string[]; consequence?: string } | undefined {
+): { app?: string; apps?: string[]; consequence?: string; browserAsk?: string[] } | undefined {
 	if (!record(value)) return undefined
 	const app = text(value.app, 120)
 	const consequence = text(value.consequence, 300)
@@ -36,11 +36,18 @@ function readComputerCall(
 				.map((entry) => text(entry, 120))
 				.filter((entry): entry is string => Boolean(entry))
 		: []
+	const browserAsk = Array.isArray(value.browserAsk)
+		? value.browserAsk
+				.slice(0, 8)
+				.map((entry) => text(entry, 120))
+				.filter((entry): entry is string => Boolean(entry))
+		: []
 	return app || consequence
 		? {
 				...(app ? { app } : {}),
 				...(apps.length > 1 ? { apps } : {}),
 				...(consequence ? { consequence } : {}),
+				...(browserAsk.length > 0 ? { browserAsk } : {}),
 			}
 		: undefined
 }

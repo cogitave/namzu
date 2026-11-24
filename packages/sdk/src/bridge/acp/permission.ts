@@ -27,7 +27,12 @@ export interface AcpPermissionRequest {
 		 */
 		readonly alwaysAsk?: boolean
 		/** Rides to the client untouched; see `AcpRequestPermissionParams`. */
-		readonly computer?: { readonly app?: string; readonly consequence?: string }
+		readonly computer?: {
+			readonly app?: string
+			readonly consequence?: string
+			/** Browsers this call acts in that the engine will put its own question about. */
+			readonly browserAsk?: readonly string[]
+		}
 	})[]
 }
 

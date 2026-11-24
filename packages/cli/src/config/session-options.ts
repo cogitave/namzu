@@ -56,6 +56,7 @@ export type ConfigSessionOptions = Pick<
 	| 'imageGeneration'
 	| 'additionalDirectories'
 	| 'deniedComputerApps'
+	| 'browserWindows'
 >
 
 /**
@@ -170,6 +171,9 @@ export function sessionOptionsFromConfig(
 		...(additionalDirectories.length > 0 ? { additionalDirectories } : {}),
 		...(config.computerUse?.deniedApps?.length
 			? { deniedComputerApps: config.computerUse.deniedApps }
+			: {}),
+		...(config.computerUse?.browserWindows
+			? { browserWindows: config.computerUse.browserWindows }
 			: {}),
 		// `!== undefined`, not truthiness: an empty list is the operator turning
 		// the default screen OFF, and a falsy check would drop it.

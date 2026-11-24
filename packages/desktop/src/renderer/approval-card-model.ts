@@ -37,9 +37,10 @@ export interface ApprovalCardModel {
 	entries: { label: string; value: string }[]
 	destructive: boolean
 	/** The one-time question that an application needs the keyboard and mouse for a moment. */
-	screenMoment?: { app: string }
+	/** The engine's question that needs the person's own answer: the real keyboard and mouse for a moment, or a browser window to click and type in. */
+	screenMoment?: { app: string; browser?: true }
 	/** The question whether Namzu may use these applications in this conversation. */
-	appAccess?: { apps: string[] }
+	appAccess?: { apps: string[]; browser?: true }
 	/** A change to one of the person's settings: its name and the old and new value in Settings' words. */
 	settingChange?: { setting: string; from: string; to: string }
 	/** Titles of the other calls of the same batch, which one answer covers. */
@@ -54,6 +55,8 @@ const VALUE_MAX = 240
 export const PAL_MESSAGE_TOOL = 'send_pal_message'
 /** The request the engine sends when an application needs the real keyboard and mouse for a moment. */
 export const SCREEN_MOMENT_TOOL = 'screen_moment'
+/** The request the engine sends when Namzu asks to click and type in the person's own browser window. */
+export const BROWSER_WINDOW_TOOL = 'browser_window'
 
 /** The application a screen-moment call names, in words a person reads. */
 function screenApp(call: Call): string {
@@ -64,6 +67,11 @@ function screenApp(call: Call): string {
 /** What saying yes lets happen, and for how long. */
 export function screenMomentNote(app: string): string {
 	return `Namzu needs your keyboard and mouse for a moment to use ${app}. It cannot do this in the background. Your window and pointer are put back afterwards, and Escape stops it. A yes covers ${app} for the rest of this conversation; another application is asked again.`
+}
+
+/** What saying yes to a browser window lets happen, and for how long. */
+export function browserWindowNote(app: string): string {
+	return `Namzu clicks and types in ${app} like in any other app, so it can act where you are signed in. Namzu is told to ask before it sends, deletes, pays, accepts terms or changes admin settings, and it does not type into a password field. A yes covers every ${app} window, including private ones, for the rest of this conversation; another browser is asked again.`
 }
 
 const record = (value: unknown): value is Record<string, unknown> =>
@@ -240,10 +248,13 @@ export function buildApprovalCard(
 ): ApprovalCardModel {
 	if (permission.appRequest && permission.appRequest.apps.length > 0) {
 		const apps = permission.appRequest.apps
+		const browser = permission.appRequest.browser === true
 		return {
 			kind: 'other',
-			title: `Allow Namzu to use ${apps.join(' and ')} in this conversation?`,
-			appAccess: { apps },
+			title: browser
+				? `Let Namzu click and type in ${apps.join(' and ')} in this conversation?`
+				: `Allow Namzu to use ${apps.join(' and ')} in this conversation?`,
+			appAccess: browser ? { apps, browser: true } : { apps },
 			previewMissing: false,
 			entries: [],
 			destructive: false,
@@ -334,6 +345,19 @@ export function buildApprovalCard(
 				{ label: 'Now', value: change.from },
 				{ label: 'Change to', value: change.to },
 			],
+			destructive: false,
+			others,
+		}
+	}
+
+	if (name === BROWSER_WINDOW_TOOL) {
+		const app = screenApp(first)
+		return {
+			kind: 'other',
+			title: `Let Namzu click and type in ${app} in this conversation?`,
+			screenMoment: { app, browser: true },
+			previewMissing: false,
+			entries: [],
 			destructive: false,
 			others,
 		}

@@ -101,7 +101,9 @@ export async function withPreviews(
 		/** What a host can add about a call it knows more of (the application a computer action works on). */
 		readonly computer?: (
 			call: CallLike,
-		) => Promise<{ app?: string; apps?: string[]; consequence?: string } | undefined>
+		) => Promise<
+			{ app?: string; apps?: string[]; consequence?: string; browserAsk?: string[] } | undefined
+		>
 		/**
 		 * What a call that changes one of the person's settings says, in the words Settings uses:
 		 * the name and the old and new value. Sent so a card never shows a key or raw input.

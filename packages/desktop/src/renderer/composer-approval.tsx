@@ -20,6 +20,7 @@ import {
 	approvalConsequenceTitle,
 	approvalDetails,
 	approvalFlags,
+	browserWindowNote,
 	buildApprovalCard,
 	declineFeedback,
 	offersConversationAllowance,
@@ -519,15 +520,22 @@ export function ComposerApproval({
 			</Menu.Portal>
 		</Menu.Root>
 	)
+	const browserApp = appAccess?.browser === true
 	const acceptTip = appAccess
-		? 'Allow · Ctrl+Enter. Enter says no.'
+		? browserApp
+			? 'Allow for this conversation · Ctrl+Enter. Enter says not now.'
+			: 'Allow · Ctrl+Enter. Enter says no.'
 		: screenMoment
-			? 'Allow this app · Ctrl+Enter. Enter says not now.'
+			? screenMoment.browser
+				? 'Allow for this conversation · Ctrl+Enter. Enter says not now.'
+				: 'Allow this app · Ctrl+Enter. Enter says not now.'
 			: risky
 				? 'Accept · Ctrl+Enter. This one looks risky, so Enter rejects it.'
 				: 'Accept · Enter'
 	const rejectTip = appAccess
-		? 'Deny · Enter or Esc'
+		? browserApp
+			? 'Not now · Enter or Esc'
+			: 'Deny · Enter or Esc'
 		: screenMoment
 			? 'Not now · Enter or Esc'
 			: risky
@@ -539,9 +547,13 @@ export function ComposerApproval({
 			className="approval-surface"
 			aria-label={
 				appAccess
-					? 'Use of an app'
+					? browserApp
+						? 'A question about a browser window'
+						: 'Use of an app'
 					: screenMoment
-						? 'A question about the screen'
+						? screenMoment.browser
+							? 'A question about a browser window'
+							: 'A question about the screen'
 						: 'Permission to act'
 			}
 			onKeyDown={onKeyDown}
@@ -686,10 +698,18 @@ export function ComposerApproval({
 					</dl>
 				)}
 				{screenMoment && (
-					<p className="approval-note approval-consequence">{screenMomentNote(screenMoment.app)}</p>
+					<p className="approval-note approval-consequence">
+						{screenMoment.browser
+							? browserWindowNote(screenMoment.app)
+							: screenMomentNote(screenMoment.app)}
+					</p>
 				)}
 				{appAccess && (
-					<p className="approval-note approval-consequence">{appAccessNote(appAccess.apps)}</p>
+					<p className="approval-note approval-consequence">
+						{browserApp
+							? browserWindowNote(appAccess.apps.join(' and '))
+							: appAccessNote(appAccess.apps)}
+					</p>
 				)}
 				{model.others.length > 0 && (
 					<p className="approval-note">
@@ -763,7 +783,13 @@ export function ComposerApproval({
 									aria-keyshortcuts="Escape"
 									onClick={reject}
 								>
-									{appAccess ? 'Deny' : screenMoment ? 'Not now' : 'Reject'}
+									{appAccess
+										? browserApp
+											? 'Not now'
+											: 'Deny'
+										: screenMoment
+											? 'Not now'
+											: 'Reject'}
 									<span className="approval-key" aria-hidden="true">
 										Esc
 									</span>
@@ -817,7 +843,7 @@ export function ComposerApproval({
 										</span>
 									</div>
 								)}
-								{appAccess && (
+								{appAccess && !browserApp && (
 									<button
 										type="button"
 										className="approval-button"
@@ -839,7 +865,15 @@ export function ComposerApproval({
 									aria-keyshortcuts="Control+Enter"
 									onClick={accept}
 								>
-									{appAccess ? 'Allow' : screenMoment ? 'Allow this app' : 'Accept'}
+									{appAccess
+										? browserApp
+											? 'Allow for this conversation'
+											: 'Allow'
+										: screenMoment
+											? screenMoment.browser
+												? 'Allow for this conversation'
+												: 'Allow this app'
+											: 'Accept'}
 									<span className="approval-key" aria-hidden="true">
 										{acceptKey()}
 									</span>

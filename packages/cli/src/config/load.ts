@@ -4103,7 +4103,8 @@ export function mergeBrowserConfig(
 // computerUse
 // ---------------------------------------------------------------------------
 
-const COMPUTER_USE_KEYS = new Set(['enabled', 'deniedApps'])
+const COMPUTER_USE_KEYS = new Set(['enabled', 'deniedApps', 'browserWindows'])
+const BROWSER_WINDOWS_RANK = { look: 0, ask: 1, act: 2 } as const
 
 function readComputerUseConfig(v: unknown, context: ConfigReaderContext): ComputerUseConfig {
 	if (!isConfigMapping(v)) return invalidConfigValue(context, [], 'must be a mapping')
@@ -4112,13 +4113,18 @@ function readComputerUseConfig(v: unknown, context: ConfigReaderContext): Comput
 			return invalidConfigValue(
 				context,
 				[key],
-				'is not a computer use setting (enabled, deniedApps)',
+				'is not a computer use setting (enabled, deniedApps, browserWindows)',
 			)
 		}
 	}
 	const raw = v as Record<string, unknown>
 	if (raw.enabled !== undefined && typeof raw.enabled !== 'boolean')
 		return invalidConfigValue(context, ['enabled'], 'must be true or false')
+	if (
+		raw.browserWindows !== undefined &&
+		(typeof raw.browserWindows !== 'string' || !(raw.browserWindows in BROWSER_WINDOWS_RANK))
+	)
+		return invalidConfigValue(context, ['browserWindows'], 'must be look, ask or act')
 	let deniedApps: string[] | undefined
 	if (raw.deniedApps !== undefined) {
 		if (!Array.isArray(raw.deniedApps) || raw.deniedApps.some((app) => typeof app !== 'string'))
@@ -4139,6 +4145,9 @@ function readComputerUseConfig(v: unknown, context: ConfigReaderContext): Comput
 	return {
 		...(raw.enabled !== undefined ? { enabled: raw.enabled as boolean } : {}),
 		...(deniedApps !== undefined ? { deniedApps } : {}),
+		...(raw.browserWindows !== undefined
+			? { browserWindows: raw.browserWindows as ComputerUseConfig['browserWindows'] }
+			: {}),
 	}
 }
 
@@ -4150,6 +4159,9 @@ function readComputerUseConfig(v: unknown, context: ConfigReaderContext): Comput
  *   close it: its `true` is dropped, so a repository cannot make a clone of
  *   itself drive the screen.
  * - `deniedApps` adds up across files; no file removes another's entry.
+ * - `browserWindows`: the user's file and the managed file set it, the later one winning. A project
+ *   file (or a repository's profile) can only tighten it (`act` to `ask` to `look`), so a repository
+ *   cannot make a clone of itself click in the person's browser.
  */
 export function mergeComputerUseConfig(
 	below: ComputerUseConfig | undefined,
@@ -4163,9 +4175,19 @@ export function mergeComputerUseConfig(
 	const denied = [...(below?.deniedApps ?? [])]
 	for (const app of layer.deniedApps ?? [])
 		if (!denied.some((held) => held.toLowerCase() === app.toLowerCase())) denied.push(app)
+	let browserWindows = below?.browserWindows
+	if (layer.browserWindows !== undefined) {
+		const held = below?.browserWindows ?? 'ask'
+		browserWindows =
+			isProjectSource(source) &&
+			BROWSER_WINDOWS_RANK[layer.browserWindows] > BROWSER_WINDOWS_RANK[held]
+				? below?.browserWindows
+				: layer.browserWindows
+	}
 	return {
 		...(enabled !== undefined ? { enabled } : {}),
 		...(denied.length > 0 ? { deniedApps: denied } : {}),
+		...(browserWindows !== undefined ? { browserWindows } : {}),
 	}
 }
 

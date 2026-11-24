@@ -235,6 +235,62 @@ export interface ComputerUseToolOptions {
 	 * tell where it would land. Absent or empty: no application is off limits.
 	 */
 	readonly deniedApps?: readonly string[]
+	/**
+	 * What the tool does in a browser window (`computerUse.browserWindows`). `look`, the default
+	 * here, only looks: a page is the browser tool's. `act` clicks and types there like in any other
+	 * application. `ask` looks until a person allows it: the first action aimed at a browser window
+	 * puts {@link askBrowserWindow} to them, and only their answer grants it, for that browser and
+	 * for the life of this tool (one conversation). Nothing else grants it, no permission mode
+	 * included; a function is read at every call, and a switch to `look` takes every grant back; without `askBrowserWindow` (a scheduled or unattended run) `ask` stays `look`.
+	 */
+	readonly browserWindows?: BrowserWindowsSetting | (() => BrowserWindowsSetting)
+	/**
+	 * Puts the question "may Namzu click and type in this browser in this conversation?" to a
+	 * person. `allow` grants it, `deny` is "not now", `unavailable` means nobody can answer.
+	 */
+	readonly askBrowserWindow?: (
+		question: BrowserWindowQuestion,
+		signal?: AbortSignal,
+	) => Promise<BrowserWindowAnswer>
+}
+
+/** `computerUse.browserWindows`: how far the tool works in a browser window. */
+export type BrowserWindowsSetting = 'look' | 'ask' | 'act'
+/** The person's answer to {@link ComputerUseToolOptions.askBrowserWindow}. */
+export type BrowserWindowAnswer = 'allow' | 'deny' | 'unavailable'
+/** The browser the question is about: the host's name for it and how a person reads it. */
+export interface BrowserWindowQuestion {
+	readonly app: string
+	readonly name: string
+}
+
+/** How a browser is told apart in a grant: trimmed, lower case, spaces joined, without `.exe`. */
+function browserKey(app: string): string {
+	return deniedAppKey(app).replace(/\s+/g, '-')
+}
+
+/**
+ * The three ways forward after a browser window was not acted in, in the words the model offers
+ * the person. `own` names the first: the setting to change when it is `look`, the question when
+ * it is `ask`.
+ */
+function browserWaysForward(name: string, setting: BrowserWindowsSetting): string {
+	const first =
+		setting === 'look'
+			? `change Browser windows in Settings (computerUse.browserWindows) to Ask, so Namzu may click and type in ${name} once they allow it`
+			: `allow Namzu to click and type in ${name} for this conversation`
+	return `Ways forward to offer the person, in plain words: ${first}; or continue in Namzu's own browser (the browser tool), where they sign in once; or they click in ${name} themselves while you guide them from screenshots.`
+}
+
+/** What the tool says about browser windows, one paragraph, for its description. */
+export function browserWindowsGuidance(setting: BrowserWindowsSetting): string {
+	const care =
+		'Even where it is allowed, stop and ask the person before you type into a password field, submit payment or personal data, send or post something, delete, accept terms, or change organisation-wide admin settings.'
+	if (setting === 'act')
+		return `Browser windows are worked like any other application. The browser tool is Namzu's own browser, where the person signs in once; the person's own open browser is here. ${care}`
+	if (setting === 'ask')
+		return `A browser window is only looked at until the person allows more: the first action aimed at one asks them whether Namzu may click and type in that browser for this conversation, and only their answer allows it. If it is refused or not asked yet, offer the person the ways forward in plain words: allow it for this conversation; continue in Namzu's own browser (the browser tool), where they sign in once; or they click while you guide them from screenshots. ${care}`
+	return "A browser window is only looked at: act on a page with the browser tool, which is Namzu's own browser, where the person signs in once. To work in the browser window the person already has open, they can allow it in Settings (Browser windows), or click there themselves while you guide them from screenshots."
 }
 
 /** How an application name is compared: trimmed, lower case, without a trailing `.exe`. */
@@ -785,6 +841,7 @@ function buildDescription(
 	caps: ComputerUseCapabilities,
 	settings: ResolvedSettings,
 	advisor?: ComputerUseAdvisor,
+	browser: BrowserWindowsSetting = 'look',
 ): string {
 	const available = availableActions(host, caps, advisor)
 	const unavailable = unavailableHostActions(host, caps)
@@ -815,7 +872,7 @@ function buildDescription(
 	lines.push(
 		'Coordinates: every x/y you send is a pixel of the most recent screenshot this tool returned — origin at its top-left, x to the right, y down — never a screen pixel. Each screenshot states its id and size (for example "s3: 1456x819"); stay inside it. Display screenshots map onto the display. To aim at an earlier display screenshot, pass its id as screenshot_id.',
 		'Click coordinates need a screenshot to refer to; any action that changes something already returns one, so take one yourself only when none has been shown yet.',
-		"Look at the screen before you say what state an application is in. Never click links with computer use: a page is the browser tool's. Prefer a connected tool or a command line to the screen when one does the job.",
+		`Look at the screen before you say what state an application is in. ${browser === 'look' ? "Never click links with computer use: a page is the browser tool's." : 'Prefer the browser tool for a page; click in a browser window with computer use only where the browser rule allows it.'} Prefer a connected tool or a command line to the screen when one does the job.`,
 	)
 	if (settings.screenshotAfterActions)
 		lines.push(
@@ -847,7 +904,7 @@ function buildDescription(
 		)
 	if (windowCaptureAvailable(host, caps))
 		lines.push(
-			`When the user names an application or window, ${available.includes('list_windows') ? 'use list_windows then screenshot {window_id}' : 'use screenshot {window_id} with a host-provided window id'} to capture pixels for that window. Its x/y are pixels of that window image; clicks, drags, typing and keys target that window. Window pointer input is sent in the background first. If a click or drag is refused, inspect a fresh image before any other action; where the host can use the screen it may repeat a refused click once on the screen, and the result says so. ${caps.windowScroll === false ? `Window pixel scrolling is unavailable on this host; ${hostActionAvailable(caps, 'screenshot') ? 'deliberately take a display screenshot for display scrolling' : 'scroll by another means'}. ` : ''}Foreground text may briefly bring the verified window to the front: the host waits until the user has been still for a moment, puts their window back afterwards, and reports it as not delivered (safe to try again later) when the screen stays busy. ${host.beginTurn ? 'A result that says the user pressed Escape means stop: end your turn and say what is left undone. ' : ''}A browser window is only looked at: act on a page with the browser tool. A stale or moved window is refused; take a fresh window screenshot. ${hostActionAvailable(caps, 'screenshot') ? 'Plain screenshot still shows the display. ' : 'screenshot requires window_id on this host. '}Browser permission bubbles outside the window may be absent. If the window image is blank or shows another window, do not click it; focus the target and capture it again.`,
+			`When the user names an application or window, ${available.includes('list_windows') ? 'use list_windows then screenshot {window_id}' : 'use screenshot {window_id} with a host-provided window id'} to capture pixels for that window. Its x/y are pixels of that window image; clicks, drags, typing and keys target that window. Window pointer input is sent in the background first. If a click or drag is refused, inspect a fresh image before any other action; where the host can use the screen it may repeat a refused click once on the screen, and the result says so. ${caps.windowScroll === false ? `Window pixel scrolling is unavailable on this host; ${hostActionAvailable(caps, 'screenshot') ? 'deliberately take a display screenshot for display scrolling' : 'scroll by another means'}. ` : ''}Foreground text may briefly bring the verified window to the front: the host waits until the user has been still for a moment, puts their window back afterwards, and reports it as not delivered (safe to try again later) when the screen stays busy. ${host.beginTurn ? 'A result that says the user pressed Escape means stop: end your turn and say what is left undone. ' : ''}${browserWindowsGuidance(browser)} A stale or moved window is refused; take a fresh window screenshot. ${hostActionAvailable(caps, 'screenshot') ? 'Plain screenshot still shows the display. ' : 'screenshot requires window_id on this host. '}Browser permission bubbles outside the window may be absent. If the window image is blank or shows another window, do not click it; focus the target and capture it again.`,
 		)
 	if (available.includes('ui_snapshot'))
 		lines.push(
@@ -1575,19 +1632,56 @@ export interface ComputerUseTool extends ToolDefinition<ActionInput> {
 	 * ordinary action. A reading of the call's own words, not of the screen.
 	 */
 	consequence(input: unknown): string | undefined
+	/** The browsers a person allowed Namzu to click and type in during this conversation, as named. */
+	browserGrants(): string[]
+	/** Takes a browser back (by any name the host gives it). Returns whether it was allowed. */
+	revokeBrowserGrant(app: string): boolean
+	/**
+	 * Whether an action in this application would put the browser question to a person: it is a
+	 * browser, the setting is `ask`, somebody can be asked, and nobody has allowed it yet. A host
+	 * that draws its own application card uses it to ask once, in the browser's words, not twice.
+	 */
+	browserQuestionPending(app: string): boolean
+	/**
+	 * Of the applications a call works on, the browsers the engine will put its question about for
+	 * THIS call. A call that only looks (a picture, a list of windows) puts no question, so it names
+	 * none: its card would grant click-and-type, and a no would refuse a harmless look.
+	 */
+	browserAsk(input: unknown, apps: readonly string[]): string[]
 }
 
 const CONSEQUENTIAL_KEYS =
 	/(^|\+)(alt\+f4|ctrl\+q|cmd\+q|super\+q|ctrl\+w|ctrl\+shift\+delete|shift\+delete|ctrl\+enter|cmd\+enter|delete)$/i
 const CONSEQUENTIAL_WORDS =
-	/(?<!\p{L})(delete|remove|erase|discard|don'?t save|do not save|close|quit|exit|send|submit|pay|purchase|buy|order|sign out|log ?out|empty|format|uninstall|kaydetme|sil|gönder|kapat|çık|çıkış|satın al|öde)(?!\p{L})/iu
+	/(?<!\p{L})(delete|remove|erase|discard|don'?t save|do not save|close|quit|exit|send|submit|pay|purchase|buy|order|sign out|log ?out|empty|format|uninstall|accept|agree|post|publish|confirm|password|passcode|card number|cvv|iban|kaydetme|sil|gönder|kapat|çık|çıkış|satın al|öde)(?!\p{L})/iu
+
+/** Browsers whose process name is not how a person says it. */
+const KNOWN_BROWSER_NAMES: Record<string, string> = {
+	'brave-browser': 'Brave',
+	brave: 'Brave',
+	'google-chrome': 'Chrome',
+	chrome: 'Chrome',
+	msedge: 'Microsoft Edge',
+	'microsoft-edge': 'Microsoft Edge',
+	firefox: 'Firefox',
+}
 
 /** An application as a person reads it: no `.exe`, and a lowercase process name starts with a capital. */
 function applicationName(name: string): string {
 	const bare = name.trim().replace(/\.exe$/i, '')
+	const known = KNOWN_BROWSER_NAMES[bare.toLowerCase()]
+	if (known) return known
 	return bare && bare === bare.toLowerCase()
 		? `${bare.charAt(0).toUpperCase()}${bare.slice(1)}`
 		: bare
+}
+
+/** A control that takes a secret: a password field, by its state, role or name. */
+function isSecretElement(element: UiElement): boolean {
+	const states = (element.states ?? []).map((state) => state.toLowerCase())
+	if (states.some((state) => state === 'password' || state === 'protected' || state === 'secure'))
+		return true
+	return /password|passcode|passwort|parola|şifre|sifre/i.test(`${element.role} ${element.name}`)
 }
 
 /** Words that make a control's name or an intent one a person should answer for. */
@@ -1699,6 +1793,22 @@ export function createComputerUseTool(
 	const frames = new ScreenshotFrames()
 	const available = new Set<string>(availableActions(host, caps, options.advisor))
 	const advisor = options.advisor
+	// Browser windows: the setting, and the browsers a person allowed in this conversation. Only the
+	// person's answer to `askBrowserWindow` adds one; `ask` with nobody to ask is `look`.
+	const readBrowserSetting = (): BrowserWindowsSetting =>
+		typeof options.browserWindows === 'function'
+			? options.browserWindows()
+			: (options.browserWindows ?? 'look')
+	const browserSetting: BrowserWindowsSetting = readBrowserSetting()
+	const browserGranted = new Map<string, string>()
+	const browserDeclined = new Map<string, string>()
+	const browserActionsAllowed = (app: string): boolean => {
+		const setting = readBrowserSetting()
+		if (setting === 'look') browserGranted.clear()
+		return setting === 'act' || (setting === 'ask' && browserGranted.has(browserKey(app)))
+	}
+	// Whether the control in focus in the latest ui_snapshot is a secret field (a password).
+	let focusedSecret = false
 
 	// The controls of the latest ui_snapshot, by the ref the model was shown.
 	// A ref names a control, not one reading of it: the same host ref keeps the
@@ -2309,6 +2419,7 @@ export function createComputerUseTool(
 			readonly text: string
 		}[] = []
 		let focusedLine: string | undefined
+		let focusedSecretNow = false
 		const visit = (element: UiElement, depth: number): void => {
 			total += 1
 			const actionable = element.ref.length > 0
@@ -2330,8 +2441,10 @@ export function createComputerUseTool(
 						hostRef: actionable ? element.ref : undefined,
 						text: line.trim(),
 					})
-					if (focusedLine === undefined && element.states?.includes('focused') === true)
+					if (focusedLine === undefined && element.states?.includes('focused') === true) {
 						focusedLine = line.trim()
+						focusedSecretNow = isSecretElement(element)
+					}
 					chars += line.length + 1
 					shown += 1
 					if (ref) {
@@ -2349,6 +2462,7 @@ export function createComputerUseTool(
 		// Refs shown now replace what they name; the rest stay as they were, so a
 		// region opened by itself leaves the refs outside it usable.
 		for (const [ref, entry] of refs) uiRefs.set(ref, entry)
+		focusedSecret = focusedSecretNow
 		if (uiRefs.size > MAX_HELD_UI_REFS) {
 			for (const ref of [...uiRefs.keys()].slice(0, uiRefs.size - MAX_HELD_UI_REFS)) {
 				const gone = uiRefs.get(ref)
@@ -2661,9 +2775,9 @@ export function createComputerUseTool(
 			)
 		}
 		const front = windows.find((window) => window.focused)
-		if (front && appTier(front.app) === 'view')
+		if (front && appTier(front.app) === 'view' && !browserActionsAllowed(front.app))
 			throw new StepFailure(
-				`a browser is in front (${front.app}, window ${front.id}), so nothing was typed: computer_use only looks at a browser. Use the browser tool to act on a page, or bring the window you mean to the front (focus_window, or click it) and try again`,
+				`a browser is in front (${front.app}, window ${front.id}), so nothing was typed: computer_use does not type in a browser unless the person allowed it. Use the browser tool to act on a page, or bring the window you mean to the front (focus_window, or click it) and try again. ${browserWaysForward(applicationName(front.app), readBrowserSetting())}`,
 			)
 		if (front && appIs(IDE_APPS, front.app))
 			throw new StepFailure(
@@ -3575,6 +3689,44 @@ export function createComputerUseTool(
 	}
 
 	/**
+	 * Why an action aimed at a browser window may not run, or undefined when it may. `act` allows
+	 * it; `ask` allows it once a person has said yes for this browser in this conversation, asking
+	 * them the first time. Nobody to ask, or a no, leaves the window look-only and says what the
+	 * person can do instead. A no holds for the rest of the turn so one turn does not ask twice.
+	 */
+	const browserWindowRefusal = async (
+		app: string,
+		name: string,
+		context: ToolContext,
+	): Promise<string | undefined> => {
+		if (browserActionsAllowed(app)) return undefined
+		const key = browserKey(app)
+		const ways = (setting: BrowserWindowsSetting) => browserWaysForward(name, setting)
+		if (readBrowserSetting() === 'look')
+			return `computer_use only looks at ${name}, a browser: it does not click, type or press keys there. Use the browser tool to act on a page; take a screenshot to see what the window shows. Nothing was done. ${ways('look')}`
+		if (!options.askBrowserWindow)
+			return `computer_use only looks at ${name}, a browser, in this session: acting there needs a person's yes and nobody can be asked here. Nothing was done. Use the browser tool, or tell the person what is left for them. ${ways('ask')}`
+		if (browserDeclined.get(key) === String(context.turnId))
+			return `The person said not now to clicking and typing in ${name} in this turn. Nothing was done. Do not ask again this turn. ${ways('ask')}`
+		let answer: BrowserWindowAnswer
+		try {
+			answer = await options.askBrowserWindow({ app, name }, context.abortSignal)
+		} catch {
+			answer = 'unavailable'
+		}
+		if (answer === 'allow') {
+			browserGranted.set(key, name)
+			browserDeclined.delete(key)
+			return undefined
+		}
+		if (answer === 'deny') {
+			browserDeclined.set(key, String(context.turnId))
+			return `The person said not now to clicking and typing in ${name}. Nothing was done. ${ways('ask')}`
+		}
+		return `computer_use only looks at ${name}, a browser: the question whether Namzu may act there was not answered. Nothing was done. ${ways('ask')}`
+	}
+
+	/**
 	 * Why this call may not run because of the kind of application it would act in, or undefined:
 	 * a browser window is only looked at, a terminal or an editor is clicked but not typed into.
 	 * It places the call from what the tool already knows (a window screenshot, the last window list)
@@ -3625,8 +3777,17 @@ export function createComputerUseTool(
 				const tier = appTier(app)
 				const name = applicationName(app)
 				if (tier === 'view' && type === 'key' && onlyScrollKeys(item.keys)) continue
-				if (tier === 'view')
-					return `computer_use only looks at ${name}, a browser: it does not click, type or press keys there. Use the browser tool to act on a page; take a screenshot to see what the window shows. Nothing was done.`
+				if (tier === 'view') {
+					const refused = await browserWindowRefusal(app, name, context)
+					if (refused) return refused
+					// A granted browser still never gets a secret typed by the tool: the person types it.
+					const ref = typeof item.ref === 'string' ? uiRefs.get(item.ref) : undefined
+					if (
+						(type === 'type_text' && focusedSecret) ||
+						(setsValue && ref !== undefined && isSecretElement(ref.element))
+					)
+						return `computer_use does not type into a password field in ${name}. Nothing was done. Ask the person to type it themselves, then continue.`
+				}
 				if (
 					tier === 'click' &&
 					!appIs(TERMINAL_APPS, app) &&
@@ -3685,7 +3846,7 @@ export function createComputerUseTool(
 
 	const tool = defineTool({
 		name: COMPUTER_USE_TOOL_NAME,
-		description: buildDescription(host, caps, settings, options.advisor),
+		description: buildDescription(host, caps, settings, options.advisor, browserSetting),
 		inputSchema: actionSchema,
 		modelInputSchema: hostModelSchema(host, caps, settings, options.advisor),
 		validationErrorHint: `Action requirements: ${ALL_ACTIONS.map((action) => actionRequirement(action, host, caps)).join('; ')}. A batch is {"type":"batch","actions":[...]} with at most ${settings.maxBatchActions} actions and no screenshot, zoom, ui_snapshot or batch inside.`,
@@ -3740,5 +3901,20 @@ export function createComputerUseTool(
 			return result
 		},
 	})
-	return Object.assign(tool, { describeUiRef, appOf, appsOf, consequence })
+	const browserQuestionPending = (app: string): boolean =>
+		appTier(app) === 'view' &&
+		readBrowserSetting() === 'ask' &&
+		options.askBrowserWindow !== undefined &&
+		!browserGranted.has(browserKey(app))
+	return Object.assign(tool, {
+		describeUiRef,
+		appOf,
+		appsOf,
+		consequence,
+		browserGrants: (): string[] => [...browserGranted.values()],
+		revokeBrowserGrant: (app: string): boolean => browserGranted.delete(browserKey(app)),
+		browserQuestionPending,
+		browserAsk: (input: unknown, apps: readonly string[]): string[] =>
+			isReadOnlyInput(input) ? [] : apps.filter((app) => browserQuestionPending(app)),
+	})
 }

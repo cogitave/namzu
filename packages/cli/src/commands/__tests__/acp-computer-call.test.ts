@@ -36,8 +36,12 @@ const bash = { id: 'c2', name: 'bash', input: { command: 'ls' }, isDestructive: 
 
 async function run(options: {
 	calls: Record<string, unknown>[]
-	described?: (name: string) => { app?: string; consequence?: string } | undefined
+	described?: (
+		name: string,
+	) => { app?: string; consequence?: string; browserAsk?: string[] } | undefined
 	observeComputer?: (id: string, seen: unknown) => void
+	afterPrompt?: (runtime: ReturnType<typeof createCliAcpRuntime>) => void
+	revoked?: string[]
 }) {
 	let sessionOptions: Record<string, unknown> | undefined
 	const send = vi.fn((_messages: unknown, sendOptions: SendOptions) =>
@@ -77,6 +81,10 @@ async function run(options: {
 					},
 					jobs: () => [],
 					describeComputerUseCall: async (name: string) => options.described?.(name),
+					revokeComputerBrowser: (app: string) => {
+						options.revoked?.push(app)
+						return true
+					},
 				}
 			},
 		} as unknown as AcpRuntimeDependencies,
@@ -97,6 +105,7 @@ async function run(options: {
 			ask,
 			filesystem: undefined,
 		})
+		options.afterPrompt?.(runtime)
 	} finally {
 		await runtime.close()
 	}
@@ -115,6 +124,32 @@ describe('a computer action asked about', () => {
 		expect(calls[0]).toMatchObject({ computer: { app: 'Notepad', consequence: 'presses ALT+F4' } })
 		// Another tool says nothing about a computer.
 		expect(calls[1]).not.toHaveProperty('computer')
+	})
+
+	it('names the browser the engine will put its own question about, so the host asks once', async () => {
+		const { ask } = await run({
+			calls: [click],
+			described: () => ({ app: 'brave-browser', browserAsk: ['brave-browser'] }),
+		})
+		const calls = (ask.mock.calls[0] as unknown as [{ toolCalls: Record<string, unknown>[] }])[0]
+			.toolCalls
+		expect(calls[0]).toMatchObject({
+			computer: { app: 'brave-browser', browserAsk: ['brave-browser'] },
+		})
+	})
+
+	it('takes a browser back in the engine when the desktop revokes it', async () => {
+		const revoked: string[] = []
+		let answer: boolean | undefined
+		await run({
+			calls: [click],
+			revoked,
+			afterPrompt: (runtime) => {
+				answer = runtime.revokeBrowserGrant?.('session-1', 'Brave')
+			},
+		})
+		expect(revoked).toEqual(['Brave'])
+		expect(answer).toBe(true)
 	})
 
 	it('sends nothing extra when the application cannot be told', async () => {
