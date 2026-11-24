@@ -39,6 +39,7 @@ import {
 } from './agent-transcript-rows.js'
 import { type AgentEvent, toAgentEvent } from './agent.js'
 import { isRunning } from './background-agents.js'
+import { GENERATE_IMAGE_TOOL } from './generated-image-rows.js'
 import { type UsedMemory, memoryUsedRow, mergeUsedMemories } from './memory-used-row.js'
 import {
 	type CannotTellReason,
@@ -393,6 +394,11 @@ function notRunRows(label: string, asked: boolean): ToolRow[] {
 	]
 }
 
+/** Whether a saved tool result is an error; the live path holds an image's rows only when it is not. */
+function isFailedCall(message: Message | undefined): boolean {
+	return message?.role === 'tool' && message.isError === true
+}
+
 /** The rows one saved tool call leaves, as the live run drew them. */
 export function restoredToolRows(
 	turnId: string | undefined,
@@ -573,6 +579,15 @@ export function createRestoredTurnWriter(
 		}
 		return rows
 	}
+	// A generated image is turn output: live it is drawn after the turn's answer, so a restored
+	// turn holds its image rows until the turn is over and draws them just before its closing rows.
+	const heldOutput = new Map<string, TranscriptMessage[]>()
+	const releaseOutput = (turnId: string | undefined): readonly TranscriptMessage[] => {
+		if (!turnId) return []
+		const held = heldOutput.get(turnId)
+		heldOutput.delete(turnId)
+		return held ?? []
+	}
 	const closing = (turnId: string | undefined): readonly TranscriptMessage[] => {
 		if (!turnId) return []
 		const turn = trail.turns.get(turnId)
@@ -643,7 +658,16 @@ export function createRestoredTurnWriter(
 					options.presenter,
 					options.cwd,
 				)) {
-					rows.push({ id: nextId(), ...row })
+					const drawn: TranscriptMessage = { id: nextId(), ...row }
+					if (
+						turnId &&
+						call.function.name === GENERATE_IMAGE_TOOL &&
+						!isFailedCall(results.get(call.id))
+					) {
+						heldOutput.set(turnId, [...(heldOutput.get(turnId) ?? []), drawn])
+					} else {
+						rows.push(drawn)
+					}
 				}
 			}
 			return { rows, ...(launched && turnId ? { launchedIn: turnId } : {}) }
@@ -672,12 +696,12 @@ export function createRestoredTurnWriter(
 			const turnId = message.id ? trail.turnOfMessage.get(message.id) : undefined
 			noteAnswer(message, turnId)
 			if (!turnId || turnId === current) return []
-			const before = closing(current)
+			const before = [...releaseOutput(current), ...closing(current)]
 			current = turnId
 			return before
 		},
 		finish() {
-			const rows = closing(current)
+			const rows = [...releaseOutput(current), ...closing(current)]
 			current = undefined
 			return rows
 		},

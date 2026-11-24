@@ -405,6 +405,23 @@ function jwtClaims(token: string): JwtClaims {
 }
 
 /**
+ * The ChatGPT plan an access token names (`plus`, `pro`, `free`, ...), lower-cased, or `undefined`
+ * when the token is not a readable JWT or carries no plan claim.
+ */
+export function codexPlanType(accessToken: string): string | undefined {
+	const parts = accessToken.split('.')
+	if (parts.length !== 3 || !parts[1]) return undefined
+	try {
+		const payload = record(JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8')))
+		const auth = record(payload?.['https://api.openai.com/auth'])
+		const plan = optionalString(auth?.chatgpt_plan_type)
+		return plan ? plan.toLowerCase() : undefined
+	} catch {
+		return undefined
+	}
+}
+
+/**
  * Read the ChatGPT subscription record produced by Codex CLI.
  *
  * `OPENAI_API_KEY` is intentionally ignored: it belongs to the ordinary

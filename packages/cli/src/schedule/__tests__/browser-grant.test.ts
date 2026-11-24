@@ -258,6 +258,7 @@ describe('the tools a run is not sent', () => {
 		expect(withheldTools(granted, policy(granted))).toEqual([
 			'bash',
 			'edit',
+			'generate_image',
 			'job',
 			'wait_for_job',
 			'web_fetch',

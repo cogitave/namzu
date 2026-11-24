@@ -19,6 +19,8 @@ export type RouteTier = 'fast' | 'default' | 'big'
 export interface RouteFeatures {
 	/** Files or images attached to the task. */
 	readonly attachmentCount?: number
+	/** The message being answered carries the person's own picture. */
+	readonly hasImage?: boolean
 	/** The task will drive the desktop. */
 	readonly usesComputerUse?: boolean
 	/** The task runs inside a Pal. */
@@ -47,6 +49,12 @@ export interface RouteDeps {
 	readonly model?: DecisionModel
 	/** Whether this machine can run a tier's provider. Absent means every tier can. */
 	readonly isAvailable?: (target: RoutingTarget) => boolean
+	/**
+	 * Whether a tier's model reads images; `undefined` means not known, which
+	 * counts as yes. Asked only for a task whose message carries the person's
+	 * picture, since the kernel refuses that picture on a text-only model.
+	 */
+	readonly readsImages?: (target: RoutingTarget) => boolean | undefined
 	readonly now?: () => number
 	readonly logger?: Pick<Logger, 'debug'>
 }
@@ -207,9 +215,16 @@ export async function routeModel(input: RouteInput, deps: RouteDeps = {}): Promi
 	try {
 		if (input.pin) return result('default', input.pin, 1, 'pinned')
 
-		const usable = (target: RoutingTarget | undefined): RoutingTarget | undefined =>
-			target && (deps.isAvailable?.(target) ?? true) ? target : undefined
 		const features = input.features
+		// A turn that carries the person's own picture only picks among tiers
+		// whose model reads it; when none does, the default runs and the kernel
+		// refuses naming that model.
+		const usable = (target: RoutingTarget | undefined): RoutingTarget | undefined =>
+			target &&
+			(deps.isAvailable?.(target) ?? true) &&
+			!(features?.hasImage === true && deps.readsImages?.(target) === false)
+				? target
+				: undefined
 		const failedOn = features?.previousTurnFailedOnTier
 		const big = usable(config.tiers?.big)
 		// The small tier is scoped to short chat and one-step tasks: small

@@ -114,6 +114,54 @@ describe('the cards for a file the agent handed over', () => {
 	})
 })
 
+describe('the card for an image the agent generated', () => {
+	function generated(thread: ThreadState, id: string, path: string, prompt: string) {
+		return send(thread, {
+			kind: 'tool_call',
+			toolCallId: id,
+			title: 'generate_image',
+			status: 'completed',
+			view: { kind: 'generic', label: 'Generate image' },
+			facts: {
+				kind: 'shared',
+				files: [{ path, bytes: 2048 }],
+				caption: prompt,
+				generatedImage: { prompt },
+			},
+		} as AcpSessionUpdate)
+	}
+	it('makes an image card that shows the picture, copies it as a picture, and opens, shows in folder and saves', () => {
+		const thread = generated(
+			start(emptyThread()),
+			'g1',
+			'/home/me/.namzu/generated_images/s1/call_1.png',
+			'a red fox',
+		)
+		const [card] = cardsOf(thread)
+		expect(card).toMatchObject({
+			name: 'call_1.png',
+			kind: 'image',
+			state: 'done',
+			stateWord: 'Generated',
+			kindLine: 'Image · PNG · 2 KB',
+			generated: { prompt: 'a red fox' },
+			canOpen: true,
+			canOpenWithSystem: true,
+			canShowInFolder: true,
+			canCopy: true,
+			canSave: true,
+		})
+		// The prompt is the card's own text, not a second caption.
+		expect(card?.caption).toBeUndefined()
+	})
+	it('marks a generated image that is gone, with no action', () => {
+		const path = '/home/me/.namzu/generated_images/s1/call_2.png'
+		const thread = generated(start(emptyThread()), 'g2', path, 'a hill')
+		const [card] = cardsOf(thread, new Map([[path, { path, missing: true }]]))
+		expect(card).toMatchObject({ state: 'gone', canCopy: false, canSave: false })
+	})
+})
+
 describe('the cards for a reply', () => {
 	it('makes a card for a document the document skill wrote, and for nothing else', () => {
 		let thread = withSkill(start(emptyThread()))

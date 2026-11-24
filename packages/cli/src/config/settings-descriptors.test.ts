@@ -318,6 +318,15 @@ describe('where each setting sits', () => {
 		expect(sectionOf('browser.enabled')?.description).not.toMatch(/only the terminal app/i)
 	})
 
+	it('puts the image generation switch in Tools, worded for the person, not the vendor tool', () => {
+		const row = sectionOf('imageGeneration.enabled')
+		expect(row?.section).toBe('tools')
+		expect(row?.label).toBe('Image generation')
+		expect(row?.description).toMatch(/^Create and edit images with your .+ plan/)
+		expect(row?.description).not.toMatch(/codex|gpt-image/i)
+		expect(row?.default).toBe(true)
+	})
+
 	it('keeps the terminal app rows apart from the command line rows', () => {
 		const terminal = SETTING_DESCRIPTORS.filter((entry) => entry.section === 'terminal')
 		for (const row of terminal) {

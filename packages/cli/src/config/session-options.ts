@@ -53,6 +53,7 @@ export type ConfigSessionOptions = Pick<
 	| 'decision'
 	| 'toolResultScreens'
 	| 'codeAnalysis'
+	| 'imageGeneration'
 	| 'additionalDirectories'
 	| 'deniedComputerApps'
 >
@@ -101,6 +102,7 @@ export const SESSION_KEY_MAP: Readonly<Record<keyof NamzuCliConfig, string>> = {
 	computerUse: 'deniedComputerApps',
 	browser: 'excluded: the browser needs a host to own it (Desktop builds it in the ACP host)',
 	codeAnalysis: 'codeAnalysis',
+	imageGeneration: 'imageGeneration',
 	decision: 'decision',
 	model: 'excluded: picks the model, which the host decides with `routing` and its provider flags',
 	routing: 'excluded: only a host that routes (Auto) passes it, and each decides when',
@@ -162,6 +164,7 @@ export function sessionOptionsFromConfig(
 		...(config.sandbox ? { sandbox: config.sandbox } : {}),
 		...(config.decision ? { decision: config.decision } : {}),
 		...(config.codeAnalysis ? { codeAnalysis: config.codeAnalysis } : {}),
+		...(config.imageGeneration ? { imageGeneration: config.imageGeneration } : {}),
 		...(additionalDirectories.length > 0 ? { additionalDirectories } : {}),
 		...(config.computerUse?.deniedApps?.length
 			? { deniedComputerApps: config.computerUse.deniedApps }

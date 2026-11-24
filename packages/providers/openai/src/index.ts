@@ -47,6 +47,22 @@ export {
 	servedSpeed,
 	supportsFastMode,
 } from './fast-mode.js'
+export {
+	CODEX_DEFAULT_BASE_URL,
+	CODEX_IMAGE_LIMIT_IDS,
+	CODEX_IMAGE_MAX_BYTES,
+	CODEX_IMAGE_MODEL,
+	CODEX_IMAGE_TIMEOUT_MS,
+	CodexImagesError,
+	requestCodexImage,
+	sniffImageType,
+} from './images.js'
+export type {
+	CodexImageRequest,
+	CodexImageResult,
+	CodexImageUsageLimit,
+	CodexImagesConfig,
+} from './images.js'
 export type {
 	FastTier,
 	OpenAIFastInput,

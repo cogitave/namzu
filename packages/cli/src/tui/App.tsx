@@ -797,6 +797,7 @@ import type { QueuedHintCount } from './composer-hints.js'
 import type { ProposedChange } from './diff-rows.js'
 import { EXIT_HINT_MS } from './exit-hint.js'
 import { useExtensionIndicators } from './extension-indicators.js'
+import { GENERATE_IMAGE_TOOL } from './generated-image-rows.js'
 import { mergeGroupRows } from './group-rows.js'
 import { type MentionSources, NO_MENTION_SOURCES, loadMentionSources } from './mention-sources.js'
 import {
@@ -3469,6 +3470,8 @@ function AppBody({
 	}
 	/** Calls whose question the person closed with Ctrl+C, so their rows read as stopped, not declined. */
 	const stoppedAtPromptRef = useRef(new Set<string>())
+	// Rows a finished turn shows after its answer text (a generated image), held until the turn is done.
+	const turnOutputRowsRef = useRef<ToolRow[]>([])
 	/** A plain No ended the running turn: its interruption row is still owed. */
 	const refusalEndedTurnRef = useRef(false)
 	/** The auto mode's check gave no verdict and the turn was stopped; its closing line is still owed. */
@@ -7025,6 +7028,10 @@ function AppBody({
 							...(activeCtx.codeAnalysis?.enabled === false
 								? {}
 								: { codeAnalysis: activeCtx.codeAnalysis ?? {} }),
+							...(activeCtx.imageGeneration ? { imageGeneration: activeCtx.imageGeneration } : {}),
+							...(activeCtx.readImageGenerationEnabled
+								? { readImageGenerationEnabled: activeCtx.readImageGenerationEnabled }
+								: {}),
 							rules: activeCtx.rules,
 							...(activeCtx.appendSystem ? { appendSystem: activeCtx.appendSystem } : {}),
 							...(activeCtx.replaceSystem ? { replaceSystem: activeCtx.replaceSystem } : {}),
@@ -11297,7 +11304,10 @@ function AppBody({
 								kept = readSearchGroup.finish(memberKey, only.detail ?? [])
 							}
 						}
-						if (!kept) for (const row of built.rows) pushRow(row)
+						// A generated image is turn output: it lands after the answer text, not before it.
+						if (!kept && event.toolName === GENERATE_IMAGE_TOOL && !event.isError)
+							turnOutputRowsRef.current.push(...built.rows)
+						else if (!kept) for (const row of built.rows) pushRow(row)
 					}
 					setState(activeToolsRef.current.length > 0 ? 'tool' : 'thinking')
 					break
@@ -11570,6 +11580,11 @@ function AppBody({
 						outcome: st.completed ? 'completed' : 'stopped',
 					}
 					closeAssistant()
+					if (turnOutputRowsRef.current.length > 0) {
+						const held = turnOutputRowsRef.current
+						turnOutputRowsRef.current = []
+						for (const row of held) pushRow(row)
+					}
 					if (st.pendingFallback) {
 						const pending = st.pendingFallback
 						st.pendingFallback = undefined
@@ -11820,6 +11835,8 @@ function AppBody({
 				return
 			}
 			if (prompt.kind === 'notice' && prompt.generation !== conversationGenRef.current) return
+			// Rows held for a turn that never reached its done event belong to no turn now.
+			turnOutputRowsRef.current = []
 			setContextHidden(false)
 			const { text: promptText } = prompt
 			if (prompt.kind === 'human') {

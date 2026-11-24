@@ -111,6 +111,12 @@ function categoryPhrase(
 			(n) => `wrote ${n} files`,
 			(n) => `writing ${n} files`,
 		],
+		image: [
+			'generated an image',
+			'generating an image',
+			(n) => `generated ${n} images`,
+			(n) => `generating ${n} images`,
+		],
 		skill: ['used a skill', 'using a skill', (n) => `used ${n} skills`, (n) => `using ${n} skills`],
 		edit: [
 			'edited a file',

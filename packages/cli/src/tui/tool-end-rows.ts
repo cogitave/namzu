@@ -5,6 +5,7 @@ import { connectorToolLabel, plainConnectorSummary } from './connector-label.js'
 import { conversationEvidenceView } from './conversation-evidence-view.js'
 import { type ProposedChange, proposedBody } from './diff-rows.js'
 import { spansText } from './diff-view.js'
+import { GENERATE_IMAGE_TOOL, generatedImageRows } from './generated-image-rows.js'
 import { commandSection } from './group-rows.js'
 import { modelCatalogueView } from './model-catalogue-view.js'
 import { EMPTY_GROUP, type FoldOp, foldOp, groupText } from './read-search-group.js'
@@ -203,6 +204,10 @@ export function toolEndRows(
 	ctx: ToolEndContext,
 ): ToolEndRows {
 	const rows = (list: readonly ToolRow[]): ToolEndRows => ({ kind: 'rows', rows: list })
+	if (event.toolName === GENERATE_IMAGE_TOOL && !event.declined && !event.cancelled) {
+		const drawn = generatedImageRows(event.output, event.isError)
+		if (drawn) return rows(drawn)
+	}
 	// A call to a tool that does not exist did no work: it is not counted with the looks.
 	const fold = event.unknownTool ? undefined : foldOf(start)
 	if (!event.isError && !event.declined && fold) {

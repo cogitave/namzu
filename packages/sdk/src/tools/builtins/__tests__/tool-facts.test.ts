@@ -386,3 +386,28 @@ describe('admitToolFacts', () => {
 		})
 	})
 })
+
+describe('a shared file that is a generated image', () => {
+	it('keeps the prompt it was made from, and drops a prompt that is not text', () => {
+		expect(
+			admitToolFacts({
+				kind: 'shared',
+				files: [{ path: '/h/generated_images/s/c.png', bytes: 10 }],
+				caption: 'a fox',
+				generatedImage: { prompt: 'a fox' },
+			}),
+		).toEqual({
+			kind: 'shared',
+			files: [{ path: '/h/generated_images/s/c.png', bytes: 10 }],
+			caption: 'a fox',
+			generatedImage: { prompt: 'a fox' },
+		})
+		expect(
+			admitToolFacts({
+				kind: 'shared',
+				files: [{ path: '/x.png' }],
+				generatedImage: { prompt: 42 },
+			}),
+		).toEqual({ kind: 'shared', files: [{ path: '/x.png' }] })
+	})
+})

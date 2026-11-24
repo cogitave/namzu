@@ -149,6 +149,7 @@ describe('readSettings says which layer decides a value', () => {
 				disableHooks: true,
 				sandbox: { enabled: false, allowEscape: true, teardownTimeoutMs: 5 },
 				codeAnalysis: { enabled: true },
+				imageGeneration: { enabled: true },
 				learningGenerator: { cycleTokens: 1 },
 				composerTriggers: { enabled: true },
 			}),
@@ -164,6 +165,7 @@ describe('readSettings says which layer decides a value', () => {
 			'sandbox.allowEscape',
 			'sandbox.teardownTimeoutMs',
 			'codeAnalysis.enabled',
+			'imageGeneration.enabled',
 			'learningGenerator.cycleTokens',
 			'composerTriggers.enabled',
 		]) {
@@ -181,6 +183,7 @@ describe('readSettings says which layer decides a value', () => {
 				disableHooks: false,
 				sandbox: { enabled: true, allowEscape: false, workspace: 'ephemeral' },
 				codeAnalysis: { enabled: false },
+				imageGeneration: { enabled: false },
 				composerTriggers: { suggest: false },
 			}),
 		)
@@ -191,6 +194,7 @@ describe('readSettings says which layer decides a value', () => {
 			'sandbox.allowEscape',
 			'sandbox.workspace',
 			'codeAnalysis.enabled',
+			'imageGeneration.enabled',
 			'composerTriggers.suggest',
 		]) {
 			expect(state(path)?.layer, path).toBe('project')
