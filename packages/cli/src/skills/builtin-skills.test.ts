@@ -64,12 +64,13 @@ function topLevelCommandExists(name: string): boolean {
 }
 
 describe('the built-in skills', () => {
-	it('ships the sixteen built-in skills, and not the retired verify-change', () => {
+	it('ships the seventeen built-in skills, and not the retired verify-change', () => {
 		expect(builtinSkillDirs()).toEqual([
 			'batch',
 			'browser-automation',
 			'commit',
 			'debug',
+			'deep-research',
 			'document',
 			'fewer-permission-prompts',
 			'pdf',
@@ -283,6 +284,10 @@ describe('the built-in skills', () => {
 			'save_skill',
 			'skill',
 			'bash',
+			'web_search',
+			'web_fetch',
+			'wait_for_task',
+			'present_file',
 		])
 		const problems: string[] = []
 		for (const dir of builtinSkillDirs()) {
@@ -309,11 +314,81 @@ describe('the built-in skills', () => {
 				SKILL_LISTING_DESCRIPTION_MAX_CHARS,
 			)
 			if (!isInvocableBy(skill, 'model')) continue
+			// Offered only where Agent and both web tools exist; where the manifest is
+			// over budget it is named, not described, and stays loadable.
+			if (dir === 'deep-research') continue
 			offered++
 			spent += manifestEntryChars({ ...skill, dirPath: installedPath })
 		}
 		expect(offered).toBe(7)
 		expect(spent).toBeLessThanOrEqual(budget)
+	})
+
+	it('deep-research is gated on Agent and the web tools and keeps its sourcing rules', async () => {
+		const { skill } = await loadSkill(join(SKILLS, 'deep-research'), 'full')
+		expect(skill.metadata.invocation).toBe('both')
+		expect(skill.metadata.metadata?.['namzu-requires-tools']).toBe('Agent, web_search, web_fetch')
+		const body = skill.body ?? ''
+		// no invented URLs, and a snippet is not a source
+		expect(body).toMatch(/never write or complete a URL from memory/i)
+		expect(body).toMatch(/a search snippet is not a\s+source/i)
+		// every claim is tied to a page fetched in this run
+		expect(body).toMatch(/\[n\]/)
+		expect(body).toMatch(/from this run/)
+		expect(body).toMatch(/No URL appears that\s+no researcher returned/)
+		// the budget: researcher caps, one gap round, a search and fetch budget
+		expect(body).toMatch(/never more than 9/i)
+		expect(body).toMatch(/Never more than 4 at once/)
+		expect(body).toMatch(/at most 2 more\s+researchers/)
+		expect(body).toMatch(/about 8 `web_search` calls and 10 `web_fetch` calls/)
+		expect(body).toMatch(/`present_file`/)
+		// lessons from real runs: wait by name, a short report still fans out,
+		// a search result is not a fetch, the file is always written
+		expect(body).toMatch(/`task_id` set to its name/)
+		expect(body).toMatch(/"short" report is not that\s+case/)
+		expect(body).toMatch(/only seen in a search result/)
+		expect(body).toMatch(/only offers to write the file is not finished/)
+		expect(body).toMatch(/load it first if it is not in your tool list/)
+		// the researchers' word is checked, not trusted: the writer re-fetches
+		expect(body).toMatch(/`web_fetch` at least the 3\s+cited pages/)
+		expect(body).toMatch(/confirm each quote is on the page/)
+		expect(body).toMatch(/Compare the report's URLs\s+against the returned lists/)
+		// a finished researcher cannot be messaged: the replacement counts against the cap
+		expect(body).not.toMatch(/send_message/)
+		expect(body).toMatch(/counts against the cap of 9/)
+		expect(body).toMatch(/more than 10 distinct URLs/)
+	})
+
+	it('deep-research has a short description and agrees with the document skill', async () => {
+		const research = await loadSkill(join(SKILLS, 'deep-research'), 'full')
+		expect(research.skill.metadata.description.length).toBeLessThanOrEqual(160)
+		const doc = await loadSkill(join(SKILLS, 'document'), 'full')
+		// document says a research request is answered in the reply; it must name
+		// deep-research as the exception, in the description and in step 0
+		expect(doc.skill.metadata.description).toMatch(/except by deep-research/)
+		expect(doc.skill.body ?? '').toMatch(/`deep-research` skill[\s\S]*saves its own report file/)
+		expect(research.skill.body ?? '').toMatch(/Markdown file/)
+	})
+
+	it('with deep-research offered too, the eight descriptions overflow at 32k and name which ones are only named', async () => {
+		const installedPath = `/usr/local/lib/node_modules/@namzu/cli/skills/${'x'.repeat(20)}`
+		const budget = skillManifestBudget(32_768)
+		let spent = 0
+		const described: string[] = []
+		const named: string[] = []
+		for (const dir of builtinSkillDirs()) {
+			const { skill } = await loadSkill(join(SKILLS, dir), 'metadata')
+			if (!isInvocableBy(skill, 'model')) continue
+			const cost = manifestEntryChars({ ...skill, dirPath: installedPath })
+			if (named.length === 0 && spent + cost <= budget) {
+				spent += cost
+				described.push(dir)
+			} else named.push(dir)
+		}
+		// Overflow is a documented outcome, not a silent one: the listing keeps
+		// the earlier entries and names the rest, and every one stays loadable.
+		expect(described.length + named.length).toBe(8)
+		expect(named.length).toBeLessThanOrEqual(2)
 	})
 
 	it('declares the invocation and gating the design gives each', async () => {
@@ -419,5 +494,6 @@ describe('the document skill description', () => {
 	it('sends a research or analysis request back to the reply', () => {
 		const text = readFileSync(join(SKILLS, 'document', 'SKILL.md'), 'utf8')
 		expect(text).toContain('a research or analysis request is answered in the reply')
+		expect(text).toContain('except by deep-research')
 	})
 })

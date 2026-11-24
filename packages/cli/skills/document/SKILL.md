@@ -1,6 +1,6 @@
 ---
 name: document
-description: Write a document or report as one Markdown file. Use when asked for a document file, or a Word, sheet or slide file (this says what is possible); a research or analysis request is answered in the reply. Not for a PDF: use the `pdf` skill.
+description: Write a document or report as one Markdown file. Use when asked for a document file, or a Word, sheet or slide file (this says what is possible); a research or analysis request is answered in the reply, except by deep-research. Not for a PDF: use the `pdf` skill.
 invocation: both
 ---
 
@@ -30,7 +30,9 @@ you did not write.
 ## Steps
 
 0. **Write a file only when the person asked for one.** A question, a
-   research request or an analysis is answered in the reply. If a write-up
+   research request or an analysis is answered in the reply (the
+   `deep-research` skill, when it is loaded, saves its own report file and
+   that is the one exception). If a write-up
    would still help, save it under the session's scratch folder and say so,
    or offer to write it as a file; do not put it in the project.
 1. **Settle the few things that change the document.** Who reads it, what they
