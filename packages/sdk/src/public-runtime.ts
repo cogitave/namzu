@@ -2111,6 +2111,30 @@ export {
 	udsPeerAddress,
 	writePeerRecord,
 } from './peers/index.js'
+// ─── teams (@experimental) ──────────────────────────────────────────────
+//
+// Named helpers beside the main conversation: the membership file with its lock, a mailbox each, and
+// the seam a teammate runner plugs into. See `teams/index.ts`.
+
+export {
+	MAIL_KINDS,
+	MAX_MAIL_ENTRIES,
+	MAX_MAIL_TEXT_BYTES,
+	MailEntrySchema,
+	MailKindSchema,
+	normalizeTeamName,
+	TEAM_COLORS,
+	TEAM_CONFIG_VERSION,
+	TEAM_CREATE_GRACE_MS,
+	TEAM_LEAD_NAME,
+	TeamBackendKindSchema,
+	TeamConfigSchema,
+	TeamMemberSchema,
+	TeamStore,
+	TeamStoreError,
+	teamNameProblem,
+	teammateNameProblem,
+} from './teams/index.js'
 // ─── your Namzu network (@experimental) ───────────────────────────────────
 //
 // Machines of one person find each other, share a roster of sessions and

@@ -881,3 +881,19 @@ export type {
 } from './pals/activity/subscription-policy.js'
 export type { PalActivitySubscriptionRunnerOptions } from './pals/activity/subscriptions.js'
 export type { PalActivityCausalityOptions } from './pals/activity/causality.js'
+
+export type {
+	CreateTeamInput,
+	MailDraft,
+	MailEntry,
+	MailKind,
+	MailReadOptions,
+	ReserveMemberInput,
+	TeamBackendKind,
+	TeamConfig,
+	TeamMember,
+	TeamStoreErrorCode,
+	TeamStoreOptions,
+	TeammateBackend,
+	TeammateStartSpec,
+} from './teams/index.js'
