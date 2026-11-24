@@ -266,6 +266,40 @@ describe('routeModel fail-open: only ever the default', () => {
 		expect(r).toMatchObject({ tier: 'big', ...BIG })
 	})
 
+	it("with the person's own picture, picks only a tier whose model reads images", async () => {
+		const model = yesnoModel(0.9, 0.9)
+		const r = await routeModel(
+			{ task, config, features: { hasImage: true } },
+			{ model, readsImages: (t) => t.model !== BIG.model },
+		)
+		// The big tier cannot read the picture and the fast one is barred by it
+		// being asked about: both answered yes, neither may run.
+		expect(r.tier).not.toBe('big')
+		const reads = await routeModel(
+			{ task, config, features: { hasImage: true } },
+			{ model: yesnoModel(0.1, 0.9), readsImages: (t) => t.model !== FAST.model },
+		)
+		expect(reads).toMatchObject({ tier: 'big', ...BIG })
+	})
+
+	it('with a picture and no tier reading it, runs the default so the kernel names it', async () => {
+		const model = yesnoModel(0.9, 0.9)
+		const r = await routeModel(
+			{ task, config, features: { hasImage: true } },
+			{ model, readsImages: () => false },
+		)
+		expect(r).toMatchObject({ tier: 'default', ...DEFAULT })
+		expect(model.yesno).not.toHaveBeenCalled()
+	})
+
+	it('without a picture, ignores what the tiers read', async () => {
+		const r = await routeModel(
+			{ task, config },
+			{ model: yesnoModel(0.1, 0.9), readsImages: () => false },
+		)
+		expect(r.tier).toBe('big')
+	})
+
 	it('has no tiers configured', async () => {
 		const model = yesnoModel(0.9, 0.9)
 		const r = await routeModel({ task, config: { default: DEFAULT } }, { model })

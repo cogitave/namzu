@@ -1454,7 +1454,15 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 		// picture the model never saw, with nothing on screen to say so. Images a
 		// tool returned are another matter (they are left out quietly beside the
 		// text the tool gave), and so is a driver that declares no vision at all.
-		if (textOnlyModel && latestUser !== undefined && carries(latestUser, 'image')) {
+		// Only when that message is the last one: a run continuing after it (a
+		// resume past an approval pause) answers with the picture already left
+		// out, and refusing there would block a turn the person did not start.
+		if (
+			textOnlyModel &&
+			latestUser !== undefined &&
+			latestUser === params.messages[params.messages.length - 1] &&
+			carries(latestUser, 'image')
+		) {
 			const alternative = params.provider.imageModelFor?.(turnConfig.model)
 			throw new NamzuError({
 				code: 'capability_unavailable',

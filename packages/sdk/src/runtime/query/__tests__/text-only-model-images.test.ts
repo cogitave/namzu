@@ -203,6 +203,21 @@ describe('a text-only model inside a conversation that holds images', () => {
 		expect(provider.requests).toHaveLength(0)
 	})
 
+	it('leaves the picture out and goes on when the run continues past the message that carried it', async () => {
+		// A resume after an approval pause: the picture's message is no longer the
+		// last one, so the person's turn is not refused a second time.
+		const continued = () => [
+			createUserMessage('look', [image]),
+			createAssistantMessage('capturing', [call]),
+			createToolMessage([{ type: 'text', text: 'done' }], call.id),
+		]
+		const provider = new ModelAwareProvider(new Set(['beam']))
+		const { result } = await run(provider, 'beam', undefined, continued())
+		expect(result.status).toBe('completed')
+		expect(provider.requests).toHaveLength(1)
+		expect(JSON.stringify(provider.requests[0]?.messages)).not.toContain(image.data)
+	})
+
 	it('goes on, quietly, when only a tool returned the image', async () => {
 		const toolOnly = () => [
 			createUserMessage('capture it'),

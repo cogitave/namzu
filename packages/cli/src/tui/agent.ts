@@ -6146,6 +6146,33 @@ export async function createAgentSession(
 		const failedOn = routeHistory.take(sessionId)
 		if (!routing) return undefined
 		try {
+			// A turn that carries the person's own picture must not be routed to a
+			// model that cannot read it: the kernel would refuse it. Ask each tier's
+			// driver first; a tier whose provider cannot be built counts as unknown.
+			const latestUser = [...messages].reverse().find((m) => m.role === 'user')
+			const hasImage =
+				latestUser?.role === 'user' &&
+				(latestUser.attachments ?? []).some((a) => (a.type ?? 'image') === 'image')
+			const textOnlyTiers = new Set<string>()
+			if (hasImage) {
+				for (const target of [routing.tiers?.fast, routing.tiers?.big]) {
+					if (!target) continue
+					try {
+						const providerId = target.provider as ProviderId
+						if (!findDetected(detected, providerId)) continue
+						await ensureRegistered(providerId)
+						const credential = await currentCredentialFor(providerId, signal)
+						const candidate = constructProvider(providerId, credential, target.model, {
+							sessionId,
+						})
+						if (!textOnlyModels.reads(candidate, target.model)) {
+							textOnlyTiers.add(`${target.provider}/${target.model}`)
+						}
+					} catch {
+						// Unknown counts as reading images; the kernel is the backstop.
+					}
+				}
+			}
 			const routed = await routeModel(
 				{
 					task: lastPromptText(messages),
@@ -6157,6 +6184,7 @@ export async function createAgentSession(
 						// tier out.
 						usesComputerUse: options.enableComputerUse === true && conversationDrovePc(messages),
 						usesPal: false,
+						...(hasImage ? { hasImage: true } : {}),
 						...(failedOn ? { previousTurnFailedOnTier: failedOn } : {}),
 					},
 					signal,
@@ -6170,6 +6198,7 @@ export async function createAgentSession(
 							found.entry.constructible && canSelectModel(found.entry, found.apiKey, target.model)
 						)
 					},
+					readsImages: (target) => !textOnlyTiers.has(`${target.provider}/${target.model}`),
 					logger: cliLogger(),
 				},
 			)
