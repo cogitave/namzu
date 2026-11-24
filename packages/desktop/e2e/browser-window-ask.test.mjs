@@ -25,6 +25,26 @@ async function shot(w, name) {
 	await w.page.screenshot({ path: join(SHOTS, `${name}.png`) });
 }
 
+// The "Working" row fades out after a turn; a picture is taken once nothing of it can be seen (the turn's outcome is
+// asserted elsewhere, so this only keeps a fading ghost out of the picture).
+async function settled(w) {
+	await w.page
+		.waitForFunction(
+			() =>
+				[...document.querySelectorAll(".transcript-phase-text")].every((node) => {
+					let el = node;
+					while (el) {
+						if (Number(getComputedStyle(el).opacity) < 0.05) return true;
+						el = el.parentElement;
+					}
+					return false;
+				}),
+			undefined,
+			{ timeout: 15000 },
+		)
+		.catch(() => {});
+}
+
 function flow(name, setting, body) {
 	test(name, { timeout: 240000 }, async () => {
 		const world = await createWorld({
@@ -94,7 +114,6 @@ async function acceptUntil(w, target) {
 	await expect
 		.poll(
 			async () => {
-				if (await target.first().isVisible()) return true;
 				for (const card of [access, browser, act]) {
 					if (await card.count()) {
 						const title = (await card.getByRole("heading").first().textContent()) ?? "";
@@ -102,6 +121,7 @@ async function acceptUntil(w, target) {
 							braveCards(w).push(title + (card === browser ? "|browser" : "|app"));
 					}
 				}
+				if (await target.first().isVisible()) return true;
 				// The browser question is the person's: a test answers it itself, so it is left showing.
 				if (await browser.count()) return false;
 				if (await access.count())
@@ -167,6 +187,7 @@ flow(
 			1,
 			"the yes answered the application and the engine's question both: no second card for Brave",
 		);
+		await settled(w);
 		await shot(w, "desktop-browser-after-allow");
 	},
 );
@@ -184,6 +205,7 @@ flow(
 		await questionCard(w).getByRole("button", { name: "Not now" }).click();
 		await acceptUntil(w, finished(w));
 		assert.deepEqual(clicks(w), [], "no click reached the browser");
+		await settled(w);
 		await shot(w, "desktop-browser-after-not-now");
 	},
 );
