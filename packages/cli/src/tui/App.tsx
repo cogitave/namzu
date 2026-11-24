@@ -5148,6 +5148,7 @@ function AppBody({
 			if (
 				agent.status === 'cancelled' &&
 				agent.interrupted === true &&
+				agent.stoppedBy === undefined &&
 				session?.team?.members().some((m) => m.viewId === agent.viewId)
 			)
 				continue

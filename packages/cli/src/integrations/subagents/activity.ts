@@ -698,6 +698,7 @@ export class SubagentActivityMonitor implements SubagentActivitySource {
 		const record = this.records.get(viewId)
 		if (!record || this.closed || isTerminal(record.status) || record.stoppedBy) return
 		record.stoppedBy = by
+		delete record.interrupted
 		this.scheduleNotify()
 	}
 
@@ -1076,6 +1077,8 @@ function projectEvent(record: MutableActivity, event: SessionEvent): void {
 			record.sessionId = String(event.sessionId)
 			record.status = 'working'
 			record.latestActivity = 'Working'
+			// A new turn is a new life: an earlier cut-short turn must not hide how this one ends.
+			delete record.interrupted
 			return
 		case 'token_usage_updated':
 			// `usage` is cumulative spend across the turn; `contextTokens` beside

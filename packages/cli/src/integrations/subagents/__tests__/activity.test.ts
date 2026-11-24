@@ -103,6 +103,21 @@ describe('the CLI sub-agent activity monitor', () => {
 		expect(shown?.stoppedBy).toBeUndefined()
 	})
 
+	it('forgets an earlier cut-short turn once the teammate starts another, so a later stop reads as a stop', () => {
+		const monitor = new SubagentActivityMonitor()
+		const tracker = monitor.begin({ agentId: 'mate', description: 'Work', prompt: 'p' })
+		tracker.settle(handle('running'))
+		monitor.markInterrupted(tracker.viewId)
+		expect(monitor.getSnapshot()[0]?.interrupted).toBe(true)
+		tracker.onEvent({ type: 'turn_started', sessionId: 's-1' } as never)
+		expect(monitor.getSnapshot()[0]?.interrupted).toBeUndefined()
+		monitor.markStopped(tracker.viewId, 'user')
+		tracker.fail(new TurnCancelled('user'))
+		const shown = monitor.getSnapshot()[0]
+		expect(shown?.interrupted).toBeUndefined()
+		expect(shown?.stoppedBy).toBe('user')
+	})
+
 	it('marks a launch whose wait ended before the agent did as released', () => {
 		const monitor = new SubagentActivityMonitor()
 		const tracker = monitor.begin({ agentId: 'researcher', description: 'Look', prompt: 'p' })
