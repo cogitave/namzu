@@ -63,7 +63,7 @@ const TABLE: readonly (readonly [string, 'all' | readonly string[]])[] = [
 	['^read', ['read', 'read_memory']],
 	['read', ['read']],
 	['Bash.*', ['bash', 'job']],
-	['task_*', ['task_create', 'task_list', 'task_update']],
+	['task_*', ['task_create', 'task_get', 'task_list', 'task_update']],
 	['*_task', ['cancel_task', 'continue_task', 'create_task', 'hand_back_task', 'wait_for_task']],
 	['Read|mcp__github__.*', ['read', 'mcp__github__get_issue', 'mcp__github__create_pr']],
 	['Skill', ['skill']],

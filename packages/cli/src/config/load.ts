@@ -1127,6 +1127,42 @@ const CONFIG_READERS: ConfigReaders = {
 			...(raw.sameComputer !== undefined ? { sameComputer: raw.sameComputer as boolean } : {}),
 		}
 	},
+	teams: (v, context) => {
+		if (!isConfigMapping(v)) return invalidConfigValue(context, [], 'must be a mapping')
+		const raw = v as Record<string, unknown>
+		const caps = { maxTeammates: 16, idleExitMinutes: 1440 } as const
+		for (const key of Object.keys(raw)) {
+			if (key !== 'enabled' && key !== 'maxTeammates' && key !== 'idleExitMinutes')
+				return invalidConfigValue(
+					context,
+					[key],
+					'is not a teams setting (enabled, maxTeammates, idleExitMinutes)',
+				)
+		}
+		// The Settings screen saves its choice as text, so "true" and "false" read as the booleans.
+		if (raw.enabled === 'true') raw.enabled = true
+		else if (raw.enabled === 'false') raw.enabled = false
+		if (raw.enabled !== undefined && typeof raw.enabled !== 'boolean')
+			return invalidConfigValue(context, ['enabled'], 'must be true or false')
+		for (const key of ['maxTeammates', 'idleExitMinutes'] as const) {
+			const value = raw[key]
+			if (value === undefined) continue
+			if (
+				typeof value !== 'number' ||
+				!Number.isSafeInteger(value) ||
+				value < 1 ||
+				value > caps[key]
+			)
+				return invalidConfigValue(context, [key], `must be a whole number from 1 to ${caps[key]}`)
+		}
+		return {
+			...(raw.enabled !== undefined ? { enabled: raw.enabled as boolean } : {}),
+			...(raw.maxTeammates !== undefined ? { maxTeammates: raw.maxTeammates as number } : {}),
+			...(raw.idleExitMinutes !== undefined
+				? { idleExitMinutes: raw.idleExitMinutes as number }
+				: {}),
+		}
+	},
 	updates: (v, context) => {
 		if (!isConfigMapping(v)) return invalidConfigValue(context, [], 'must be a mapping')
 		const raw = v as Record<string, unknown>
@@ -2942,6 +2978,9 @@ export const ENV_VARIABLE_NAMES: EnvVariableNames = {
 	// Opens a listener on this machine and tells the network it is there: a file decision. The hard stop
 	// `NAMZU_NETWORK=off` is read by the network policy itself, not carried as a config field.
 	network: undefined,
+	// Starts helpers that spend the person's limit: a file decision. `NAMZU_TEAMS=1` and `--teams` turn it on
+	// for one run and are read by the teams resolver (`integrations/teams/enabled.ts`), not carried as a config field.
+	teams: undefined,
 	// Decides which model receives a conversation's content; a file decision, never a variable a shell profile could carry invisibly.
 	refusalFallback: undefined,
 	// Only records locally and can only be a file decision, but keeps the rule that no variable carries it.
@@ -3458,6 +3497,18 @@ function mergeConfigs(...layers: readonly ConfigLayer[]): {
 				provenance[key] = layer.sourceFor(key)
 				continue
 			}
+			if (key === 'teams' && isProjectSource(layer.sourceFor(key))) {
+				// A repository cannot start helpers that spend a person's limit.
+				configWarnings.add(
+					`teams in ${describeSource(layer.sourceFor(key))} is ignored: only your own config file or the managed file can set it.`,
+				)
+				continue
+			}
+			if (key === 'teams' && layer.config.teams !== undefined) {
+				out.teams = { ...out.teams, ...layer.config.teams }
+				provenance[key] = layer.sourceFor(key)
+				continue
+			}
 			if (key === 'worktrees' && layer.config.worktrees !== undefined) {
 				// A project cannot choose where Namzu writes checkouts, nor what they are called.
 				if (isProjectSource(layer.sourceFor(key))) {
@@ -3876,6 +3927,7 @@ export function projectLayerHolds(path: string, value: unknown): boolean {
 		case 'promptHistory':
 			return false
 		case 'network':
+		case 'teams':
 			return false
 		case 'codeAnalysis':
 		case 'imageGeneration':

@@ -129,11 +129,13 @@ export function readSettingsFlag(
 
 /** The layers `--bare` and `--settings` add, lowest first, or the first thing wrong. */
 export function launchLayersFor(
-	flags: { readonly bare?: boolean; readonly settings?: string },
+	flags: { readonly bare?: boolean; readonly teams?: boolean; readonly settings?: string },
 	base: string = process.cwd(),
 ): { readonly layers: readonly LaunchSettingsLayer[] } | { readonly error: string } {
 	const layers: LaunchSettingsLayer[] = []
 	if (flags.bare === true) layers.push(launchSettingsLayer('--bare', BARE_SETTINGS))
+	if (flags.teams === true)
+		layers.push(launchSettingsLayer('--teams', { teams: { enabled: true } }))
 	if (flags.settings !== undefined) {
 		const layer = readSettingsFlag(flags.settings, base)
 		if ('error' in layer) return layer

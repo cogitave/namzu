@@ -608,8 +608,9 @@ jobs:
   windows-helper:
     name: Windows helper (${{ matrix.target }})
     runs-on: windows-latest
-    # The monitor tests wait for events with no deadline of their own (a test
-    # never races the clock); this bounds a real hang to the job.
+    # The monitor test bounds each of its waits and panics naming the section
+    # (a hang is an explained failure, never a decision of a healthy run); this
+    # bounds anything beyond that to the job.
     timeout-minutes: 20
     strategy:
       matrix:
@@ -638,7 +639,9 @@ jobs:
       # on this runner.
       - name: Test the Windows helper
         if: matrix.gates
-        run: cargo test --workspace --locked --target ${{ matrix.target }}
+        # --nocapture: the monitor test prints a line per section to stderr, so
+        # a run that stops shows where it stopped.
+        run: cargo test --workspace --locked --target ${{ matrix.target }} -- --nocapture
 
       - name: Record the helper checksum
         shell: bash

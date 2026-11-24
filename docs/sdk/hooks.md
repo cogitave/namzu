@@ -210,7 +210,7 @@ On exit `0`, stdout that starts with `{` is the hook's JSON answer. Output that 
     | `Web*`, `WebFetch` | `web_fetch`, `web_search`; `web_fetch` |
     | `Task`, `Agent`, `Agent\|Task` | `Agent`, `create_task` |
     | `agent*` | `Agent`, `agent_task_list`, `create_task` |
-    | `task_*` | `task_create`, `task_list`, `task_update` |
+    | `task_*` | `task_create`, `task_get`, `task_list`, `task_update` |
     | `*_task` | `cancel_task`, `continue_task`, `create_task`, `hand_back_task`, `wait_for_task` |
     | `read` | `read` only; `^read` also fires for `read_memory` |
     | `Bash.*` | `bash`, `job` |
@@ -267,7 +267,7 @@ The JSON answer, the exit codes and the options above follow the JSON hook contr
     - Code and analysis: `code_analysis`, `lsp`, `run_code`, `structured_output`
     - Web, browser and computer: `browser`, `browser_act`, `computer_use`, `monitor`, `web_fetch`, `web_search`
     - Skills and tool search: `search_tools`, `skill`
-    - Agents and tasks: `Agent`, `agent_task_list`, `approve_plan`, `ask_user_question`, `cancel_task`, `continue_task`, `create_task`, `hand_back_task`, `task_create`, `task_list`, `task_update`, `update_plan_step`, `wait_for_task`
+    - Agents and tasks: `Agent`, `agent_task_list`, `approve_plan`, `ask_user_question`, `cancel_task`, `continue_task`, `create_task`, `hand_back_task`, `task_create`, `task_get`, `task_list`, `task_update`, `update_plan_step`, `wait_for_task`
     - Goals, schedules and memory: `delete_memory`, `get_goal`, `read_memory`, `save_memory`, `schedule`, `search_memory`, `session_loop`, `timer_cancel`, `timer_list`, `timer_set`, `update_goal`, `update_memory`, `wake_up`
     - Advisors, pals, connectors and knowledge: `connector_execute`, `connector_list`, `consult_advisor`, `import_reference_images`, `knowledge_search`, `list_advisors`, `list_pals`, `send_pal_message`
     <!-- tool-names:end -->
@@ -301,6 +301,7 @@ A hook is sent the name a tool is registered under (`bash`, `web_fetch`), or, wh
 | `search_tools` | `ToolSearch` |
 | `skill` | `Skill` |
 | `task_create` | `TaskCreate` |
+| `task_get` | `TaskGet` |
 | `task_list` | `TaskList` |
 | `task_update` | `TaskUpdate` |
 | `web_fetch` | `WebFetch` |

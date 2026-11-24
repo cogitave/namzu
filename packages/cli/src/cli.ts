@@ -178,6 +178,10 @@ function addLaunchOptions(command: Command): Command {
 			'Minimal start: no hooks, plugins, project instruction files, saved memory notes, learning, code index, background catalogue refresh or update check. See docs/cli/launch-flags.md.',
 		)
 		.option(
+			'--teams',
+			'Let the Agent tool start named teammates for this launch only (the same as the teams.enabled setting or NAMZU_TEAMS=1). Off in one-shot runs. NAMZU_TEAMS=0 still stops them.',
+		)
+		.option(
 			'--debug-file <path>',
 			'Write every log record, debug level included, to this file; what appears on screen keeps its usual level. The folders of the path are created.',
 		)
@@ -418,6 +422,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 			// settings or logs: checked first, so a bad value costs nothing else.
 			const launchValues = command.opts<{
 				bare?: boolean
+				teams?: boolean
 				settings?: string
 				debugFile?: string
 			}>()
@@ -1363,7 +1368,15 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 }
 
 /** The root options that `-p` leaves on the root: the output controls, not the run's options. */
-const PRINT_ROOT_FLAGS = new Set(['-q', '--quiet', '-v', '--verbose', '--debug', '--bare'])
+const PRINT_ROOT_FLAGS = new Set([
+	'-q',
+	'--quiet',
+	'-v',
+	'--verbose',
+	'--debug',
+	'--bare',
+	'--teams',
+])
 const PRINT_ROOT_VALUE_FLAGS = new Set([
 	'-f',
 	'--format',
@@ -1430,7 +1443,7 @@ export function hoistExecLaunchFlags(
 	const kept: string[] = []
 	for (let i = 0; i < tail.length; i++) {
 		const arg = tail[i] as string
-		if (arg === '--bare') moved.push(arg)
+		if (arg === '--bare' || arg === '--teams') moved.push(arg)
 		else if (arg === '--settings' || arg === '--debug-file') {
 			moved.push(arg)
 			if (i + 1 < tail.length) moved.push(tail[++i] as string)
