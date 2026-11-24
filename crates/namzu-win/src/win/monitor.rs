@@ -18,6 +18,7 @@
 use namzu_win_core::monitor::{Device, Hook, MonitorLog, MonitorPollReply, MonitorStartRequest};
 use namzu_win_core::window_id;
 use std::ffi::c_void;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::channel;
 use std::sync::{Mutex, MutexGuard, OnceLock};
 use std::thread::JoinHandle;
@@ -30,9 +31,10 @@ use windows::Win32::UI::Input::{
     RIDEV_REMOVE, RIM_TYPEKEYBOARD, RIM_TYPEMOUSE, RegisterRawInputDevices,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetMessageW, HWND_MESSAGE,
-    MSG, PM_NOREMOVE, PeekMessageW, PostThreadMessageW, RegisterClassExW, TranslateMessage,
-    UnregisterClassW, WINDOW_EX_STYLE, WINDOW_STYLE, WM_INPUT, WM_QUIT, WNDCLASSEXW,
+    CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetForegroundWindow,
+    GetMessageW, HWND_MESSAGE, MSG, PM_NOREMOVE, PeekMessageW, PostThreadMessageW,
+    RegisterClassExW, TranslateMessage, UnregisterClassW, WINDOW_EX_STYLE, WINDOW_STYLE, WM_INPUT,
+    WM_QUIT, WNDCLASSEXW,
 };
 use windows::core::w;
 
@@ -62,6 +64,30 @@ fn now_ms() -> u64 {
     epoch().elapsed().as_millis() as u64
 }
 
+/// The window (as `window_id` counts it) the monitor last recorded as in front,
+/// or 0 before there is one.
+static LAST_FRONT: AtomicU64 = AtomicU64::new(0);
+/// The foreground is being watched, so a poll checks it against what was recorded.
+static WATCHING_FOREGROUND: AtomicBool = AtomicBool::new(false);
+
+/// The top-level window in front now, or `None` when there is none.
+fn front_root() -> Option<HWND> {
+    // SAFETY: a plain query.
+    let fg = unsafe { GetForegroundWindow() };
+    (!fg.0.is_null()).then(|| enumerate::root(fg).0)
+}
+
+/// Records `root` as having come to the front, unless it is the window the
+/// monitor already recorded (an event and a poll's own check can both see one change).
+fn record_front(root: HWND) {
+    let value = enumerate::hwnd_value(root);
+    if LAST_FRONT.swap(value, Ordering::SeqCst) == value {
+        return;
+    }
+    let id = window_id::format(value, enumerate::pid_of(root));
+    log().record_foreground(now_ms(), id);
+}
+
 /// A person's input events counted so far (all of them, from the start of the helper's monitor).
 pub fn person_inputs() -> u64 {
     log().inputs()
@@ -69,6 +95,14 @@ pub fn person_inputs() -> u64 {
 
 /// The log as `monitor.poll` reports it.
 pub fn poll(since: Option<u64>) -> MonitorPollReply {
+    // The system is not guaranteed to deliver every foreground event to an
+    // out-of-context hook (a change can come with none), so what is in front
+    // is also read here, and a change the hook did not report is recorded.
+    if WATCHING_FOREGROUND.load(Ordering::SeqCst) {
+        if let Some(front) = front_root() {
+            record_front(front);
+        }
+    }
     log().poll(since, now_ms())
 }
 
@@ -91,9 +125,7 @@ unsafe extern "system" fn on_foreground(
     if event != EVENT_SYSTEM_FOREGROUND || hwnd.0.is_null() {
         return;
     }
-    let (root, _) = enumerate::root(hwnd);
-    let id = window_id::format(enumerate::hwnd_value(root), enumerate::pid_of(root));
-    log().record_foreground(now_ms(), id);
+    record_front(enumerate::root(hwnd).0);
 }
 
 unsafe extern "system" fn wnd_proc(
@@ -146,6 +178,7 @@ impl Monitor {
             .spawn(move || run(want_input, want_foreground, ready_tx))
             .ok()?;
         let (thread_id, input, foreground) = ready_rx.recv().ok()?;
+        WATCHING_FOREGROUND.store(foreground, Ordering::SeqCst);
         Some(Monitor {
             thread_id,
             join: Some(join),
@@ -156,6 +189,7 @@ impl Monitor {
 
     /// Stops watching and waits for the thread to finish.
     pub fn stop(mut self) {
+        WATCHING_FOREGROUND.store(false, Ordering::SeqCst);
         // SAFETY: a plain post to a thread of this process.
         unsafe {
             let _ = PostThreadMessageW(self.thread_id, WM_QUIT, WPARAM(0), LPARAM(0));
@@ -211,6 +245,11 @@ fn run(want_input: bool, want_foreground: bool, ready: std::sync::mpsc::Sender<(
         }
         let mut hook = HWINEVENTHOOK::default();
         if want_foreground {
+            // What is in front at the start is not a change, so it is not recorded.
+            LAST_FRONT.store(
+                front_root().map_or(0, enumerate::hwnd_value),
+                Ordering::SeqCst,
+            );
             hook = SetWinEventHook(
                 EVENT_SYSTEM_FOREGROUND,
                 EVENT_SYSTEM_FOREGROUND,
