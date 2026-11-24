@@ -34,6 +34,10 @@ import { terminalWebHyperlink } from './terminal-hyperlinks.js'
 export interface DisplaySpan extends InlineSpan {
 	/** Dim secondary text, such as the address after a link's label. */
 	readonly muted?: boolean
+	/** A colour of its own (a teammate's name); a stored theme token or any colour `paint` keeps. */
+	readonly tone?: string
+	/** Struck through, and dim: a task that is done. */
+	readonly strike?: boolean
 }
 
 export type DisplayLine = readonly DisplaySpan[]

@@ -12,6 +12,10 @@ export interface TeamMemberView {
 	/** The row this member has in the agent list, so a screen can open its transcript. */
 	readonly viewId: string
 	readonly state: TeamMemberState
+	/** The colour its name wears on every screen (one of `TEAM_COLORS`), kept for as long as it is on the team. */
+	readonly color: string
+	/** A plan it sent is waiting for the person's answer: its row says `awaiting approval`. */
+	readonly awaitingPlan?: boolean
 	/** When it went idle or was stopped (ms since the epoch); 0 while it works. */
 	readonly since: number
 }
@@ -26,6 +30,26 @@ export interface TeamTaskView {
 	readonly completedAt?: number
 }
 
+/** One piece of the team's mail, as a screen is told of it (the file keeps the record). */
+export interface TeamMailEvent {
+	readonly team: string
+	/** A member's name, or `lead`. */
+	readonly from: string
+	/** A member's name, or `lead`. */
+	readonly to: string
+	readonly kind:
+		| 'message'
+		| 'idle'
+		| 'shutdown_request'
+		| 'shutdown_response'
+		| 'plan_request'
+		| 'plan_response'
+		| 'permission_request'
+		| 'permission_response'
+	readonly text: string
+	readonly summary?: string
+}
+
 /** Read-only side of the session's team. */
 export interface TeamViewSource {
 	/** The team's name, once the first teammate has started. */
@@ -36,6 +60,10 @@ export interface TeamViewSource {
 	left?(viewId: string): string | undefined
 	/** Every task on the team's list. */
 	tasks(): Promise<readonly TeamTaskView[]>
+	/** The colour a name wears (a member's, or the lead's when the name is `lead`); absent for a name the team never had. */
+	colorOf?(name: string): string | undefined
+	/** Hear every piece of mail the team writes, as it is written. */
+	onMail?(listener: (event: TeamMailEvent) => void): () => void
 	/** Hear a change of members, asks or tasks; one call, no detail. */
 	subscribe(listener: () => void): () => void
 }

@@ -22,6 +22,7 @@ import {
 	useRef,
 	useState,
 } from 'react'
+import stringWidth from 'string-width'
 
 import {
 	isMacScreenshotPreviewPath,
@@ -75,7 +76,7 @@ import { explainFailure } from './plain-failure.js'
 import { type SlashCommand, argumentHintFor, matchSlashCommands } from './slashCommands.js'
 import { wrapChoiceText } from './terminal-choice-text.js'
 import { terminalDisplayText } from './terminal-display.js'
-import { theme } from './theme.js'
+import { paint, theme } from './theme.js'
 import { tagRow } from './triggers/copy.js'
 import {
 	type Detection,
@@ -166,6 +167,8 @@ export interface ComposerProps {
 	/** A bounded text editor for a child conversation, without host commands or image attachments. */
 	readonly plainText?: boolean
 	readonly placeholder?: string
+	/** In place of the `❯` mark: who the line is written to (a teammate's `@name`, in its colour). */
+	readonly badge?: { readonly text: string; readonly color: string }
 	/**
 	 * A suggested next message, shown in place of the placeholder while the composer is empty;
 	 * Tab puts it in the draft. Typing anything else leaves it unused.
@@ -763,6 +766,7 @@ export function Composer({
 	plainText = false,
 	mayReadImage,
 	placeholder = 'Type a message… (/help for commands)',
+	badge,
 	promptSuggestion,
 	onDraftChange,
 	reasoningEffortLevels,
@@ -2629,11 +2633,19 @@ export function Composer({
 				</Box>
 			) : null}
 			<Box>
-				<Box width={2} flexShrink={0}>
-					<Text color={shellGlyph ? theme.accent.shellMode : theme.text.muted} bold={shellGlyph}>
-						{promptGlyph}
-					</Text>
-				</Box>
+				{badge !== undefined && !shellGlyph ? (
+					<Box width={stringWidth(badge.text) + 1} flexShrink={0}>
+						<Text color={paint(badge.color)} bold>
+							{badge.text}
+						</Text>
+					</Box>
+				) : (
+					<Box width={2} flexShrink={0}>
+						<Text color={shellGlyph ? theme.accent.shellMode : theme.text.muted} bold={shellGlyph}>
+							{promptGlyph}
+						</Text>
+					</Box>
+				)}
 				<Box flexGrow={1}>
 					{showPlaceholder ? (
 						<Text color={theme.text.muted}>

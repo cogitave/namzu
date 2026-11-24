@@ -46,7 +46,7 @@ function agent(viewId: string, patch: Partial<SubagentActivity> = {}): SubagentA
 }
 
 function member(name: string, state: TeamMemberView['state'], since = 0): TeamMemberView {
-	return { name, viewId: `v-${name}`, state, since }
+	return { name, viewId: `v-${name}`, state, color: 'blue', since }
 }
 
 const rowsFor = (members: readonly TeamMemberView[]) => members.map((m) => agent(m.viewId))
@@ -140,7 +140,7 @@ describe('the team rows on the screen', () => {
 			[],
 			100,
 		)
-		expect(rows.join('\n')).toContain('4 idle teammates')
+		expect(rows.join('\n')).toContain('4 idle agents')
 		expect(rows.join('\n')).not.toContain('idle · 2s')
 	})
 

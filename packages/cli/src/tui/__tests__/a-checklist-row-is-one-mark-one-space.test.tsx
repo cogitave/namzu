@@ -104,7 +104,7 @@ describe('the checklist on a terminal', () => {
 		expect(pending).toMatchObject({ strikethrough: false, bold: false })
 	})
 
-	it('a plain item with blockers draws exactly as before: no owner, no waits-on suffix', () => {
+	it('a plain item with blockers draws exactly as before: no owner, no blocked-by suffix', () => {
 		const item = {
 			id: '01a20ee0-9fdb-7121-8275-6463e3214503',
 			subject: 'Write docs',
@@ -113,7 +113,7 @@ describe('the checklist on a terminal', () => {
 		}
 		expect(checklistLine(item)).toBe('□ Write docs')
 		expect(checklistLine({ ...item, team: true, blockedBy: ['1'] })).toBe(
-			'□ Write docs · waits on #1',
+			'□ Write docs › blocked by #1',
 		)
 	})
 })

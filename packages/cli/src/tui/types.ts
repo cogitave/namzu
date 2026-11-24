@@ -122,6 +122,11 @@ export interface TranscriptMessage {
 	readonly glyphColor?: string
 	/** Overrides the colour of the row's text (the glyph keeps `glyphColor`). */
 	readonly contentColor?: string
+	/**
+	 * The row's text as spans, when parts of it have a colour of their own (a teammate's name).
+	 * `content` stays the same words as plain text, for copy, search and every screen that draws no spans.
+	 */
+	readonly spans?: readonly import('./markdown-wrap.js').DisplaySpan[]
 	/** On a message the person sent: the files that went with it, one quiet row each under it. */
 	readonly attachments?: readonly AttachmentRow[]
 	/** Dim suffix after the content (e.g. a tool's elapsed time). */

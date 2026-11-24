@@ -300,6 +300,57 @@ describe('what a screen reads of the members', () => {
 	})
 })
 
+describe('what a screen hears of the team mail', () => {
+	it('tells a listener each piece of mail as it is written, to whom and of what kind', async () => {
+		const t = setup()
+		const heard: { from: string; to: string; kind: string; summary?: string }[] = []
+		t.runner.onMail((event) =>
+			heard.push({
+				from: event.from,
+				to: event.to,
+				kind: event.kind,
+				...(event.summary !== undefined ? { summary: event.summary } : {}),
+			}),
+		)
+		await t.spawn('alice')
+		t.runner.turnEnded(t.team, 'alice', { state: 'completed', text: 'parsed it' })
+		expect(heard).toEqual([
+			{ from: 'alice', to: 'lead', kind: 'idle', summary: 'alice is idle (available)' },
+		])
+	})
+
+	it('says a refused shutdown and a failed turn in the mail, so a screen can word them', async () => {
+		const t = setup()
+		const heard: { kind: string; text: string }[] = []
+		t.runner.onMail((event) => heard.push({ kind: event.kind, text: event.text }))
+		await t.spawn('alice')
+		t.runner.turnEnded(t.team, 'alice', { state: 'failed', text: 'boom' })
+		t.fake.running.delete('alice')
+		await t.runner.requestShutdown({ leadSessionId: LEAD, name: 'alice', reason: 'wrap up' })
+		t.runner.respondShutdown({ team: t.team, name: 'alice', approve: false, reason: 'still busy' })
+		const idle = heard.find((mail) => mail.kind === 'idle')
+		expect(JSON.parse(idle?.text ?? '{}').idleReason).toBe('failed')
+		const answer = heard.find((mail) => mail.kind === 'shutdown_response')
+		expect(JSON.parse(answer?.text ?? '{}')).toEqual({ approve: false, reason: 'still busy' })
+	})
+
+	it('stops telling a listener that has left, and never lets one that throws stop the team', async () => {
+		const t = setup()
+		let heard = 0
+		const off = t.runner.onMail(() => {
+			heard += 1
+		})
+		t.runner.onMail(() => {
+			throw new Error('cannot draw')
+		})
+		await t.spawn('alice')
+		off()
+		t.runner.turnEnded(t.team, 'alice', { state: 'completed' })
+		expect(heard).toBe(0)
+		expect(t.runner.stateOf(t.team, 'alice')).toBe('idle')
+	})
+})
+
 describe('a turn ends', () => {
 	it('mails the lead one idle record per turn and goes idle', async () => {
 		const t = setup()

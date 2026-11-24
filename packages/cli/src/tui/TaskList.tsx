@@ -17,6 +17,7 @@ import { Box, Text, useWindowSize } from 'ink'
 import stringWidth from 'string-width'
 
 import { type ChecklistItem, ChecklistRow, checklistLine } from './Checklist.js'
+import { teamTaskRowCap, teamTaskWindow } from './team-view.js'
 import { theme } from './theme.js'
 
 export type TaskListItem = ChecklistItem
@@ -43,10 +44,24 @@ export const EXPANDED_TASK_ROWS = 5
  * otherwise four tasks, in list order, chosen as the one in progress first, then
  * the pending ones, then the latest finished, and a last row counting the rest.
  */
-export function expandedTaskRows(tasks: readonly TaskListItem[]): {
+export function expandedTaskRows(
+	tasks: readonly TaskListItem[],
+	/** The terminal's rows: a team's list takes as many rows as they leave (see `teamTaskRowCap`). */
+	terminalRows?: number,
+): {
 	readonly shown: readonly TaskListItem[]
 	readonly hidden: number
+	/** A team's list: the one line that counts the tasks the rows leave out. */
+	readonly overflow?: string
 } {
+	if (tasks[0]?.team === true && terminalRows !== undefined) {
+		const window = teamTaskWindow(tasks, teamTaskRowCap(terminalRows))
+		return {
+			shown: window.shown,
+			hidden: 0,
+			...(window.overflow !== undefined ? { overflow: window.overflow } : {}),
+		}
+	}
 	if (tasks.length <= EXPANDED_TASK_ROWS) return { shown: tasks, hidden: 0 }
 	const room = EXPANDED_TASK_ROWS - 1
 	const rank = (task: TaskListItem): number =>
@@ -69,26 +84,31 @@ export function expandedTaskRows(tasks: readonly TaskListItem[]): {
 }
 
 /** Rows this component occupies, for the live-region budget. */
-export function taskListRows(tasks: readonly TaskListItem[], expanded = false): number {
+export function taskListRows(
+	tasks: readonly TaskListItem[],
+	expanded = false,
+	terminalRows?: number,
+): number {
 	if (expanded) {
 		if (tasks.length === 0) return 0
-		const { shown, hidden } = expandedTaskRows(tasks)
-		return shown.length + (hidden > 0 ? 1 : 0)
+		const { shown, hidden, overflow } = expandedTaskRows(tasks, terminalRows)
+		return shown.length + (hidden > 0 || overflow !== undefined ? 1 : 0)
 	}
 	return currentTask(tasks) ? 1 : 0
 }
 
 export function TaskList({ tasks, expanded = false }: TaskListProps) {
-	const { columns } = useWindowSize()
+	const { columns, rows } = useWindowSize()
 	if (expanded) {
 		if (tasks.length === 0) return null
-		const { shown, hidden } = expandedTaskRows(tasks)
+		const { shown, hidden, overflow } = expandedTaskRows(tasks, rows)
 		return (
 			<Box flexDirection="column" paddingLeft={2}>
 				{shown.map((task) => (
 					<ChecklistRow key={task.id} item={task} wrap="truncate-end" />
 				))}
 				{hidden > 0 ? <Text color={theme.text.muted}>… +{hidden} more</Text> : null}
+				{overflow !== undefined ? <Text color={theme.text.muted}>{overflow}</Text> : null}
 			</Box>
 		)
 	}

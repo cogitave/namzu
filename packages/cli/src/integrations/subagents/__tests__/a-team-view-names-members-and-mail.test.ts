@@ -128,6 +128,39 @@ it('lists a member with its state, and says so when the state changes', async ()
 	}
 })
 
+it('gives each member a colour in the order they join, keeps it, and tells a screen the mail', async () => {
+	const t = await setup()
+	try {
+		const team = t.runtime.team
+		const mail: { from: string; to: string; kind: string }[] = []
+		const off = team?.onMail?.((event) =>
+			mail.push({ from: event.from, to: event.to, kind: event.kind }),
+		)
+		let done = t.next()
+		await t.runtime.agentTool.execute(spawn('bob'), t.context)
+		await done
+		done = t.next()
+		await t.runtime.agentTool.execute(spawn('cleo'), t.context)
+		await done
+		const members = team?.members() ?? []
+		const colors = members.map((member) => member.color)
+		expect(new Set(colors).size).toBe(2)
+		// The lead holds the first colour, so no teammate has it.
+		const lead = team?.colorOf?.('lead')
+		expect(colors).not.toContain(lead)
+		// Asking again, or in another order, gives the same colour.
+		expect(team?.members().map((member) => member.color)).toEqual(colors)
+		expect(team?.colorOf?.('bob')).toBe(colors[0])
+		// A name the team never had gets a fixed blue or pink, not a place in the order.
+		expect(['blue', '#ff69b4']).toContain(team?.colorOf?.('ghost'))
+		expect(team?.members()).toHaveLength(2)
+		expect(mail.filter((entry) => entry.kind === 'idle' && entry.to === 'lead').length).toBe(2)
+		off?.()
+	} finally {
+		await t.runtime.close()
+	}
+})
+
 it('reads the shared task list with owner and blockers', async () => {
 	const t = await setup()
 	try {

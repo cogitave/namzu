@@ -51,6 +51,7 @@ export type ToolRow = Pick<TranscriptMessage, 'role' | 'content'> &
 			| 'glyph'
 			| 'glyphColor'
 			| 'contentColor'
+			| 'spans'
 			| 'meta'
 			| 'detail'
 			| 'activity'
