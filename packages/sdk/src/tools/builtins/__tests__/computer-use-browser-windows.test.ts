@@ -385,3 +385,20 @@ describe('browserQuestionPending', () => {
 			)
 	})
 })
+
+describe('browserAsk', () => {
+	const ask = async (): Promise<BrowserWindowAnswer> => 'allow'
+
+	it('names the browser for a call that acts, and none for a call that only looks', () => {
+		const { tool } = build('brave-browser', { browserWindows: 'ask', askBrowserWindow: ask })
+		expect(tool.browserAsk(CLICK, ['brave-browser'])).toEqual(['brave-browser'])
+		expect(tool.browserAsk({ type: 'screenshot' }, ['brave-browser'])).toEqual([])
+		expect(tool.browserAsk({ type: 'list_windows' }, ['brave-browser'])).toEqual([])
+		// A batch with one click in it acts.
+		expect(
+			tool.browserAsk({ type: 'batch', actions: [{ type: 'screenshot' }, CLICK] }, [
+				'brave-browser',
+			]),
+		).toEqual(['brave-browser'])
+	})
+})

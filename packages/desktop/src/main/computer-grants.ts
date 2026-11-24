@@ -77,9 +77,14 @@ export class ComputerGrants {
 				// Namzu's own window is not an application it may be allowed into: a click there
 				// could answer its own question.
 				if (this.own(app)) return { kind: 'ask' }
+				if (browserAsk.has(appKey(app))) {
+					// An acting call the engine will ask about needs the browser's own yes; the plain
+					// yes that a look was given does not cover clicking and typing.
+					if (!this.browsers.has(appKey(app))) missingBrowsers.set(appKey(app), appLabel(app))
+					continue
+				}
 				if (this.granted.has(appKey(app))) continue
-				if (browserAsk.has(appKey(app))) missingBrowsers.set(appKey(app), appLabel(app))
-				else missing.set(appKey(app), appLabel(app))
+				missing.set(appKey(app), appLabel(app))
 			}
 		}
 		if (missing.size > 0) return { kind: 'ask-app', apps: [...missing.values()] }

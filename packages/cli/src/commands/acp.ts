@@ -335,6 +335,7 @@ type AcpLiveSession = Pick<
 	/** The agent's browser, when this conversation has one; a fake session leaves it out. */
 	readonly browser?: AgentSession['browser']
 	readonly describeComputerUseCall?: AgentSession['describeComputerUseCall']
+	readonly revokeComputerBrowser?: AgentSession['revokeComputerBrowser']
 	/** What the context panel sizes; a fake session may leave them out. */
 	readonly contextInventory?: AgentSession['contextInventory']
 	readonly instructionFiles?: AgentSession['instructionFiles']
@@ -633,6 +634,11 @@ export interface CliAcpRuntime {
 	 * question is no longer open (the turn stopped, it was answered, it is another conversation's).
 	 */
 	answerQuestion?(sessionId: string, requestId: string, answer: unknown): void
+	/**
+	 * Takes back the person's click-and-type yes for a browser in this conversation, after they
+	 * revoked it in the desktop, so the engine asks again. Returns whether it was held.
+	 */
+	revokeBrowserGrant?(sessionId: string, app: string): boolean
 	jobs(sessionId: string): readonly import('@namzu/sdk').BackgroundJob[]
 	readJob(sessionId: string, jobId: string): unknown
 	stopJob(sessionId: string, jobId: string): Promise<unknown>
@@ -1927,6 +1933,10 @@ export function createCliAcpRuntime(
 				throw new Error('This question is no longer open.')
 			if (!questionRelay.answer(sessionId, requestId, answer))
 				throw new Error('This question is no longer open.')
+		},
+		revokeBrowserGrant: (sessionId, app) => {
+			if (closed) throw new Error('The connection is closed.')
+			return records.get(sessionId)?.session.revokeComputerBrowser?.(app) ?? false
 		},
 		setPermissionMode: async (sessionId, mode) => {
 			if (closed) throw new Error('The connection is closed.')

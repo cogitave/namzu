@@ -127,6 +127,20 @@ describe('computer grants', () => {
 			})
 		})
 
+		it('a look at a browser gets the ordinary card, and a later click the browser card', () => {
+			const held = grants()
+			const look = act('brave-browser', { computer: { app: 'brave-browser' } })
+			expect(held.decide([look])).toEqual({ kind: 'ask-app', apps: ['Brave'] })
+			held.grant(['brave-browser'])
+			expect(held.browserAllowed('brave-browser')).toBe(false)
+			expect(held.decide([look])).toEqual({ kind: 'allow' })
+			expect(held.decide([brave()])).toEqual({
+				kind: 'ask-app',
+				apps: ['Brave'],
+				browser: true,
+			})
+		})
+
 		it('answers by itself once the person allowed it for this conversation', () => {
 			const held = grants()
 			held.grant(['brave-browser'], { browser: true })

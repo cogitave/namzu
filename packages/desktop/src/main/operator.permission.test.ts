@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events'
 import { fileURLToPath } from 'node:url'
-import { afterEach, expect, it } from 'vitest'
+import { afterEach, expect, it, vi } from 'vitest'
 import type { DesktopEvent, PermissionView } from '../shared/protocol.js'
 import { Operator } from './operator.js'
 
@@ -361,4 +361,59 @@ it('draws the engine’s browser question once, and a yes to it also allows the 
 	const card = await third
 	expect(card.calls[0]?.name).toBe('browser_window')
 	owner.respondPermission(session.id, card.id, { outcome: 'reject' })
+})
+
+it('forgets the open browser and application cards of a turn that was stopped', async () => {
+	const { owner, permission, wait } = harness({
+		FIXTURE_COMPUTER_CALLS: JSON.stringify([braveCall()]),
+	})
+	const project = await owner.openProject(process.cwd())
+	const session = await owner.newConversation(project.id)
+	const asked = permission()
+	owner.send(session.id, 'Click in Brave')
+	await asked
+	const held = owner as unknown as {
+		appRequests: Map<string, unknown>
+		browserQuestions: Map<string, unknown>
+	}
+	expect(held.appRequests.size).toBe(1)
+	const ended = wait((event) => event.kind === 'permission-cleared')
+	await owner.cancel(session.id)
+	await ended
+	expect(held.appRequests.size).toBe(0)
+	expect(held.browserQuestions.size).toBe(0)
+})
+
+it('tells the engine when the person takes a browser back, so both sides drop the yes', async () => {
+	const { owner, permission, wait } = harness({
+		FIXTURE_COMPUTER_CALLS: JSON.stringify([braveCall()]),
+		FIXTURE_REVOKE_BROWSER: '1',
+	})
+	const project = await owner.openProject(process.cwd())
+	const session = await owner.newConversation(project.id)
+	const asked = permission()
+	owner.send(session.id, 'Click in Brave')
+	const review = await asked
+	const ended = wait((event) => event.kind === 'state' && !event.running)
+	owner.respondPermission(session.id, review.id, { outcome: 'approve_all' })
+	await ended
+	const client = (
+		owner as unknown as {
+			session(id: string): {
+				client: { request(method: string, params: unknown): Promise<unknown> }
+			}
+		}
+	).session(session.id).client
+	const request = vi.spyOn(client, 'request')
+	owner.revokeComputerApp(session.id, 'Brave')
+	expect(owner.computerApps(session.id).granted).toEqual([])
+	expect(request).toHaveBeenCalledWith(
+		'namzu/session/revoke-browser',
+		expect.objectContaining({ app: 'Brave' }),
+		expect.anything(),
+	)
+	// Revoking an application that was never a browser yes sends the engine nothing.
+	request.mockClear()
+	owner.revokeComputerApp(session.id, 'Notepad')
+	expect(request).not.toHaveBeenCalled()
 })

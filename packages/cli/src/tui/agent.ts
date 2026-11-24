@@ -2083,6 +2083,11 @@ export interface AgentSession {
 	 */
 	readonly describeComputerUseRef?: (ref: string) => string | undefined
 	/**
+	 * Takes a browser's click-and-type yes back for this conversation (the person revoked it in the
+	 * host). Returns whether it was held. Undefined when the session has no computer use.
+	 */
+	readonly revokeComputerBrowser?: (app: string) => boolean
+	/**
 	 * What a `computer_use` call is about, for the review screen: the application it
 	 * works on and why it should be asked about even where that application was
 	 * allowed. Undefined for any other call or when the session has no computer use.
@@ -7503,6 +7508,7 @@ export async function createAgentSession(
 		promptExemptTools: () =>
 			promptExemptToolNames(liveManager()).filter((name) => !goalToolNames.has(name)),
 		describeComputerUseRef: (ref) => computerUseTool?.describeUiRef(ref),
+		revokeComputerBrowser: (app) => computerUseTool?.revokeBrowserGrant(app) ?? false,
 		describeComputerUseCall: async (name, input) => {
 			if (name !== COMPUTER_USE_TOOL_NAME || !computerUseTool) return undefined
 			const apps = await computerUseTool.appsOf(input)
@@ -7510,7 +7516,8 @@ export async function createAgentSession(
 			const consequence = computerUseTool.consequence(input)
 			// Browsers this call acts in that the engine will put its own question about: a host that
 			// draws an application card asks once, in the browser's words, instead of twice.
-			const browserAsk = apps.filter((name) => computerUseTool?.browserQuestionPending(name))
+			// Only a call that acts is asked about: looking is free (the tool decides).
+			const browserAsk = computerUseTool.browserAsk(input, apps)
 			return app || consequence
 				? {
 						...(app ? { app } : {}),

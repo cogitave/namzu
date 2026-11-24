@@ -1642,6 +1642,12 @@ export interface ComputerUseTool extends ToolDefinition<ActionInput> {
 	 * that draws its own application card uses it to ask once, in the browser's words, not twice.
 	 */
 	browserQuestionPending(app: string): boolean
+	/**
+	 * Of the applications a call works on, the browsers the engine will put its question about for
+	 * THIS call. A call that only looks (a picture, a list of windows) puts no question, so it names
+	 * none: its card would grant click-and-type, and a no would refuse a harmless look.
+	 */
+	browserAsk(input: unknown, apps: readonly string[]): string[]
 }
 
 const CONSEQUENTIAL_KEYS =
@@ -3895,6 +3901,11 @@ export function createComputerUseTool(
 			return result
 		},
 	})
+	const browserQuestionPending = (app: string): boolean =>
+		appTier(app) === 'view' &&
+		readBrowserSetting() === 'ask' &&
+		options.askBrowserWindow !== undefined &&
+		!browserGranted.has(browserKey(app))
 	return Object.assign(tool, {
 		describeUiRef,
 		appOf,
@@ -3902,10 +3913,8 @@ export function createComputerUseTool(
 		consequence,
 		browserGrants: (): string[] => [...browserGranted.values()],
 		revokeBrowserGrant: (app: string): boolean => browserGranted.delete(browserKey(app)),
-		browserQuestionPending: (app: string): boolean =>
-			appTier(app) === 'view' &&
-			readBrowserSetting() === 'ask' &&
-			options.askBrowserWindow !== undefined &&
-			!browserGranted.has(browserKey(app)),
+		browserQuestionPending,
+		browserAsk: (input: unknown, apps: readonly string[]): string[] =>
+			isReadOnlyInput(input) ? [] : apps.filter((app) => browserQuestionPending(app)),
 	})
 }

@@ -1129,6 +1129,13 @@ export class Operator {
 	 * dropped when the next question opens, and a request that is no longer waiting is never answered.
 	 */
 	private readonly questionRequests = new Map<string, { sessionId: string; requestId: string }>()
+	/** Forgets the open application and browser cards of a conversation whose requests were all cleared. */
+	private dropOpenAskRecords(sessionId: string): void {
+		for (const [id, entry] of this.appRequests)
+			if (entry.sessionId === sessionId) this.appRequests.delete(id)
+		for (const [id, entry] of this.browserQuestions)
+			if (entry.sessionId === sessionId) this.browserQuestions.delete(id)
+	}
 	private grantsFor(sessionId: string): ComputerGrants {
 		let grants = this.computerGrants.get(sessionId)
 		if (!grants) {
@@ -1145,8 +1152,22 @@ export class Operator {
 		this.session(sessionId)
 		if (typeof app !== 'string' || !app.trim() || app.length > 120)
 			throw new Error('Invalid application.')
+		const heldBrowser = this.grantsFor(sessionId).browserAllowed(app)
 		this.grantsFor(sessionId).revoke(app)
 		this.announceComputerApps(sessionId)
+		// The engine holds its own copy of a browser's yes; take it back there too, or it would keep
+		// acting in the browser without asking while this side shows it as taken away.
+		if (heldBrowser) {
+			const session = this.session(sessionId)
+			if (session.client.supportsBrowserRevoke() && session.runtimeSessionId)
+				void session.client
+					.request(
+						'namzu/session/revoke-browser',
+						{ sessionId: session.runtimeSessionId, app },
+						8_000,
+					)
+					.catch(() => {})
+		}
 		return this.grantsFor(sessionId).view()
 	}
 	/** The applications this conversation has allowed and the ones it has used. */
@@ -2683,6 +2704,7 @@ export class Operator {
 				if (session.view.projectId !== view.id) continue
 				session.running = false
 				session.permissions.clear()
+				this.dropOpenAskRecords(session.view.id)
 				if (lost) session.connectionLost = true
 				this.state(session, failure)
 				this.emit({ kind: 'permission-cleared', sessionId: session.view.id })
@@ -6054,6 +6076,7 @@ export class Operator {
 			session.admitting = settlement
 			session.running = false
 			session.permissions.clear()
+			this.dropOpenAskRecords(session.view.id)
 			this.emit({ kind: 'permission-cleared', sessionId: session.view.id })
 			try {
 				await this.refreshRetry(session)
@@ -6583,6 +6606,7 @@ export class Operator {
 			session.admitting = settlement
 			session.running = false
 			session.permissions.clear()
+			this.dropOpenAskRecords(session.view.id)
 			this.emit({ kind: 'permission-cleared', sessionId: session.view.id })
 			if (session.client.supportsTurnRetry()) {
 				try {

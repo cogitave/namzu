@@ -7,3 +7,5 @@
 `browserWindows` may also be a function, read at every call; a switch to `look` clears the grants. In a browser the tool refuses `type_text` while the focused control of the latest `ui_snapshot` is a password field, and `ui_act` `set_value` on one. Browser process names (`brave-browser`, `msedge`) read as Brave, Microsoft Edge in questions and rows. The wider consequence words (accept, agree, post, publish, confirm, password, card number) apply to every application, so Desktop may show an ask-every-time card for a control named so in any app.
 
 The tool gains `browserQuestionPending(app)` (a browser, setting `ask`, somebody to ask, not allowed yet), and the permission request's `computer` field may carry `browserAsk`, the browsers the engine will ask about, so a host that draws its own application card asks once. Both are additive.
+
+The tool also gains `browserAsk(input, apps)`: the browsers the engine will ask about for this call, none for a call that only looks (a screenshot, a list of windows). Additive.

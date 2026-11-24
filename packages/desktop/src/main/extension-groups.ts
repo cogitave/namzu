@@ -55,6 +55,7 @@ export const OPTIONAL_EXTENSION_GROUPS = {
 	liveInput: ['namzu/conversations/input/status', 'namzu/conversations/input'],
 	livePermissionMode: ['namzu/session/set-permission-mode'],
 	questionAnswer: ['namzu/session/answer-question'],
+	browserRevoke: ['namzu/session/revoke-browser'],
 	pals: [
 		'namzu/pals/list',
 		'namzu/pals/get',
