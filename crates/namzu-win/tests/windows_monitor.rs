@@ -8,8 +8,11 @@
 //! zero; the unit tests of `namzu-win-core` cover how it is counted.
 //!
 //! Where the test must wait for the helper's thread to see a message it asks
-//! again without a deadline: a helper that never sees it is ended by the
-//! job's own limit, and no outcome here depends on how long a pass takes.
+//! again, and every such wait has a generous bound (`WAIT_BOUND`) after which
+//! it panics naming the section and the last reply. The bound changes no
+//! outcome on a healthy runner: a wait that is going to succeed does so in
+//! milliseconds, so the bound is only ever reached by a hang, which then ends
+//! as a fast, explained failure instead of the job's 20-minute limit.
 #![cfg(windows)]
 
 mod common;
@@ -32,7 +35,8 @@ use windows::Win32::UI::HiDpi::{
     DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, SetProcessDpiAwarenessContext,
 };
 use windows::Win32::UI::Input::{
-    GetRawInputDeviceList, RAWINPUTDEVICELIST, RID_DEVICE_INFO_TYPE, RIM_TYPEMOUSE,
+    GetRawInputDeviceList, RAWINPUTDEVICELIST, RID_DEVICE_INFO_TYPE, RIM_TYPEKEYBOARD,
+    RIM_TYPEMOUSE,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GWL_EXSTYLE, GetClassNameW,
@@ -141,16 +145,29 @@ fn poll(h: &mut Helper, since: Option<u64>) -> MonitorPollReply {
     p
 }
 
-/// Asks again until `ready` holds for what the monitor has recorded since `since`.
+/// How long a wait may go on before it is called a hang. Far above anything a
+/// healthy runner needs; it exists only so a hang fails fast and says where.
+const WAIT_BOUND: std::time::Duration = std::time::Duration::from_secs(90);
+
+/// Asks again until `ready` holds for what the monitor has recorded since
+/// `since`, or panics, naming `section` and the last reply, after `WAIT_BOUND`.
 fn poll_until(
     h: &mut Helper,
+    section: &str,
     since: Option<u64>,
     ready: impl Fn(&MonitorPollReply) -> bool,
 ) -> MonitorPollReply {
+    let started = std::time::Instant::now();
     loop {
         let p = poll(h, since);
         if ready(&p) {
+            eprintln!("waited {:?} in section: {section}", started.elapsed());
             return p;
+        }
+        if started.elapsed() > WAIT_BOUND {
+            panic!(
+                "HANG in section `{section}`: no such event after {WAIT_BOUND:?}; last poll reply: {p:?}"
+            );
         }
         std::thread::sleep(std::time::Duration::from_millis(5));
     }
@@ -235,7 +252,11 @@ fn the_monitor_sees_input_without_its_content_and_the_overlay_is_plain_to_captur
     };
     assert_eq!(again, started, "a second start changes nothing");
 
-    eprintln!("section: raw input");
+    eprintln!(
+        "section: raw input (mouse device: {}, keyboard device: {})",
+        device_exists(RIM_TYPEMOUSE),
+        device_exists(RIM_TYPEKEYBOARD)
+    );
     // --- raw input: the helper's own SendInput arrives as synthesised, by device only -
     let base = poll(&mut h, None).seq;
     let ReplyBody::LeaseBegin(_) = h
@@ -255,7 +276,7 @@ fn the_monitor_sees_input_without_its_content_and_the_overlay_is_plain_to_captur
     // The system raises a raw mouse event only when a mouse device exists; a
     // runner may have none, and then nothing would ever arrive to wait for.
     let mouse = if device_exists(RIM_TYPEMOUSE) {
-        poll_until(&mut h, Some(base), |p| {
+        poll_until(&mut h, "raw mouse event", Some(base), |p| {
             p.events
                 .iter()
                 .any(|e| e.kind == Kind::Input && e.device == Some(Device::Mouse))
@@ -314,11 +335,12 @@ fn the_monitor_sees_input_without_its_content_and_the_overlay_is_plain_to_captur
     else {
         panic!("foreground.set")
     };
+    eprintln!("foreground.set b replied {set_b:?}");
     assert!(set_b.raised, "{set_b:?}");
     // The system raises a foreground event only when the front changed, so
     // that is the only case a test may wait for one.
     if set_b.changed {
-        let seen_b = poll_until(&mut h, Some(mark), |p| {
+        let seen_b = poll_until(&mut h, "foreground event for window b", Some(mark), |p| {
             p.events.iter().any(|e| {
                 e.kind == Kind::Foreground && e.window_id.as_deref() == Some(want_b.as_str())
             })
@@ -338,8 +360,9 @@ fn the_monitor_sees_input_without_its_content_and_the_overlay_is_plain_to_captur
     else {
         panic!("foreground.set")
     };
+    eprintln!("foreground.set a replied {set_a:?}");
     if set_a.changed {
-        poll_until(&mut h, Some(mark), |p| {
+        poll_until(&mut h, "foreground event for window a", Some(mark), |p| {
             p.events.iter().any(|e| {
                 e.kind == Kind::Foreground && e.window_id.as_deref() == Some(want_a.as_str())
             })
