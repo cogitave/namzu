@@ -104,6 +104,7 @@ import { ProviderSetup } from './ProviderSetup.js'
 import { TranscriptScreen } from './TranscriptScreen.js'
 import { backgroundRows, isRowRunning } from './background-view.js'
 import { DetailedScreen } from './fullscreen/DetailedScreen.js'
+import { CLEAR_SCREEN, createResizeSettler } from './resize-settle.js'
 import { transcriptPlainText } from './transcript-screen.js'
 
 import {
@@ -1736,9 +1737,6 @@ interface AccountActions {
  */
 const SCROLL_VIEW_RESERVED_ROWS = 9
 
-/** Longer than the renderer's frame interval, so the empty frame after a resize is drawn. */
-const FULLSCREEN_RESIZE_SETTLE_MS = 60
-
 /**
  * Rows the live region occupies apart from the transcript window: the activity
  * line, the composer frame and its padding, the status bar.
@@ -1849,18 +1847,25 @@ function AppBody({
 	)
 	// Ink's line diff knows the screen only through its own last frame. After a
 	// resize the terminal has moved things under it, so one empty frame goes out
-	// first: the screen is erased by the renderer that drew it, and the next
-	// frame is drawn whole. The timer outlasts the renderer's frame interval.
+	// once the size has stopped changing and the next frame is drawn whole. While
+	// a drag keeps resizing, real frames keep being drawn: no black screen.
 	const [fullscreenBlank, setFullscreenBlank] = useState(false)
 	const fullscreenSizeRef = useRef(`${terminal.columns}x${terminal.rows}`)
+	const clearScreenRef = useRef<() => void>(() => {})
+	clearScreenRef.current = () => {
+		if (stdout.isTTY) writeStdout(CLEAR_SCREEN)
+	}
+	const resizeSettler = useMemo(
+		() => createResizeSettler(setFullscreenBlank, () => clearScreenRef.current()),
+		[],
+	)
+	useEffect(() => () => resizeSettler.dispose(), [resizeSettler])
 	useEffect(() => {
 		const size = `${terminal.columns}x${terminal.rows}`
 		if (!fullscreenOn || fullscreenSizeRef.current === size) return
 		fullscreenSizeRef.current = size
-		setFullscreenBlank(true)
-		const timer = setTimeout(() => setFullscreenBlank(false), FULLSCREEN_RESIZE_SETTLE_MS)
-		return () => clearTimeout(timer)
-	}, [terminal.columns, terminal.rows, fullscreenOn])
+		resizeSettler.resized()
+	}, [terminal.columns, terminal.rows, fullscreenOn, resizeSettler])
 	const hyperlinks = terminalSupportsHyperlinks(process.env, stdout.isTTY === true)
 	/**
 	 * The last assistant message id the turn reported, for `/feedback`.
