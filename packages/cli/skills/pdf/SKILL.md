@@ -1,6 +1,6 @@
 ---
 name: pdf
-description: Read, extract from, combine, split or make PDF files with the tools on this machine. Use when the person names a .pdf or asks for one ("summarise this PDF", "merge these", "make a PDF of this"). Not for Word, sheets or slides.
+description: Read, extract from, merge, split or make PDF files with the tools on this machine. Use when the person names a .pdf or asks for one ("merge these", "make a PDF of this"). Not for Word, sheets or slides.
 invocation: both
 ---
 
@@ -14,14 +14,17 @@ only said to exist, or to be right, after you have read it back.
 Run one probe in the `bash` tool, once per conversation, and keep the answer:
 
 ```
-for t in pdftotext pdfinfo pdftoppm pdfimages pdfunite pdfseparate qpdf mutool tesseract pandoc soffice; do command -v $t >/dev/null && echo "have $t"; done
-python3 -c 'import importlib.util as u;[print("have py:"+m) for m in ("pypdf","pdfplumber","reportlab") if u.find_spec(m)]'
+for t in pdftotext pdfinfo pdftoppm pdfimages pdfunite pdfseparate qpdf mutool tesseract pandoc soffice groff rsvg-convert google-chrome chromium chromium-browser microsoft-edge msedge brave-browser firefox; do command -v $t >/dev/null && echo "have $t"; done
+py=$(command -v python3 || command -v python); [ -n "$py" ] && $py -c 'import importlib.util as u;[print("have py:"+m) for m in ("pypdf","pdfplumber","reportlab") if u.find_spec(m)]'
 ```
 
-On Windows use `where` for the first line. A headless browser counts as a way
-to make a PDF when one is installed; look for one by the usual executable
-names, or use the `browser` tool when it exists. Never install anything. When
-one install would unlock the task, name it in one sentence and wait for a yes.
+On Windows (PowerShell) use
+`foreach($t in 'pdftotext','qpdf','mutool','pandoc','soffice','chrome','msedge'){ if(Get-Command $t -EA 0){"have $t"} }`,
+and for Python try `python`, then `py -3`, with the same module check. On macOS
+also look for a browser under `/Applications/*.app/Contents/MacOS/`. A headless
+browser counts as a way to make a PDF; the `browser` tool will do when it
+exists. Never install anything. When one install would unlock the task, name it
+in one sentence and wait for a yes.
 
 ## The task, and the route in order
 
@@ -33,7 +36,7 @@ one install would unlock the task, name it in one sentence and wait for a yes.
   Look at the page picture to check the columns, and call the result
   approximate when it came from text.
 - **Merge.** `pdfunite a.pdf b.pdf out.pdf`, else `qpdf --empty --pages a.pdf b.pdf -- out.pdf`, else `pypdf`.
-- **Split or pick pages.** `pdfseparate -f N -l M file.pdf p-%d.pdf` then
+- **Split or pick pages.** `pdfseparate -f N -l M file.pdf dir/p-%d.pdf` then
   `pdfunite` to regroup, else `qpdf in.pdf --pages . N-M -- out.pdf`, else `pypdf`.
 - **Images.** `pdfimages -list`, then `pdfimages -png` into a new folder.
 - **Make a PDF** from content the person gave: HTML you write, printed by a
@@ -52,10 +55,13 @@ one install would unlock the task, name it in one sentence and wait for a yes.
 
 A result the person asked for goes in the folder of the input file, with a suffix
 (`report-merged.pdf`), never over the original and never only in the scratch
-folder; scratch is for page pictures and drafts. `pdfseparate` needs `%d` in the
-name: write `p-%d.pdf` in the input's folder, then rename. Do not `cd` into
-scratch, so later commands still run where the person's files are. Only when
-the input is not the person's, use scratch and hand the file over.
+folder; scratch is for page pictures and drafts. If that name is taken, pick
+another (`report-merged-2.pdf`); never replace a file the person did not name.
+`pdfseparate` needs `%d` in the name: write it into a new empty folder next to
+the input, take the pages you need from there, and remove only the files you
+made. Do not `cd` into scratch, so later commands still run where the person's
+files are. Only when the input is not the person's, use scratch and hand the
+file over.
 
 ## Protected or damaged files
 

@@ -131,6 +131,22 @@ describe('the built-in skills', () => {
 		// Runs showed results left only in scratch and Markdown piped into a typesetter.
 		expect(body).toMatch(/never only in the scratch/)
 		expect(body).toMatch(/never pipe Markdown/)
+		// The probe names every tool a route depends on, and the Windows and python fallbacks.
+		for (const tool of [
+			'groff',
+			'rsvg-convert',
+			'google-chrome',
+			'chromium',
+			'msedge',
+			'brave-browser',
+			'firefox',
+			'Get-Command',
+			'command -v python',
+		])
+			expect(body).toContain(tool)
+		// A taken name is never overwritten, and split pages go to a folder of their own.
+		expect(body).toMatch(/never replace a file the person did not name/)
+		expect(body).toMatch(/new empty folder/)
 
 		const doc = await loadSkill(join(SKILLS, 'document'), 'full')
 		expect(doc.skill.metadata.description).toContain(
@@ -143,6 +159,7 @@ describe('the built-in skills', () => {
 		expect(docBody).toMatch(/^## Which file, and what is possible$/m)
 		expect(docBody).not.toMatch(/cannot be made yet/)
 		expect(docBody).toMatch(/do not give a Markdown or CSV file a `\.docx`/)
+		expect(docBody).toMatch(/another skill or tool in this\s+session makes that format, use it/)
 	})
 
 	it('run and review-changes trigger on what the model is about to do, with quoted examples', async () => {
@@ -280,7 +297,8 @@ describe('the built-in skills', () => {
 
 	it('the descriptions the model is offered fit in full on the smallest window the model table lists for open weights', async () => {
 		// 40,000 tokens is a window the table gives current families
-		// (the 8k and 16k rows are older chat models; seven offered skills no longer fit in 32,768). A real install sits under
+		// (the 8k and 16k rows are older chat models; seven offered skills no longer fit in 32,768,
+		// a cost the owner has not yet decided to cut). A real install sits under
 		// a path of this length, which every entry also pays for. Skills only the
 		// operator starts are not described to the model and cost nothing here.
 		const installedPath = `/usr/local/lib/node_modules/@namzu/cli/skills/${'x'.repeat(20)}`

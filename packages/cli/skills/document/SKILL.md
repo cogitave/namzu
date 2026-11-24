@@ -1,6 +1,6 @@
 ---
 name: document
-description: Write a document or report as one Markdown file. Use when the person asks for a document file, or a Word, sheet or slide file (this says what is possible); a research or analysis request is answered in the reply. Not for a PDF: use the `pdf` skill.
+description: Write a document or report as one Markdown file. Use when asked for a document file, or a Word, sheet or slide file (this says what is possible); a research or analysis request is answered in the reply. Not for a PDF: use the `pdf` skill.
 invocation: both
 ---
 
@@ -18,7 +18,8 @@ you did not write.
 
 - **A PDF:** use the `pdf` skill. Write and read back the Markdown first when
   the content is yours to write; the skill makes the PDF when a renderer exists.
-- **Word, spreadsheet or slide files:** not made here. Offer the Markdown file,
+- **Word, spreadsheet or slide files:** if another skill or tool in this
+  session makes that format, use it. Otherwise not made here. Offer the Markdown file,
   a CSV for tabular data, or a PDF. Do not write a script that needs a library
   the machine may not have, and do not give a Markdown or CSV file a `.docx`,
   `.xlsx` or `.pptx` name.
