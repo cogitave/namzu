@@ -181,13 +181,13 @@ describe('plans', () => {
 
 	it('answers approved in green and rejected in red, with the feedback and the line to revise', () => {
 		const yes = planAnswerBox('one', true, undefined)
-		expect(boxText(yes)).toBe('✓ Plan approved by @one')
+		expect(boxText(yes)).toBe('✓ Plan from @one approved')
 		expect(yes.tone).toBe('theme:status.ok')
 		const feedback = planAnswerBox('one', true, 'go ahead, keep it small')
-		expect(boxText(feedback)).toBe('✓ Plan approved by @one\nFeedback: go ahead, keep it small')
+		expect(boxText(feedback)).toBe('✓ Plan from @one approved\nFeedback: go ahead, keep it small')
 		const no = planAnswerBox('one', false, 'cover the failure case')
 		expect(boxText(no)).toBe(
-			'✗ Plan rejected by @one\nFeedback: cover the failure case\nRevise the plan and send it again for approval.',
+			'✗ Plan from @one rejected\nFeedback: cover the failure case\nRevise the plan and send it again for approval.',
 		)
 		expect(no.tone).toBe('theme:status.error')
 	})
@@ -199,11 +199,11 @@ describe('plans', () => {
 			'The user declined this. Do not get the same content or result another way unless you ask first.',
 		)
 		expect(boxText(stock)).toBe(
-			'✗ Plan rejected by @one\nRevise the plan and send it again for approval.',
+			'✗ Plan from @one rejected\nRevise the plan and send it again for approval.',
 		)
 		const said = planAnswerBox('one', false, 'The user declined this and said: split step two')
 		expect(boxText(said)).toBe(
-			'✗ Plan rejected by @one\nFeedback: split step two\nRevise the plan and send it again for approval.',
+			'✗ Plan from @one rejected\nFeedback: split step two\nRevise the plan and send it again for approval.',
 		)
 	})
 
@@ -234,7 +234,7 @@ describe('plans', () => {
 		expect(rows).toHaveLength(3)
 		expect(rows.every((row) => row.box !== undefined)).toBe(true)
 		expect(rows[0]?.content).toContain('Plan file: /tmp/p.md')
-		expect(rows[1]?.content).toContain('Plan rejected by @one')
+		expect(rows[1]?.content).toContain('Plan from @one rejected')
 		expect(rows[2]?.content).toContain('Shutdown refused by @two')
 	})
 })
@@ -420,7 +420,7 @@ describe('the rows of one moment', () => {
 		)
 		expect(batcher.flush().map((row) => row.content)).toEqual([
 			'Plan approval request from @one\nstep 1',
-			'✓ Plan approved by @one',
+			'✓ Plan from @one approved',
 		])
 	})
 

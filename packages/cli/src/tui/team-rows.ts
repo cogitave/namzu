@@ -307,9 +307,11 @@ export function planAnswerBox(name: string, allow: boolean, feedback: string | u
 	const note = personsWords(feedback)
 	return {
 		tone: tokenColor(allow ? 'status.ok' : 'status.error'),
+		// The lead's transcript: the plan is the teammate's, the answer is the person's.
 		title: [
-			{ text: `${allow ? '✓' : '✗'} Plan ${allow ? 'approved' : 'rejected'} by ` },
+			{ text: `${allow ? '✓' : '✗'} Plan from ` },
 			{ text: `@${name}` },
+			{ text: ` ${allow ? 'approved' : 'rejected'}` },
 		],
 		...(note ? { body: [[{ text: `Feedback: ${firstLine(note, 400)}` }]] } : {}),
 		...(allow ? {} : { notes: [[{ text: 'Revise the plan and send it again for approval.' }]] }),
