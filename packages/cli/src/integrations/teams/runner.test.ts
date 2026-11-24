@@ -10,6 +10,7 @@ import {
 	IDLE_POLL_MS,
 	SEND_LIMIT,
 	TeamError,
+	type TeamMailLabel,
 	TeamRunner,
 	type TeammateEngine,
 	teamNameFor,
@@ -60,27 +61,27 @@ function manualClock() {
 /** An engine that records what it was asked and lets the test say when a delivery has happened. */
 function fakeEngine() {
 	const launched: string[] = []
-	const delivered: { name: string; text: string }[] = []
+	const delivered: { name: string; text: string; mail?: TeamMailLabel }[] = []
 	const aborted: string[] = []
 	const told: { from: string; summary: string; text: string }[] = []
 	const running = new Set<string>()
 	let failLaunch: Error | undefined
 	let failDeliver: Error | undefined
-	let waiter: ((entry: { name: string; text: string }) => void) | undefined
+	let waiter: ((entry: { name: string; text: string; mail?: TeamMailLabel }) => void) | undefined
 	const engine: TeammateEngine = {
 		async launch(spec) {
 			if (failLaunch) throw failLaunch
 			launched.push(spec.member.name)
 			running.add(spec.member.name)
 		},
-		async deliver(_team, name, text) {
+		async deliver(_team, name, text, mail) {
 			if (failDeliver) {
 				const error = failDeliver
 				failDeliver = undefined
 				throw error
 			}
 			running.add(name)
-			const entry = { name, text }
+			const entry = { name, text, ...(mail ? { mail } : {}) }
 			delivered.push(entry)
 			waiter?.(entry)
 		},
@@ -111,7 +112,7 @@ function fakeEngine() {
 		},
 		/** Settles on the next delivery. */
 		nextDelivery: () =>
-			new Promise<{ name: string; text: string }>((resolve) => {
+			new Promise<{ name: string; text: string; mail?: TeamMailLabel }>((resolve) => {
 				waiter = (entry) => {
 					waiter = undefined
 					resolve(entry)
@@ -214,6 +215,60 @@ describe('starting a teammate', () => {
 		expect(text).toContain('not seen by anyone else')
 		expect(text).toContain('task_update')
 		expect(text).toContain('"lead"')
+	})
+})
+
+describe('what a screen reads of the members', () => {
+	it('lists each member with its state and says so on every change', async () => {
+		const t = setup()
+		let heard = 0
+		t.runner.onChange(() => {
+			heard += 1
+		})
+		await t.spawn('alice')
+		expect(t.runner.snapshot(t.team)).toEqual([{ name: 'alice', state: 'busy', idleSince: 0 }])
+		const afterSpawn = heard
+		expect(afterSpawn).toBeGreaterThan(0)
+		t.runner.turnEnded(t.team, 'alice', { state: 'completed' })
+		expect(t.runner.snapshot(t.team)[0]).toMatchObject({ name: 'alice', state: 'idle' })
+		expect(t.runner.snapshot(t.team)[0]?.idleSince).toBe(t.clock.now())
+		expect(heard).toBeGreaterThan(afterSpawn)
+		const afterIdle = heard
+		t.runner.turnStarted(t.team, 'alice')
+		expect(heard).toBeGreaterThan(afterIdle)
+		t.runner.turnEnded(t.team, 'alice', { state: 'completed' })
+		t.fake.running.delete('alice')
+		t.runner.stop(LEAD, 'alice')
+		expect(t.runner.snapshot(t.team)[0]?.state).toBe('stopped')
+	})
+
+	it('stops telling a listener that has left', async () => {
+		const t = setup()
+		let heard = 0
+		const off = t.runner.onChange(() => {
+			heard += 1
+		})
+		off()
+		await t.spawn('alice')
+		expect(heard).toBe(0)
+	})
+
+	it('labels what it hands a member: a message, a task, a request to stop', async () => {
+		const t = setup()
+		await t.spawn('alice')
+		t.runner.turnEnded(t.team, 'alice', { state: 'completed' })
+		await flush()
+		const task = t.fake.nextDelivery()
+		await t.tasks.create(taskParams('first'))
+		expect((await task).mail).toEqual({ kind: 'task', from: 'lead' })
+		t.runner.turnEnded(t.team, 'alice', { state: 'completed' })
+		await flush()
+		await t.runner.send({ leadSessionId: LEAD, from: 'lead', to: 'alice', text: 'hello' })
+		expect(t.fake.delivered.at(-1)?.mail).toEqual({ kind: 'message', from: 'lead', body: 'hello' })
+		t.runner.turnEnded(t.team, 'alice', { state: 'completed' })
+		await flush()
+		await t.runner.requestShutdown({ leadSessionId: LEAD, name: 'alice', reason: 'done' })
+		expect(t.fake.delivered.at(-1)?.mail).toMatchObject({ kind: 'stop', from: 'lead' })
 	})
 })
 

@@ -93,6 +93,7 @@ describe('what the model may do with each slash command', () => {
 				'plugins',
 				'settings',
 				'setup',
+				'team',
 				'terminal setup',
 				'unarchive',
 			].sort(),

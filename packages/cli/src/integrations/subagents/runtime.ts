@@ -133,11 +133,13 @@ import { CLI_CHECKPOINT_RETENTION } from '../state/retention.js'
 import {
 	TeamError,
 	type TeamHookPoints,
+	type TeamMailLabel,
 	TeamRunner,
 	type TeammateEngine,
 	type TeamsHost,
 	teammateAppendix,
 } from '../teams/runner.js'
+import type { TeamMemberView, TeamTaskView, TeamViewSource } from '../teams/view.js'
 import { NamzuCliAgent, type NamzuCliAgentConfig, type RunScope } from './NamzuCliAgent.js'
 import { startActivityLabeler } from './activity-label.js'
 import {
@@ -707,6 +709,8 @@ export interface SubagentRuntime {
 		readonly sessionId?: unknown
 		readonly toolCalls?: readonly { readonly id: string }[]
 	}): { readonly team: string; readonly name: string } | undefined
+	/** The team of this conversation as a screen lists it. Absent when teams are not available here. */
+	readonly team?: TeamViewSource
 	/**
 	 * Start one agent a workflow script asked for, through the same path, review
 	 * channel, tool roster, sandbox, budget ledger and cancellation as the `Agent`
@@ -3274,6 +3278,7 @@ export async function createSubagentRuntime(
 		turnId: TurnId,
 		signal: AbortSignal,
 		source: 'operator' | 'parent' = 'operator',
+		mail?: TeamMailLabel,
 	): Promise<SubagentMessageReceipt> => {
 		if (closed) throw new Error('Sub-agent runtime is closed.')
 		if (!message.trim() || message.length > 16_000)
@@ -3295,6 +3300,12 @@ export async function createSubagentRuntime(
 					? 'This agent is already being resumed with an earlier message. Wait for it to start before sending another.'
 					: `Agent "${owned.seed.description}" is already being resumed with an earlier message. Wait for its notification before sending another.`,
 			)
+		// The person typing into a teammate's own view is the person, and the teammate is told so: its
+		// other mail is framed as another session's, so a bare line would not say whose it was.
+		const delivered =
+			owned.teammate && source === 'operator'
+				? `A message from the person, typed while they watch your conversation. It is from the person, not from another session in your team:\n\n${message}`
+				: message
 		owned.busy = true
 		let settleAdmission: () => void = () => {}
 		owned.admitting = new Promise<void>((resolve) => {
@@ -3339,7 +3350,7 @@ export async function createSubagentRuntime(
 			const current = owned.gateway.getTask(owned.task.taskId) ?? owned.task
 			let task: TaskHandle
 			if (!isTerminalAgentTaskState(current.state)) {
-				await owned.gateway.continueTask(current.taskId, message)
+				await owned.gateway.continueTask(current.taskId, delivered)
 				task = current
 			} else {
 				if (owned.workspace !== 'shared')
@@ -3361,7 +3372,7 @@ export async function createSubagentRuntime(
 					task = await gateway.createTask({
 						agentId: owned.agentId,
 						resumeSessionId: sessionId as SessionId,
-						prompt: message,
+						prompt: delivered,
 						...(owned.teammate && opts.teams
 							? {
 									taskStore: opts.teams.taskStoreFor(owned.teammate.team),
@@ -3422,6 +3433,7 @@ export async function createSubagentRuntime(
 				message,
 				source === 'operator' ? 'operator-to-child' : 'to-child',
 				kind === 'started' ? 'started' : 'queued',
+				source === 'parent' ? mail : undefined,
 			)
 			let auditWarning: string | undefined
 			try {
@@ -3596,12 +3608,12 @@ export async function createSubagentRuntime(
 			)
 			pending.started = { taskId: String(outcome.handle.taskId), state: outcome.handle.state }
 		},
-		async deliver(team: string, name: string, text: string) {
+		async deliver(team: string, name: string, text: string, mail?: TeamMailLabel) {
 			const found = findTeammate(team, name)
 			if (!found) throw new Error(`${name} is not running in this conversation.`)
 			const target = found.owned.teammate
 			if (!target) throw new Error(`${name} is not a teammate.`)
-			await messageChild(found.viewId, text, target.turnId, lifetime.signal, 'parent')
+			await messageChild(found.viewId, text, target.turnId, lifetime.signal, 'parent', mail)
 		},
 		abort(team: string, name: string) {
 			const found = findTeammate(team, name)
@@ -3635,6 +3647,7 @@ export async function createSubagentRuntime(
 	const teamRunner: TeamRunner | undefined = opts.teams
 		? new TeamRunner(opts.teams, teamEngine, teamHookPoints)
 		: undefined
+	teamRunner?.onChange(() => notifyTeam())
 
 	/** A teammate's call that is waiting on the lead's person right now, with who asked. */
 	interface TeamAsk {
@@ -3644,6 +3657,94 @@ export async function createSubagentRuntime(
 		readonly callIds: readonly string[]
 	}
 	const teamAsks = new Set<TeamAsk>()
+
+	// ─── what a screen reads about the team ──────────────────────────────
+
+	const teamListeners = new Set<() => void>()
+	const notifyTeam = (): void => {
+		for (const listener of [...teamListeners]) {
+			try {
+				listener()
+			} catch {
+				// A screen that cannot redraw must not stop the team.
+			}
+		}
+	}
+	const hookedLists = new Set<string>()
+	/** The team the newest teammate of this conversation belongs to. */
+	const activeTeam = (): string | undefined => {
+		let team: string | undefined
+		for (const owned of conversations.values()) if (owned.teammate) team = owned.teammate.team
+		return team
+	}
+	const teamView: TeamViewSource | undefined = opts.teams
+		? {
+				team: activeTeam,
+				members: () => {
+					const team = activeTeam()
+					if (team === undefined || !teamRunner) return []
+					const run = new Map(teamRunner.snapshot(team).map((entry) => [entry.name, entry]))
+					const rows: TeamMemberView[] = []
+					for (const [viewId, owned] of conversations) {
+						const target = owned.teammate
+						if (!target || target.team !== team) continue
+						const entry = run.get(target.name)
+						// Not tracked any more: it approved a shutdown and left the team.
+						if (!entry) continue
+						const shown = activity.getSnapshot().find((value) => value.viewId === viewId)
+						const asking = [...teamAsks].some(
+							(ask) => ask.team === team && ask.name === target.name,
+						)
+						const state: TeamMemberView['state'] =
+							entry.state === 'stopped'
+								? 'stopped'
+								: entry.state === 'busy'
+									? asking
+										? 'waiting'
+										: 'working'
+									: 'idle'
+						rows.push({
+							name: target.name,
+							viewId,
+							state,
+							since:
+								state === 'idle'
+									? entry.idleSince
+									: state === 'stopped'
+										? entry.idleSince || (shown?.completedAt ?? 0)
+										: 0,
+						})
+					}
+					return rows
+				},
+				tasks: async () => {
+					const team = activeTeam()
+					if (team === undefined || !opts.teams) return []
+					const store = opts.teams.taskStoreFor(team)
+					if (!hookedLists.has(team) && typeof store.on === 'function') {
+						hookedLists.add(team)
+						store.on(() => notifyTeam())
+					}
+					const list = await store.list()
+					return list.map(
+						(task): TeamTaskView => ({
+							id: String(task.id),
+							subject: task.subject,
+							status: task.status,
+							...(task.owner !== undefined ? { owner: task.owner } : {}),
+							blockedBy: task.blockedBy.map(String),
+							...(task.completedAt !== undefined ? { completedAt: task.completedAt } : {}),
+						}),
+					)
+				},
+				subscribe: (listener) => {
+					teamListeners.add(listener)
+					return () => {
+						teamListeners.delete(listener)
+					}
+				},
+			}
+		: undefined
 
 	/**
 	 * The review channel of one teammate: the lead's own (`inner`), with the member's name on every
@@ -3672,6 +3773,7 @@ export async function createSubagentRuntime(
 				callIds,
 			}
 			teamAsks.add(ask)
+			notifyTeam()
 			teamRunner?.noteAsk(target.team, target.name, {
 				callIds,
 				tools: request.toolCalls.map((call) => call.name),
@@ -3690,6 +3792,7 @@ export async function createSubagentRuntime(
 				decision = await inner(request, context)
 			} finally {
 				teamAsks.delete(ask)
+				notifyTeam()
 			}
 			const allowed = decision.action === 'approve_tools' || decision.action === 'modify_tools'
 			teamRunner?.noteAnswer(target.team, target.name, {
@@ -4082,6 +4185,7 @@ export async function createSubagentRuntime(
 		publicTaskIdOf: publicTaskId,
 		liveChildSessionIds: () => liveChildSessions(),
 		teammateAsking: (request) => teammateAsking(request),
+		...(teamView ? { team: teamView } : {}),
 		launchWorkflowAgent,
 		close,
 	}

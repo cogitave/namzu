@@ -72,14 +72,26 @@ export interface TeamsHost {
 export interface TeammateEngine {
 	/** Start the child of a reserved member. A rejection means nothing runs. */
 	launch(spec: TeammateStartSpec & { readonly leadSessionId: string }): Promise<void>
-	/** Give a child text: queued for one that is working, a resume for one that has ended its turn. */
-	deliver(team: string, name: string, text: string): Promise<void>
+	/**
+	 * Give a child text: queued for one that is working, a resume for one that has ended its turn.
+	 * `mail` says what the text is, so the lead's screen can name it ("task given to", "asked to stop").
+	 */
+	deliver(team: string, name: string, text: string, mail?: TeamMailLabel): Promise<void>
 	/** Stop the child's work now. */
 	abort(team: string, name: string, reason: string): void
 	/** Whether the child's task has not ended. */
 	isRunning(team: string, name: string): boolean
 	/** Show the lead's conversation something the runner decided (a refusal to relay, a shutdown answer). */
 	tellLead?(team: string, from: string, summary: string, text: string): void
+}
+
+/** What a delivery to a teammate is, for the line the lead's screen writes about it. */
+export interface TeamMailLabel {
+	readonly kind: 'message' | 'task' | 'stop'
+	/** Who wrote it: `lead` or a teammate's name. */
+	readonly from: string
+	/** What was written, without the frame that says whose mail it is. */
+	readonly body?: string
 }
 
 export interface TurnOutcome {
@@ -126,6 +138,20 @@ export class TeamError extends Error {
 		message: string,
 	) {
 		super(message)
+	}
+}
+
+/** The label for what a batch of mail is: a shutdown request is a request to stop, anything else a message. */
+function mailLabelOf(entries: readonly MailEntry[]): TeamMailLabel | undefined {
+	const first = entries[0]
+	if (!first) return undefined
+	return {
+		kind: entries.some((entry) => entry.kind === 'shutdown_request') ? 'stop' : 'message',
+		from: first.from,
+		body: entries
+			.map((entry) => entry.text)
+			.join('\n\n')
+			.slice(0, 2_000),
 	}
 }
 
@@ -179,6 +205,7 @@ export class TeamRunner {
 	private readonly chains = new Map<string, { count: number; told: boolean }>()
 	private swept = false
 	private closed = false
+	private readonly changeListeners = new Set<() => void>()
 	readonly backend: TeammateBackend
 
 	constructor(
@@ -233,6 +260,37 @@ export class TeamRunner {
 
 	private find(team: string, name: string): Tracked | undefined {
 		return this.members.get(team)?.get(normalizeTeamName(name))
+	}
+
+	/** Hear every change of a member's state (started, busy, idle, stopped, gone); one call, no detail. */
+	onChange(listener: () => void): () => void {
+		this.changeListeners.add(listener)
+		return () => {
+			this.changeListeners.delete(listener)
+		}
+	}
+
+	private changed(): void {
+		for (const listener of [...this.changeListeners]) {
+			try {
+				listener()
+			} catch {
+				// A screen that cannot redraw must not stop the team.
+			}
+		}
+	}
+
+	/** The members of a team as a screen lists them: name, state and when it last went idle (0 while it works). */
+	snapshot(team: string): readonly {
+		readonly name: string
+		readonly state: TeammateRunState
+		readonly idleSince: number
+	}[] {
+		return [...(this.members.get(team)?.values() ?? [])].map((tracked) => ({
+			name: tracked.name,
+			state: tracked.state,
+			idleSince: tracked.idleSince,
+		}))
 	}
 
 	/** What the host shows about one member: its state and how long it has been idle. */
@@ -364,6 +422,7 @@ export class TeamRunner {
 			this.members.set(team, byName)
 		}
 		byName.set(normalizeTeamName(member.name), tracked)
+		this.changed()
 		return tracked
 	}
 
@@ -402,6 +461,7 @@ export class TeamRunner {
 		this.disarm(tracked.timer)
 		tracked.timer = undefined
 		tracked.state = 'busy'
+		this.changed()
 	}
 
 	/** Someone stopped this teammate's work for good: its turn end is a stop, not an idle. */
@@ -439,6 +499,7 @@ export class TeamRunner {
 		if (!hooks) return
 		tracked.state = 'idle'
 		tracked.idleSince = this.now()
+		this.changed()
 		// Mail that arrives while the hook runs is held, not handed over: the next look picks it up.
 		tracked.waking = true
 		let feedback: string | undefined
@@ -502,6 +563,7 @@ export class TeamRunner {
 		const { team } = tracked
 		tracked.state = 'idle'
 		tracked.idleSince = this.now()
+		this.changed()
 		tracked.failedLast = outcome.state === 'failed'
 		const idleReason =
 			outcome.state === 'failed'
@@ -655,7 +717,7 @@ export class TeamRunner {
 			.map((entry) => framedMail(entry.from, entry.text, entry.kind))
 			.join('\n\n---\n\n')
 		const turns = tracked.turns
-		await this.engine.deliver(tracked.team, tracked.name, text)
+		await this.engine.deliver(tracked.team, tracked.name, text, mailLabelOf(entries))
 		this.busyAfterDelivery(tracked, turns)
 		this.host.store.markRead(
 			tracked.team,
@@ -696,6 +758,7 @@ export class TeamRunner {
 					tracked.team,
 					tracked.name,
 					`Task ${claim.task.id} (${JSON.stringify(subject)}) was assigned to you and is now in progress under your name. Read it with task_get, do it, and mark it completed with task_update when it is done. Then check task_list for the next ready one, lowest id first.`,
+					{ kind: 'task', from: TEAM_LEAD_NAME },
 				)
 			} catch (error) {
 				tracked.failedLast = true
@@ -728,6 +791,7 @@ export class TeamRunner {
 		this.disarm(tracked.timer)
 		tracked.timer = undefined
 		tracked.state = 'busy'
+		this.changed()
 	}
 
 	private schedule(tracked: Tracked): void {
@@ -769,12 +833,15 @@ export class TeamRunner {
 		this.disarm(tracked.timer)
 		tracked.timer = undefined
 		tracked.state = state
+		// A screen says how long ago it ended: for a stop that is now, not the end of its last turn.
+		if (state === 'stopped') tracked.idleSince = this.now()
 		if (state === 'stopped') this.noteLeft(tracked)
 		try {
 			this.host.store.setMemberActive(tracked.team, tracked.name, false)
 		} catch {
 			// The team is already gone: there is no place left to give back.
 		}
+		this.changed()
 	}
 
 	// ─── mail ────────────────────────────────────────────────────────────
@@ -942,7 +1009,7 @@ export class TeamRunner {
 		tracked.waking = true
 		try {
 			const turns = tracked.turns
-			await this.engine.deliver(team, name, text)
+			await this.engine.deliver(team, name, text, mail ? mailLabelOf([mail]) : undefined)
 			this.busyAfterDelivery(tracked, turns)
 			this.markRead(team, name, mail)
 		} finally {
@@ -1070,6 +1137,7 @@ export class TeamRunner {
 		} catch {
 			// The team is already gone: there is nothing left to give back.
 		}
+		this.changed()
 	}
 
 	// ─── stop and end ────────────────────────────────────────────────────
@@ -1115,6 +1183,7 @@ export class TeamRunner {
 		} catch {
 			// Left for the next start's sweep.
 		}
+		this.changed()
 	}
 
 	/** Every team of this runner ends; nothing it armed fires again. */

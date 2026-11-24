@@ -507,6 +507,7 @@ import {
 } from '../integrations/subagents/saved-agents.js'
 import { createTeamsHost } from '../integrations/teams/host.js'
 import { teamNameFor } from '../integrations/teams/runner.js'
+import type { TeamViewSource } from '../integrations/teams/view.js'
 import { isTrusted } from '../integrations/trust/store.js'
 import { listWorkflowRuns } from '../integrations/workflows/history.js'
 import { type WorkflowHost, createWorkflowHost } from '../integrations/workflows/host.js'
@@ -1965,6 +1966,8 @@ export interface AgentSession {
 		readonly toolCalls?: readonly { readonly id: string }[]
 	}) => { readonly team: string; readonly name: string } | undefined
 	readonly subagents?: SubagentActivitySource
+	/** The team of this conversation (members, their states, the shared task list). Absent without teams. */
+	readonly team?: TeamViewSource
 	/** Workflow runs of this conversation: the `workflow` tool's background runs. */
 	readonly workflows?: SessionWorkflows
 	/**
@@ -7207,6 +7210,7 @@ export async function createAgentSession(
 		...(subagentRuntime
 			? {
 					subagents: subagentRuntime.activity,
+					...(subagentRuntime.team ? { team: subagentRuntime.team } : {}),
 					onSubagentReport: (
 						listener: (report: {
 							readonly parentSessionId: string

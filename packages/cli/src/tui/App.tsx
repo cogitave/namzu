@@ -409,6 +409,7 @@ import {
 	AgentTranscript,
 	AgentView,
 	type RailWorkflow,
+	type TeamRail,
 	agentCockpitIsWide,
 	agentPhasePageSize,
 	agentPickerPageSize,
@@ -430,6 +431,7 @@ import {
 	railWorkflows,
 	runRailWorkflow,
 	settledWorkflows,
+	teamRailOf,
 	workflowDetailHeight,
 } from './AgentExplorer.js'
 import { BackgroundAgentRows } from './BackgroundAgentRows.js'
@@ -751,6 +753,22 @@ import {
 	taskOperationFor,
 	upsertTask,
 } from './task-activity.js'
+import {
+	EMPTY_TEAM,
+	TEAM_STOP_CONFIRM_MS,
+	type TeamSnapshot,
+	idleRowText,
+	lastFinishedTask,
+	mailBody,
+	parseTeamCommand,
+	sameTeamSnapshot,
+	sentLabel,
+	teamChecklistItems,
+	teamRailHint,
+	teamStopStep,
+	teamSummaryLines,
+	teamTaskLines,
+} from './team-view.js'
 import { eraseLastChoiceGrapheme } from './terminal-choice-text.js'
 import { describeReducedMotion, saveReducedMotion, saveTheme } from './theme-command.js'
 import { THEME_CHOICES, type ThemeSetting } from './theme-palettes.js'
@@ -852,6 +870,7 @@ import {
 	holdsForBatch,
 	numberDetailRows,
 	settledBatchRows,
+	teammateIdleRows,
 	trailFromRecords,
 	withSavedAgentRows,
 	workflowClosingRow,
@@ -2867,6 +2886,53 @@ function AppBody({
 	const railChordRef = useRef(false)
 	/** The first press of the stop-all chord is waiting for its second (3 s). */
 	const stopAllArmedRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+	/** The team of this conversation: its members now and the shared task list. */
+	const [teamSnap, setTeamSnap] = useState<TeamSnapshot>(EMPTY_TEAM)
+	const teamSnapRef = useRef<TeamSnapshot>(EMPTY_TEAM)
+	const refreshTeamRef = useRef<() => void>(() => {})
+	/** The teammate whose `x` asked for a second press, shown on the key line for a moment. */
+	const [teamStopAsked, setTeamStopAsked] = useState<string | null>(null)
+	const teamStopArmedRef = useRef<{ viewId: string; at: number } | null>(null)
+	const teamStopTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+	useEffect(() => {
+		const source = session?.team
+		if (!source) {
+			teamSnapRef.current = EMPTY_TEAM
+			refreshTeamRef.current = () => {}
+			setTeamSnap(EMPTY_TEAM)
+			return
+		}
+		let live = true
+		const take = (next: TeamSnapshot) => {
+			if (!live || sameTeamSnapshot(teamSnapRef.current, next)) return
+			teamSnapRef.current = next
+			setTeamSnap(next)
+		}
+		const refresh = () => {
+			take({ members: source.members(), tasks: teamSnapRef.current.tasks })
+			void source.tasks().then(
+				(tasks) => take({ members: teamSnapRef.current.members, tasks }),
+				() => {},
+			)
+		}
+		refreshTeamRef.current = refresh
+		refresh()
+		const off = source.subscribe(refresh)
+		return () => {
+			live = false
+			off()
+		}
+	}, [session])
+	// biome-ignore lint/correctness/useExhaustiveDependencies: `subagents` is what moves; a member's row appears with its first event.
+	useEffect(() => {
+		refreshTeamRef.current()
+	}, [subagents])
+	useEffect(
+		() => () => {
+			if (teamStopTimerRef.current) clearTimeout(teamStopTimerRef.current)
+		},
+		[],
+	)
 	/** The agent whose transcript the main screen shows, or null when it shows the conversation. */
 	const viewingAgentRef = useRef<string | null>(null)
 	const viewRailRowsRef = useRef(0)
@@ -2876,16 +2942,26 @@ function AppBody({
 	// one is due instead of ticking, so a quiet session renders nothing.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: `railNow` is not read here; moving it is what re-arms the timer for the next agent due to leave.
 	useEffect(() => {
-		const wait = railNextEviction(subagents, Date.now(), workflowRuns)
+		const wait = railNextEviction(
+			subagents,
+			Date.now(),
+			workflowRuns,
+			teamRailOf(teamSnap, subagents, Date.now()),
+		)
 		if (wait === undefined) return
 		const timer = setTimeout(() => setRailNow(Date.now()), wait + 20)
 		timer.unref?.()
 		return () => clearTimeout(timer)
-	}, [subagents, workflowRuns, railNow])
+	}, [subagents, workflowRuns, railNow, teamSnap])
 	// The rail cannot keep the keyboard once it has nothing to show.
 	const railHasRows =
-		railAgents(subagents, railNow, dismissedAgents, pinnedViewId).length > 0 ||
-		railWorkflows(subagents, railNow, dismissedAgents, workflowRuns).length > 0
+		railAgents(
+			subagents,
+			railNow,
+			dismissedAgents,
+			pinnedViewId,
+			teamRailOf(teamSnap, subagents, railNow),
+		).length > 0 || railWorkflows(subagents, railNow, dismissedAgents, workflowRuns).length > 0
 	// The footer's shell pill is the rail's first stop, so shells keep it focused too.
 	const footerHasShells = backgroundJobs.some((job) => job.status === 'running')
 	useEffect(() => {
@@ -4864,9 +4940,12 @@ function AppBody({
 	const reportedWorkflowLinesRef = useRef(new Set<string>())
 	const batchSeenAtRef = useRef(new Map<string, { readonly at: number; readonly count: number }>())
 	const [receiptTick, setReceiptTick] = useState(0)
+	/** The task each teammate's idle row last named, so a turn that finished nothing new does not name it again. */
+	const finishedNamedRef = useRef(new Map<string, string>())
 	// biome-ignore lint/correctness/useExhaustiveDependencies: the list predates linting of .tsx files; changing it changes when this runs, so it is left as written.
 	useEffect(() => {
 		reportedAgentsRef.current.clear()
+		finishedNamedRef.current.clear()
 		reportedFailuresRef.current.clear()
 		reportedBatchesRef.current.clear()
 		reportedWorkflowLinesRef.current.clear()
@@ -5004,6 +5083,20 @@ function AppBody({
 			const previousFailure = reportedFailuresRef.current.get(agent.viewId)
 			if (agent.status === 'failed')
 				reportedFailuresRef.current.set(agent.viewId, failureReason(agent))
+			// A teammate that finished its turn is idle, not finished: one plain row, once per turn.
+			const teammate =
+				agent.status === 'completed'
+					? session?.team?.members().find((m) => m.viewId === agent.viewId)
+					: undefined
+			if (teammate) {
+				const last = lastFinishedTask(teammate.name, teamSnapRef.current.tasks)
+				const fresh =
+					last && finishedNamedRef.current.get(teammate.name) !== last.id ? last : undefined
+				if (fresh) finishedNamedRef.current.set(teammate.name, fresh.id)
+				for (const done of teammateIdleRows(agent, idleRowText(teammate.name, fresh?.subject)))
+					pushRow(done)
+				continue
+			}
 			for (const done of agentCompletionRows(agent, previousFailure, agentCallsOn)) pushRow(done)
 		}
 		if (retryIn === undefined) return
@@ -5080,6 +5173,15 @@ function AppBody({
 				if (!live.transcript.some((item) => item.id === row.id)) continue
 				if (reportedCorrectionsRef.current.has(row.id)) continue
 				reportedCorrectionsRef.current.add(row.id)
+				// A teammate's mail is named for what it is (sent, a task, a request to stop); only a
+				// correction to a sub-agent is a correction.
+				const member = session?.team?.members().find((m) => m.viewId === agent.viewId)
+				if (member) {
+					pushMessage('tool', sentLabel(row.mail, member.name), false, '→', [
+						row.mail?.body ?? mailBody(row.text),
+					])
+					continue
+				}
 				pushMessage('tool', `${agent.description} · correction sent`, false, '→', [row.text])
 			}
 		}
@@ -8030,14 +8132,18 @@ function AppBody({
 	// While a turn runs the plan is part of the live region, under the working
 	// line, and the transcript holds no copy of it: it is printed once, when the
 	// turn ends. Between turns the older rules apply.
-	const planLive = (state === 'thinking' || state === 'tool') && tasks.length > 0
+	// With a team the list is the team's: every task with its owner and what it waits on, from the
+	// shared store, not the slices this conversation's own turns happened to touch.
+	const shownTasks: readonly TaskListItem[] =
+		teamSnap.tasks.length > 0 ? teamChecklistItems(teamSnap.tasks) : tasks
+	const planLive = (state === 'thinking' || state === 'tool') && shownTasks.length > 0
 	const checklistOpen =
-		checklistExpanded && tasks.length > 0 && (planLive || checklistPinned || !checklistShown)
+		checklistExpanded && shownTasks.length > 0 && (planLive || checklistPinned || !checklistShown)
 	checklistOpenRef.current = checklistOpen
-	const liveTasks = planLive || checklistOpen || !checklistShown ? tasks : []
+	const liveTasks = planLive || checklistOpen || !checklistShown ? shownTasks : []
 	const fullTaskFurniture = taskListRows(liveTasks, checklistOpen)
 	// The plan's next task, drawn under the working row; never from a sub-agent's plan.
-	const nextPlanned = nextTask(tasks)
+	const nextPlanned = nextTask(shownTasks)
 	const compactWork =
 		LIVE_FURNITURE_ROWS + fullTaskFurniture + fullToolFurniture + pendingInputFurniture >=
 		terminal.rows
@@ -10933,13 +11039,18 @@ function AppBody({
 			st.taskBlockKey ??= nextId()
 			const key = st.taskBlockKey
 			const id = nextId()
+			// With a team the block shows the team's whole list, not the slice this conversation touched.
+			const shown =
+				teamSnapRef.current.tasks.length > 0
+					? teamChecklistItems(teamSnapRef.current.tasks)
+					: checklist
 			setMessages(
 				(prev) =>
 					applyTaskOperation(prev, {
 						key,
 						id,
 						operation,
-						checklist,
+						checklist: shown,
 						settled: settledRef.current,
 						glyphColor: tokenColor('status.ok'),
 					}) as TranscriptMessage[],
@@ -14723,6 +14834,51 @@ function AppBody({
 						void showSpendInSession(slash.days)
 						return
 					}
+					case 'team': {
+						const source = session?.team
+						if (!source) {
+							pushMessage(
+								'system',
+								'Teams are off in this session. Turn them on with the --teams flag or the teams setting, then ask for a teammate by name.',
+							)
+							return
+						}
+						const asked = parseTeamCommand(slash.args.join(' '))
+						if (asked.kind === 'usage') {
+							pushMessage('system', asked.text)
+							return
+						}
+						const members = source.members()
+						if (asked.kind === 'stop') {
+							const wanted = asked.name.toLowerCase()
+							const member = members.find((m) => m.name.toLowerCase() === wanted)
+							if (!member) {
+								pushMessage('system', `There is no teammate named ${asked.name}. /team lists them.`)
+							} else if (member.state === 'stopped') {
+								pushMessage('system', `${member.name} is already stopped.`)
+							} else {
+								pushMessage(
+									'system',
+									session?.stopSubagent?.(member.viewId)
+										? `Asked ${member.name} to stop.`
+										: `${member.name} could not be stopped from here.`,
+								)
+							}
+							return
+						}
+						void source.tasks().then(
+							(list) =>
+								pushMessage(
+									'system',
+									(asked.kind === 'tasks'
+										? teamTaskLines(list)
+										: teamSummaryLines(members, list, Date.now())
+									).join('\n'),
+								),
+							() => pushMessage('system', 'The team list could not be read.'),
+						)
+						return
+					}
 					case 'tasks': {
 						if (!session) {
 							pushMessage('system', 'Background tasks are available once the conversation starts.')
@@ -18277,7 +18433,23 @@ function AppBody({
 						return
 					}
 					if (!selected) return
-					if (railActionFor(selected) === 'stop') {
+					const teammate = teamSnapRef.current.members.find((m) => m.viewId === selected.viewId)
+					if (teammate && railActionFor(selected, teammate) === 'stop') {
+						// A teammate is a long-lived member, so stopping it asks once more: the same key again.
+						if (teamStopStep(teamStopArmedRef.current, selected.viewId, Date.now()) === 'ask') {
+							teamStopArmedRef.current = { viewId: selected.viewId, at: Date.now() }
+							setTeamStopAsked(selected.viewId)
+							if (teamStopTimerRef.current) clearTimeout(teamStopTimerRef.current)
+							teamStopTimerRef.current = setTimeout(() => {
+								teamStopArmedRef.current = null
+								setTeamStopAsked(null)
+							}, TEAM_STOP_CONFIRM_MS)
+							return
+						}
+						teamStopArmedRef.current = null
+						setTeamStopAsked(null)
+						session?.stopSubagent?.(selected.viewId)
+					} else if (railActionFor(selected, teammate) === 'stop') {
 						// The row turns into a finished one by itself once the child
 						// reports its end; nothing else to update here.
 						session?.stopSubagent?.(selected.viewId)
@@ -18530,7 +18702,9 @@ function AppBody({
 					// back either way, and interrupts the conversation's own turn too if
 					// one is running.
 					if (key.escape) {
-						if (railActionFor(selected) === 'stop') {
+						// Esc leaves a teammate's transcript for the lead's; it never stops a member of the team.
+						const teammate = teamSnapRef.current.members.find((m) => m.viewId === selected.viewId)
+						if (!teammate && railActionFor(selected) === 'stop') {
 							session?.stopSubagent?.(selected.viewId)
 							return
 						}
@@ -18942,7 +19116,8 @@ function AppBody({
 	// Background is left natural — we inherit the terminal's own background
 	// and only theme the foreground. Forcing
 	// a filled bg left mismatched patches around bordered areas, so we don't.
-	const liveSubagents = railAgents(subagents, railNow, dismissedAgents, pinnedViewId)
+	const teamRail: TeamRail | undefined = teamRailOf(teamSnap, subagents, railNow)
+	const liveSubagents = railAgents(subagents, railNow, dismissedAgents, pinnedViewId, teamRail)
 	railRowsRef.current = liveSubagents
 	const liveWorkflows = railWorkflows(subagents, railNow, dismissedAgents, workflowRuns, {
 		hypermode,
@@ -19237,7 +19412,9 @@ function AppBody({
 		!onOpenWorkspaces &&
 		replyRunningNow &&
 		ctx.tui?.leftArrowOpensAgents !== false
-	const runningAgentCount = liveSubagents.filter((agent) => railActionFor(agent) === 'stop').length
+	const runningAgentCount = liveSubagents.filter(
+		(agent) => railActionFor(agent, teamRail?.members.get(agent.viewId)) === 'stop',
+	).length
 	// `/workflows`: `x to stop` is offered only on a run that is still going.
 	const workflowPickerCanStop = (() => {
 		if (choicePicker?.kind !== 'workflow-runs') return false
@@ -19262,15 +19439,28 @@ function AppBody({
 		permission === null &&
 		(agentSurface === null || viewingAgent !== undefined) &&
 		(liveSubagents.length > 0 || liveWorkflows.length > 0)
-			? railHint(
-					railFocus === 'main'
-						? undefined
-						: (liveSubagents.find((agent) => agent.viewId === railFocus) ??
-								liveWorkflows.find((flow) => flow.focusId === railFocus)),
-					terminal.columns,
-					liveSubagents.filter((agent) => railActionFor(agent) === 'stop').length,
-					viewingAgent?.viewId,
-				)
+			? (() => {
+					const member = teamRail?.members.get(railFocus)
+					// A teammate's row has its own keys: enter opens its transcript, x asks twice.
+					if (member)
+						return teamRailHint(
+							member.state,
+							member.name,
+							teamStopAsked === member.viewId,
+							viewingAgent?.viewId === member.viewId,
+						)
+					return railHint(
+						railFocus === 'main'
+							? undefined
+							: (liveSubagents.find((agent) => agent.viewId === railFocus) ??
+									liveWorkflows.find((flow) => flow.focusId === railFocus)),
+						terminal.columns,
+						liveSubagents.filter(
+							(agent) => railActionFor(agent, teamRail?.members.get(agent.viewId)) === 'stop',
+						).length,
+						viewingAgent?.viewId,
+					)
+				})()
 			: undefined
 	return (
 		<PointerRegionsContext.Provider value={fullscreen?.regions ?? null}>
@@ -20007,11 +20197,15 @@ function AppBody({
 					!scrollOpen &&
 					jobSurface === null &&
 					scheduleReviewPrompt === null &&
-					(liveSubagents.length > 0 || liveWorkflows.length > 0 || viewingAgent !== undefined) ? (
+					(liveSubagents.length > 0 ||
+						liveWorkflows.length > 0 ||
+						(teamRail?.plan.folded ?? 0) > 0 ||
+						viewingAgent !== undefined) ? (
 						// The active agents remain in memory while the schedule review
 						// owns the available rows; the panel returns after the decision.
 						<AgentTaskPanel
 							agents={liveSubagents}
+							{...(teamRail ? { team: teamRail } : {})}
 							workflows={liveWorkflows}
 							terminalRows={terminal.rows}
 							terminalColumns={terminal.columns}

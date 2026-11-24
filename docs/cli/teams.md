@@ -1,7 +1,7 @@
 ---
 type: Guide
 title: Teammates
-description: How teammates are turned on (the teams.enabled setting, NAMZU_TEAMS and --teams), how a named Agent call starts one and how it runs, the shared task list and mail, how a teammate's permission asks and plans reach you, its hook events, the limits that apply, and where they do not run.
+description: How teammates are turned on (the teams.enabled setting, NAMZU_TEAMS and --teams), how a named Agent call starts one and how it runs, the shared task list and mail, how a teammate's permission asks and plans reach you, its hook events, the team on the terminal (rows, transcript, stop, `/team`, the task list), the limits that apply, and where they do not run.
 resource: packages/cli/src/integrations/teams/
 tags: [cli, teams, teammates, settings, experimental]
 status: draft
@@ -10,7 +10,7 @@ generated: { by: "claude-sonnet-5", at: "2026-11-24" }
 
 # Teammates
 
-A teammate is a named helper that keeps its own conversation beside the main one, can message the other teammates, and shares a task list with them. In a conversation where teammates are on, the `Agent` tool given a `name` starts a teammate; without a name, or with teammates off, it starts a plain sub-agent exactly as before. This page covers the switch, how a teammate runs, how its permission asks and plans reach you, the hook events, and the limits. The team panel and the `namzu team` command are later steps.
+A teammate is a named helper that keeps its own conversation beside the main one, can message the other teammates, and shares a task list with them. In a conversation where teammates are on, the `Agent` tool given a `name` starts a teammate; without a name, or with teammates off, it starts a plain sub-agent exactly as before. This page covers the switch, how a teammate runs, how its permission asks and plans reach you, the hook events, the team on the terminal (rows under the prompt, `/team`, the task list), and the limits. The Desktop team panel and the `namzu team` command are later steps.
 
 ## Turning them on
 
@@ -65,6 +65,27 @@ Three hook events are fired for the lead's team, on the lead's session, and the 
 - `task_created` and `task_completed` carry `teammate_name` and `team_name` when a teammate made or completed the task.
 
 All of them carry `teammate_name` and `team_name`; the matcher of the three teammate events is read against the name.
+
+## The team on the terminal
+
+With teammates on, each teammate is a row of the agents rail under the prompt, after `main`:
+
+```
+  ● main
+  ◯ writer      write the parser                    working
+  ◯ checker     test the parser                     waiting for you
+  ◯ docs                                            idle · 12s
+```
+
+The name comes first, then the task it holds (the one in progress under its name), then its state: `working`, `waiting for you` (it asked a question that is open in your box), `idle` with how long ago, or `stopped`. A teammate stays on the rail while it is on the team, not only while a turn runs. The keys are the rail's own: Down from an empty box enters it, Up and Down select, Enter opens the teammate's transcript in the main view, Esc goes back to the lead, and Up from the first row returns to the box.
+
+- **Talking to a teammate.** While its transcript is open, what you type goes to that teammate. It reads it as a message from the person ("typed while they watch your conversation"), never as mail from another session, and the transcript shows your words as you typed them.
+- **Stopping.** `x` on a teammate's row asks once on the key line (`x again to stop writer`); a second `x` within three seconds stops it. `/team stop <name>` stops it without the question. A stopped row stays 30 seconds, then `x` or the time clears it. Esc in a teammate's transcript only leaves it; it never stops the member.
+- **Idle rows.** After the whole rail has been idle for 30 seconds (nobody on the team works and no other agent runs) the idle rows leave. Before that, up to three idle teammates keep a row each; more than three are one dim row, `4 idle teammates`, that is not a stop of the rail. `/team` lists every member whether or not it has a row.
+- **The task list.** `Ctrl+T` toggles the checklist as before; with a team it shows the team's list, from the shared store: every task, lowest id first, with its owner and what it waits on (`write the parser · writer`, `test it · waits on #1`). It shows up to five rows and counts the rest; `/team tasks` lists all of them.
+- **Lines in the conversation.** What you or the lead send to a teammate reads as what it is: `sent to writer`, `task given to writer`, `asked writer to stop`, and for one teammate writing to another `checker sent to writer` (not "correction sent", which stays for a sub-agent). A teammate that finishes a turn leaves one plain row, `writer is idle · finished write the parser`, once per turn, with its last answer behind Ctrl+O. A turn of the lead that only kept the task list or the mail no longer ends with "A command ran that may have changed files".
+
+`/team` writes each member with its state and task and the task counts; `/team tasks` writes every task as `#2 □ test it · waits on #1` (a task is numbered by its place in the list, lowest id first, whatever its id is); `/team stop <name>` stops one. In a conversation with teammates off, `/team` says so in one line. Teams on the terminal need no setting of their own.
 
 ## The task list
 

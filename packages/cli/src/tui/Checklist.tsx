@@ -30,6 +30,8 @@ export interface ChecklistItem {
 	readonly status: ChecklistStatus
 	/** Ids of tasks this one waits on; absent when it waits on none. */
 	readonly blockedBy?: readonly string[]
+	/** The teammate that holds it, on a team's list. */
+	readonly owner?: string
 	/** What the working row says while this step is in progress; the subject when absent. */
 	readonly activeForm?: string
 }
@@ -53,12 +55,21 @@ export function checklistProgress(items: readonly ChecklistItem[]): string {
 	return `Tasks · ${done}/${items.length} done${failed > 0 ? ` · ${failed} failed` : ''}`
 }
 
+/** What follows a task's subject on a team's list: who holds it and what it waits on; empty on a plain list. */
+export function checklistSuffix(item: ChecklistItem): string {
+	const parts: string[] = []
+	if (item.owner !== undefined) parts.push(oneLine(item.owner))
+	if (item.blockedBy !== undefined && item.blockedBy.length > 0 && item.status !== 'completed')
+		parts.push(`waits on ${item.blockedBy.map((id) => `#${id}`).join(', ')}`)
+	return parts.length > 0 ? ` · ${parts.join(' · ')}` : ''
+}
+
 /**
  * A row as plain text: mark, one space, subject. For the raw view, exports
  * and height estimates, which must agree with what `ChecklistRow` draws.
  */
 export function checklistLine(item: ChecklistItem): string {
-	return `${CHECKLIST_MARK[item.status]} ${oneLine(item.subject)}`
+	return `${CHECKLIST_MARK[item.status]} ${oneLine(item.subject)}${checklistSuffix(item)}`
 }
 
 function oneLine(subject: string): string {
@@ -110,6 +121,11 @@ export function ChecklistRow({
 					wrap={wrap}
 				>
 					{oneLine(item.subject)}
+					{checklistSuffix(item) ? (
+						<Text color={theme.text.muted} strikethrough={false} bold={false}>
+							{checklistSuffix(item)}
+						</Text>
+					) : null}
 				</Text>
 			</Box>
 		</Box>
