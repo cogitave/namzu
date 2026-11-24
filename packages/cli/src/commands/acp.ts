@@ -114,6 +114,8 @@ import {
 } from '../permissions/rules.js'
 import type { PermissionSettings } from '../permissions/settings.js'
 import { resolveProgressNudge } from '../reminders/progress-nudge.js'
+import { SKILLS_HOST_COMMAND } from '../skills/save-card.js'
+import { buildSaveSkillTool } from '../skills/save.js'
 import { type TerminalHost, createTerminalHost } from '../terminal/host.js'
 import {
 	type AgentSession,
@@ -1176,6 +1178,20 @@ export function createCliAcpRuntime(
 					// question tool, its guidance and a tool server's request for input: none of what the
 					// terminal's "somebody is typing" brings with it.
 					...(questionRelay && !palEnvironment ? { questions: true } : {}),
+					// The desktop can save a skill the model drafted: the same tool the terminal has, its
+					// confirmation drawn as a card by the app. Never answered by a permission mode.
+					...(questionRelay && !palEnvironment
+						? {
+								extraTools: [
+									buildSaveSkillTool({
+										cwd: () => cwd,
+										config: () => projectCtx.config.skills,
+										sessionId: () => target.sessionId,
+										confirm: questionRelay.skillSaveConfirm(sessionId, () => cwd),
+									}),
+								],
+							}
+						: {}),
 					// The model may read the safe settings and change one when the person says yes on
 					// the card; the desktop's own preferences join when the app said where they are.
 					...(runtimeOptions.announce &&
@@ -2694,7 +2710,11 @@ export async function runAcpCommand(ctx: CommandContext, desktop = false): Promi
 		supportsTaskNotifications: desktop,
 		transport,
 		gateway: runtime.gateway,
-		commands: new HostCommandRegistry(),
+		commands: (() => {
+			const commands = new HostCommandRegistry()
+			if (desktop) commands.register(SKILLS_HOST_COMMAND)
+			return commands
+		})(),
 		presenter: runtime.presenter,
 		agentInfo: { name: 'namzu', version: readPackageVersion() },
 		// The two facts this application adds to what the engine says about itself.

@@ -1,0 +1,144 @@
+/* The skill-save card reuses the approval card (ring, band, footer, button sizes); these rules only
+   place its file preview, its two places and their notes. Every colour is a theme token, so light and
+   dark follow the app, and a long line wraps instead of widening the card. */
+.skill-save-description {
+	margin: 0;
+	color: var(--muted-foreground);
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
+	overflow-wrap: anywhere;
+}
+.approval-card > .skill-save-file {
+	max-height: 280px;
+	overflow: auto;
+}
+.skill-save-text {
+	margin: 0;
+	padding: 8px 12px;
+	font: inherit;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+}
+.skill-save-text[data-expanded] {
+	max-height: none;
+}
+.skill-save-more {
+	display: block;
+	width: 100%;
+	padding: 6px 12px;
+	border: 0;
+	border-top: 1px solid var(--border);
+	background: transparent;
+	color: var(--muted-foreground);
+	font: inherit;
+	font-size: var(--text-small);
+	text-align: start;
+	cursor: pointer;
+}
+.skill-save-more:hover {
+	color: var(--foreground);
+}
+.skill-save-more:focus-visible {
+	outline: 2px solid transparent;
+	outline-offset: -2px;
+	box-shadow: var(--focus-ring);
+}
+.skill-save-warnings,
+.skill-save-targets {
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+.approval-card > .skill-save-warnings {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	color: var(--warning-foreground);
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
+}
+.approval-card > .skill-save-targets {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+}
+.skill-save-targets li {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	min-width: 0;
+}
+.skill-save-target-label {
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
+	color: var(--foreground);
+	font-weight: var(--weight-control);
+}
+.skill-save-path {
+	color: var(--muted-foreground);
+	font-family: var(--font-mono);
+	font-size: var(--font-size-code);
+	overflow-wrap: anywhere;
+}
+.skill-save-note {
+	color: var(--muted-foreground);
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
+	overflow-wrap: anywhere;
+}
+.skill-save-note[data-tone="warn"] {
+	color: var(--warning-foreground);
+}
+/* The saved card: one quiet line in the transcript, with the way to the Skills list. */
+.skill-saved-card {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	flex-wrap: wrap;
+	min-width: 0;
+	margin: 6px 0;
+	padding: 10px 12px;
+	border: 1px solid var(--border);
+	border-radius: var(--radius-card);
+	background: var(--card);
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
+}
+.skill-saved-icon {
+	flex: none;
+	width: 16px;
+	height: 16px;
+	color: var(--muted-foreground);
+}
+.skill-saved-text {
+	display: flex;
+	flex: 1 1 200px;
+	flex-direction: column;
+	min-width: 0;
+}
+.skill-saved-title {
+	color: var(--foreground);
+	font-weight: var(--weight-control);
+	overflow-wrap: anywhere;
+}
+.skill-saved-note {
+	color: var(--muted-foreground);
+	overflow-wrap: anywhere;
+}
+.skill-saved-link {
+	flex: none;
+	padding: 0;
+	border: 0;
+	background: transparent;
+	color: var(--foreground);
+	font: inherit;
+	text-decoration: underline;
+	text-underline-offset: 2px;
+	cursor: pointer;
+}
+.skill-saved-link:focus-visible {
+	outline: 2px solid transparent;
+	outline-offset: 2px;
+	box-shadow: var(--focus-ring);
+}
