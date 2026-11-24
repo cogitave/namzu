@@ -78,19 +78,33 @@ it('renders receipts in plain words with distinct exit codes', () => {
 })
 
 it('renders the listing', () => {
-	expect(renderListing([])).toBe('No live terminals in this project.')
+	expect(renderListing([])).toBe('No Namzu sessions are running in this project.')
 	expect(
-		renderListing([
-			{
-				ref: 'ab12cd',
-				sessionId: 's',
-				title: 'proj',
-				state: 'idle',
-				mode: 'auto',
-				acceptsMessages: true,
-			},
-		]),
-	).toBe('ab12cd  proj  idle  auto')
+		renderListing(
+			[
+				{
+					ref: 'ab12cd',
+					sessionId: 's',
+					title: 'proj',
+					state: 'idle',
+					mode: 'classify',
+					acceptsMessages: true,
+					folder: 'proj',
+					named: false,
+					startedAt: 1_000,
+				},
+			],
+			{ now: 424_000 },
+		),
+	).toBe(
+		[
+			'Namzu sessions (1):',
+			'  [idle]  ·  (unnamed session)  ·  started 7m ago',
+			'      in proj · auto mode',
+			'',
+			'((unnamed session) has no name of its own: /rename <name> in that terminal gives it one others can message)',
+		].join('\n'),
+	)
 })
 
 it('acts, with no --mode, in the mode a new terminal here starts in', () => {
@@ -359,13 +373,13 @@ const run = (h: ReturnType<typeof harness>, args: string[]) => {
 it('lists every machine when the network runs, and only this folder when it does not', async () => {
 	const on = harness()
 	expect(await run(on, ['list'])).toBe(EXIT_OK)
-	expect(on.out[0]?.text).toContain('studio-air · this machine · online')
-	expect(on.out[0]?.text).toContain('calm-heron')
+	expect(on.out[0]?.text).toContain('Namzu sessions (1):')
+	expect(on.out[0]?.text).toContain('[idle]  ·  calm-heron')
 	expect(on.out[0]?.value).toHaveProperty('machines')
 	on.done()
 	const off = harness({}, false)
 	expect(await run(off, ['list'])).toBe(EXIT_OK)
-	expect(off.out[0]?.text).toBe('No live terminals in this project.')
+	expect(off.out[0]?.text).toBe('No Namzu sessions are running in this project.')
 	expect(off.out[0]?.value).not.toHaveProperty('machines')
 	off.done()
 })
@@ -376,7 +390,7 @@ it('tells a machine that was removed why its list has no machines', async () => 
 		summary: async () => summary({ state: 'removed', removed: true, members: 0 }),
 	})
 	expect(await run(removed, ['list'])).toBe(EXIT_OK)
-	expect(removed.out[0]?.text).toContain('No live terminals in this project.')
+	expect(removed.out[0]?.text).toContain('No Namzu sessions are running in this project.')
 	expect(removed.out[0]?.text).toContain('This machine was removed from your Namzu network')
 	expect(removed.out[0]?.value).toMatchObject({ network: { state: 'removed', removed: true } })
 	removed.done()

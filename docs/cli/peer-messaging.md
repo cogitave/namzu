@@ -22,7 +22,7 @@ choice.
 
 ## Use it
 
-- `/peers` or `/peers list`: show live terminals, short references, permission
+- `/peers` or `/peers list`: show live Namzu sessions as a counted list, `[state]  ·  name  ·  started 7m ago` (see [the Namzu network](namzu-network.md#what-the-list-shows)), permission
   modes and the number of messages pending here. When [your Namzu network](namzu-network.md)
   runs it shows every machine's sessions instead, then what waits for you (held
   messages, requests to join) with an Allow and a Deny row for each. When

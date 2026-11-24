@@ -25,14 +25,21 @@ import {
 	createControlClient,
 	readControlInfo,
 } from '../integrations/network/control.js'
-import { renderRosterList, renderStatus, rosterJson } from '../integrations/network/format.js'
+import {
+	modeWord,
+	renderRosterList,
+	renderStatus,
+	rosterJson,
+} from '../integrations/network/format.js'
 import { processExists, readLock } from '../integrations/network/leader.js'
 import { decideNetwork, networkSettings } from '../integrations/network/policy.js'
+import { formatSessionList } from '../integrations/network/session-list.js'
 import type { NetworkControl, NetworkSummary } from '../integrations/network/types.js'
 import {
 	type PeerListing,
 	type PeerSendReceipt,
 	listProjectTerminals,
+	localStartTimes,
 	sendToTerminal,
 } from '../integrations/peers/send-once.js'
 import { resolveNamzuHome } from '../integrations/state/home.js'
@@ -62,8 +69,10 @@ Usage:
   namzu peers cancel
   namzu peers log [-n <count>] [--json]
 
-list    Live terminals in this project, and, when your Namzu network is running, every
-        machine's sessions: name, project folder, state, permission mode and role.
+        "[state]  ·  name  ·  started 7m ago", the folder, permission mode and role on a
+        [state]  ·  name  ·  started 7m ago, the folder, permission mode and role on a
+        second line. When your Namzu network is running, every machine's sessions are in
+        the same list with their machine last.
 send    Queue a message in one terminal's inbox. Give the text as words, or with
         --file <path> (use - for standard input) to keep line breaks. A session on
         another machine is named by its name, or machine/name.
@@ -346,14 +355,28 @@ export function receiptExitCode(receipt: PeerSendReceipt): number {
 				: EXIT_UNAVAILABLE
 }
 
-export function renderListing(peers: readonly PeerListing[]): string {
-	if (peers.length === 0) return 'No live terminals in this project.'
-	return peers
-		.map(
-			(peer) =>
-				`${peer.ref}  ${peer.title}  ${peer.state}  ${peer.mode}${peer.acceptsMessages ? '' : '  (not accepting messages)'}`,
-		)
-		.join('\n')
+export function renderListing(
+	peers: readonly PeerListing[],
+	options: { readonly now?: number; readonly columns?: number } = {},
+): string {
+	return formatSessionList(
+		peers.map((peer) => ({
+			ref: peer.ref,
+			name: peer.title,
+			named: peer.named,
+			folder: peer.folder,
+			state: peer.state,
+			startedAt: peer.startedAt,
+			mode: modeWord(peer.mode),
+			...(peer.role ? { role: peer.role } : {}),
+			acceptsMessages: peer.acceptsMessages,
+		})),
+		{
+			now: options.now ?? Date.now(),
+			columns: options.columns,
+			emptyText: 'No Namzu sessions are running in this project.',
+		},
+	)
 }
 
 /**
@@ -469,9 +492,10 @@ export async function executePeers(
 				}
 			}
 			if (view && view.machines.length > 0) {
+				const startTimes = localStartTimes(base)
 				io.print(
-					{ peers, machines: rosterJson(view) },
-					renderRosterList(view, { columns: io.columns }),
+					{ peers, machines: rosterJson(view, startTimes) },
+					renderRosterList(view, { columns: io.columns, startTimes, now: deps.now() }),
 				)
 				return EXIT_OK
 			}
@@ -494,7 +518,7 @@ export async function executePeers(
 						? { network: { state: network.state, removed: network.removed === true } }
 						: {}),
 				},
-				`${renderListing(peers)}${why}`,
+				`${renderListing(peers, { now: deps.now(), columns: io.columns })}${why}`,
 			)
 			return EXIT_OK
 		}

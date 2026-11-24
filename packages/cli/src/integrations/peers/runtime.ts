@@ -629,11 +629,26 @@ export async function openLivePeers(options: LivePeersOptions) {
 				.catch(() => {})
 		}
 	}
+	/** When each live terminal of this machine started, by ref. */
+	const startTimes = (): ReadonlyMap<string, number> =>
+		new Map(
+			readPeerRecords(runtime.sessionsDir)
+				.filter((peer) => peer.kind === 'tui')
+				.map((peer) => [peer.ref, peer.startedAt] as const),
+		)
 	const list = async (): Promise<readonly Record<string, unknown>[]> => {
 		// The Namzu network, when it runs, lists every machine's sessions the same way a person sees them.
 		const net = options.network?.()
 		const roster = net ? await net.list(ref).catch(() => undefined) : undefined
-		if (roster) return roster
+		if (roster) {
+			// The network does not carry start times; this machine's own records do.
+			const started = startTimes()
+			return roster.map((row) =>
+				typeof row.ref === 'string' && started.has(row.ref)
+					? { ...row, started_at: started.get(row.ref) }
+					: row,
+			)
+		}
 		// A failed ping is an unavailable observation, not permission to delete
 		// another running process's endpoint (or a replaced registry record).
 		const records = readPeerRecords(runtime.sessionsDir).filter(
@@ -651,6 +666,7 @@ export async function openLivePeers(options: LivePeersOptions) {
 				cwd: peer.cwd,
 				permission_mode: permissionModeWord(peer.permissionMode),
 				state: peer.state,
+				started_at: peer.startedAt,
 				accepts_messages: peer.acceptsMessages,
 				self: peer.sessionId === sessionId,
 				...(peer.role ? { role: peer.role } : {}),
@@ -802,6 +818,7 @@ export async function openLivePeers(options: LivePeersOptions) {
 		ref,
 		publish,
 		list,
+		startTimes,
 		send,
 		/** Give a session or machine (here or on another machine) a role, or clear it with `null`. */
 		async setRole(

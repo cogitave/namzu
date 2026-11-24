@@ -48,6 +48,13 @@ export interface PeerListing {
 	readonly state: string
 	readonly mode: string
 	readonly acceptsMessages: boolean
+	/** The folder's own name. */
+	readonly folder: string
+	/** The session has a name of its own; a title equal to the folder's name is only the default. */
+	readonly named: boolean
+	/** Epoch ms the terminal started. */
+	readonly startedAt: number
+	readonly role?: string
 }
 
 export interface PeerCommandOptions {
@@ -77,7 +84,21 @@ export async function listProjectTerminals(options: PeerCommandOptions): Promise
 			state: peer.state,
 			mode: peer.permissionMode,
 			acceptsMessages: peer.acceptsMessages,
+			folder: basename(cwd),
+			named: peer.title !== undefined && peer.title !== basename(peer.cwd),
+			startedAt: peer.startedAt,
+			...(peer.role ? { role: peer.role } : {}),
 		}))
+}
+
+/** When each live terminal of this machine started, by ref, whatever folder it runs in. */
+export function localStartTimes(options: PeerCommandOptions): Map<string, number> {
+	const runtime = resolvePeerRuntime(options.home, options.env ?? process.env)
+	return new Map(
+		readPeerRecords(runtime.sessionsDir)
+			.filter((peer) => peer.kind === 'tui')
+			.map((peer) => [peer.ref, peer.startedAt] as const),
+	)
 }
 
 const refused = (reason: string, extra: Partial<PeerSendReceipt> = {}): PeerSendReceipt => ({
