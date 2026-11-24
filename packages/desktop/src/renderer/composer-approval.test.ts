@@ -229,6 +229,34 @@ it('draws the screen question as a one-time choice between allow now and not now
 	expect(html).not.toContain('Details')
 })
 
+it('draws the browser window question as allow for this conversation or not now', () => {
+	const html = draw(
+		{
+			id: 'r5',
+			sessionId: 's',
+			projectId: 'p',
+			calls: [
+				{
+					id: 'browser-window-1',
+					name: 'browser_window',
+					input: { app: 'Brave' },
+					isDestructive: false,
+					alwaysAsk: true,
+				},
+			],
+		},
+		'/work/site',
+		'Site',
+		true,
+	)
+	expect(html).toContain('aria-label="A question about a browser window"')
+	expect(html).toContain('Let Namzu click and type in Brave in this conversation?')
+	expect(html).toContain('It still asks before it sends, deletes, pays, accepts terms')
+	expect(html).toMatch(/data-tone="accept"[^>]*>Allow for this conversation</)
+	expect(html).toMatch(/data-tone="reject"[^>]*>Not now</)
+	expect(html).not.toContain('Tell Namzu what to do instead')
+})
+
 it('keeps a stray Enter from allowing the keyboard to be taken', () => {
 	const html = draw(screenMoment())
 	expect(html).toMatch(/title="Not now · Enter or Esc"/)

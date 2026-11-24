@@ -7,6 +7,7 @@ import {
 	approvalDetails,
 	approvalWarning,
 	baseName,
+	browserWindowNote,
 	buildApprovalCard,
 	declineFeedback,
 	offersConversationAllowance,
@@ -437,6 +438,16 @@ it('builds the screen question from the engine call and never offers a standing 
 	expect(offersConversationAllowance(screen)).toBe(false)
 	expect(rejectsFirst(model, screen)).toBe(true)
 	expect(screenMomentNote('Editor')).toContain('for the rest of this conversation')
+})
+
+it('builds the browser window question and never offers a standing yes for it', () => {
+	const asked = request([call('browser_window', { app: 'Brave' }, { alwaysAsk: true })])
+	const model = buildApprovalCard(asked)
+	expect(model.title).toBe('Let Namzu click and type in Brave in this conversation?')
+	expect(model.screenMoment).toEqual({ app: 'Brave', browser: true })
+	expect(offersConversationAllowance(asked)).toBe(false)
+	expect(rejectsFirst(model, asked)).toBe(true)
+	expect(browserWindowNote('Brave')).toContain('for the rest of this conversation')
 })
 
 it('turns a request that asks about applications into one question, not one about a click', () => {

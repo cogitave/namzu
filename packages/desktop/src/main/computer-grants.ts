@@ -10,6 +10,8 @@ import type { PermissionView } from '../shared/protocol.js'
 export const COMPUTER_TOOL = 'computer_use'
 /** The agent's question that an application needs the real keyboard and mouse for a moment. */
 export const SCREEN_MOMENT_TOOL = 'screen_moment'
+/** The agent's question whether it may click and type in the person's own browser window. */
+export const BROWSER_WINDOW_TOOL = 'browser_window'
 
 type Call = PermissionView['calls'][number]
 

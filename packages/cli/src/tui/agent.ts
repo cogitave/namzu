@@ -242,7 +242,7 @@ import {
 } from '@namzu/sdk'
 
 import { SubprocessComputerUseHost } from '@namzu/computer-use'
-import { screenApprover } from './computer-use-screen-approval.js'
+import { browserWindowApprover, screenApprover } from './computer-use-screen-approval.js'
 
 import { realpath, stat } from 'node:fs/promises'
 import { join, parse, resolve, sep } from 'node:path'
@@ -2648,8 +2648,18 @@ export function deferExceptToolset(ts: Toolset, eager: readonly string[]): reado
 	]
 }
 
-const NAMZU_BROWSER_DESKTOP_ROUTING =
-	'When the user means a desktop browser window that is already open (their own, not the Namzu-managed profile), look at it only: use computer_use list_windows and screenshot {window_id}. Act on pages through the browser tool, which controls a separate Namzu-managed browser profile. If the task needs acting in their own window, say you can only look at it and offer to do it in the Namzu browser profile.'
+const NAMZU_BROWSER_DESKTOP_ROUTING_HEAD =
+	'When the user means a desktop browser window that is already open (their own, not the Namzu-managed profile), look at it with computer_use list_windows and screenshot {window_id}. The browser tool controls a separate Namzu-managed browser profile, where the person has not signed in yet.'
+
+/** What the model is told about a browser window the person already has open, by the setting. */
+export function browserWindowRouting(setting: 'look' | 'ask' | 'act'): string {
+	if (setting === 'look')
+		return `${NAMZU_BROWSER_DESKTOP_ROUTING_HEAD} Look at it only. Act on pages through the browser tool. If the task needs acting in their own window, say you can only look at it and offer three ways forward in plain words: they can change Browser windows in Settings so Namzu may click and type there; continue in the Namzu browser profile, where they sign in once; or they click while you guide them from screenshots.`
+	if (setting === 'act')
+		return `${NAMZU_BROWSER_DESKTOP_ROUTING_HEAD} The person allowed computer_use to click and type in their own browser windows, so you can work in the open window directly. Ask them before you type into a password field, submit payment or personal data, send or post, delete, accept terms, or change organisation-wide admin settings.`
+	return `${NAMZU_BROWSER_DESKTOP_ROUTING_HEAD} Clicking and typing in their own window needs their yes: the first action aimed at it asks whether Namzu may click and type in that browser for this conversation, and only their answer allows it. If the answer is not now, or nobody can be asked, offer three ways forward in plain words: allow it for this conversation; continue in the Namzu browser profile, where they sign in once; or they click while you guide them from screenshots. Even once allowed, ask them before you type into a password field, submit payment or personal data, send or post, delete, accept terms, or change organisation-wide admin settings.`
+}
+;('When the user means a desktop browser window that is already open (their own, not the Namzu-managed profile), look at it only: use computer_use list_windows and screenshot {window_id}. Act on pages through the browser tool, which controls a separate Namzu-managed browser profile. If the task needs acting in their own window, say you can only look at it and offer to do it in the Namzu browser profile.')
 
 /**
  * The base toolsets every session (and, unwrapped, every sub-agent) starts
@@ -3084,6 +3094,12 @@ export interface AgentSessionOptions {
 	 * tool before any call reaches the host. Only read when `enableComputerUse` is true.
 	 */
 	readonly deniedComputerApps?: readonly string[]
+	/**
+	 * What computer use does in a browser window (`computerUse.browserWindows`). Absent means `ask`:
+	 * look until the person allows clicking and typing for this conversation. A run with nobody to
+	 * ask (exec, scheduled) stays look-only.
+	 */
+	readonly browserWindows?: 'look' | 'ask' | 'act'
 	/**
 	 * Told what the model saw after a `computer_use` call that returned a screenshot,
 	 * made small. The desktop shows it beside the call; it never changes what the
@@ -4162,6 +4178,10 @@ export async function createAgentSession(
 					screenshotLimits: () => screenshotLimitsForModel(turnModel),
 					...(advisor ? { advisor } : {}),
 					...(options.deniedComputerApps?.length ? { deniedApps: options.deniedComputerApps } : {}),
+					// Asked of the person only: no permission mode and no remembered yes answers it,
+					// and a run with nobody to ask (`elicitationHost.ask` unset) stays look-only.
+					browserWindows: options.browserWindows ?? 'ask',
+					askBrowserWindow: browserWindowApprover(() => elicitationHost.ask),
 					...(options.onComputerObservation
 						? { onObservation: (seen) => options.onComputerObservation?.(seen) }
 						: {}),
@@ -5803,7 +5823,7 @@ export async function createAgentSession(
 		typeof computerUseHost.focusWindow === 'function' &&
 		liveManager().get('browser') &&
 		liveManager().get('computer_use')
-			? NAMZU_BROWSER_DESKTOP_ROUTING
+			? browserWindowRouting(options.browserWindows ?? 'ask')
 			: undefined
 	// How to go about a web task, said only where the browser tools are
 	// mounted and can run.

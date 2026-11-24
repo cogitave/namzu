@@ -7219,7 +7219,10 @@ export class Operator {
 				this.appRequests.set(id, { sessionId: session.view.id, apps: decision.apps })
 			this.emit({ kind: 'permission', request })
 			const driving = calls.some(
-				(call) => call.name === 'computer_use' || call.name === 'screen_moment',
+				(call) =>
+					call.name === 'computer_use' ||
+					call.name === 'screen_moment' ||
+					call.name === 'browser_window',
 			)
 			if (driving) this.computerTurns.add(session.view.id)
 			// Anything the pill cannot answer, asked while the agent is driving the computer, needs
@@ -7227,7 +7230,12 @@ export class Operator {
 			// turn that never touched the computer leaves the window where it is.
 			if (
 				this.computerTurns.has(session.view.id) &&
-				!calls.every((call) => call.name === 'computer_use' || call.name === 'screen_moment')
+				!calls.every(
+					(call) =>
+						call.name === 'computer_use' ||
+						call.name === 'screen_moment' ||
+						call.name === 'browser_window',
+				)
 			)
 				this.options.needsMainWindow?.('approval', session.view.id)
 		} else if (

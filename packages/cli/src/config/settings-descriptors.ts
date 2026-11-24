@@ -2074,6 +2074,35 @@ const DECLARED: readonly SettingDescriptor[] = [
 		},
 	),
 	d(
+		'computerUse.browserWindows',
+		'tools',
+		'Browser windows',
+		'What Namzu does in a browser window you already have open.',
+		pick(
+			['look', 'Only look', 'Namzu sees the window but does not click or type in it.'],
+			[
+				'ask',
+				'Ask me',
+				'The first time in a conversation Namzu asks whether it may click and type in that browser. Your answer covers that browser for the conversation.',
+			],
+			[
+				'act',
+				'Click and type',
+				'Namzu clicks and types in browser windows like in other apps. It still asks before it sends, deletes, pays or changes admin settings.',
+			],
+		),
+		{
+			group: 'computer-use',
+			keywords: ['browser windows', 'browser', 'click in browser', 'open browser', 'computer use'],
+			default: 'ask',
+			requires: {
+				path: 'computerUse.enabled',
+				is: 'true',
+				note: 'Computer use is off, so this does nothing yet.',
+			},
+		},
+	),
+	d(
 		'computerUse.deniedApps',
 		'tools',
 		'Denied apps',

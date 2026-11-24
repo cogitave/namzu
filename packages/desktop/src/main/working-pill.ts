@@ -1,6 +1,6 @@
 import { WHOLE_SCREEN, appLabel } from '../shared/computer-protocol.js'
 import type { DesktopEvent, PermissionResponse, PermissionView } from '../shared/protocol.js'
-import { COMPUTER_TOOL, SCREEN_MOMENT_TOOL } from './computer-grants.js'
+import { BROWSER_WINDOW_TOOL, COMPUTER_TOOL, SCREEN_MOMENT_TOOL } from './computer-grants.js'
 
 /** What the pill draws. Everything in it is text the person can read; nothing in it acts by itself. */
 export interface PillView {
@@ -78,6 +78,10 @@ function actionWords(call: PermissionView['calls'][number]): string {
 	if (call.name === SCREEN_MOMENT_TOOL) {
 		const app = record(call.input) && typeof call.input.app === 'string' ? call.input.app : ''
 		return app ? `Use the keyboard and mouse for ${app}` : 'Use the keyboard and mouse for a moment'
+	}
+	if (call.name === BROWSER_WINDOW_TOOL) {
+		const app = record(call.input) && typeof call.input.app === 'string' ? call.input.app : ''
+		return app ? `Click and type in ${app}` : 'Click and type in a browser'
 	}
 	const input = record(call.input) ? call.input : {}
 	const type = typeof input.type === 'string' ? input.type : ''
@@ -171,7 +175,12 @@ export class WorkingPill {
 	private askedHere(request: PermissionView): boolean {
 		return (
 			request.calls.length > 0 &&
-			request.calls.every((call) => call.name === COMPUTER_TOOL || call.name === SCREEN_MOMENT_TOOL)
+			request.calls.every(
+				(call) =>
+					call.name === COMPUTER_TOOL ||
+					call.name === SCREEN_MOMENT_TOOL ||
+					call.name === BROWSER_WINDOW_TOOL,
+			)
 		)
 	}
 

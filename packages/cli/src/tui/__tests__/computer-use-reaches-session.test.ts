@@ -281,9 +281,11 @@ describe('computer use session reachability', () => {
 		expect(queryToolNames).toEqual(expect.arrayContaining(['browser', 'computer_use']))
 		expect(querySystemPrompt).toContain('desktop browser window that is already open')
 		expect(querySystemPrompt).toContain('separate Namzu-managed browser profile')
-		expect(querySystemPrompt).toContain('look at it only')
-		expect(querySystemPrompt).toContain('Act on pages through the browser tool')
-		expect(querySystemPrompt).toContain('offer to do it in the Namzu browser profile')
+		expect(querySystemPrompt).toContain('needs their yes')
+		expect(querySystemPrompt).toContain('allow it for this conversation')
+		expect(querySystemPrompt).toContain('continue in the Namzu browser profile')
+		expect(querySystemPrompt).toContain('they click while you guide them from screenshots')
+		expect(querySystemPrompt).not.toMatch(/reload/i)
 
 		querySystemPrompt = ''
 		desktop.failInitialize = true

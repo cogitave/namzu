@@ -111,3 +111,56 @@ describe('computerUse.deniedApps', () => {
 		)
 	})
 })
+
+describe('computerUse.browserWindows', () => {
+	it('is absent unless a file says it, and reads look, ask and act', () => {
+		expect(
+			load(layout({ user: { computerUse: { enabled: true } } })).computerUse,
+		).not.toHaveProperty('browserWindows')
+		for (const value of ['look', 'ask', 'act'] as const)
+			expect(
+				load(layout({ user: { computerUse: { browserWindows: value } } })).computerUse
+					?.browserWindows,
+			).toBe(value)
+	})
+
+	it('refuses any other value', () => {
+		expect(() => load(layout({ user: { computerUse: { browserWindows: 'always' } } }))).toThrow(
+			/look, ask or act/,
+		)
+	})
+
+	it('cannot be loosened by a project file, only tightened', () => {
+		expect(
+			load(
+				layout({
+					user: { computerUse: { browserWindows: 'ask' } },
+					project: { computerUse: { browserWindows: 'act' } },
+				}),
+			).computerUse?.browserWindows,
+		).toBe('ask')
+		expect(
+			load(layout({ project: { computerUse: { browserWindows: 'act' } } })).computerUse
+				?.browserWindows,
+		).toBeUndefined()
+		expect(
+			load(
+				layout({
+					user: { computerUse: { browserWindows: 'act' } },
+					project: { computerUse: { browserWindows: 'look' } },
+				}),
+			).computerUse?.browserWindows,
+		).toBe('look')
+	})
+
+	it('lets the administrator set it over the user value', () => {
+		expect(
+			load(
+				layout({
+					user: { computerUse: { browserWindows: 'act' } },
+					managed: { computerUse: { browserWindows: 'look' } },
+				}),
+			).computerUse?.browserWindows,
+		).toBe('look')
+	})
+})
