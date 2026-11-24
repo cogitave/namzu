@@ -9,6 +9,14 @@ import {
 	renderStatus,
 	rosterJson,
 } from './format.js'
+import {
+	type MachineRow,
+	type SessionRow,
+	ageWord,
+	formatSessionList,
+	rowsFromLocalList,
+	tildeFolder,
+} from './session-list.js'
 import type { NetworkSummary } from './types.js'
 
 const NOW = 1_700_000_000_000
@@ -92,34 +100,70 @@ const remoteHeld = {
 }
 
 describe('namzu peers list', () => {
-	it('lists each machine as a heading and its sessions indented under it, the role last', () => {
-		expect(renderRosterList(fixture())).toBe(
+	it('lists every session as one counted list, the machine last, the extras on a second line', () => {
+		expect(renderRosterList(fixture(), { now: NOW, selfRef: 'aaaaaa' })).toBe(
 			[
-				'studio-air · this machine · online',
-				'  calm-heron · namzu · idle · auto · role: orchestrator',
-				'  quiet-otter · namzu · running · auto · role: you will build the parser',
-				'desk-linux · online',
-				'  swift-finch · api-server · idle · prompt',
-				'  brisk-marten · api-server · idle · auto',
+				'Namzu sessions (4):',
+				'  [idle]  ·  calm-heron  ·  this terminal',
+				'      in namzu  ·  auto mode',
+				'      role: orchestrator',
+				'  [running]  ·  quiet-otter',
+				'      in namzu  ·  auto mode',
+				'      role: you will build the parser',
+				'  [idle]  ·  brisk-marten  ·  desk-linux',
+				'      in api-server  ·  auto mode',
+				'  [idle]  ·  swift-finch  ·  desk-linux',
+				'      in api-server  ·  prompt mode',
+				'',
+				'Machines (2):',
+				'  [online]  ·  studio-air  ·  this machine',
+				'  [online]  ·  desk-linux',
 			].join('\n'),
 		)
 	})
 
+	it('shows how long ago a session of this machine started, from the start times it is given', () => {
+		const text = renderRosterList(fixture(), {
+			now: NOW,
+			selfRef: 'aaaaaa',
+			startTimes: new Map([
+				['aaaaaa', NOW - 7 * 60_000],
+				['bbbbbb', NOW - 23_000],
+				['cccccc', NOW - 1_000],
+			]),
+		})
+		expect(text).toContain('[idle]  ·  calm-heron  ·  this terminal  ·  started 7m ago')
+		expect(text).toContain('[running]  ·  quiet-otter  ·  started 23s ago')
+		// another machine's session has no start time here and names its machine instead
+		expect(text).toContain('[idle]  ·  swift-finch  ·  desk-linux\n')
+	})
+
 	it('shows the sessions of a machine that did not answer as offline', () => {
-		const text = renderRosterList(fixture({ status: 'offline', seenAt: undefined }))
-		expect(text).toContain('swift-finch · api-server · offline')
+		const text = renderRosterList(fixture({ status: 'offline', seenAt: NOW - 5 * 60_000 }), {
+			now: NOW,
+		})
+		expect(text).toContain('[offline]  ·  swift-finch  ·  desk-linux')
+		expect(text).toContain('[offline]  ·  desk-linux  ·  last seen 5m ago')
+		expect(text).not.toContain('not accepting')
 		expect(
-			renderRosterList({
-				machines: [
-					{
-						...fixture().machines[1],
-						sessions: [],
-						status: 'offline',
-						seenAt: undefined,
-					} as RosterMachineView,
-				],
-			}),
-		).toBe('desk-linux · offline')
+			renderRosterList(
+				{
+					machines: [
+						{
+							...fixture().machines[1],
+							sessions: [],
+							status: 'offline',
+							seenAt: undefined,
+						} as RosterMachineView,
+					],
+				},
+				{ now: NOW },
+			),
+		).toBe(
+			['No Namzu sessions are running.', '', 'Machines (1):', '  [offline]  ·  desk-linux'].join(
+				'\n',
+			),
+		)
 	})
 
 	it('adds a ref only to tell two rows with one name apart', () => {
@@ -169,11 +213,11 @@ describe('the /peers screen', () => {
 		const text = full()
 		expect(text.indexOf('Your Namzu network · on · 2 machines')).toBe(0)
 		expect(text.indexOf('Join requests (1)')).toBeGreaterThan(0)
-		expect(text.indexOf('Join requests (1)')).toBeLessThan(text.indexOf('studio-air'))
-		expect(text).toContain('studio-air · this machine · online')
-		expect(text).toContain('calm-heron (this terminal)')
-		expect(text).toContain('desk-linux · online')
-		expect(text.indexOf('Held (1)')).toBeGreaterThan(text.indexOf('desk-linux'))
+		expect(text.indexOf('Join requests (1)')).toBeLessThan(text.indexOf('Namzu sessions (4):'))
+		expect(text).toContain('[online]  ·  studio-air  ·  this machine')
+		expect(text).toContain('[idle]  ·  calm-heron  ·  this terminal')
+		expect(text).toContain('[online]  ·  desk-linux')
+		expect(text.indexOf('Held (1)')).toBeGreaterThan(text.indexOf('Machines (2):'))
 		expect(text).toContain('desk-mini wants to join your Namzu network')
 		expect(text).toContain('code 482 913')
 		expect(text.replace(/\s+/g, ' ')).toContain('3 min left')
@@ -205,7 +249,7 @@ describe('the /peers screen', () => {
 			now: NOW,
 			columns: 100,
 		})
-		expect(text).toContain('desk-linux · last seen 5 min ago')
+		expect(text).toContain('[offline]  ·  desk-linux  ·  last seen 5m ago')
 		expect(text).toContain('swift-finch')
 		expect(text).toContain('offline')
 	})
@@ -243,7 +287,8 @@ describe('the /peers screen', () => {
 			])
 				expect(text.replace(/\s+/g, ' '), fact).toContain(fact)
 			// A narrow screen keeps the name and state on the row and the rest on lines under it.
-			if (columns >= 60) expect(text).toContain('swift-finch · api-server · idle · prompt')
+			if (columns >= 60) expect(text).toContain('[idle]  ·  swift-finch  ·  desk-linux')
+			else expect(text).toContain('      desk-linux')
 		},
 	)
 
@@ -275,20 +320,18 @@ describe('the /peers screen', () => {
 				columns,
 			}).split('\n')
 			for (const line of lines) expect(Array.from(line).length, line).toBeLessThanOrEqual(columns)
-			const row = lines.filter((l) => l.startsWith('  ') && l.includes(' · '))
-			// every session is one line indented under a machine heading, fields apart by " · "
-			expect(row).toHaveLength(4)
-			expect(lines).toContain('  brisk-marten · api-server · running · bypass')
-			expect(lines).toContain(
-				'  calm-heron (this terminal) · namzu · idle · auto · role: orchestrator',
-			)
-			const cut = lines.find((l) => l.includes('swift-finch')) as string
-			expect(cut).toMatch(/ · role: you own the long .*…$/)
-			const head = lines.find((l) => l.startsWith('desk-linux')) as string
-			expect(head).toMatch(/^desk-linux · online · role: the machine that builds/)
-			expect(lines.filter((l) => /^\S/.test(l) && l.includes(' · ')).length).toBeGreaterThanOrEqual(
-				3,
-			)
+			expect(lines).toContain('Namzu sessions (4):')
+			expect(
+				lines.filter((l) => /^ {2}\[(idle|running)\]/.test(l) && l.endsWith('  ·  desk-linux')),
+			).toHaveLength(2)
+			expect(lines).toContain('  [running]  ·  brisk-marten  ·  desk-linux')
+			expect(lines).toContain('  [idle]  ·  calm-heron  ·  this terminal')
+			expect(lines).toContain('      in api-server  ·  bypass mode')
+			const cut = lines.find((l) => l.includes('role: you own')) as string
+			expect(cut).toMatch(/^ {6}role: you own the long /)
+			if (columns === 80) expect(cut).toMatch(/…$/)
+			const head = lines.find((l) => l.startsWith('  [online]  ·  desk-linux')) as string
+			expect(head).toMatch(/· {2}role: the machine that builds/)
 		},
 	)
 
@@ -429,14 +472,13 @@ describe('fit', () => {
 })
 
 describe('trusted networks on the screens', () => {
-	it('lists this terminal first under its machine, at 80 columns and unwidth', () => {
+	it('lists this terminal first, at 80 columns, narrow and unwidth', () => {
 		for (const columns of [80, 40, undefined]) {
-			const text = renderRosterList(fixture(), { selfRef: 'bbbbbb', now: NOW, columns })
-			const own = text.split('\n').findIndex((l) => l.includes('quiet-otter'))
-			const other = text.split('\n').findIndex((l) => l.includes('calm-heron'))
-			expect(own, `columns ${columns}`).toBeGreaterThan(0)
-			expect(own).toBeLessThan(other)
-			expect(text.split('\n')[own - 1]).toContain('studio-air')
+			const lines = renderRosterList(fixture(), { selfRef: 'bbbbbb', now: NOW, columns }).split(
+				'\n',
+			)
+			expect(lines[1], `columns ${columns}`).toContain('quiet-otter')
+			expect(lines.join('\n')).toContain('this terminal')
 		}
 	})
 
@@ -480,6 +522,148 @@ describe('trusted networks on the screens', () => {
 	})
 })
 
+describe('the session list', () => {
+	const row = (over: Partial<SessionRow>): SessionRow => ({
+		ref: 'aaaaaa',
+		name: 'calm-heron',
+		named: true,
+		state: 'idle',
+		...over,
+	})
+
+	it('says what is absent when there is nothing to list', () => {
+		expect(formatSessionList([], { now: NOW })).toBe('No Namzu sessions are running.')
+		expect(formatSessionList([], { now: NOW, emptyText: 'None here.' })).toBe('None here.')
+	})
+
+	it('puts the bracketed state first and shows each state', () => {
+		const text = formatSessionList(
+			[
+				row({ ref: '000001', name: 'a', state: 'idle' }),
+				row({ ref: '000002', name: 'b', state: 'running' }),
+				row({ ref: '000003', name: 'c', state: 'awaiting-approval' }),
+				row({ ref: '000004', name: 'd', state: 'offline', machine: 'desk' }),
+			],
+			{ now: NOW },
+		)
+		for (const state of ['idle', 'running', 'awaiting-approval', 'offline'])
+			expect(text).toMatch(new RegExp(`^ {2}\\[${state}\\] {2}· {2}`, 'm'))
+	})
+
+	it('writes the age as the single largest unit and never a negative one', () => {
+		expect([0, 23_000, 7 * 60_000, 7 * 3_600_000, 3 * 86_400_000, -5000].map(ageWord)).toEqual([
+			'0s',
+			'23s',
+			'7m',
+			'7h',
+			'3d',
+			'0s',
+		])
+		expect(formatSessionList([row({ startedAt: NOW + 60_000 })], { now: NOW })).toContain(
+			'started 0s ago',
+		)
+	})
+
+	it('sorts this terminal first, then this machine newest first (unknown last), then machines by name', () => {
+		const text = formatSessionList(
+			[
+				row({ ref: '000001', name: 'zeta', machine: 'b-box' }),
+				row({ ref: '000002', name: 'late', startedAt: NOW - 1_000 }),
+				row({ ref: '000003', name: 'alpha', machine: 'a-box' }),
+				row({ ref: '000004', name: 'unknown-start' }),
+				row({ ref: '000005', name: 'early', startedAt: NOW - 90_000 }),
+				row({ ref: '000006', name: 'me', self: true, startedAt: NOW - 5_000 }),
+			],
+			{ now: NOW },
+		)
+		const order = text
+			.split('\n')
+			.filter((l) => l.startsWith('  ['))
+			.map((l) => l.split('  ·  ')[1])
+		expect(order).toEqual(['me', 'late', 'early', 'unknown-start', 'alpha', 'zeta'])
+	})
+
+	it('reads an unnamed session as a placeholder, with its folder on the second line', () => {
+		const text = formatSessionList(
+			[row({ name: 'proj', named: false, folder: 'proj', startedAt: NOW - 23_000 })],
+			{ now: NOW },
+		)
+		expect(text).toContain('  [idle]  ·  (unnamed session)  ·  started 23s ago\n      in proj')
+		expect(text).toContain('/rename <name>')
+		expect(formatSessionList([row({})], { now: NOW })).not.toContain('/rename')
+	})
+
+	it('adds the ref only where two rows read the same', () => {
+		const text = formatSessionList(
+			[
+				row({ ref: '000001', name: 'a', named: false }),
+				row({ ref: '000002', name: 'b', named: false }),
+				row({ ref: '000003', name: 'solo' }),
+			],
+			{ now: NOW },
+		)
+		expect(text).toContain('(unnamed session) [000001]')
+		expect(text).toContain('(unnamed session) [000002]')
+		expect(text).not.toContain('solo [')
+	})
+
+	it('names the machine of a session on another machine in the last field', () => {
+		const text = formatSessionList([row({ machine: 'desk-linux', startedAt: NOW - 9_000 })], {
+			now: NOW,
+		})
+		expect(text).toContain('  [idle]  ·  calm-heron  ·  desk-linux')
+		expect(text).not.toContain('started')
+	})
+
+	it('keeps every line inside a narrow screen and the name and state on the first line', () => {
+		const rows = [
+			row({
+				self: true,
+				startedAt: NOW - 3_600_000,
+				folder: 'a-long-project-folder-name',
+				mode: 'auto',
+				role: 'you own the long migration of the billing tables and report each step',
+			}),
+			row({ ref: '000002', name: 'swift-finch', machine: 'desk-linux' }),
+		]
+		for (const columns of [40, 36]) {
+			const lines = formatSessionList(rows, { now: NOW, columns }).split('\n')
+			for (const line of lines) expect(Array.from(line).length, line).toBeLessThanOrEqual(columns)
+			expect(lines).toContain('  [idle]  ·  calm-heron')
+		}
+	})
+
+	it('adds a short machines section only when there is more than one machine or a role', () => {
+		const one: MachineRow = { name: 'solo', self: true, online: true }
+		expect(formatSessionList([row({})], { now: NOW, machines: [one] })).not.toContain('Machines')
+		expect(
+			formatSessionList([row({})], { now: NOW, machines: [{ ...one, role: 'orchestrator' }] }),
+		).toContain('  [online]  ·  solo  ·  this machine  ·  role: orchestrator')
+	})
+
+	it('shows a folder under home with a ~', () => {
+		expect(tildeFolder('/home/me/work/proj', '/home/me')).toBe('~/work/proj')
+		expect(tildeFolder('/home/me', '/home/me')).toBe('~')
+		expect(tildeFolder('/home/meal/x', '/home/me')).toBe('/home/meal/x')
+		expect(tildeFolder('/srv/proj', '/home/me')).toBe('/srv/proj')
+	})
+
+	it('builds rows from what list_sessions reports, treating the folder name as no name', () => {
+		const rows = rowsFromLocalList([
+			{ ref: 'aaaaaa', title: 'proj', cwd: '/work/proj', state: 'idle', started_at: 5, self: true },
+			{
+				ref: 'bbbbbb',
+				title: 'review-lane',
+				cwd: '/work/proj',
+				state: 'running',
+				permission_mode: 'auto',
+			},
+		])
+		expect(rows[0]).toMatchObject({ named: false, folder: '/work/proj', startedAt: 5, self: true })
+		expect(rows[1]).toMatchObject({ named: true, mode: 'auto', state: 'running' })
+	})
+})
+
 describe('the same computer on the lists', () => {
 	it("puts this computer's other homes right after this machine, marked, and says so in JSON", () => {
 		const base = fixture()
@@ -493,18 +677,31 @@ describe('the same computer on the lists', () => {
 					status: 'online',
 					seenAt: NOW,
 					sameComputer: true,
-					sessions: [],
+					sessions: [
+						{
+							ref: 'cccccc',
+							name: 'watcher',
+							folder: 'namzu',
+							state: 'idle',
+							mode: 'default',
+							acceptsMessages: true,
+						} as RosterView['machines'][number]['sessions'][number],
+					],
 				},
 			],
 		}
-		const heads = renderRosterList(view, { now: NOW })
-			.split('\n')
-			.filter((l) => !l.startsWith(' '))
-		expect(heads).toEqual([
-			'studio-air · this machine · online',
-			'studio-air (autodev) · this computer · online',
-			'desk-linux · online',
+		const lines = renderRosterList(view, { now: NOW }).split('\n')
+		const machines = lines.slice(lines.indexOf('Machines (3):') + 1).filter((l) => l.trim())
+		expect(machines).toEqual([
+			'  [online]  ·  studio-air  ·  this machine',
+			'  [online]  ·  studio-air (autodev)  ·  this computer',
+			'  [online]  ·  desk-linux',
 		])
+		const watcher = lines.find((l) => l.includes('watcher'))
+		expect(watcher).toBe('  [idle]  ·  watcher  ·  studio-air (autodev) (this computer)')
+		// The other homes of this computer come before the machines elsewhere.
+		const desk = lines.findIndex((l) => l.includes('desk-linux') && l.startsWith('  ['))
+		expect(lines.indexOf(watcher as string)).toBeLessThan(desk)
 		expect(rosterJson(view).find((m) => m.name === 'studio-air (autodev)')?.sameComputer).toBe(true)
 		expect(rosterJson(view).find((m) => m.name === 'desk-linux')?.sameComputer).toBeUndefined()
 	})

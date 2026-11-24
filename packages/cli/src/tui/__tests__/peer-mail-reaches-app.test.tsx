@@ -79,6 +79,7 @@ vi.mock('../../integrations/peers/runtime.js', async (importOriginal) => {
 				},
 				roleContext: () => roleText,
 				held: () => [],
+				startTimes: () => new Map<string, number>(),
 				setRole: async (target: string, role: string | null) => {
 					roleCalls.push([target, role])
 					return { status: 'applied' as const }
@@ -508,7 +509,7 @@ it('says why the network is off, and still lists this project’s terminals', as
 					.some((line) => line.includes('runs only in a terminal with a person at it')),
 			'the reason the network is off was not shown',
 		)
-		expect(screen.scrollback().join('\n')).toContain('Peer messaging on')
+		expect(screen.scrollback().join('\n')).toContain('No Namzu sessions are running.')
 	} finally {
 		await screen.unmount()
 	}
@@ -528,8 +529,8 @@ it('draws the roster of every machine, and offers Allow and Deny for a request t
 			'the roster was not drawn',
 		)
 		const text = screen.scrollback().join('\n')
-		expect(text).toContain('studio-air · this machine · online')
-		expect(text).toContain('calm-heron (this terminal)')
+		expect(text).toContain('[online]  ·  studio-air  ·  this machine')
+		expect(text).toContain('calm-heron  ·  this terminal')
 		expect(text).toContain('desk-linux')
 		expect(text).toContain('swift-finch')
 		expect(text).toContain('Join requests (1)')
