@@ -478,7 +478,7 @@ export function SkillSwitchesView({
 		<div className="settings-config-list">
 			{onNewSkill && (
 				<div className="settings-config-actions">
-					<Button variant="ghost-muted" size="xs" onClick={onNewSkill}>
+					<Button variant="outline" size="sm" onClick={onNewSkill}>
 						New skill
 					</Button>
 				</div>

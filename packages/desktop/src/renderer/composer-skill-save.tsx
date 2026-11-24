@@ -9,8 +9,7 @@ import './composer-question.css'
 import './composer-skill-save.css'
 
 /**
- * A skill the agent drafted, drawn where an approval is: the whole file (the first lines, then
- * "Show all"), where each choice would write it, what it would replace, and three buttons. Nothing
+ * A skill the agent drafted, drawn where an approval is: the whole file (in a box that scrolls), where each choice would write it, what it would replace, and three buttons. Nothing
  * is saved until the person picks a place; Cancel and Esc save nothing, and no setting answers it.
  */
 export function ComposerSkillSave({
@@ -24,13 +23,12 @@ export function ComposerSkillSave({
 	onAnswer: (permission: PermissionView, response: QuestionResponse) => unknown
 }) {
 	const card = permission.skillSave
-	const [expanded, setExpanded] = useState(false)
-	const view = useMemo(() => (card ? skillSaveView(card, expanded) : undefined), [card, expanded])
+	const view = useMemo(() => (card ? skillSaveView(card) : undefined), [card])
 	const answered = useRef(false)
 	// A click that lands just after the card replaced another was aimed at the old one.
 	const [guarding, setGuarding] = useState(true)
 	const guard = useRef<ReturnType<typeof createClickGuard>>(undefined)
-	const first = useRef<HTMLButtonElement>(null)
+	const cancel = useRef<HTMLButtonElement>(null)
 	// biome-ignore lint/correctness/useExhaustiveDependencies: the guard restarts for each request, so the id is the trigger
 	useLayoutEffect(() => {
 		setGuarding(true)
@@ -66,7 +64,8 @@ export function ComposerSkillSave({
 		const typing =
 			(active instanceof HTMLTextAreaElement || active instanceof HTMLInputElement) &&
 			active.value.trim().length > 0
-		if (!typing) first.current?.focus()
+		// Cancel takes the focus, never a Save: a stray Enter or Space leaves, saving takes a click or Tab.
+		if (!typing) cancel.current?.focus()
 	}, [])
 
 	if (!view) return null
@@ -95,20 +94,12 @@ export function ComposerSkillSave({
 					<pre
 						className="skill-save-text"
 						aria-label={`The file for ${card?.name}`}
-						data-expanded={expanded || undefined}
+						// A long file scrolls in its box, so it must be reachable by keyboard.
+						// biome-ignore lint/a11y/noNoninteractiveTabindex: a scroll region takes focus to scroll
+						tabIndex={0}
 					>
 						{view.preview}
 					</pre>
-					{view.canExpand && (
-						<button
-							type="button"
-							className="skill-save-more"
-							aria-expanded={expanded}
-							onClick={() => setExpanded((open) => !open)}
-						>
-							{expanded ? 'Show less' : `Show all (${view.hiddenLines} more lines)`}
-						</button>
-					)}
 				</div>
 				{view.warnings.length > 0 && (
 					<ul className="skill-save-warnings" aria-label="Warnings">
@@ -139,6 +130,7 @@ export function ComposerSkillSave({
 							type="button"
 							className="approval-button"
 							data-action="cancel"
+							ref={cancel}
 							title="Cancel · Esc. Nothing is saved."
 							aria-keyshortcuts="Escape"
 							onClick={() => respond('cancel')}
@@ -151,7 +143,6 @@ export function ComposerSkillSave({
 						{view.targets.map((target) => (
 							<button
 								key={target.scope}
-								ref={target.suggested ? first : undefined}
 								type="button"
 								className="approval-button"
 								data-action={`save-${target.scope}`}

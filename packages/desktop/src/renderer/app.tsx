@@ -83,6 +83,7 @@ import { ComputerInputQueue, computerInputOwnerMatches } from './computer-input-
 import { ComputerKeyboardOwners } from './computer-keyboard-owner.js'
 import { createComputerReadScheduler } from './computer-read-pace.js'
 import { computerWorkspaceIds } from './computer-workspace-toolbar.js'
+import { configSettingId } from './config-settings-model.js'
 import { ConfirmRemovalDialog } from './confirm-removal-dialog.js'
 import type { ContextPanelSource } from './context-panel.js'
 import { ConversationActionsMenu } from './conversation-actions-menu.js'
@@ -5588,7 +5589,7 @@ export function App({
 			void act(newConversationRef.current)
 		}
 		// The saved-skill card's link: Settings on the Skills list.
-		const openSkills = () => openSettingsRef.current('agent', 'skills.disabled')
+		const openSkills = () => openSettingsRef.current('agent', configSettingId('skills.disabled'))
 		window.addEventListener(NEW_SKILL_EVENT, start)
 		window.addEventListener(OPEN_SKILLS_EVENT, openSkills)
 		return () => {

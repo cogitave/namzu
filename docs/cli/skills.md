@@ -244,11 +244,11 @@ The Desktop app makes the same flow a card instead of a screen:
    and no "allow for this conversation" answers it, and anything but a pick of exactly
    one place (cancel, an answer that does not read, the turn stopping, a closed stream)
    saves nothing.
-3. **The card.** *Save the skill "name"?* shows the first lines of the file with
-   *Show all*, both places (the suggested one marked), a warning line for each skill the
+3. **The card.** *Save the skill "name"?* shows the whole file in a box that
+   scrolls (never a cut of it), both places (the suggested one marked), a warning line for each skill the
    file would replace and for each tripwire the host raised, and the buttons
-   *Save to my skills*, *Save to this project* and *Cancel* (Esc).
-4. **After saving.** The tool's result line (`Saved skill "name" to <path>`) is drawn as
+   *Save to my skills*, *Save to this project* and *Cancel* (Esc). Cancel holds the focus when the card opens, so saving takes a click.
+4. **After saving.** The result of a finished `save_skill` call (`Saved skill "name" to <path>`; the same line from any other tool draws nothing) is drawn, outside the folded work, as
    a saved card: *usable from your next message*, with *Open Skills in Settings*; any
    open Skills list reads the installed skills again at once and lists the new skill
    with its on/off switch.

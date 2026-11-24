@@ -57,13 +57,13 @@ const draw = (skillSave: SkillSaveCard, count = 1) =>
 	)
 
 describe('the skill-save card', () => {
-	it('shows the file preview with a way to expand, both places, the shadow warning and three buttons', () => {
+	it('shows the whole file, both places, the shadow warning and three buttons', () => {
 		const html = draw(card())
 		expect(html).toContain('Save the skill &quot;release-notes&quot;?')
 		expect(html).toContain('line 0')
-		expect(html).not.toContain('line 29')
-		expect(html).toContain('Show all (16 more lines)')
-		expect(html).toContain('aria-expanded="false"')
+		expect(html).toContain('line 29')
+		expect(html).not.toContain('Show all')
+		// Cancel takes the focus on open; no Save button is auto-focused.
 		expect(html).toContain('Save to my skills')
 		expect(html).toContain('Save to this project')
 		expect(html).toContain('>Cancel')

@@ -5,8 +5,8 @@ import {
 	readSkillSaveCard,
 } from '../shared/question-protocol.js'
 import {
-	SKILL_PREVIEW_LINES,
 	savedSkillOf,
+	savedSkillOfTool,
 	shadowNote,
 	skillSaveResponse,
 	skillSaveView,
@@ -37,26 +37,20 @@ const card = (extra: Partial<SkillSaveCard> = {}): SkillSaveCard => ({
 
 describe('the skill-save card model', () => {
 	it('words the question and the two places, marking the suggested one', () => {
-		const view = skillSaveView(card(), false)
+		const view = skillSaveView(card())
 		expect(view.title).toBe('Save the skill "release-notes"?')
 		expect(view.targets.map((t) => [t.label, t.suggested])).toEqual([
 			['Save to my skills', true],
 			['Save to this project', false],
 		])
-		expect(view.canExpand).toBe(false)
-		expect(view.hiddenLines).toBe(0)
 		expect(view.shadows).toBe(false)
 	})
 
-	it('shows the first lines of a long file and all of it once expanded', () => {
+	it('shows the whole file however long it is, so nothing is saved unseen', () => {
 		const file = Array.from({ length: 40 }, (_, i) => `line ${i}`).join('\n')
-		const short = skillSaveView(card({ file }), false)
-		expect(short.preview.split('\n')).toHaveLength(SKILL_PREVIEW_LINES)
-		expect(short.hiddenLines).toBe(40 - SKILL_PREVIEW_LINES)
-		const full = skillSaveView(card({ file }), true)
-		expect(full.preview).toBe(file)
-		expect(full.hiddenLines).toBe(0)
-		expect(full.canExpand).toBe(true)
+		const view = skillSaveView(card({ file }))
+		expect(view.preview).toBe(file)
+		expect(view.lineCount).toBe(40)
 	})
 
 	it('says what a place would replace, and warns about hidden characters', () => {
@@ -78,7 +72,6 @@ describe('the skill-save card model', () => {
 					},
 				],
 			}),
-			false,
 		)
 		expect(view.shadows).toBe(true)
 		expect(view.targets[0]?.notes).toEqual([
@@ -110,6 +103,16 @@ describe('the skill-save card model', () => {
 		})
 		expect(
 			savedSkillOf({ kind: 'generic', label: 'Cancelled — nothing was saved' }),
+		).toBeUndefined()
+		expect(
+			savedSkillOf({
+				kind: 'terminal',
+				output:
+					'Saved skill "release-notes" to ./.namzu/skills/release-notes/SKILL.md. It is offered to the model from the next turn.',
+			}),
+		).toEqual({ name: 'release-notes', path: './.namzu/skills/release-notes/SKILL.md' })
+		expect(
+			savedSkillOf({ kind: 'terminal', output: 'Cancelled — nothing was saved' }),
 		).toBeUndefined()
 		expect(savedSkillOf({ kind: 'terminal' })).toBeUndefined()
 		expect(savedSkillOf(undefined)).toBeUndefined()
@@ -152,5 +155,18 @@ describe('reading the host’s skill-save request', () => {
 				targets: [card().targets[1], card().targets[0]],
 			}),
 		).toBeUndefined()
+	})
+
+	it('draws the saved card only for a finished save_skill call, never for another tool printing the line', () => {
+		const output = 'Saved skill "release-notes" to ./.namzu/skills/release-notes/SKILL.md. Done.'
+		const view = { kind: 'terminal', output }
+		expect(savedSkillOfTool({ title: 'save_skill', status: 'completed', view })).toEqual({
+			name: 'release-notes',
+			path: './.namzu/skills/release-notes/SKILL.md',
+		})
+		expect(savedSkillOfTool({ title: 'bash', status: 'completed', view })).toBeUndefined()
+		expect(savedSkillOfTool({ title: 'read_file', status: 'completed', view })).toBeUndefined()
+		expect(savedSkillOfTool({ title: 'save_skill', status: 'pending', view })).toBeUndefined()
+		expect(savedSkillOfTool({ title: 'save_skill', status: 'failed', view })).toBeUndefined()
 	})
 })

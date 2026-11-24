@@ -396,15 +396,13 @@ export const COMPUTER_USE_OFFER_FACT =
 
 /** What a session knows about creating skills, so a question about it is answered without a search. */
 export function skillFactLines(save: boolean): string[] {
-	const lines = [
-		'Skills: a skill is a folder with one SKILL.md (a name, a description and instructions) that later conversations load when a task matches. You create or improve one with the skill-creator skill (interview the person, show the draft, then save it). Never write a SKILL.md into a skills folder by hand with a file or shell tool. A question about whether you can create skills, or how, is answered directly from this fact, in a few sentences and without exploring the file system.',
+	if (!save)
+		return [
+			'Skills: saving a skill is not available in this place (no save_skill tool). A question about creating skills is answered directly, without exploring the file system; show a draft if asked and say plainly that saving is not available in this place. Never tell the person to open a terminal.',
+		]
+	return [
+		'Skills: a skill is a folder with one SKILL.md (a name, a description, instructions) that later conversations load. Create or improve one with the skill-creator skill (interview, show the draft, then save with the save_skill tool: the person sees the whole file, picks where it goes or cancels, and it is usable from their next message). Never write a SKILL.md into a skills folder by hand. A question about creating skills is answered directly, without exploring the file system. Do not tell the person to open a terminal.',
 	]
-	lines.push(
-		save
-			? 'In this session you save a drafted skill with the save_skill tool: the person sees the whole file in a confirmation, chooses where it goes (their own skills or this project) or cancels, and a saved skill is usable from their next message. Do not tell them to open a terminal.'
-			: 'In this session saving a skill is not available (the save_skill tool is not among your tools). You can still interview the person and show the full draft; say plainly that saving is not available in this place, and never tell the person to open a terminal.',
-	)
-	return lines
 }
 
 export function composeEnvironmentPrompt(

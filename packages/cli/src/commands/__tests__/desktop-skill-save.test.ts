@@ -111,7 +111,7 @@ describe('the skill-save request', () => {
 		expect(result.success).toBe(true)
 		expect(readFileSync(userFile(), 'utf8')).toContain('1. List merged PRs.')
 		expect(existsSync(projectFile())).toBe(false)
-		expect(result.output).toContain('next turn')
+		expect(result.output).toContain('usable from the next message')
 	})
 
 	it('saves to the project when they pick that', async () => {
@@ -264,7 +264,7 @@ describe('what the engine tells the model and the app about skills', () => {
 		const facts = (save: boolean) => skillFactLines(save).join('\n')
 		expect(facts(true)).toContain('save_skill')
 		expect(facts(true)).toContain('without exploring the file system')
-		expect(facts(true)).toContain('Do not tell them to open a terminal')
+		expect(facts(true)).toContain('Do not tell the person to open a terminal')
 		expect(facts(false)).toContain('saving is not available in this place')
 		expect(facts(false)).not.toMatch(/\/skills new|run (it )?in (a|the) terminal/i)
 		const prompt = composeEnvironmentPrompt({ host: 'desktop', skills: { save: true } } as never, {

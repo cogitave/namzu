@@ -11,9 +11,6 @@ import {
  * replace; the card only words them.
  */
 
-/** How many lines of the file the card shows before "Show all". */
-export const SKILL_PREVIEW_LINES = 14
-
 export const SKILL_SAVE_LABELS: Readonly<Record<SkillSaveChoice, string>> = {
 	user: 'Save to my skills',
 	project: 'Save to this project',
@@ -33,11 +30,10 @@ export interface SkillSaveTargetView {
 export interface SkillSaveView {
 	title: string
 	description: string
-	/** The first lines of the file, or all of it when expanded or short. */
+	/** The whole file, never a cut of it: saving is only offered over text the person can read. */
 	preview: string
-	/** Lines the preview leaves out; 0 once everything shows. */
-	hiddenLines: number
-	canExpand: boolean
+	/** How many lines the file has, so the card can say how long it is. */
+	lineCount: number
 	targets: SkillSaveTargetView[]
 	/** True when a target would replace, or lose to, a skill of the same name. */
 	shadows: boolean
@@ -54,16 +50,12 @@ export function shadowNote(raw: string): string {
 	return `This ${text}.`
 }
 
-export function skillSaveView(card: SkillSaveCard, expanded: boolean): SkillSaveView {
-	const lines = card.file.split('\n')
-	const showAll = expanded || lines.length <= SKILL_PREVIEW_LINES
-	const hiddenLines = showAll ? 0 : lines.length - SKILL_PREVIEW_LINES
+export function skillSaveView(card: SkillSaveCard): SkillSaveView {
 	return {
 		title: `Save the skill "${card.name}"?`,
 		description: card.description,
-		preview: showAll ? card.file : lines.slice(0, SKILL_PREVIEW_LINES).join('\n'),
-		hiddenLines,
-		canExpand: lines.length > SKILL_PREVIEW_LINES,
+		preview: card.file,
+		lineCount: card.file.split('\n').length,
 		targets: card.targets.map((target) => ({
 			scope: target.scope,
 			label: SKILL_SAVE_LABELS[target.scope],
@@ -90,17 +82,36 @@ export function skillSaveResponse(choice: SkillSaveChoice): QuestionResponse {
 }
 
 const SAVED_LABEL = /^Saved skill "([a-z0-9]+(?:-[a-z0-9]+)*)" to (.+)$/
+/** The tool's result as the host sends it once the call is done: the same sentence, then a note. */
+const SAVED_RESULT = /^Saved skill "([a-z0-9]+(?:-[a-z0-9]+)*)" to (.+?SKILL\.md)(?:\.|$)/
 
 /**
  * A finished `save_skill` call as the "saved" card reads it: the skill's name and where the file
- * went, taken from the line the tool itself wrote. Anything else is no saved skill.
+ * went, taken from the line the tool itself wrote. A finished call arrives as a terminal view with
+ * the tool's output (the live host), or as a one-line label; anything else is no saved skill.
  */
 export function savedSkillOf(
-	view: { kind: string; label?: string } | undefined,
+	view: { kind: string; label?: string; output?: string } | undefined,
 ): { name: string; path: string } | undefined {
-	if (view?.kind !== 'generic' || typeof view.label !== 'string') return undefined
-	const match = SAVED_LABEL.exec(view.label.split('\n', 1)[0] ?? '')
+	let match: RegExpExecArray | null = null
+	if (view?.kind === 'generic' && typeof view.label === 'string')
+		match = SAVED_LABEL.exec(view.label.split('\n', 1)[0] ?? '')
+	else if (view?.kind === 'terminal' && typeof view.output === 'string')
+		match = SAVED_RESULT.exec(view.output.split('\n', 1)[0] ?? '')
 	return match?.[1] && match[2] ? { name: match[1], path: match[2] } : undefined
+}
+
+/** The tool whose finished call may draw the saved card; no other tool's output ever does. */
+export const SAVE_SKILL_TOOL = 'save_skill'
+
+/** A transcript tool as the saved card reads it: only a completed `save_skill` call counts. */
+export function savedSkillOfTool(
+	tool:
+		| { title?: string; status: string; view?: { kind: string; label?: string; output?: string } }
+		| undefined,
+): { name: string; path: string } | undefined {
+	if (!tool || tool.title !== SAVE_SKILL_TOOL || tool.status !== 'completed') return undefined
+	return savedSkillOf(tool.view)
 }
 
 /** What the saved card says under its title. */

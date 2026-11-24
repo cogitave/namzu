@@ -19,30 +19,6 @@
 	white-space: pre-wrap;
 	overflow-wrap: anywhere;
 }
-.skill-save-text[data-expanded] {
-	max-height: none;
-}
-.skill-save-more {
-	display: block;
-	width: 100%;
-	padding: 6px 12px;
-	border: 0;
-	border-top: 1px solid var(--border);
-	background: transparent;
-	color: var(--muted-foreground);
-	font: inherit;
-	font-size: var(--text-small);
-	text-align: start;
-	cursor: pointer;
-}
-.skill-save-more:hover {
-	color: var(--foreground);
-}
-.skill-save-more:focus-visible {
-	outline: 2px solid transparent;
-	outline-offset: -2px;
-	box-shadow: var(--focus-ring);
-}
 .skill-save-warnings,
 .skill-save-targets {
 	margin: 0;

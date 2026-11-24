@@ -172,7 +172,8 @@ describe('the save_skill tool', () => {
 		expect(readdirSync(join(userDir(), 'release-notes'))).toEqual(['SKILL.md'])
 		expect(existsSync(projectDir())).toBe(false)
 		expect(h.saved).toEqual([request.targets.user.path])
-		expect(result.output).toContain('next turn')
+		expect(result.output).toContain('usable from the next message')
+		expect(result.output).not.toMatch(/\/skills /)
 	})
 
 	it('writes nothing when the operator cancels', async () => {

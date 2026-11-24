@@ -491,7 +491,7 @@ export function buildSaveSkillTool(host: SaveSkillHost): ToolDefinition {
 				success: true,
 				output: [
 					`Saved skill "${draft.name}" to ${target.displayPath}.${notes.length > 0 ? ` It ${notes.join('; ')}.` : ''}`,
-					`It is offered to the model from the next turn; the operator can activate it now with /skills ${draft.name}.`,
+					'It is usable from the next message.',
 				].join(' '),
 				data: {
 					name: draft.name,
