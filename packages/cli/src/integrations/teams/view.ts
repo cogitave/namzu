@@ -16,6 +16,8 @@ export interface TeamMemberView {
 	readonly color: string
 	/** A plan it sent is waiting for the person's answer: its row says `awaiting approval`. */
 	readonly awaitingPlan?: boolean
+	/** The call it is waiting on the lead's person for, while `waiting`: the tool and its command, file or address. */
+	readonly ask?: { readonly tool: string; readonly action?: string }
 	/** When it went idle or was stopped (ms since the epoch); 0 while it works. */
 	readonly since: number
 }

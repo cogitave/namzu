@@ -22,13 +22,23 @@ import {
 	countAgents,
 	isWorkflowRunAgent,
 } from '../integrations/workflows/view.js'
+import { SpanLine } from './Markdown.js'
 import { agentUsageText, wroteBy, wroteOf, wroteRailText } from './agent-tokens.js'
+import { type BoxRow, boxColour, layoutBox } from './box-rows.js'
 import { fitHints } from './key-hints.js'
+import type { DisplaySpan } from './markdown-wrap.js'
 import { PointerRegionsContext } from './pointer/context.js'
 import { elementRect } from './pointer/regions.js'
 import { selectionWindow } from './selection-window.js'
 import { END_WORDS, endWord } from './system-rows.js'
 import {
+	planSubmittedBox,
+	shutdownRequestBox,
+	taskAssignedBox,
+	waitingForLeadBox,
+} from './team-rows.js'
+import {
+	TEAM_IDLE_FOLD_FOCUS,
 	type TeamRailPlan,
 	type TeamSnapshot,
 	foldedIdleText,
@@ -315,6 +325,8 @@ export function teamRailOf(
 	snapshot: TeamSnapshot,
 	agents: readonly SubagentActivity[],
 	now: number,
+	/** The person opened the folded idle row. */
+	expandIdle = false,
 ): TeamRail | undefined {
 	if (snapshot.members.length === 0) return undefined
 	const members = teamByView(snapshot.members)
@@ -324,7 +336,7 @@ export function teamRailOf(
 	)
 	return {
 		members,
-		plan: teamRailPlan(snapshot.members, now, othersBusy),
+		plan: teamRailPlan(snapshot.members, now, othersBusy, expandIdle),
 		othersBusy,
 		tasks: snapshot.tasks,
 	}
@@ -940,7 +952,10 @@ export function AgentTaskPanel({
 	const mainViewed = viewingId === undefined || viewingId === null
 	const mainRowBright = mainViewed || (focused && selectedIndex === 0) || hoveredId === 'main'
 	const narrow = terminalColumns < 64
-	const hasMain = railShowsMain(agents.length, viewingId, compact)
+
+	// The folded `N idle agents` row is a stop of its own, after the agents and before the workflows.
+	const fold = !compact && team !== undefined && team.plan.folded > 0 ? 1 : 0
+	const hasMain = railShowsMain(agents.length + fold, viewingId, compact)
 	// Rows before the first agent: 1 with `main` drawn, else 0.
 	const lead = hasMain ? 1 : 0
 	const selectedAgent = focused ? Math.min(agents.length, selectedIndex - lead + 1) - 1 : 0
@@ -1097,14 +1112,28 @@ export function AgentTaskPanel({
 					<Text color={theme.text.muted}>↓ {below} more</Text>
 				</Box>
 			) : null}
-			{!compact && team && team.plan.folded > 0 ? (
-				// Not a stop of the rail: the idle teammates are listed by `/team`.
-				<Box>
-					<Box width={4} flexShrink={0}>
-						<Text> </Text>
+			{fold > 0 && team ? (
+				<RailRowBox id={TEAM_IDLE_FOLD_FOCUS} onActivate={onActivateRow} onHover={hoverRow}>
+					<Box width={2} flexShrink={0}>
+						<Text bold color={theme.text.primary}>
+							{focused && selectedIndex === agents.length + lead ? '❯ ' : '  '}
+						</Text>
 					</Box>
-					<Text color={theme.text.muted}>{foldedIdleText(team.plan.folded)}</Text>
-				</Box>
+					<Box width={2} flexShrink={0}>
+						<Text dimColor color={theme.text.primary}>
+							◯
+						</Text>
+					</Box>
+					<Text
+						color={theme.text.muted}
+						bold={
+							(focused && selectedIndex === agents.length + lead) ||
+							hoveredId === TEAM_IDLE_FOLD_FOCUS
+						}
+					>
+						{foldedIdleText(team.plan.folded)}
+					</Text>
+				</RailRowBox>
 			) : null}
 			{/* Once there are more agents than the window holds, the row stays (empty
 			    when nothing is below) so the block's height does not change as the
@@ -1113,7 +1142,7 @@ export function AgentTaskPanel({
 			{compact
 				? null
 				: workflows.map((workflow, offset) => {
-						const selected = focused && selectedIndex === agents.length + lead + offset
+						const selected = focused && selectedIndex === agents.length + lead + fold + offset
 						const { variant, nameWidth: workflowNameWidth } = workflowLayouts[
 							offset
 						] as WorkflowRowLayout
@@ -2467,6 +2496,12 @@ export interface TeammateView {
 	readonly colorOf?: (name: string) => string | undefined
 	/** The dim line under the transcript: what Esc does here. */
 	readonly hint?: string
+	/** The number a task of this team is shown under, from its subject. */
+	readonly taskNumberOf?: (subject: string) => number | undefined
+	/** While its call or plan waits on the lead's person: what a box at the end of the transcript says. */
+	readonly waiting?:
+		| { readonly kind: 'ask'; readonly tool: string; readonly action?: string }
+		| { readonly kind: 'plan'; readonly planFile?: string }
 }
 
 /**
@@ -2539,13 +2574,17 @@ export function AgentView({
 								</Text>
 							</Box>
 							<Box flexGrow={1} minWidth={0}>
-								<Text
-									color={lineColor(line)}
-									bold={isOperatorLine(line) || line.heading === true}
-									wrap="truncate-end"
-								>
-									{line.text}
-								</Text>
+								{line.spans ? (
+									<SpanLine line={line.spans} color={theme.text.primary} truncate />
+								) : (
+									<Text
+										color={lineColor(line)}
+										bold={isOperatorLine(line) || line.heading === true}
+										wrap="truncate-end"
+									>
+										{line.text}
+									</Text>
+								)}
 							</Box>
 						</Box>
 					))
@@ -2645,6 +2684,8 @@ export interface AgentTranscriptLine {
 	readonly heading?: true
 	/** A colour of its own: a message from another teammate, in that teammate's. */
 	readonly tone?: string
+	/** A line of a bordered box (a task handed over, a request to stop, a wait): drawn as these spans. */
+	readonly spans?: readonly DisplaySpan[]
 	readonly source: 'prompt' | SubagentActivity['transcript'][number]
 }
 
@@ -2673,7 +2714,24 @@ export function agentTranscriptRows(
 	// hides a suffix.
 	const width = Math.max(1, (terminalColumns ?? 80) - 10)
 	const lines: AgentTranscriptLine[] = []
+	const boxLines = (id: string, box: BoxRow, source: AgentTranscriptLine['source']): void => {
+		if (lines.length > 0) lines.push({ id: `${id}:gap`, text: '', continuation: true, source })
+		layoutBox(box, width, { colour: boxColour() }).forEach((line, index) => {
+			lines.push({
+				id: `${id}:box:${index}`,
+				text: line.map((span) => span.text).join(''),
+				continuation: true,
+				spans: line,
+				source,
+			})
+		})
+	}
 	for (const source of sources) {
+		const boxed = teammate ? teammateBox(source.source, teammate) : undefined
+		if (boxed !== undefined && source.source !== 'prompt') {
+			boxLines(source.id, boxed, source.source)
+			continue
+		}
 		let sourceLine = 0
 		const failure =
 			source.source !== 'prompt' && source.source.kind === 'system' && source.source.failure
@@ -2715,12 +2773,37 @@ export function agentTranscriptRows(
 			})
 		}
 	}
+	if (teammate?.waiting) {
+		const last = agent.transcript.at(-1) ?? ('prompt' as const)
+		const box =
+			teammate.waiting.kind === 'plan'
+				? planSubmittedBox(teammate.waiting.planFile)
+				: waitingForLeadBox(teammate.waiting)
+		boxLines(`${agent.viewId}:waiting`, box, last)
+	}
 	if (!teammate?.colorOf) return lines
 	return lines.map((line) => {
 		const from = peerSender(line.source)
 		const tone = from === undefined ? undefined : teammate.colorOf?.(from)
 		return tone === undefined ? line : { ...line, tone }
 	})
+}
+
+/** The box a row of an open teammate's transcript is drawn as: a task it was given or a request to stop. */
+function teammateBox(
+	source: AgentTranscriptLine['source'],
+	teammate: TeammateView,
+): BoxRow | undefined {
+	if (source === 'prompt' || source.kind !== 'system' || source.direction !== 'to-child')
+		return undefined
+	const mail = source.mail
+	if (mail === undefined) return undefined
+	if (mail.kind === 'task') {
+		const subject = mail.body ?? mailBody(source.text)
+		return taskAssignedBox(teammate.taskNumberOf?.(subject), mail.from, subject)
+	}
+	if (mail.kind === 'stop') return shutdownRequestBox(mail.from, mail.body ?? mailBody(source.text))
+	return undefined
 }
 
 /** The teammate that wrote a row of mail the lead did not write, or undefined. */

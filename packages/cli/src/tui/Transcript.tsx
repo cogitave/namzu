@@ -16,10 +16,11 @@ import { cutUserText, hiddenTextNote, hiddenTextRule } from './user-text-view.js
 
 import { Checklist, checklistLine } from './Checklist.js'
 import { ContextGridRow } from './ContextGridRow.js'
-import { ContentWidth, Markdown, WrappedSpans, useContentWidth } from './Markdown.js'
+import { ContentWidth, Markdown, SpanLine, WrappedSpans, useContentWidth } from './Markdown.js'
 import { ReadSearchGroup } from './ReadSearchGroup.js'
 import { StatusPanel } from './StatusPanel.js'
 import { type AttachmentRow, attachmentLine } from './attachment-rows.js'
+import { type BoxRow, boxColour, layoutBox } from './box-rows.js'
 import { grammarState, grammarVersion, languagesIn, subscribeGrammars } from './code-highlight.js'
 import { laterReplyBlocks } from './reply-mark.js'
 import { type ShellOutput, shellCollapses, shellResultRows, shellToneColor } from './shell-cell.js'
@@ -506,6 +507,7 @@ export function MessageRow({
 	useThemeEpoch()
 	if (message.kind === 'recap') return <RecapRow message={message} prev={prev} />
 	if (message.kind === 'announcement') return <AnnouncementRow message={message} prev={prev} />
+	if (message.box) return <BoxMessageRow message={message} box={message.box} prev={prev} />
 	if (message.contextView) {
 		return (
 			<Box marginTop={prev ? 1 : 0}>
@@ -681,6 +683,27 @@ export function MessageRow({
 					diff={message.diff}
 				/>
 			) : null}
+		</Box>
+	)
+}
+
+/** A bordered box row (a task handed over, a plan waiting): its lines, with a blank line before it. */
+function BoxMessageRow({
+	message,
+	box,
+	prev,
+}: {
+	readonly message: TranscriptMessage
+	readonly box: BoxRow
+	readonly prev?: TranscriptMessage | undefined
+}) {
+	const width = useContentWidth()
+	const lines = layoutBox(box, width, { colour: boxColour() })
+	return (
+		<Box flexDirection="column" marginTop={prev ? 1 : 0}>
+			{lines.map((line, index) => (
+				<SpanLine key={`${message.id}-${index}`} line={line} color={theme.text.primary} />
+			))}
 		</Box>
 	)
 }

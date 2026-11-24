@@ -56,6 +56,8 @@ export function teamRailPlan(
 	now: number,
 	/** Another agent or a workflow is running: the rail is not idle however quiet the team is. */
 	othersBusy = false,
+	/** The person opened the folded row: every idle teammate has its own row. */
+	expandIdle = false,
 ): TeamRailPlan {
 	const shown = new Set<string>()
 	const idle: TeamMemberView[] = []
@@ -72,7 +74,7 @@ export function teamRailPlan(
 	const restIdleSince = Math.max(...idle.map((member) => member.since))
 	if (!anyActive && !othersBusy && now - restIdleSince >= TEAM_IDLE_FADE_MS)
 		return { shown, folded: 0 }
-	if (idle.length > TEAM_IDLE_FOLD_OVER) return { shown, folded: idle.length }
+	if (idle.length > TEAM_IDLE_FOLD_OVER && !expandIdle) return { shown, folded: idle.length }
 	for (const member of idle) shown.add(member.viewId)
 	return { shown, folded: 0 }
 }
@@ -138,6 +140,9 @@ export function teamStatusText(member: TeamMemberView, now: number): string {
 export function teamTaskText(member: TeamMemberView, tasks: readonly TeamTaskView[]): string {
 	return memberTask(member.name, tasks)?.subject ?? ''
 }
+
+/** The rail's focus id of the folded `N idle agents` row: Enter on it opens the idle teammates. */
+export const TEAM_IDLE_FOLD_FOCUS = 'team:idle'
 
 /** The dim row that stands for the idle teammates folded away. */
 export function foldedIdleText(count: number): string {
@@ -324,20 +329,36 @@ export function teamRailHint(
 	name: string,
 	armed: boolean,
 	viewed: boolean,
+	/** How many agents the stop-all chord would stop, and how wide the line is: the chord is offered for more than one, from 90 columns. */
+	stopAll?: { readonly running: number; readonly columns: number },
 ): string {
 	const items = ['↑/↓ to select']
 	if (!viewed) items.push('enter to view')
 	if (state === 'stopped') items.push('x to clear')
 	else items.push(armed ? teamStopAsk(name) : 'x to stop')
 	items.push('esc to collapse')
+	if (stopAll && stopAll.running > 1 && stopAll.columns >= TEAM_STOP_ALL_COLUMNS)
+		items.push(`${TEAM_STOP_ALL_CHORD} to stop all agents`)
 	return items.join(' · ')
 }
+
+/** The chord that stops every running agent from the rail, the same one the rest of the rail uses. */
+export const TEAM_STOP_ALL_CHORD = 'ctrl+x ctrl+k'
+/** The stop-all chord is named on the key line only from this width. */
+export const TEAM_STOP_ALL_COLUMNS = 90
 
 /** The hint for the folded `N idle agents` row. */
 export const TEAM_FOLDED_HINT = '↑/↓ to select · enter to expand · esc to collapse'
 
-/** What Esc does while a teammate's transcript is open: it goes back to the lead, and never stops the teammate. */
+/** What Esc does while a teammate's transcript is open and it is not working: it goes back to the lead. */
 export const TEAM_VIEW_ESC_HINT = 'esc to return to team lead'
+/** What Esc does while the open teammate is working: it cuts the turn short; the teammate stays on the team. */
+export const TEAM_VIEW_INTERRUPT_HINT = 'esc to interrupt'
+
+/** What Esc does in an open teammate's transcript, by what the teammate is doing. */
+export function teamViewEscHint(state: TeamMemberState | undefined): string {
+	return state === 'working' ? TEAM_VIEW_INTERRUPT_HINT : TEAM_VIEW_ESC_HINT
+}
 
 /** Longest a name gets on the prompt while its transcript is open, in cells. */
 export const TEAM_BADGE_WIDTH = 24
@@ -348,6 +369,28 @@ export function teamPromptBadge(name: string): string {
 	return chars.length <= TEAM_BADGE_WIDTH
 		? chars.join('')
 		: `${chars.slice(0, TEAM_BADGE_WIDTH - 1).join('')}…`
+}
+
+/**
+ * What a teammate's own transcript shows at its end while its call or plan waits on the lead's person:
+ * `waiting` for the box, or nothing at all when it is not waiting.
+ */
+export function teammateWaiting(member: TeamMemberView | undefined):
+	| { readonly waiting: { readonly kind: 'plan' } }
+	| {
+			readonly waiting: { readonly kind: 'ask'; readonly tool: string; readonly action?: string }
+	  }
+	| Record<string, never> {
+	if (member?.state !== 'waiting') return {}
+	if (member.awaitingPlan === true) return { waiting: { kind: 'plan' } }
+	if (member.ask === undefined) return {}
+	return {
+		waiting: {
+			kind: 'ask',
+			tool: member.ask.tool,
+			...(member.ask.action !== undefined ? { action: member.ask.action } : {}),
+		},
+	}
 }
 
 /** The team as the screen holds it: members now and the shared task list. */
@@ -370,6 +413,8 @@ export function sameTeamSnapshot(a: TeamSnapshot, b: TeamSnapshot): boolean {
 			left?.state !== right?.state ||
 			left?.color !== right?.color ||
 			left?.awaitingPlan !== right?.awaitingPlan ||
+			left?.ask?.tool !== right?.ask?.tool ||
+			left?.ask?.action !== right?.ask?.action ||
 			left?.since !== right?.since
 		)
 			return false
