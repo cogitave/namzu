@@ -172,6 +172,7 @@ vi.mock('../../integrations/peers/runtime.js', async (importOriginal) => {
 			take: () => [],
 			roleContext: () => undefined,
 			held: () => [],
+			startTimes: () => new Map<string, number>(),
 			takeExact: () => undefined,
 			close: async () => {},
 		}),

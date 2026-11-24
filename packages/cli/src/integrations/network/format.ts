@@ -3,9 +3,15 @@ import {
 	type RosterSession,
 	type RosterView,
 	permissionModeWord,
-	sessionLabel,
 } from '@namzu/sdk'
 import type { HeldLocalView } from '../peers/runtime.js'
+import {
+	cutRole,
+	fit,
+	machinesFromRoster,
+	rowsFromRoster,
+	sessionListLines,
+} from './session-list.js'
 import type {
 	JoinRequestView,
 	NetworkSummary,
@@ -18,12 +24,7 @@ export function modeWord(mode: string): string {
 	return permissionModeWord(mode)
 }
 
-const ROLE_CUT = 60
-
-export function cutRole(role: string, max = ROLE_CUT): string {
-	const chars = Array.from(role)
-	return chars.length <= max ? role : `${chars.slice(0, max - 1).join('')}…`
-}
+export { cutRole, fit }
 
 /** What a roster row says about a session's state: a machine that did not answer shows its sessions offline. */
 function stateOf(machine: RosterMachineView, session: RosterSession): string {
@@ -43,80 +44,25 @@ export function minutesLeft(expiresAt: number, now: number): string {
 	return `${minutes} min`
 }
 
-/** The state a machine heading names: online, or when it was last heard from. */
-function machineState(machine: RosterMachineView, now: number): string {
-	if (machine.status !== 'offline') return 'online'
-	return machine.seenAt ? `last seen ${ageText(Math.max(0, now - machine.seenAt))}` : 'offline'
-}
-
-const chars = (text: string) => Array.from(text).length
-
-/** A role never runs past the screen: it takes what is left of the line, never less than a few words. */
-function roleText(role: string, used: number, columns: number | undefined): string {
-	const one = role.replace(/\s+/g, ' ').trim()
-	if (columns === undefined) return one
-	return cutRole(one, Math.max(12, columns - used))
-}
-
 export interface RosterTextOptions {
-	/** The ref of the session this terminal runs, marked "(this terminal)". */
+	/** The ref of the session this terminal runs, marked "this terminal". */
 	readonly selfRef?: string
+	/** Start times (ref to epoch ms) of the sessions on this machine; the network does not carry them. */
+	readonly startTimes?: ReadonlyMap<string, number>
 	readonly now: number
 	/** The width to fit; leave out to print every word (piped output). */
 	readonly columns?: number
 }
 
 /**
- * The roster as a list, shared by `namzu peers list` and `/peers`. A machine is a heading line (name,
- * "this machine", its state, its role); each of its sessions is one indented row of " · " separated facts
- * (name, folder, state, mode, role). Under 60 columns a row keeps its name and state and the rest wraps
- * onto indented lines of their own.
+ * The roster as the shared session list (see `session-list.ts`): a counted header, one line per session with
+ * its machine in the last field, the extras on a second line, and the machines in a short section of their own.
  */
 export function rosterLines(view: RosterView, options: RosterTextOptions): string[] {
-	const { columns, now } = options
-	const narrow = columns !== undefined && columns < 60
-	const lines: string[] = []
-	// This machine first, then the other homes of this computer, then the machines elsewhere.
-	const rank = (m: RosterView['machines'][number]) =>
-		m.status === 'self' ? 0 : m.sameComputer ? 1 : 2
-	const ordered = [...view.machines].sort((a, b) => rank(a) - rank(b))
-	for (const machine of ordered) {
-		const head = [machine.name]
-		if (machine.status === 'self') head.push('this machine')
-		else if (machine.sameComputer) head.push('this computer')
-		head.push(machineState(machine, now))
-		const heading = head.join(' · ')
-		if (machine.role && !narrow) {
-			const prefix = `${heading} · role: `
-			lines.push(`${prefix}${roleText(machine.role, chars(prefix), columns)}`)
-		} else {
-			lines.push(heading)
-			if (machine.role) lines.push(`  role: ${roleText(machine.role, 8, columns)}`)
-		}
-		// This terminal's own session leads the machine's rows, whatever order the roster listed them in.
-		const sessions = [...machine.sessions].sort(
-			(a, b) =>
-				Number(b.ref === options.selfRef && machine.status === 'self') -
-				Number(a.ref === options.selfRef && machine.status === 'self'),
-		)
-		for (const session of sessions) {
-			const name = sessionLabel(view, machine, session)
-			const mark = session.ref === options.selfRef ? `${name} (this terminal)` : name
-			const state = stateOf(machine, session)
-			if (narrow) {
-				lines.push(`  ${mark} · ${state}`)
-				lines.push(`    ${session.folder} · ${modeWord(session.mode)}`)
-				if (session.role) lines.push(`    role: ${roleText(session.role, 10, columns)}`)
-				continue
-			}
-			const row = `  ${[mark, session.folder, state, modeWord(session.mode)].join(' · ')}`
-			if (session.role) {
-				const prefix = `${row} · role: `
-				lines.push(`${prefix}${roleText(session.role, chars(prefix), columns)}`)
-			} else lines.push(row)
-		}
-	}
-	return lines
+	return sessionListLines(
+		rowsFromRoster(view, { selfRef: options.selfRef, startTimes: options.startTimes }),
+		{ now: options.now, columns: options.columns, machines: machinesFromRoster(view) },
+	)
 }
 
 /** `namzu peers list`: every machine, every live session. Names are the address; a ref only tells two rows with one name apart. */
@@ -141,12 +87,16 @@ export interface RosterJsonMachine {
 		readonly state: string
 		readonly permissionMode: string
 		readonly role?: string
+		readonly startedAt?: number
 		readonly acceptsMessages: boolean
 	}[]
 }
 
 /** The roster as JSON for `namzu peers list --json`; never a token, a path or a key. */
-export function rosterJson(view: RosterView): RosterJsonMachine[] {
+export function rosterJson(
+	view: RosterView,
+	startTimes?: ReadonlyMap<string, number>,
+): RosterJsonMachine[] {
 	return view.machines.map((machine) => ({
 		name: machine.name,
 		id: machine.machineId.slice(0, 12),
@@ -160,6 +110,9 @@ export function rosterJson(view: RosterView): RosterJsonMachine[] {
 			state: stateOf(machine, session),
 			permissionMode: modeWord(session.mode),
 			...(session.role ? { role: session.role } : {}),
+			...(machine.status === 'self' && startTimes?.has(session.ref)
+				? { startedAt: startTimes.get(session.ref) }
+				: {}),
 			acceptsMessages: session.acceptsMessages && machine.status !== 'offline',
 		})),
 	}))
@@ -210,6 +163,8 @@ export interface ScreenInput {
 	readonly roster: RosterView | undefined
 	/** The ref of the session this terminal runs, marked in the list. */
 	readonly selfRef?: string
+	/** Start times (ref to epoch ms) of this machine's sessions. */
+	readonly startTimes?: ReadonlyMap<string, number>
 	/** Messages from another terminal on this machine, held here. */
 	readonly heldLocal: readonly HeldLocalView[]
 	readonly now: number
@@ -257,7 +212,14 @@ export function renderPeersScreen(input: ScreenInput): string {
 		lines.push('')
 	}
 	if (roster)
-		lines.push(...rosterLines(roster, { selfRef: input.selfRef, now, columns: input.columns }))
+		lines.push(
+			...rosterLines(roster, {
+				selfRef: input.selfRef,
+				startTimes: input.startTimes,
+				now,
+				columns: input.columns,
+			}),
+		)
 	const heldCount = summary.held.length + input.heldLocal.length
 	if (heldCount > 0) {
 		lines.push('')
@@ -294,30 +256,6 @@ export function renderPeersScreen(input: ScreenInput): string {
 		for (const network of summary.nearby) lines.push(`  ${network.host}:${network.port}`)
 	}
 	return fit(lines, input.columns).join('\n')
-}
-
-/** Wrap what is wider than the screen at its spaces, keeping the line's indent (plus two for the rest). */
-export function fit(lines: readonly string[], columns: number): string[] {
-	const width = Math.max(20, columns)
-	const out: string[] = []
-	for (const line of lines) {
-		if (Array.from(line).length <= width) {
-			out.push(line)
-			continue
-		}
-		const indent = /^\s*/.exec(line)?.[0] ?? ''
-		const next = `${indent}  `
-		let current = indent
-		for (const word of line.trim().split(/\s+/)) {
-			const joined = current.trim() === '' ? `${current}${word}` : `${current} ${word}`
-			if (Array.from(joined).length > width && current.trim() !== '') {
-				out.push(current)
-				current = `${next}${word}`
-			} else current = joined
-		}
-		out.push(current)
-	}
-	return out
 }
 
 /** What the person can do from the picker under `/peers`: one row each, Enter applies. */

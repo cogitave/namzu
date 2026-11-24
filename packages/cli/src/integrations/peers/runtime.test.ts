@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, renameSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, realpathSync, renameSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -219,7 +219,7 @@ it('deduplicates one live message id and refuses conflicting reuse', async () =>
 	})
 })
 
-it('excludes other projects even in the same OS-user registry', async () => {
+it('lists and reaches a terminal in another folder, by the same rules', async () => {
 	const f = await fixture()
 	const foreignCwd = join(f.root, 'other')
 	mkdirSync(foreignCwd)
@@ -236,34 +236,60 @@ it('excludes other projects even in the same OS-user registry', async () => {
 		report() {},
 	})
 	opened.push(foreign)
-	expect(await f.sender.list()).toHaveLength(2)
-	expect(await foreign.send(f.receiver.ref, 'foreign')).toMatchObject({
-		status: 'refused',
+	const listed = await f.sender.list()
+	expect(listed).toHaveLength(3)
+	expect(listed.map((row) => row.cwd)).toContain(realpathSync(foreignCwd))
+	expect(await foreign.send(f.receiver.ref, 'from another folder')).toMatchObject({
+		status: 'queued',
 	})
-	// Bypass the sender's discovery filter: the receiving host must enforce
-	// project scope even for a correctly authenticated live protocol sender.
-	const records = readPeerRecords(join(f.home, 'run', 'sessions'))
-	const receiver = records.find((record) => record.sessionId === f.receiver.id)!
-	const from = records.find((record) => record.sessionId === foreign.id)!
-	expect(
-		await new PeerClient().deliver(receiver, {
-			id: 'foreign-direct-delivery',
-			text: 'outside project',
-			from: {
-				sessionId: from.sessionId,
-				ref: from.ref,
-				name: from.title ?? from.ref,
-				address: from.address,
-				mode: from.permissionMode,
-				kind: from.kind,
-			},
-		}),
-	).toMatchObject({
-		kind: 'responded',
-		status: 'refused',
-		reason: 'Only live terminals in the same project may send here.',
+	expect(f.receiver.take(0).map((mail) => mail.text)).toEqual(['from another folder'])
+	// A held-mail rule does not depend on the folder: another mode is held for the person.
+	const odd = await openLivePeers({
+		home: f.home,
+		cwd: foreignCwd,
+		version: 'fixture',
+		env: {},
+		mode: () => 'plan',
+		owner: () => 0,
+		state: () => 'idle',
+		ready: () => true,
+		available() {},
+		report() {},
 	})
+	opened.push(odd)
+	expect(await odd.send(f.receiver.ref, 'other mode')).toMatchObject({ status: 'held' })
 	expect(f.receiver.pending).toBe(0)
+})
+
+it('refuses an ambiguous name across folders and names the candidates', async () => {
+	const f = await fixture()
+	const make = async (dir: string) => {
+		const cwd = join(f.root, dir, 'same')
+		mkdirSync(cwd, { recursive: true })
+		const peers = await openLivePeers({
+			home: f.home,
+			cwd,
+			version: 'fixture',
+			env: {},
+			mode: () => 'auto',
+			owner: () => 0,
+			state: () => 'idle',
+			ready: () => true,
+			available() {},
+			report() {},
+		})
+		opened.push(peers)
+		return { peers, cwd }
+	}
+	const a = await make('a')
+	const b = await make('b')
+	const receipt = await f.sender.send('same', 'which one')
+	expect(receipt.status).toBe('refused')
+	expect(receipt.reason).toContain('ambiguous')
+	expect(receipt.reason).toContain(realpathSync(a.cwd))
+	expect(receipt.reason).toContain(realpathSync(b.cwd))
+	expect(a.peers.pending + b.peers.pending).toBe(0)
+	expect(await f.sender.send(a.peers.ref, 'by ref')).toMatchObject({ status: 'queued' })
 })
 
 it('reports accepted but undelivered mail on graceful close', async () => {
