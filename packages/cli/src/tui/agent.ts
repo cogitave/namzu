@@ -2659,7 +2659,6 @@ export function browserWindowRouting(setting: 'look' | 'ask' | 'act'): string {
 		return `${NAMZU_BROWSER_DESKTOP_ROUTING_HEAD} The person allowed computer_use to click and type in their own browser windows, so you can work in the open window directly. Ask them before you type into a password field, submit payment or personal data, send or post, delete, accept terms, or change organisation-wide admin settings.`
 	return `${NAMZU_BROWSER_DESKTOP_ROUTING_HEAD} Clicking and typing in their own window needs their yes: the first action aimed at it asks whether Namzu may click and type in that browser for this conversation, and only their answer allows it. If the answer is not now, or nobody can be asked, offer three ways forward in plain words: allow it for this conversation; continue in the Namzu browser profile, where they sign in once; or they click while you guide them from screenshots. Even once allowed, ask them before you type into a password field, submit payment or personal data, send or post, delete, accept terms, or change organisation-wide admin settings.`
 }
-;('When the user means a desktop browser window that is already open (their own, not the Namzu-managed profile), look at it only: use computer_use list_windows and screenshot {window_id}. Act on pages through the browser tool, which controls a separate Namzu-managed browser profile. If the task needs acting in their own window, say you can only look at it and offer to do it in the Namzu browser profile.')
 
 /**
  * The base toolsets every session (and, unwrapped, every sub-agent) starts
@@ -3100,6 +3099,8 @@ export interface AgentSessionOptions {
 	 * ask (exec, scheduled) stays look-only.
 	 */
 	readonly browserWindows?: 'look' | 'ask' | 'act'
+	/** The live value of `browserWindows`, read at every computer use call. Wins over `browserWindows`. */
+	readonly readBrowserWindows?: () => 'look' | 'ask' | 'act'
 	/**
 	 * Told what the model saw after a `computer_use` call that returned a screenshot,
 	 * made small. The desktop shows it beside the call; it never changes what the
@@ -4180,7 +4181,12 @@ export async function createAgentSession(
 					...(options.deniedComputerApps?.length ? { deniedApps: options.deniedComputerApps } : {}),
 					// Asked of the person only: no permission mode and no remembered yes answers it,
 					// and a run with nobody to ask (`elicitationHost.ask` unset) stays look-only.
-					browserWindows: options.browserWindows ?? 'ask',
+					// Without anyone to ask at the start (no question channel) there is nothing to
+					// grant it, so the tool is told `look` and says so honestly.
+					browserWindows: () =>
+						elicitationHost.ask === undefined
+							? 'look'
+							: (options.readBrowserWindows?.() ?? options.browserWindows ?? 'ask'),
 					askBrowserWindow: browserWindowApprover(() => elicitationHost.ask),
 					...(options.onComputerObservation
 						? { onObservation: (seen) => options.onComputerObservation?.(seen) }
@@ -5823,7 +5829,11 @@ export async function createAgentSession(
 		typeof computerUseHost.focusWindow === 'function' &&
 		liveManager().get('browser') &&
 		liveManager().get('computer_use')
-			? browserWindowRouting(options.browserWindows ?? 'ask')
+			? browserWindowRouting(
+					elicitationHost.ask === undefined
+						? 'look'
+						: (options.readBrowserWindows?.() ?? options.browserWindows ?? 'ask'),
+				)
 			: undefined
 	// How to go about a web task, said only where the browser tools are
 	// mounted and can run.

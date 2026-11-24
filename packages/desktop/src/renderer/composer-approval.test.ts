@@ -251,7 +251,7 @@ it('draws the browser window question as allow for this conversation or not now'
 	)
 	expect(html).toContain('aria-label="A question about a browser window"')
 	expect(html).toContain('Let Namzu click and type in Brave in this conversation?')
-	expect(html).toContain('It still asks before it sends, deletes, pays, accepts terms')
+	expect(html).toContain('Namzu is told to ask before it sends, deletes, pays, accepts terms')
 	expect(html).toMatch(/data-tone="accept"[^>]*>Allow for this conversation</)
 	expect(html).toMatch(/data-tone="reject"[^>]*>Not now</)
 	expect(html).not.toContain('Tell Namzu what to do instead')

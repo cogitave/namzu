@@ -2083,12 +2083,12 @@ const DECLARED: readonly SettingDescriptor[] = [
 			[
 				'ask',
 				'Ask me',
-				'The first time in a conversation Namzu asks whether it may click and type in that browser. Your answer covers that browser for the conversation.',
+				'The first time in a conversation Namzu asks whether it may click and type in that browser. Your answer covers every window of that browser until the conversation ends; switching this to Only look takes it back.',
 			],
 			[
 				'act',
 				'Click and type',
-				'Namzu clicks and types in browser windows like in other apps. It still asks before it sends, deletes, pays or changes admin settings.',
+				'Namzu clicks and types in browser windows like in other apps. It is told to ask before it sends, deletes, pays or changes admin settings, and it does not type into a password field.',
 			],
 		),
 		{

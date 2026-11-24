@@ -1153,6 +1153,9 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 					// Settings while a conversation is open, and applies from the next message.
 					readComputerUseEnabled: () =>
 						refreshTrustedProjectContext(commandCtx, cwd).config.computerUse?.enabled === true,
+					readBrowserWindows: () =>
+						refreshTrustedProjectContext(commandCtx, cwd).config.computerUse?.browserWindows ??
+						'ask',
 					...(resolvedCtx.config.progressNudge
 						? { progressNudge: resolvedCtx.config.progressNudge }
 						: {}),

@@ -301,3 +301,64 @@ describe('the tool texts', () => {
 		expect(result.error).not.toMatch(/reload/i)
 	})
 })
+
+describe('a live setting and the password field', () => {
+	it('reads the setting at every call, and a switch to look takes the grant back', async () => {
+		let setting: 'look' | 'ask' | 'act' = 'ask'
+		const ask = vi.fn(async (): Promise<BrowserWindowAnswer> => 'allow')
+		const { tool, touched } = build('brave-browser', {
+			browserWindows: () => setting,
+			askBrowserWindow: ask,
+		})
+		await run(tool, { type: 'screenshot', window_id: '0x1' })
+		expect(await run(tool, CLICK)).toMatchObject({ success: true })
+		expect(tool.browserGrants()).toEqual(['Brave'])
+		setting = 'look'
+		const refused = await run(tool, CLICK)
+		expect(refused.success).toBe(false)
+		expect(tool.browserGrants()).toEqual([])
+		const before = touched.length
+		setting = 'ask'
+		expect((await run(tool, CLICK)).success).toBe(true)
+		expect(ask).toHaveBeenCalledTimes(2)
+		expect(touched.length).toBeGreaterThan(before)
+	})
+
+	it('names the browser as a person says it in the question', async () => {
+		const ask = vi.fn(
+			async (_q: { app: string; name: string }): Promise<BrowserWindowAnswer> => 'deny',
+		)
+		const { tool } = build('brave-browser', { browserWindows: 'ask', askBrowserWindow: ask })
+		await run(tool, CLICK)
+		expect(ask.mock.calls[0]?.[0]).toMatchObject({ name: 'Brave' })
+	})
+
+	it('does not type into a password field even in a granted browser', async () => {
+		const { host, touched } = makeHost('brave-browser')
+		host.uiSnapshot = async () => ({
+			title: 'Sign in',
+			root: {
+				ref: '',
+				role: 'Window',
+				name: 'Sign in',
+				children: [
+					{
+						ref: 'h:0',
+						role: 'Edit',
+						name: 'Password',
+						states: ['focused', 'password'],
+						actions: ['set_value'],
+					},
+				],
+			},
+		})
+		const tool = createComputerUseTool(host, { settleMs: 0, browserWindows: 'act' })
+		await run(tool, { type: 'ui_snapshot', window_id: '0x1' })
+		const typed = await run(tool, { type: 'type_text', text: 'hunter2' })
+		expect(typed.success).toBe(false)
+		expect(typed.error).toContain('password field')
+		const set = await run(tool, { type: 'ui_act', ref: 'e1', action: 'set_value', value: 'x' })
+		expect(set.success).toBe(false)
+		expect(touched).toEqual([])
+	})
+})

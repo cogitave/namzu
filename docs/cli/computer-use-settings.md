@@ -44,9 +44,9 @@ terminal's question card, and in Desktop an approval card (`browser_window`, mar
 answers it, auto and a remembered *allow for this conversation* included, and a run with nobody to ask (`exec`,
 a scheduled task) never gets the grant and stays look-only. *Not now* holds for the rest of the turn so the model
 does not ask twice. The grant is per browser and per conversation (a new conversation asks again) and the tool can
-take it back (`revokeBrowserGrant`).
+take it back (`revokeBrowserGrant`). The setting is read at every call: switching *Browser windows* to *Only look* in `/config` or Settings takes every grant back from the next action. A grant covers every window of that browser, private ones and other profiles included, and Desktop's per-app card for the browser is answered separately from this one. There is no other revoke row yet; the grant ends with the conversation. With nobody to ask when the conversation starts (no question channel), the tool and the prompt say look-only.
 
-What still asks, with or without the grant: the tool treats a key or control named like deleting, sending,
+What still asks, with or without the grant: Namzu is told to ask, and the engine enforces only part of it. The tool refuses `type_text` while the focused control of the latest `ui_snapshot` is a password field, and `ui_act set_value` on one, in a browser; the rest is the model's guidance and the review cards, and `auto` or `bypass` do not add a per-click question. The tool treats a key or control named like deleting, sending,
 posting, publishing, submitting, paying, accepting or agreeing, confirming, or a password, passcode or card number as
 a consequence to answer for, every click is still a change that a review asks about, and the model is told to
 stop and ask before it types into a password field, submits payment or personal data, sends or posts, deletes,

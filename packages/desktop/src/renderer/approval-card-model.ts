@@ -71,7 +71,7 @@ export function screenMomentNote(app: string): string {
 
 /** What saying yes to a browser window lets happen, and for how long. */
 export function browserWindowNote(app: string): string {
-	return `Namzu clicks and types in ${app} like in any other app, so it can act where you are signed in. It still asks before it sends, deletes, pays, accepts terms or changes admin settings. A yes covers ${app} for the rest of this conversation; another browser is asked again.`
+	return `Namzu clicks and types in ${app} like in any other app, so it can act where you are signed in. Namzu is told to ask before it sends, deletes, pays, accepts terms or changes admin settings, and it does not type into a password field. A yes covers every ${app} window, including private ones, for the rest of this conversation; another browser is asked again.`
 }
 
 const record = (value: unknown): value is Record<string, unknown> =>

@@ -98,7 +98,7 @@ export function browserWindowApprover(
 						id: 'allow',
 						label: 'Allow for this conversation',
 						description:
-							'Namzu clicks and types in this browser like in any other app. It still asks before it sends, deletes, pays or changes admin settings.',
+							'Namzu clicks and types in every window of this browser, like in any other app. It is told to ask before it sends, deletes, pays or changes admin settings, and it does not type into a password field.',
 					},
 					{ id: 'deny', label: 'Not now' },
 				],

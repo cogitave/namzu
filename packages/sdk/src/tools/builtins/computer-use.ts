@@ -241,9 +241,9 @@ export interface ComputerUseToolOptions {
 	 * application. `ask` looks until a person allows it: the first action aimed at a browser window
 	 * puts {@link askBrowserWindow} to them, and only their answer grants it, for that browser and
 	 * for the life of this tool (one conversation). Nothing else grants it, no permission mode
-	 * included; without `askBrowserWindow` (a scheduled or unattended run) `ask` stays `look`.
+	 * included; a function is read at every call, and a switch to `look` takes every grant back; without `askBrowserWindow` (a scheduled or unattended run) `ask` stays `look`.
 	 */
-	readonly browserWindows?: BrowserWindowsSetting
+	readonly browserWindows?: BrowserWindowsSetting | (() => BrowserWindowsSetting)
 	/**
 	 * Puts the question "may Namzu click and type in this browser in this conversation?" to a
 	 * person. `allow` grants it, `deny` is "not now", `unavailable` means nobody can answer.
@@ -1643,12 +1643,33 @@ const CONSEQUENTIAL_KEYS =
 const CONSEQUENTIAL_WORDS =
 	/(?<!\p{L})(delete|remove|erase|discard|don'?t save|do not save|close|quit|exit|send|submit|pay|purchase|buy|order|sign out|log ?out|empty|format|uninstall|accept|agree|post|publish|confirm|password|passcode|card number|cvv|iban|kaydetme|sil|gönder|kapat|çık|çıkış|satın al|öde)(?!\p{L})/iu
 
+/** Browsers whose process name is not how a person says it. */
+const KNOWN_BROWSER_NAMES: Record<string, string> = {
+	'brave-browser': 'Brave',
+	brave: 'Brave',
+	'google-chrome': 'Chrome',
+	chrome: 'Chrome',
+	msedge: 'Microsoft Edge',
+	'microsoft-edge': 'Microsoft Edge',
+	firefox: 'Firefox',
+}
+
 /** An application as a person reads it: no `.exe`, and a lowercase process name starts with a capital. */
 function applicationName(name: string): string {
 	const bare = name.trim().replace(/\.exe$/i, '')
+	const known = KNOWN_BROWSER_NAMES[bare.toLowerCase()]
+	if (known) return known
 	return bare && bare === bare.toLowerCase()
 		? `${bare.charAt(0).toUpperCase()}${bare.slice(1)}`
 		: bare
+}
+
+/** A control that takes a secret: a password field, by its state, role or name. */
+function isSecretElement(element: UiElement): boolean {
+	const states = (element.states ?? []).map((state) => state.toLowerCase())
+	if (states.some((state) => state === 'password' || state === 'protected' || state === 'secure'))
+		return true
+	return /password|passcode|passwort|parola|şifre|sifre/i.test(`${element.role} ${element.name}`)
 }
 
 /** Words that make a control's name or an intent one a person should answer for. */
@@ -1762,11 +1783,20 @@ export function createComputerUseTool(
 	const advisor = options.advisor
 	// Browser windows: the setting, and the browsers a person allowed in this conversation. Only the
 	// person's answer to `askBrowserWindow` adds one; `ask` with nobody to ask is `look`.
-	const browserSetting: BrowserWindowsSetting = options.browserWindows ?? 'look'
+	const readBrowserSetting = (): BrowserWindowsSetting =>
+		typeof options.browserWindows === 'function'
+			? options.browserWindows()
+			: (options.browserWindows ?? 'look')
+	const browserSetting: BrowserWindowsSetting = readBrowserSetting()
 	const browserGranted = new Map<string, string>()
 	const browserDeclined = new Map<string, string>()
-	const browserActionsAllowed = (app: string): boolean =>
-		browserSetting === 'act' || (browserSetting === 'ask' && browserGranted.has(browserKey(app)))
+	const browserActionsAllowed = (app: string): boolean => {
+		const setting = readBrowserSetting()
+		if (setting === 'look') browserGranted.clear()
+		return setting === 'act' || (setting === 'ask' && browserGranted.has(browserKey(app)))
+	}
+	// Whether the control in focus in the latest ui_snapshot is a secret field (a password).
+	let focusedSecret = false
 
 	// The controls of the latest ui_snapshot, by the ref the model was shown.
 	// A ref names a control, not one reading of it: the same host ref keeps the
@@ -2377,6 +2407,7 @@ export function createComputerUseTool(
 			readonly text: string
 		}[] = []
 		let focusedLine: string | undefined
+		let focusedSecretNow = false
 		const visit = (element: UiElement, depth: number): void => {
 			total += 1
 			const actionable = element.ref.length > 0
@@ -2398,8 +2429,10 @@ export function createComputerUseTool(
 						hostRef: actionable ? element.ref : undefined,
 						text: line.trim(),
 					})
-					if (focusedLine === undefined && element.states?.includes('focused') === true)
+					if (focusedLine === undefined && element.states?.includes('focused') === true) {
 						focusedLine = line.trim()
+						focusedSecretNow = isSecretElement(element)
+					}
 					chars += line.length + 1
 					shown += 1
 					if (ref) {
@@ -2417,6 +2450,7 @@ export function createComputerUseTool(
 		// Refs shown now replace what they name; the rest stay as they were, so a
 		// region opened by itself leaves the refs outside it usable.
 		for (const [ref, entry] of refs) uiRefs.set(ref, entry)
+		focusedSecret = focusedSecretNow
 		if (uiRefs.size > MAX_HELD_UI_REFS) {
 			for (const ref of [...uiRefs.keys()].slice(0, uiRefs.size - MAX_HELD_UI_REFS)) {
 				const gone = uiRefs.get(ref)
@@ -2731,7 +2765,7 @@ export function createComputerUseTool(
 		const front = windows.find((window) => window.focused)
 		if (front && appTier(front.app) === 'view' && !browserActionsAllowed(front.app))
 			throw new StepFailure(
-				`a browser is in front (${front.app}, window ${front.id}), so nothing was typed: computer_use does not type in a browser unless the person allowed it. Use the browser tool to act on a page, or bring the window you mean to the front (focus_window, or click it) and try again. ${browserWaysForward(applicationName(front.app), browserSetting)}`,
+				`a browser is in front (${front.app}, window ${front.id}), so nothing was typed: computer_use does not type in a browser unless the person allowed it. Use the browser tool to act on a page, or bring the window you mean to the front (focus_window, or click it) and try again. ${browserWaysForward(applicationName(front.app), readBrowserSetting())}`,
 			)
 		if (front && appIs(IDE_APPS, front.app))
 			throw new StepFailure(
@@ -3656,7 +3690,7 @@ export function createComputerUseTool(
 		if (browserActionsAllowed(app)) return undefined
 		const key = browserKey(app)
 		const ways = (setting: BrowserWindowsSetting) => browserWaysForward(name, setting)
-		if (browserSetting === 'look')
+		if (readBrowserSetting() === 'look')
 			return `computer_use only looks at ${name}, a browser: it does not click, type or press keys there. Use the browser tool to act on a page; take a screenshot to see what the window shows. Nothing was done. ${ways('look')}`
 		if (!options.askBrowserWindow)
 			return `computer_use only looks at ${name}, a browser, in this session: acting there needs a person's yes and nobody can be asked here. Nothing was done. Use the browser tool, or tell the person what is left for them. ${ways('ask')}`
@@ -3734,6 +3768,13 @@ export function createComputerUseTool(
 				if (tier === 'view') {
 					const refused = await browserWindowRefusal(app, name, context)
 					if (refused) return refused
+					// A granted browser still never gets a secret typed by the tool: the person types it.
+					const ref = typeof item.ref === 'string' ? uiRefs.get(item.ref) : undefined
+					if (
+						(type === 'type_text' && focusedSecret) ||
+						(setsValue && ref !== undefined && isSecretElement(ref.element))
+					)
+						return `computer_use does not type into a password field in ${name}. Nothing was done. Ask the person to type it themselves, then continue.`
 				}
 				if (
 					tier === 'click' &&
