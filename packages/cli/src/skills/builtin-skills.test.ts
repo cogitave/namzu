@@ -128,12 +128,17 @@ describe('the built-in skills', () => {
 		expect(body).toMatch(/^## Never$/m)
 		expect(body).toMatch(/Never install anything/)
 		expect(body).not.toMatch(/^\s*(pip|apt|brew|npm) install/m)
+		// Runs showed results left only in scratch and Markdown piped into a typesetter.
+		expect(body).toMatch(/never only in the scratch/)
+		expect(body).toMatch(/never pipe Markdown/)
 
 		const doc = await loadSkill(join(SKILLS, 'document'), 'full')
 		expect(doc.skill.metadata.description).toContain(
 			'a research or analysis request is answered in the reply',
 		)
 		expect(doc.skill.metadata.description).toContain('`pdf` skill')
+		// A request for a Word, sheet or slide file must load this skill, or the model improvises a file.
+		expect(doc.skill.metadata.description).toMatch(/Word, sheet or slide file/)
 		const docBody = doc.skill.body ?? ''
 		expect(docBody).toMatch(/^## Which file, and what is possible$/m)
 		expect(docBody).not.toMatch(/cannot be made yet/)

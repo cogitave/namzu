@@ -1,6 +1,6 @@
 ---
 name: document
-description: Write a document or report as one Markdown file. Use when the person asks for a document file; a research or analysis request is answered in the reply. Not for Word, slides or sheets; for a PDF use the `pdf` skill.
+description: Write a document or report as one Markdown file. Use when the person asks for a document file, or a Word, sheet or slide file (this says what is possible); a research or analysis request is answered in the reply. Not for a PDF: use the `pdf` skill.
 invocation: both
 ---
 
