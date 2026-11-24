@@ -250,6 +250,7 @@ export class QueryAgent extends AbstractAgent<QueryAgentConfig, QueryAgentResult
 				messages: input.messages,
 				signal: input.signal,
 				taskStore: input.taskStore,
+				...(input.taskMember !== undefined ? { taskMember: input.taskMember } : {}),
 				runtimeToolOverrides: input.runtimeToolOverrides,
 				runtimeContext: input.runtimeContext,
 			},

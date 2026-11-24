@@ -36,6 +36,13 @@ export type SiblingFailurePolicy = 'continue' | 'cancel-siblings'
 
 export interface CreateTaskOptions {
 	/**
+	 * The task list this one child works from, in place of the scheduler's own. A team's members each
+	 * get the team's shared list this way.
+	 */
+	readonly taskStore?: import('../task/index.js').TaskStore
+	/** The member name this child's task tools claim under when the list is shared by a team. */
+	readonly taskMember?: string
+	/**
 	 * Continue a child conversation under a NEW task, with this invocation's
 	 * parent authority, budget and configuration. Local managers accept only
 	 * their own retained, settled shared-workspace children of the same parent

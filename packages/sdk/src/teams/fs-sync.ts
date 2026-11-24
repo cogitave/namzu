@@ -20,6 +20,11 @@ export function sleepSync(ms: number): void {
 	Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
 }
 
+/** One jittered wait, for callers that sleep without blocking. */
+export function jitterDelay(): number {
+	return randomInt(WAIT_MIN_MS, WAIT_MAX_MS + 1)
+}
+
 export function jitterWait(sleep: (ms: number) => void): (attempt: number) => void {
 	return () => sleep(randomInt(WAIT_MIN_MS, WAIT_MAX_MS + 1))
 }

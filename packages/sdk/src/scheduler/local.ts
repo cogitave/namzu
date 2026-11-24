@@ -135,7 +135,8 @@ export class LocalTaskScheduler implements TaskScheduler {
 				input: {
 					messages: [...(options.inheritedMessages ?? []), createUserMessage(options.prompt)],
 					workingDirectory: options.workingDirectory,
-					taskStore: this.parentInput?.taskStore,
+					taskStore: options.taskStore ?? this.parentInput?.taskStore,
+					...(options.taskMember !== undefined ? { taskMember: options.taskMember } : {}),
 					runtimeToolOverrides: this.parentInput?.runtimeToolOverrides,
 					runtimeContext: options.runtimeContext ?? this.parentInput?.runtimeContext,
 				},

@@ -835,6 +835,9 @@ export interface QueryParams {
 
 	taskStore?: TaskStore
 
+	/** The member name the task tools claim under when `taskStore` is a list a team shares. */
+	taskMember?: string
+
 	runtimeToolOverrides?: RuntimeToolOverrides
 
 	runtimeContext?: AgentRuntimeContext
@@ -1301,6 +1304,7 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 			const taskTools = buildTaskTools(params.taskStore, {
 				sessionId: ctx.sessionId,
 				turnId: ctx.turnId,
+				...(params.taskMember !== undefined ? { member: params.taskMember } : {}),
 				// A resumed turn began when its `turn_started` was recorded, maybe
 				// in another process: tasks it closed before the pause are still
 				// "closed in this turn".

@@ -2,7 +2,13 @@ import { existsSync, mkdirSync, readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { NAMZU } from '../../constants/telemetry/index.js'
 import { resolveNamzuHome } from '../../session/home.js'
-import { lockedSync, removeSync, sleepSync, writeAtomicSync } from '../../teams/fs-sync.js'
+import {
+	LOCK_ATTEMPTS,
+	jitterDelay,
+	removeSync,
+	sleepSync,
+	writeAtomicSync,
+} from '../../teams/fs-sync.js'
 import type { SessionId, TaskId, TenantId } from '../../types/ids/index.js'
 import type {
 	CreateTaskParams,
@@ -14,6 +20,7 @@ import type {
 	UpdateTaskParams,
 } from '../../types/task/index.js'
 import { isTerminalTaskStatus } from '../../types/task/index.js'
+import { FileLockError, lockPathFor, runLocked } from '../../utils/file-lock.js'
 import { asSessionId, asTaskId, asTurnId, generateTaskId } from '../../utils/id.js'
 import { SCOPE_ATTRIBUTE } from '../../utils/log/types.js'
 import { type Logger, resolveLogger } from '../../utils/logger.js'
@@ -86,8 +93,13 @@ export interface FileTaskStoreConfig {
 	/** Default `<NAMZU_HOME>/tasks`. */
 	rootDir?: string
 	tenantId?: TenantId
-	/** Injected so a test never depends on the clock; default blocks the thread. */
+	/**
+	 * Injected so a test never depends on the clock. Used only for the short waits inside a file write
+	 * on a platform that refuses a rename for a moment; default blocks the thread for that moment.
+	 */
 	sleep?: (ms: number) => void
+	/** The wait between tries on a lock another process holds; default yields to the event loop. */
+	lockWait?: (attempt: number) => Promise<void>
 	logger?: Logger
 }
 
@@ -107,6 +119,24 @@ const LIST_ID = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/
 
 const HIGH_WATER = '.highwatermark'
 
+/**
+ * Changes made by this process to one list run one after another. The file lock still keeps other
+ * processes out, but waiting for it here would block the event loop of a terminal, so callers of one
+ * process queue on a promise and the lock is taken (with a wait that yields) only when it is theirs.
+ */
+const gates = new Map<string, Promise<unknown>>()
+
+function serialised<T>(key: string, run: () => Promise<T>): Promise<T> {
+	const before = gates.get(key) ?? Promise.resolve()
+	const turn = before.then(run, run)
+	const tail = turn.catch(() => undefined)
+	gates.set(key, tail)
+	void tail.then(() => {
+		if (gates.get(key) === tail) gates.delete(key)
+	})
+	return turn
+}
+
 function strip(stored: Stored): Task {
 	const { seq: _seq, ...task } = stored
 	return task as Task
@@ -118,6 +148,7 @@ export class FileTaskStore implements ClaimableTaskStore {
 	private readonly dir: string
 	private readonly tenantId?: TenantId
 	private readonly sleep: (ms: number) => void
+	private readonly lockWait: (attempt: number) => Promise<void>
 	private readonly log: Logger
 	private listeners: TaskEventListener[] = []
 
@@ -132,6 +163,8 @@ export class FileTaskStore implements ClaimableTaskStore {
 		this.dir = join(config.rootDir ?? join(resolveNamzuHome(), 'tasks'), config.listId)
 		this.tenantId = config.tenantId
 		this.sleep = config.sleep ?? sleepSync
+		this.lockWait =
+			config.lockWait ?? (() => new Promise((done) => setTimeout(done, jitterDelay())))
 		this.log = resolveLogger(config.logger).child({ [SCOPE_ATTRIBUTE]: 'store/task/file' })
 	}
 
@@ -175,21 +208,42 @@ export class FileTaskStore implements ClaimableTaskStore {
 		return join(this.dir, '.list')
 	}
 
-	private inList<T>(operation: () => T): T {
-		this.ensureDir()
-		return lockedSync(this.listLockTarget(), this.sleep, operation)
+	private lockOf<T>(file: string, operation: () => T | Promise<T>): Promise<T> {
+		return runLocked(
+			lockPathFor(file),
+			operation,
+			{ attempts: LOCK_ATTEMPTS, wait: this.lockWait },
+			(lockPath) =>
+				new FileLockError(
+					lockPath,
+					`${file} is in use by another process and did not free up; try again.`,
+				),
+		)
 	}
 
-	/** Run `operation` holding the lock of each task, taken in sorted order. */
-	private inTasks<T>(ids: readonly TaskId[], operation: () => T): T {
+	/** Run `operation` alone in this process and holding the list lock. */
+	private inList<T>(operation: () => T | Promise<T>): Promise<T> {
+		this.ensureDir()
+		return serialised(this.dir, () => this.lockOf(this.listLockTarget(), operation))
+	}
+
+	/**
+	 * Run `operation` holding the lock of each task, taken in sorted order. `nested` is true inside
+	 * {@link inList}, which already holds this process's place in the queue.
+	 */
+	private inTasks<T>(
+		ids: readonly TaskId[],
+		operation: () => T | Promise<T>,
+		nested = false,
+	): Promise<T> {
 		this.ensureDir()
 		const sorted = [...new Set(ids)].sort()
-		const step = (i: number): T => {
+		const step = async (i: number): Promise<T> => {
 			const id = sorted[i]
 			if (id === undefined) return operation()
-			return lockedSync(this.taskFile(id), this.sleep, () => step(i + 1))
+			return this.lockOf(this.taskFile(id), () => step(i + 1))
 		}
-		return step(0)
+		return nested ? step(0) : serialised(this.dir, () => step(0))
 	}
 
 	private readStored(id: TaskId): Stored | undefined {
@@ -294,42 +348,46 @@ export class FileTaskStore implements ClaimableTaskStore {
 
 	async create(params: CreateTaskParams): Promise<Task> {
 		const blockers = [...new Set(params.blockedBy ?? [])]
-		const created = this.inList(() =>
-			this.inTasks(blockers, () => {
-				const touched: Stored[] = []
-				for (const blockerId of blockers) {
-					const blocker = this.readStored(blockerId)
-					if (!blocker)
-						throw new TaskListError('not_found', `Task ${blockerId} is not in this list.`)
-				}
-				const id = generateTaskId()
-				const stored: Stored = {
-					id,
-					seq: this.issueSeq(),
-					sessionId: asSessionId(params.sessionId),
-					turnId: asTurnId(params.turnId),
-					tenantId: params.tenantId ?? this.tenantId,
-					subject: params.subject,
-					description: params.description,
-					activeForm: params.activeForm,
-					status: 'pending',
-					owner: params.owner,
-					blocks: [],
-					blockedBy: blockers,
-					metadata: params.metadata ? { ...params.metadata } : undefined,
-					createdAt: Date.now(),
-				}
-				for (const blockerId of blockers) {
-					const blocker = this.readStored(blockerId)
-					if (blocker && !blocker.blocks.includes(id)) {
-						blocker.blocks.push(id)
-						this.writeStored(blocker)
-						touched.push(blocker)
+		const created = await this.inList(() =>
+			this.inTasks(
+				blockers,
+				() => {
+					const touched: Stored[] = []
+					for (const blockerId of blockers) {
+						const blocker = this.readStored(blockerId)
+						if (!blocker)
+							throw new TaskListError('not_found', `Task ${blockerId} is not in this list.`)
 					}
-				}
-				this.writeStored(stored)
-				return { stored, touched }
-			}),
+					const id = generateTaskId()
+					const stored: Stored = {
+						id,
+						seq: this.issueSeq(),
+						sessionId: asSessionId(params.sessionId),
+						turnId: asTurnId(params.turnId),
+						tenantId: params.tenantId ?? this.tenantId,
+						subject: params.subject,
+						description: params.description,
+						activeForm: params.activeForm,
+						status: 'pending',
+						owner: params.owner,
+						blocks: [],
+						blockedBy: blockers,
+						metadata: params.metadata ? { ...params.metadata } : undefined,
+						createdAt: Date.now(),
+					}
+					for (const blockerId of blockers) {
+						const blocker = this.readStored(blockerId)
+						if (blocker && !blocker.blocks.includes(id)) {
+							blocker.blocks.push(id)
+							this.writeStored(blocker)
+							touched.push(blocker)
+						}
+					}
+					this.writeStored(stored)
+					return { stored, touched }
+				},
+				true,
+			),
 		)
 		for (const blocker of created.touched) {
 			this.emit({
@@ -350,7 +408,7 @@ export class FileTaskStore implements ClaimableTaskStore {
 	}
 
 	async update(id: TaskId, updates: UpdateTaskParams): Promise<Task | undefined> {
-		const result = this.inTasks([id], () => {
+		const result = await this.inTasks([id], () => {
 			const task = this.readStored(id)
 			if (!task) return undefined
 			const previousStatus = task.status
@@ -408,7 +466,7 @@ export class FileTaskStore implements ClaimableTaskStore {
 	}
 
 	async claimTask(id: TaskId, owner: string): Promise<TaskClaimResult> {
-		const outcome = this.inTasks([id], (): TaskClaimResult => {
+		const outcome = await this.inTasks([id], (): TaskClaimResult => {
 			const task = this.readStored(id)
 			if (!task) return { ok: false, code: 'not_found' }
 			if (isTerminalTaskStatus(task.status)) {
@@ -447,35 +505,39 @@ export class FileTaskStore implements ClaimableTaskStore {
 	}
 
 	async block(blockerId: TaskId, blockedId: TaskId): Promise<void> {
-		const changed = this.inList(() =>
-			this.inTasks([blockerId, blockedId], () => {
-				const blocker = this.readStored(blockerId)
-				const blocked = this.readStored(blockedId)
-				if (!blocker || !blocked) {
-					throw new TaskListError(
-						'not_found',
-						`Task ${blocker ? blockedId : blockerId} is not in this list.`,
-					)
-				}
-				if (blockerId === blockedId || this.reaches(blocked, blockerId)) {
-					throw new TaskListError(
-						'cycle',
-						`Task ${blockedId} already waits on task ${blockerId}, directly or through other tasks; adding this would make them wait on each other.`,
-					)
-				}
-				const out: Stored[] = []
-				if (!blocker.blocks.includes(blockedId)) {
-					blocker.blocks.push(blockedId)
-					this.writeStored(blocker)
-					out.push(blocker)
-				}
-				if (!blocked.blockedBy.includes(blockerId)) {
-					blocked.blockedBy.push(blockerId)
-					this.writeStored(blocked)
-					out.push(blocked)
-				}
-				return out
-			}),
+		const changed = await this.inList(() =>
+			this.inTasks(
+				[blockerId, blockedId],
+				() => {
+					const blocker = this.readStored(blockerId)
+					const blocked = this.readStored(blockedId)
+					if (!blocker || !blocked) {
+						throw new TaskListError(
+							'not_found',
+							`Task ${blocker ? blockedId : blockerId} is not in this list.`,
+						)
+					}
+					if (blockerId === blockedId || this.reaches(blocked, blockerId)) {
+						throw new TaskListError(
+							'cycle',
+							`Task ${blockedId} already waits on task ${blockerId}, directly or through other tasks; adding this would make them wait on each other.`,
+						)
+					}
+					const out: Stored[] = []
+					if (!blocker.blocks.includes(blockedId)) {
+						blocker.blocks.push(blockedId)
+						this.writeStored(blocker)
+						out.push(blocker)
+					}
+					if (!blocked.blockedBy.includes(blockerId)) {
+						blocked.blockedBy.push(blockerId)
+						this.writeStored(blocked)
+						out.push(blocked)
+					}
+					return out
+				},
+				true,
+			),
 		)
 		const now = Date.now()
 		for (const stored of changed) {
@@ -499,32 +561,36 @@ export class FileTaskStore implements ClaimableTaskStore {
 	}
 
 	async delete(id: TaskId): Promise<boolean> {
-		const outcome = this.inList(() => {
+		const outcome = await this.inList(() => {
 			const preview = this.readStored(id)
 			if (!preview) return undefined
-			return this.inTasks([id, ...preview.blockedBy, ...preview.blocks], () => {
-				const task = this.readStored(id)
-				if (!task) return undefined
-				const touched: Stored[] = []
-				for (const other of task.blockedBy) {
-					const stored = other === id ? undefined : this.readStored(other)
-					if (stored?.blocks.includes(id)) {
-						stored.blocks = stored.blocks.filter((x) => x !== id)
-						this.writeStored(stored)
-						touched.push(stored)
+			return this.inTasks(
+				[id, ...preview.blockedBy, ...preview.blocks],
+				() => {
+					const task = this.readStored(id)
+					if (!task) return undefined
+					const touched: Stored[] = []
+					for (const other of task.blockedBy) {
+						const stored = other === id ? undefined : this.readStored(other)
+						if (stored?.blocks.includes(id)) {
+							stored.blocks = stored.blocks.filter((x) => x !== id)
+							this.writeStored(stored)
+							touched.push(stored)
+						}
 					}
-				}
-				for (const other of task.blocks) {
-					const stored = other === id ? undefined : this.readStored(other)
-					if (stored?.blockedBy.includes(id)) {
-						stored.blockedBy = stored.blockedBy.filter((x) => x !== id)
-						this.writeStored(stored)
-						touched.push(stored)
+					for (const other of task.blocks) {
+						const stored = other === id ? undefined : this.readStored(other)
+						if (stored?.blockedBy.includes(id)) {
+							stored.blockedBy = stored.blockedBy.filter((x) => x !== id)
+							this.writeStored(stored)
+							touched.push(stored)
+						}
 					}
-				}
-				removeSync(this.taskFile(id), this.sleep)
-				return { task, touched }
-			})
+					removeSync(this.taskFile(id), this.sleep)
+					return { task, touched }
+				},
+				true,
+			)
 		})
 		if (!outcome) return false
 		for (const stored of outcome.touched) {
@@ -549,7 +615,7 @@ export class FileTaskStore implements ClaimableTaskStore {
 	 * reset. The high-water mark stays, so places are not reissued.
 	 */
 	async reset(): Promise<void> {
-		this.inList(() => {
+		await this.inList(() => {
 			const all = this.allStored()
 			const open = all.filter((t) => t.status !== 'completed')
 			if (open.length > 0) {
@@ -558,11 +624,12 @@ export class FileTaskStore implements ClaimableTaskStore {
 					`${open.length} task${open.length === 1 ? ' is' : 's are'} not completed; the list is only reset when all of them are.`,
 				)
 			}
-			this.inTasks(
+			return this.inTasks(
 				all.map((t) => t.id),
 				() => {
 					for (const t of all) removeSync(this.taskFile(t.id), this.sleep)
 				},
+				true,
 			)
 		})
 	}

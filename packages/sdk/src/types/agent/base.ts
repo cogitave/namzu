@@ -401,6 +401,9 @@ export interface AgentInput {
 
 	taskStore?: TaskStore
 
+	/** The member name the task tools claim under when `taskStore` is a list a team shares. */
+	taskMember?: string
+
 	runtimeToolOverrides?: RuntimeToolOverrides
 
 	runtimeContext?: AgentRuntimeContext
