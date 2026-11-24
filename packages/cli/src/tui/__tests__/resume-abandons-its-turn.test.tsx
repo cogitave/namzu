@@ -360,6 +360,9 @@ async function pickerOpenAfterTurn(
 	mounted.push(harness)
 	await tick(60)
 	await submit(harness, 'go')
+	// Type `/resume` only once the turn is really running: typed earlier, it
+	// finds nothing to wait for and opens at once, whatever the app does right.
+	await vi.waitFor(() => expect(gates.length, 'the turn never started').toBeGreaterThan(0))
 	await submit(harness, '/resume')
 	await afterQueued?.(harness)
 	expect(harness.lastFrame(), '/resume ran over the reply').not.toContain('Resume a conversation')
