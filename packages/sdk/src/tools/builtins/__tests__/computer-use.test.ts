@@ -514,7 +514,10 @@ describe('createComputerUseTool', { timeout: 30_000 }, () => {
 			expect(imageOf(result)).toEqual({ width: 1280, height: 800 })
 			expect(textOf(result)).toContain('Click left at (10, 10): done')
 			expect(textOf(result)).toContain('Screenshot s2: 1280x800 pixels')
-			expect(result.output).toBe('Click left at (10, 10): done\nScreenshot s2 (1280x800).')
+			// The fake desktop never changes, so the click shows nothing.
+			expect(result.output).toBe(
+				'Click left at (10, 10): done\nNo visible change: the screen is the same as in s1 before the click, so it may have missed, or the control reacts without showing it. Try another way (a control by ref, a different point, a key) before repeating the same click.\nScreenshot s2 (1280x800).',
+			)
 			expect(result.workingState?.[0]?.text).toContain('screenshot s2')
 		})
 
@@ -1014,7 +1017,8 @@ describe('createComputerUseTool', { timeout: 30_000 }, () => {
 				},
 			])
 			expect(captured).toEqual(['0x1a2b', '0x1a2b'])
-			expect(calls).toEqual([])
+			// Only the window list was asked of the host: a window click checks the window has not moved.
+			expect(calls.filter((call) => call.action.type !== 'list_windows')).toEqual([])
 			const typed = await run(tool, {
 				type: 'type_text',
 				text: 'hello',
@@ -1641,7 +1645,7 @@ describe('createComputerUseTool', { timeout: 30_000 }, () => {
 			expect(tool.description).toContain(
 				'every x/y you send is a pixel of the most recent screenshot this tool returned',
 			)
-			expect(tool.description).toContain('waits 0 ms and returns a new screenshot')
+			expect(tool.description).toContain('waits for the window to stop changing (at most 0 ms)')
 			expect(tool.description).toContain('runs up to 20 actions in order')
 			expect(tool.description).not.toContain('getDisplayGeometry')
 		})

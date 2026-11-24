@@ -120,8 +120,14 @@ decode, resize and encode; one that already fits is passed through untouched.
 
 An action that changes something — a click, a drag, a scroll, typing, a key,
 `focus_window` — and `wait` return a new screenshot after `settleMs` (500 ms
-by default), so the model does not spend a round trip asking for one.
-`screenshotAfterActions: false` turns this off. If only that screenshot fails,
+by default), so the model does not spend a round trip asking for one. The
+wait is the host's: a host that can tell when the window stopped changing
+(`ComputerUseHost.settle`) ends it early, one that cannot waits the full
+`settleMs`, and the description tells the model to add no `wait` of its own
+after an action. A pixel click, drag or scroll whose result picture is
+identical to the one before it adds `No visible change: …` to the text (and
+`noVisibleChange` to the data), so the model tries another way rather than
+repeating the click. `screenshotAfterActions: false` turns this off. If only that screenshot fails,
 the action still reports success and the text says to take one.
 
 ## Actions
@@ -392,7 +398,7 @@ shows a person the call before it runs; the activity line uses it too
 ## Batches
 
 `{ "type": "batch", "actions": [...] }` runs up to `maxBatchActions` (20)
-actions in order and returns one screenshot at the end. Every action is
+actions in order and ends with the result of the window it worked in. Every action is
 checked first — capability, button, a coordinate on the screenshot — and a
 batch with one bad action runs none of them. At run time it stops at the
 first action that fails and reports which:
@@ -404,6 +410,24 @@ Batch stopped at action 2 of 3; 1 not run.
 3. Press ENTER: not run
 Screenshot s5: 1568x656 pixels, …
 ```
+
+When the window the batch acted on has had its controls read (`ui_snapshot`,
+or the first window screenshot), and every step that ran was `ui_act`,
+`ui_do`, `type_text` or `key`, the end is that window's controls as a diff
+(`+`, `~`, `-` or `no change`) with no picture, and any window that opened
+during the batch is named with its id. Otherwise, and always after a pixel
+step, a `wait`, a failure, or when a screenshot id is given, it is a screenshot as
+before. A step that fails its element check (`STALE_REF`, `AMBIGUOUS_TARGET`,
+a control that cannot be found) stops the batch there; nothing after it runs.
+If the window is gone when the batch ends, the text says the action closed it
+(`windowClosed` in the data) and shows the display instead of failing the
+screenshot.
+
+A click, drag or scroll on a window screenshot first checks that the window is
+still open, not minimized and the same size and place as when the picture was
+taken. If not, nothing is sent and the step fails as not delivered (safe to
+retry) with a request for a fresh look, since the coordinates would hit a
+different control.
 
 The description tells the model that every call costs a round trip and to
 batch the steps it can already predict, but to end a batch at any step that
