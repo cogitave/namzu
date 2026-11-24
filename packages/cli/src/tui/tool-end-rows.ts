@@ -199,6 +199,9 @@ export function interruptedCallHeads(
 }
 
 /** Rows for a finished call, from the branches that need nothing but the call and its result. */
+/** The receipts `send_message` gives for a message to a teammate and for a request to stop one. */
+const TEAM_SEND_RECEIPT = /^(?:Message sent to teammate|Shutdown requested of teammate) /u
+
 export function toolEndRows(
 	event: ToolEndEvent,
 	start: ToolEndStart | undefined,
@@ -209,6 +212,16 @@ export function toolEndRows(
 		const drawn = generatedImageRows(event.output, event.isError)
 		if (drawn) return rows(drawn)
 	}
+	// What the lead sent a teammate has its own line (`→ Sent to @one`); the receipt the model reads
+	// (`Message sent to teammate one ...`, `Shutdown requested of teammate ...`) adds nothing to it.
+	if (
+		event.toolName === 'send_message' &&
+		!event.isError &&
+		!event.declined &&
+		!event.cancelled &&
+		TEAM_SEND_RECEIPT.test(event.output ?? event.summary ?? '')
+	)
+		return { kind: 'none' }
 	// A call to a tool that does not exist did no work: it is not counted with the looks.
 	const fold = event.unknownTool ? undefined : foldOf(start)
 	if (!event.isError && !event.declined && fold) {
