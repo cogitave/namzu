@@ -58,6 +58,8 @@ export function teamRailPlan(
 	othersBusy = false,
 	/** The person opened the folded row: every idle teammate has its own row. */
 	expandIdle = false,
+	/** The teammate on screen: it keeps its own row, so the folded count leaves it out. */
+	opened: string | null = null,
 ): TeamRailPlan {
 	const shown = new Set<string>()
 	const idle: TeamMemberView[] = []
@@ -74,7 +76,13 @@ export function teamRailPlan(
 	const restIdleSince = Math.max(...idle.map((member) => member.since))
 	if (!anyActive && !othersBusy && now - restIdleSince >= TEAM_IDLE_FADE_MS)
 		return { shown, folded: 0 }
-	if (idle.length > TEAM_IDLE_FOLD_OVER && !expandIdle) return { shown, folded: idle.length }
+	if (idle.length > TEAM_IDLE_FOLD_OVER && !expandIdle) {
+		if (opened !== null && idle.some((member) => member.viewId === opened)) {
+			shown.add(opened)
+			return { shown, folded: idle.length - 1 }
+		}
+		return { shown, folded: idle.length }
+	}
 	for (const member of idle) shown.add(member.viewId)
 	return { shown, folded: 0 }
 }

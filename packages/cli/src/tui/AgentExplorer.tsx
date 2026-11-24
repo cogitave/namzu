@@ -327,6 +327,8 @@ export function teamRailOf(
 	now: number,
 	/** The person opened the folded idle row. */
 	expandIdle = false,
+	/** The teammate on screen: it has its row, so the folded count leaves it out. */
+	opened: string | null = null,
 ): TeamRail | undefined {
 	if (snapshot.members.length === 0) return undefined
 	const members = teamByView(snapshot.members)
@@ -336,7 +338,7 @@ export function teamRailOf(
 	)
 	return {
 		members,
-		plan: teamRailPlan(snapshot.members, now, othersBusy, expandIdle),
+		plan: teamRailPlan(snapshot.members, now, othersBusy, expandIdle, opened),
 		othersBusy,
 		tasks: snapshot.tasks,
 	}
@@ -2999,8 +3001,21 @@ export function teammateRowText(row: SubagentActivity['transcript'][number]): st
 	}
 	// The list of tools a `search_tools` call switched on is the model's own plumbing, not a thing said.
 	if (row.kind === 'tool' && /^search_tools\b/.test(row.text)) return row.text
+	// A call the lead's person declined shows what happened to it, not the text the model was handed.
+	if (row.kind === 'tool' && row.detail && DECLINED_BY_PERSON.test(row.detail)) {
+		const said = row.detail.match(/declined this and said: ([\s\S]*)$/u)?.[1]?.trim()
+		const plan = /^exit_plan_mode\b/u.test(row.text)
+		const outcome = said
+			? `${plan ? 'Plan not approved' : 'Declined'}: ${said}`
+			: plan
+				? 'Plan not approved. Revise it and send it again.'
+				: 'Declined, so it did not run.'
+		return `${row.text}\n${outcome}`
+	}
 	return transcriptRowText(row)
 }
+
+const DECLINED_BY_PERSON = /The user declined this[. ]/u
 
 function lineColor(line: AgentTranscriptLine): string {
 	if (line.tone !== undefined) return paint(line.tone)

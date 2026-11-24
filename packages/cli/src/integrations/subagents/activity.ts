@@ -165,6 +165,8 @@ export interface SubagentActivity {
 	 * nobody recorded it.
 	 */
 	readonly stoppedBy?: 'user' | 'parent'
+	/** A teammate whose turn the person cut short: it stays on its team and can be messaged again. */
+	readonly interrupted?: true
 	readonly prompt: string
 	/** Direct tool batch that launched this concurrent sibling cohort. */
 	readonly batchId: string
@@ -815,6 +817,7 @@ export class SubagentActivityMonitor implements SubagentActivitySource {
 			...(record.background ? { background: true } : {}),
 			...(record.released ? { released: true } : {}),
 			...(record.stoppedBy ? { stoppedBy: record.stoppedBy } : {}),
+			...(record.interrupted ? { interrupted: true as const } : {}),
 			prompt: record.prompt,
 			batchId: record.batchId,
 			...(record.toolUseId ? { toolUseId: record.toolUseId } : {}),

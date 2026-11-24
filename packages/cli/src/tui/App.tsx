@@ -2967,13 +2967,13 @@ function AppBody({
 			subagents,
 			Date.now(),
 			workflowRuns,
-			teamRailOf(teamSnap, subagents, Date.now(), teamIdleOpen),
+			teamRailOf(teamSnap, subagents, Date.now(), teamIdleOpen, pinnedViewId),
 		)
 		if (wait === undefined) return
 		const timer = setTimeout(() => setRailNow(Date.now()), wait + 20)
 		timer.unref?.()
 		return () => clearTimeout(timer)
-	}, [subagents, workflowRuns, railNow, teamSnap, teamIdleOpen])
+	}, [subagents, workflowRuns, railNow, teamSnap, teamIdleOpen, pinnedViewId])
 	// The rail cannot keep the keyboard once it has nothing to show.
 	const railHasRows =
 		railAgents(
@@ -2981,9 +2981,9 @@ function AppBody({
 			railNow,
 			dismissedAgents,
 			pinnedViewId,
-			teamRailOf(teamSnap, subagents, railNow, teamIdleOpen),
+			teamRailOf(teamSnap, subagents, railNow, teamIdleOpen, pinnedViewId),
 		).length > 0 ||
-		(teamRailOf(teamSnap, subagents, railNow, teamIdleOpen)?.plan.folded ?? 0) > 0 ||
+		(teamRailOf(teamSnap, subagents, railNow, teamIdleOpen, pinnedViewId)?.plan.folded ?? 0) > 0 ||
 		railWorkflows(subagents, railNow, dismissedAgents, workflowRuns).length > 0
 	// The footer's shell pill is the rail's first stop, so shells keep it focused too.
 	const footerHasShells = backgroundJobs.some((job) => job.status === 'running')
@@ -5143,6 +5143,14 @@ function AppBody({
 			const previousFailure = reportedFailuresRef.current.get(agent.viewId)
 			if (agent.status === 'failed')
 				reportedFailuresRef.current.set(agent.viewId, failureReason(agent))
+			// A teammate whose turn the person cut short says so through its own idle line
+			// (`was interrupted`), not as a stopped agent.
+			if (
+				agent.status === 'cancelled' &&
+				agent.interrupted === true &&
+				session?.team?.members().some((m) => m.viewId === agent.viewId)
+			)
+				continue
 			// A teammate that finished its turn is idle, not finished: one plain row, once per turn.
 			const teammate =
 				agent.status === 'completed'
@@ -19288,7 +19296,13 @@ function AppBody({
 	// Background is left natural — we inherit the terminal's own background
 	// and only theme the foreground. Forcing
 	// a filled bg left mismatched patches around bordered areas, so we don't.
-	const teamRail: TeamRail | undefined = teamRailOf(teamSnap, subagents, railNow, teamIdleOpen)
+	const teamRail: TeamRail | undefined = teamRailOf(
+		teamSnap,
+		subagents,
+		railNow,
+		teamIdleOpen,
+		pinnedViewId,
+	)
 	// The folded row goes back once no teammate is idle.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: only the team's members move this.
 	useEffect(() => {

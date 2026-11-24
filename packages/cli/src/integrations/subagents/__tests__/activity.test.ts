@@ -92,6 +92,17 @@ describe('the CLI sub-agent activity monitor', () => {
 		)
 	})
 
+	it('shows a cut-short turn as interrupted, not as stopped by anyone', () => {
+		const monitor = new SubagentActivityMonitor()
+		const tracker = monitor.begin({ agentId: 'mate', description: 'Work', prompt: 'p' })
+		tracker.settle(handle('running'))
+		monitor.markInterrupted(tracker.viewId)
+		tracker.fail(new TurnCancelled('user'))
+		const shown = monitor.getSnapshot()[0]
+		expect(shown?.interrupted).toBe(true)
+		expect(shown?.stoppedBy).toBeUndefined()
+	})
+
 	it('marks a launch whose wait ended before the agent did as released', () => {
 		const monitor = new SubagentActivityMonitor()
 		const tracker = monitor.begin({ agentId: 'researcher', description: 'Look', prompt: 'p' })

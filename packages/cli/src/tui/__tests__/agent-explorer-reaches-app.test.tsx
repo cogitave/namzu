@@ -5092,7 +5092,8 @@ describe('teammates on the rail', () => {
 				agentId: 'teammate-type',
 				description: 'one works',
 				background: true,
-				status: 'completed',
+				status: 'cancelled',
+				interrupted: true,
 				completedAt: since,
 			}),
 		])
@@ -5111,6 +5112,8 @@ describe('teammates on the rail', () => {
 			'did not return',
 		)
 		expect(interruptedTeammates).toEqual(['v-one'])
+		// The cut-short turn is not written as a stopped agent: the team's own line says it.
+		expect(text(screen)).not.toContain('was stopped')
 	})
 
 	it('opens the folded idle row with Enter', async () => {

@@ -163,7 +163,8 @@ export function idleRows(
 	const detail = [
 		...(taskNumber !== undefined ? [`(task #${taskNumber})`] : []),
 		...(said ? [`Last message: ${note.lastMessage}`] : []),
-		...all,
+		// The row itself already shows the first line, unless it was cut short.
+		...(first === all[0] ? all.slice(1) : all),
 	]
 	rows.push({
 		role: 'tool',
@@ -289,9 +290,21 @@ export function planRequestBox(name: string, plan: string | undefined, planFile?
 	}
 }
 
+const SAID_PREFIX = 'The user declined this and said: '
+const GENERIC_DECLINE_PREFIX = 'The user declined this.'
+
+/** What a person wrote in a refusal. The stock text sent to the model when they wrote nothing is not theirs, so it is dropped. */
+function personsWords(feedback: string | undefined): string | undefined {
+	const text = feedback?.trim()
+	if (!text) return undefined
+	if (text.startsWith(SAID_PREFIX)) return text.slice(SAID_PREFIX.length).trim() || undefined
+	if (text.startsWith(GENERIC_DECLINE_PREFIX)) return undefined
+	return text
+}
+
 /** The answer to a plan: a green box when it is approved, a red one with what to change when it is not. */
 export function planAnswerBox(name: string, allow: boolean, feedback: string | undefined): BoxRow {
-	const note = feedback?.trim()
+	const note = personsWords(feedback)
 	return {
 		tone: tokenColor(allow ? 'status.ok' : 'status.error'),
 		title: [

@@ -111,7 +111,7 @@ describe('an idle teammate', () => {
 		)
 		expect(rows).toHaveLength(2)
 		expect(rows[1]).toMatchObject({ glyph: '⎿', content: 'wrote part one', meta: EXPAND_HINT })
-		expect(rows[1]?.detail).toEqual(['(task #3)', 'wrote part one', 'and tests'])
+		expect(rows[1]?.detail).toEqual(['(task #3)', 'and tests'])
 	})
 
 	it('has nothing to open when the answer is one short line and no task', () => {
@@ -190,6 +190,21 @@ describe('plans', () => {
 			'✗ Plan rejected by @one\nFeedback: cover the failure case\nRevise the plan and send it again for approval.',
 		)
 		expect(no.tone).toBe('theme:status.error')
+	})
+
+	it('shows only what the person wrote in a refusal, never the stock text sent to the model', () => {
+		const stock = planAnswerBox(
+			'one',
+			false,
+			'The user declined this. Do not get the same content or result another way unless you ask first.',
+		)
+		expect(boxText(stock)).toBe(
+			'✗ Plan rejected by @one\nRevise the plan and send it again for approval.',
+		)
+		const said = planAnswerBox('one', false, 'The user declined this and said: split step two')
+		expect(boxText(said)).toBe(
+			'✗ Plan rejected by @one\nFeedback: split step two\nRevise the plan and send it again for approval.',
+		)
 	})
 
 	it('is one box row in the batch for a request, an answer and a refusal', () => {
@@ -376,11 +391,10 @@ describe('the rows of one moment', () => {
 		expect(note.lastMessage).toBe('part two is ready for review')
 		const rows = idleRows('one', 'red', note, 2)
 		expect(rows[1]?.content).toBe('done')
-		expect(rows[1]?.detail).toEqual([
-			'(task #2)',
-			'Last message: part two is ready for review',
-			'done',
-		])
+		expect(rows[1]?.detail).toEqual(['(task #2)', 'Last message: part two is ready for review'])
+		// A first line cut short is shown whole in the expansion.
+		const long = 'x'.repeat(130)
+		expect(idleRows('one', 'red', { reason: 'available', result: long })[1]?.detail).toEqual([long])
 		// Without one, the expanded row has no such line.
 		expect(
 			idleRows('one', 'red', { reason: 'available', result: 'done\nmore' })[1]?.detail?.some((l) =>
