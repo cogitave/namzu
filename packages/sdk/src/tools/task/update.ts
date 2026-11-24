@@ -1,11 +1,16 @@
 import { z } from 'zod'
+import { TaskListError, isClaimableTaskStore } from '../../store/task/file.js'
 import type { TaskStore } from '../../types/task/index.js'
 import type { ToolDefinition } from '../../types/tool/index.js'
 import { asTaskId } from '../../utils/id.js'
 import { defineTool } from '../defineTool.js'
+import type { TaskToolScope } from './index.js'
 import { presentTaskUpdateCall, presentTaskUpdateResult } from './present.js'
 
-export function buildTaskUpdateTool(taskStore: TaskStore): ToolDefinition {
+export function buildTaskUpdateTool(
+	taskStore: TaskStore,
+	scope?: Pick<TaskToolScope, 'member'>,
+): ToolDefinition {
 	return defineTool({
 		name: 'task_update',
 		description:
@@ -61,14 +66,48 @@ export function buildTaskUpdateTool(taskStore: TaskStore): ToolDefinition {
 				}
 			}
 
-			if (addBlocks) {
-				for (const blockedId of addBlocks) {
-					await taskStore.block(taskId, asTaskId(blockedId))
+			// Only a list several sessions share can refuse an edge or a claim, and only it is asked to.
+			const shared = isClaimableTaskStore(taskStore) ? taskStore : undefined
+
+			try {
+				if (addBlocks) {
+					for (const blockedId of addBlocks) {
+						await taskStore.block(taskId, asTaskId(blockedId))
+					}
 				}
+				if (addBlockedBy) {
+					for (const blockerId of addBlockedBy) {
+						await taskStore.block(asTaskId(blockerId), taskId)
+					}
+				}
+			} catch (error) {
+				if (shared && error instanceof TaskListError) {
+					return { success: false, output: error.message }
+				}
+				throw error
 			}
-			if (addBlockedBy) {
-				for (const blockerId of addBlockedBy) {
-					await taskStore.block(asTaskId(blockerId), taskId)
+
+			// Moving a shared task to in_progress is a claim: it goes to one owner, and a task that is
+			// owned, closed or still waiting on a blocker says so instead of being taken.
+			let claimed: Awaited<ReturnType<TaskStore['get']>>
+			if (shared && status === 'in_progress') {
+				const claimant = owner ?? scope?.member
+				if (claimant !== undefined) {
+					const result = await shared.claimTask(taskId, claimant)
+					if (!result.ok) {
+						const reason: Record<typeof result.code, string> = {
+							not_found: `Task ${id} not found`,
+							already_claimed: `Task ${id} is already claimed by ${result.task?.owner ?? 'another member'}`,
+							already_resolved: `Task ${id} is already ${result.task?.status ?? 'closed'}; create a follow-up task instead`,
+							blocked: `Task ${id} is blocked by ${result.blockedBy?.join(', ') ?? 'another task'}; finish those first`,
+						}
+						return {
+							success: false,
+							output: reason[result.code],
+							data: { code: result.code },
+						}
+					}
+					claimed = result.task
 				}
 			}
 
@@ -76,8 +115,8 @@ export function buildTaskUpdateTool(taskStore: TaskStore): ToolDefinition {
 				subject,
 				description,
 				activeForm,
-				status,
-				owner,
+				status: claimed && status === 'in_progress' ? undefined : status,
+				owner: claimed ? undefined : owner,
 				metadata,
 			})
 

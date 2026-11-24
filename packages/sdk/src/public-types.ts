@@ -325,6 +325,13 @@ export type {
 export type { TaskContextScope } from './store/task/context.js'
 
 export type { TaskToolScope } from './tools/task/index.js'
+export type {
+	ClaimableTaskStore,
+	FileTaskStoreConfig,
+	TaskClaimFailure,
+	TaskClaimResult,
+	TaskListErrorCode,
+} from './store/task/file.js'
 
 export type { MappedStreamEvent } from './bridge/sse/index.js'
 

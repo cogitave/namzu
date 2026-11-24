@@ -36,10 +36,25 @@ Other processes read and change the same files: a second terminal, Desktop, and 
 - `appendMail` creates the mailbox create-exclusive, then reads it, adds the entry and replaces the file by rename under the mailbox's own lock. Appends from many processes are all kept. An entry that does not match the schema is dropped on read and on the next rewrite; a file that is not a JSON array reads as empty. A mailbox keeps at most 500 entries (read ones go first) and one entry carries at most 64 KiB of text. `drainMail` takes the unread entries and marks them read in one step, so none is handed out twice; `pruneMail` drops invalid entries and all but the newest read ones.
 - Writes to a team that was removed are refused with `team_not_found`, and the refusal does not bring the directory back.
 
+## The shared task list
+
+`FileTaskStore` keeps one task list that several processes (two terminals, Desktop, a later process backend) change at once, at `<NAMZU_HOME>/tasks/<list id>/`. The list id is the team name when the list belongs to a team, else the session id; it is letters, digits, `_`, `-` and `.`. Each task is one JSON file named by its id. `.highwatermark` issues every task its place in the list (`seq`), so the order of a list, and "the lowest task", never changes and a place is never handed out twice, not even after the task is deleted or the mark is lost (it is raised again from what is on disk). Task ids are the usual entity ids, not the places.
+
+Every change runs under lock files (the shared `file-lock` protocol: created exclusively, owner pid recorded, taken over when the owner has exited). The order is fixed, the list lock first and then task locks in sorted id order, so two changes cannot wait on each other. `DiskTaskStore`, the per-session store, is unchanged and still guards with in-process locks only.
+
+- `claimTask(id, owner)` answers `{ ok: true, task }` or `{ ok: false, code }` with `not_found`, `already_claimed` (another owner), `already_resolved` (completed or failed) or `blocked` (with the blockers not completed). A claim sets the owner and `in_progress`; the same owner claiming again changes nothing. `claim` keeps the `TaskStore` shape (the task or `undefined`).
+- A task is blocked only while a blocker is not completed, so completing a blocker unblocks its dependents with no write. A failed blocker keeps its dependents waiting (nothing downstream should run on work that did not happen); deleting a task removes its edges, which unblocks them.
+- `block` keeps both directions (`blocks` and `blockedBy`), ignores a repeated edge, and refuses a cycle (a task that already waits on the other, directly or through other tasks, or on itself) with a `TaskListError` of code `cycle`.
+- `nextClaimable()` is the lowest pending, unowned, unblocked task, which is what an idle member takes next.
+- `reset()` empties the list only when every task is completed (`not_all_completed` otherwise); the mark stays.
+- Events (`task.created`, `task.claimed`, `task.updated`, `task.deleted`) reach listeners of the process that made the change.
+
+The task tools use it when they are built over it (`buildTaskTools(store, { member })`): `task_get` is added (a task in full, with what it waits on), `task_update` to `in_progress` claims under the member name and says why a claim failed, a refused dependency is a plain refusal, and `task_list` shows every task of the list, not only the current turn. Over any other store the tools are exactly as before. In the CLI, `SubagentRuntimeOptions.childTaskStore` hands a list to the children of a turn; no host sets it yet.
+
 ## Removing teams
 
 `deleteTeam` removes a team's directory (never through a symlink). `sweepOrphans` removes the directories of teams whose lead process no longer exists, and directories with no readable config more than a minute after their last change (so one being created is left alone); a team that records no lead process is never removed by it. Tasks and transcripts live elsewhere and are not touched.
 
 ## What is not here yet
 
-The runner that starts a teammate inside the lead's process, `send_message` to a teammate, the shared task list and the permission and plan routing are later pieces, each described on its own page when it lands. A separate-process or pane backend is deferred; `TeammateBackend` (`start`, `send`, `stop`, `isAlive`) is the seam it will use.
+The runner that starts a teammate inside the lead's process, `send_message` to a teammate, the use of the task list by teammates and the permission and plan routing are later pieces, each described on its own page when it lands. A separate-process or pane backend is deferred; `TeammateBackend` (`start`, `send`, `stop`, `isAlive`) is the seam it will use.

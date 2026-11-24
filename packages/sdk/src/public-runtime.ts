@@ -667,6 +667,8 @@ export {
 // closed), and the refusal of a task store bound to another session.
 export { selectTaskContext } from './store/task/context.js'
 export { TaskSessionMismatchError } from './store/task/disk.js'
+// The task list several sessions share (teams): lock files, claim result codes, both-way dependencies.
+export { FileTaskStore, TaskListError, isClaimableTaskStore } from './store/task/file.js'
 // Cross-process possession of a session: its `lease.json`. Listing what is
 // waiting (pending decisions, turns, children) is `SessionIndex`'s job, which
 // comes through `./store/session-index/index.js` at the end of this file.
