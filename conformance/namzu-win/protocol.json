@@ -38,7 +38,17 @@
 {"name":"lease.begin, bare","wire":{"id":38,"op":"lease.begin"}},
 {"name":"lease.begin, every option","wire":{"id":39,"op":"lease.begin","windowId":"w:0000000000010a2c:4120","raise":true,"idleMs":1500,"ttlMs":20000,"leasePath":"C:\\Users\\a\\.namzu\\computer-use\\screen.lease","token":"7d1c"}},
 {"name":"lease.end","wire":{"id":40,"op":"lease.end","restore":true}},
-{"name":"lease.end, every option","wire":{"id":41,"op":"lease.end","restore":true,"keepCursor":true,"release":true}}
+{"name":"lease.end, every option","wire":{"id":41,"op":"lease.end","restore":true,"keepCursor":true,"release":true}},
+{"name":"foreground.get, with a process","wire":{"id":70,"op":"foreground.get","processId":4120}},
+{"name":"monitor.start, both","wire":{"id":71,"op":"monitor.start"}},
+{"name":"monitor.start, one hook","wire":{"id":72,"op":"monitor.start","hooks":["foreground"]}},
+{"name":"monitor.stop","wire":{"id":73,"op":"monitor.stop"}},
+{"name":"monitor.poll, everything kept","wire":{"id":74,"op":"monitor.poll"}},
+{"name":"monitor.poll, since","wire":{"id":75,"op":"monitor.poll","since":12}},
+{"name":"presence.act, a click","wire":{"id":76,"op":"presence.act","windowId":"w:0000000000010a2c:4120","kind":"click","at":{"x":640,"y":480}}},
+{"name":"presence.act, typing","wire":{"id":77,"op":"presence.act","windowId":"w:0000000000010a2c:4120","kind":"type"}},
+{"name":"presence.act, a move","wire":{"id":78,"op":"presence.act","windowId":"w:0000000000010a2c:4120","kind":"move","at":{"x":1,"y":2}}},
+{"name":"presence.hide","wire":{"id":79,"op":"presence.hide"}}
 ],
 "badRequests": [
 {"name":"not JSON","line":"hello","id":null,"code":"bad_request"},
@@ -70,7 +80,13 @@
 {"name":"capture of a target that does not exist","line":"{\"id\":58,\"op\":\"capture\",\"target\":{\"kind\":\"desktop\"},\"into\":\"/tmp\"}","id":58,"code":"bad_request"},
 {"name":"foreground.set without a window","line":"{\"id\":59,\"op\":\"foreground.set\"}","id":59,"code":"bad_request"},
 {"name":"lease.end without restore","line":"{\"id\":60,\"op\":\"lease.end\"}","id":60,"code":"bad_request"},
-{"name":"an op with its dot written as an underscore","line":"{\"id\":61,\"op\":\"foreground_get\"}","id":61,"code":"unknown_op"}
+{"name":"an op with its dot written as an underscore","line":"{\"id\":61,\"op\":\"foreground_get\"}","id":61,"code":"unknown_op"},
+{"name":"monitor.start, a hook that does not exist","line":"{\"id\":80,\"op\":\"monitor.start\",\"hooks\":[\"keys\"]}","id":80,"code":"bad_request"},
+{"name":"monitor.poll, a since that is text","line":"{\"id\":81,\"op\":\"monitor.poll\",\"since\":\"12\"}","id":81,"code":"bad_request"},
+{"name":"presence.act without a kind","line":"{\"id\":82,\"op\":\"presence.act\",\"windowId\":\"w:1\"}","id":82,"code":"bad_request"},
+{"name":"presence.act with a kind that does not exist","line":"{\"id\":83,\"op\":\"presence.act\",\"windowId\":\"w:1\",\"kind\":\"swipe\"}","id":83,"code":"bad_request"},
+{"name":"presence.act without a window","line":"{\"id\":84,\"op\":\"presence.act\",\"kind\":\"click\"}","id":84,"code":"bad_request"},
+{"name":"the old spelling of a monitor op","line":"{\"id\":85,\"op\":\"monitor_poll\"}","id":85,"code":"unknown_op"}
 ],
 "replies": [
 {"name":"hello","op":"hello","wire":{"id":1,"ok":true,"version":"0.1.0","buildHash":"a1b2c3d4","arch":"x86_64","osBuild":"26100","caps":["uia","hooks"],"dpiAwareness":"perMonitorV2"}},
@@ -113,7 +129,15 @@
 {"name":"lease.end, restored","op":"lease.end","wire":{"id":40,"ok":true,"restoredForeground":true,"restoredCursor":true,"inputMoved":true,"frontElevated":false,"released":false}},
 {"name":"lease.end, left alone","op":"lease.end","wire":{"id":41,"ok":true,"restoredForeground":false,"restoredCursor":false,"restoreNote":"another window was in front by then, so it was left alone","inputMoved":false,"frontElevated":true,"released":true}},
 {"name":"a refusal to an act","op":"act","wire":{"id":20,"ok":false,"code":"disabled","message":"the control is turned off"}},
-{"name":"a refusal to an input","op":"input","wire":{"id":24,"ok":false,"code":"foreground_lost","message":"the window the lease is for is not in front"}}
+{"name":"a refusal to an input","op":"input","wire":{"id":24,"ok":false,"code":"foreground_lost","message":"the window the lease is for is not in front"}},
+{"name":"monitor.start, both watched","op":"monitor.start","wire":{"id":71,"ok":true,"input":true,"foreground":true}},
+{"name":"monitor.start, raw input refused","op":"monitor.start","wire":{"id":72,"ok":true,"input":false,"foreground":true}},
+{"name":"monitor.stop","op":"monitor.stop","wire":{"id":73,"ok":true}},
+{"name":"monitor.poll, nothing yet","op":"monitor.poll","wire":{"id":74,"ok":true,"events":[],"seq":0,"inputs":0,"injectedInputs":0,"foregroundChanges":0,"dropped":false}},
+{"name":"monitor.poll, input and a foreground change","op":"monitor.poll","wire":{"id":75,"ok":true,"events":[{"seq":13,"kind":"input","tMs":5120,"device":"mouse","injected":false},{"seq":14,"kind":"input","tMs":5200,"device":"keyboard","injected":true},{"seq":15,"kind":"foreground","tMs":5300,"windowId":"w:0000000000010a2c:4120"}],"seq":15,"inputs":42,"injectedInputs":7,"foregroundChanges":3,"lastInputAgoMs":180,"dropped":true}},
+{"name":"presence.act","op":"presence.act","wire":{"id":76,"ok":true,"cursorWindow":263458,"frameWindow":263460}},
+{"name":"presence.hide","op":"presence.hide","wire":{"id":79,"ok":true}},
+{"name":"lease.end, with the count of a person's input","op":"lease.end","wire":{"id":42,"ok":true,"restoredForeground":true,"restoredCursor":false,"inputMoved":true,"frontElevated":false,"released":false,"inputsDuring":3}}
 ],
 "badReplies": [
 {"name":"not JSON","op":"displays","line":"ok"},
@@ -138,6 +162,10 @@
 {"name":"a capture by a means that does not exist","op":"capture","line":"{\"id\":1,\"ok\":true,\"path\":\"p\",\"bytes\":1,\"width\":1,\"height\":1,\"scale\":1,\"via\":\"xray\",\"sha256\":\"a\",\"bounds\":{\"x\":0,\"y\":0,\"width\":1,\"height\":1}}"},
 {"name":"a foreground state with no desktop","op":"foreground.get","line":"{\"id\":1,\"ok\":true,\"foreground\":null,\"cursor\":{\"x\":0,\"y\":0},\"selfElevated\":false,\"selfIntegrity\":0,\"inputTick\":0,\"userIdleMs\":0}"},
 {"name":"a raise that says how in a word that does not exist","op":"foreground.set","line":"{\"id\":1,\"ok\":true,\"raised\":true,\"changed\":true,\"how\":\"magic\"}"},
-{"name":"a lease end with no restore flags","op":"lease.end","line":"{\"id\":1,\"ok\":true,\"inputMoved\":true,\"frontElevated\":false,\"released\":false}"}
+{"name":"a lease end with no restore flags","op":"lease.end","line":"{\"id\":1,\"ok\":true,\"inputMoved\":true,\"frontElevated\":false,\"released\":false}"},
+{"name":"a monitor poll with no events","op":"monitor.poll","line":"{\"id\":1,\"ok\":true,\"seq\":0,\"inputs\":0,\"injectedInputs\":0,\"foregroundChanges\":0,\"dropped\":false}"},
+{"name":"a monitor event of a kind that does not exist","op":"monitor.poll","line":"{\"id\":1,\"ok\":true,\"events\":[{\"seq\":1,\"kind\":\"keystroke\",\"tMs\":1}],\"seq\":1,\"inputs\":0,\"injectedInputs\":0,\"foregroundChanges\":0,\"dropped\":false}"},
+{"name":"a monitor start with no input flag","op":"monitor.start","line":"{\"id\":1,\"ok\":true,\"foreground\":true}"},
+{"name":"a presence act with no frame window","op":"presence.act","line":"{\"id\":1,\"ok\":true,\"cursorWindow\":1}"}
 ]
 }

@@ -7,7 +7,9 @@
 //! snapshot ([`tree`]), the stream of changes a wait listens to ([`events`]), what
 //! `act` may do to a control ([`act`]), the plan an `input` is carried out as
 //! ([`input`]), the pixels of a `capture` ([`capture`]), the foreground lease
-//! ([`foreground`]) and the hashes and base64 the pictures need ([`bytes`]).
+//! ([`foreground`]), the hashes and base64 the pictures need ([`bytes`]), what the monitor
+//! tells about a person's input and the window in front ([`monitor`]) and the
+//! presence overlay's motion and drawing ([`presence`]).
 //! The Windows calls themselves live in the `namzu-win` crate and use these.
 //!
 //! The TypeScript side implements the same codec; `conformance/namzu-win/`
@@ -22,6 +24,8 @@ pub mod fingerprint;
 pub mod foreground;
 pub mod input;
 pub mod keys;
+pub mod monitor;
+pub mod presence;
 pub mod protocol;
 pub mod refs;
 pub mod tree;

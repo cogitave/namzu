@@ -13,6 +13,10 @@ use crate::foreground::{
     LeaseBeginReply, LeaseBeginRequest, LeaseEndReply, LeaseEndRequest,
 };
 use crate::input::{InputReply, InputRequest};
+use crate::monitor::{
+    MonitorPollReply, MonitorPollRequest, MonitorStartReply, MonitorStartRequest,
+};
+use crate::presence::{PresenceActReply, PresenceActRequest};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
@@ -24,7 +28,7 @@ pub const PROTOCOL: &str = "namzu-win/1";
 pub const MAX_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
 
 /// Every `op` a request may carry, in the order the design lists them.
-pub const OPS: [&str; 17] = [
+pub const OPS: [&str; 22] = [
     "hello",
     "windows",
     "displays",
@@ -40,6 +44,11 @@ pub const OPS: [&str; 17] = [
     "foreground.set",
     "lease.begin",
     "lease.end",
+    "monitor.start",
+    "monitor.stop",
+    "monitor.poll",
+    "presence.act",
+    "presence.hide",
     "cancel",
     "quit",
 ];
@@ -454,6 +463,16 @@ pub enum Request {
     LeaseBegin(LeaseBeginRequest),
     #[serde(rename = "lease.end")]
     LeaseEnd(LeaseEndRequest),
+    #[serde(rename = "monitor.start")]
+    MonitorStart(MonitorStartRequest),
+    #[serde(rename = "monitor.stop")]
+    MonitorStop,
+    #[serde(rename = "monitor.poll")]
+    MonitorPoll(MonitorPollRequest),
+    #[serde(rename = "presence.act")]
+    PresenceAct(PresenceActRequest),
+    #[serde(rename = "presence.hide")]
+    PresenceHide,
     Cancel(CancelRequest),
     Quit,
 }
@@ -476,6 +495,11 @@ pub enum Op {
     ForegroundSet,
     LeaseBegin,
     LeaseEnd,
+    MonitorStart,
+    MonitorStop,
+    MonitorPoll,
+    PresenceAct,
+    PresenceHide,
     Cancel,
     Quit,
 }
@@ -498,6 +522,11 @@ impl Op {
             Op::ForegroundSet => "foreground.set",
             Op::LeaseBegin => "lease.begin",
             Op::LeaseEnd => "lease.end",
+            Op::MonitorStart => "monitor.start",
+            Op::MonitorStop => "monitor.stop",
+            Op::MonitorPoll => "monitor.poll",
+            Op::PresenceAct => "presence.act",
+            Op::PresenceHide => "presence.hide",
             Op::Cancel => "cancel",
             Op::Quit => "quit",
         }
@@ -520,6 +549,11 @@ impl Op {
             "foreground.set" => Op::ForegroundSet,
             "lease.begin" => Op::LeaseBegin,
             "lease.end" => Op::LeaseEnd,
+            "monitor.start" => Op::MonitorStart,
+            "monitor.stop" => Op::MonitorStop,
+            "monitor.poll" => Op::MonitorPoll,
+            "presence.act" => Op::PresenceAct,
+            "presence.hide" => Op::PresenceHide,
             "cancel" => Op::Cancel,
             "quit" => Op::Quit,
             _ => return None,
@@ -545,6 +579,11 @@ impl Request {
             Request::ForegroundSet(_) => Op::ForegroundSet,
             Request::LeaseBegin(_) => Op::LeaseBegin,
             Request::LeaseEnd(_) => Op::LeaseEnd,
+            Request::MonitorStart(_) => Op::MonitorStart,
+            Request::MonitorStop => Op::MonitorStop,
+            Request::MonitorPoll(_) => Op::MonitorPoll,
+            Request::PresenceAct(_) => Op::PresenceAct,
+            Request::PresenceHide => Op::PresenceHide,
             Request::Cancel(_) => Op::Cancel,
             Request::Quit => Op::Quit,
         }
@@ -838,7 +877,10 @@ pub enum ReplyBody {
     ForegroundSet(ForegroundSetReply),
     LeaseBegin(LeaseBeginReply),
     LeaseEnd(LeaseEndReply),
-    /// `cancel` and `quit`: nothing but `ok`.
+    MonitorStart(MonitorStartReply),
+    MonitorPoll(MonitorPollReply),
+    PresenceAct(PresenceActReply),
+    /// `monitor.stop`, `presence.hide`, `cancel` and `quit`: nothing but `ok`.
     Ack,
 }
 
@@ -947,6 +989,9 @@ pub fn encode_reply(id: u64, reply: &Result<ReplyBody, WireError>) -> String {
                 ReplyBody::ForegroundSet(b) => serde_json::to_value(b),
                 ReplyBody::LeaseBegin(b) => serde_json::to_value(b),
                 ReplyBody::LeaseEnd(b) => serde_json::to_value(b),
+                ReplyBody::MonitorStart(b) => serde_json::to_value(b),
+                ReplyBody::MonitorPoll(b) => serde_json::to_value(b),
+                ReplyBody::PresenceAct(b) => serde_json::to_value(b),
                 ReplyBody::Ack => Ok(Value::Object(Map::new())),
             };
             if let Ok(Value::Object(fields)) = payload {
@@ -996,7 +1041,10 @@ pub fn decode_reply(
         Op::ForegroundSet => serde_json::from_value(payload).map(ReplyBody::ForegroundSet),
         Op::LeaseBegin => serde_json::from_value(payload).map(ReplyBody::LeaseBegin),
         Op::LeaseEnd => serde_json::from_value(payload).map(ReplyBody::LeaseEnd),
-        Op::Cancel | Op::Quit => Ok(ReplyBody::Ack),
+        Op::MonitorStart => serde_json::from_value(payload).map(ReplyBody::MonitorStart),
+        Op::MonitorPoll => serde_json::from_value(payload).map(ReplyBody::MonitorPoll),
+        Op::PresenceAct => serde_json::from_value(payload).map(ReplyBody::PresenceAct),
+        Op::MonitorStop | Op::PresenceHide | Op::Cancel | Op::Quit => Ok(ReplyBody::Ack),
     };
     body.map(|b| (id, Ok(b)))
         .map_err(|e| fail(format!("{} reply: {e}", op.name())))

@@ -1,6 +1,8 @@
 //! The Windows backend: the calls behind `windows`, `displays`, `snapshot`,
 //! `identity`, `resolve`, `seq`, `wait_change`, `act`, `input`, `capture`,
-//! `foreground.get`, `foreground.set`, `lease.begin` and `lease.end`.
+//! `foreground.get`, `foreground.set`, `lease.begin`, `lease.end`,
+//! `monitor.start`, `monitor.stop`, `monitor.poll`, `presence.act` and
+//! `presence.hide`.
 //!
 //! Three kinds of thread cooperate. The reader (the loop in `lib.rs`) answers
 //! the cheap ops inline. Two worker threads, in the multithreaded apartment,
@@ -18,6 +20,8 @@ mod enumerate;
 mod foreground;
 mod hooks;
 mod hub;
+mod monitor;
+mod presence;
 mod proc;
 mod sendinput;
 mod uia;
@@ -39,6 +43,8 @@ use namzu_win_core::foreground::{
     Restore, RestoreFacts, Win, lease_file_has_token,
 };
 use namzu_win_core::input::{self, InputReply, InputRequest, InputVia};
+use namzu_win_core::monitor::{MonitorPollRequest, MonitorStartReply, MonitorStartRequest};
+use namzu_win_core::presence::{PresenceActReply, PresenceActRequest};
 use namzu_win_core::protocol::{
     Action, DisplaysReply, ErrorCode, ExpandState, IdentityReply, IdentityRequest, Rect, ReplyBody,
     Request, ResolveRequest, SeqReply, Snapshot, SnapshotRequest, WindowsReply, WireError,
@@ -100,6 +106,10 @@ struct Inner {
     io: SerialExecutor,
     /// The lease a burst of input holds, if any.
     lease: Mutex<Option<Lease>>,
+    /// The raw-input and foreground watcher, while `monitor.start` has run.
+    monitor: Mutex<Option<monitor::Monitor>>,
+    /// The overlay's thread, started by the first `presence.act`.
+    presence: Mutex<Option<presence::Presence>>,
     /// The helper's own sending, so its input is not taken for a person's.
     own: Mutex<Option<OwnTicks>>,
     captures: AtomicU64,
@@ -210,6 +220,8 @@ impl WinBackend {
                 exec: SerialExecutor::new(uia::init_thread),
                 io: SerialExecutor::new(uia::init_thread),
                 lease: Mutex::new(None),
+                monitor: Mutex::new(None),
+                presence: Mutex::new(None),
                 own: Mutex::new(None),
                 captures: AtomicU64::new(0),
                 ui: Mutex::new(Ui::default()),
@@ -733,7 +745,7 @@ impl Inner {
     fn foreground_get(&self, r: &ForegroundGetRequest) -> Result<ReplyBody, WireError> {
         let target_pid = match &r.window_id {
             Some(id) => Some(window_of(id)?.1),
-            None => None,
+            None => r.process_id,
         };
         let own = *locked(&self.own);
         Ok(ReplyBody::ForegroundGet(foreground::state(own, target_pid)))
@@ -832,6 +844,7 @@ impl Inner {
             cursor,
             tick,
             file,
+            person_inputs: locked(&self.monitor).is_some().then(monitor::person_inputs),
         });
         let own = *locked(&self.own);
         Ok(ReplyBody::LeaseBegin(LeaseBeginReply {
@@ -840,6 +853,65 @@ impl Inner {
             raised: raise_result.map(|(r, _)| r),
             raise_how: raise_result.map(|(_, h)| h),
         }))
+    }
+
+    fn monitor_start(&self, r: &MonitorStartRequest) -> Result<ReplyBody, WireError> {
+        let mut slot = locked(&self.monitor);
+        if let Some(running) = slot.as_ref() {
+            return Ok(ReplyBody::MonitorStart(MonitorStartReply {
+                input: running.input,
+                foreground: running.foreground,
+            }));
+        }
+        let started = monitor::Monitor::start(r)
+            .ok_or_else(|| err(ErrorCode::Internal, "the monitor thread did not start"))?;
+        let reply = MonitorStartReply {
+            input: started.input,
+            foreground: started.foreground,
+        };
+        *slot = Some(started);
+        Ok(ReplyBody::MonitorStart(reply))
+    }
+
+    fn monitor_stop(&self) {
+        let taken = locked(&self.monitor).take();
+        if let Some(m) = taken {
+            m.stop();
+        }
+    }
+
+    fn monitor_poll(&self, r: &MonitorPollRequest) -> Result<ReplyBody, WireError> {
+        if locked(&self.monitor).is_none() {
+            return Err(err(
+                ErrorCode::BadRequest,
+                "the monitor is not running; send monitor.start first",
+            ));
+        }
+        Ok(ReplyBody::MonitorPoll(monitor::poll(r.since)))
+    }
+
+    fn presence_act(&self, r: &PresenceActRequest) -> Result<ReplyBody, WireError> {
+        let (window, _) = window_of(&r.window_id)?;
+        let mut slot = locked(&self.presence);
+        if slot.is_none() {
+            *slot = presence::Presence::start();
+        }
+        let overlay = slot
+            .as_ref()
+            .ok_or_else(|| err(ErrorCode::Internal, "the overlay thread did not start"))?;
+        let (cursor_window, frame_window) = overlay
+            .act(hwnd_value(window), r.kind, r.at)
+            .ok_or_else(|| err(ErrorCode::Internal, "the overlay could not be shown"))?;
+        Ok(ReplyBody::PresenceAct(PresenceActReply {
+            cursor_window,
+            frame_window,
+        }))
+    }
+
+    fn presence_hide(&self) {
+        if let Some(overlay) = locked(&self.presence).as_ref() {
+            overlay.hide();
+        }
     }
 
     fn lease_end(&self, r: &LeaseEndRequest) -> Result<ReplyBody, WireError> {
@@ -900,6 +972,11 @@ impl Inner {
                 restored_cursor = foreground::set_cursor(lease.cursor);
             }
         }
+        let inputs_during = lease.person_inputs.and_then(|before| {
+            locked(&self.monitor)
+                .is_some()
+                .then(|| monitor::person_inputs().saturating_sub(before))
+        });
         let mut released = false;
         if release {
             if let Some((path, token)) = &lease.file {
@@ -917,6 +994,7 @@ impl Inner {
             input_moved,
             front_elevated,
             released,
+            inputs_during,
         })
     }
 }
@@ -988,6 +1066,9 @@ impl Backend for WinBackend {
             "capture",
             "foreground",
             "lease",
+            "monitor",
+            "rawinput",
+            "presence",
             "uia",
             "hooks",
             "sendinput",
@@ -1171,6 +1252,39 @@ impl Backend for WinBackend {
                     move |i| i.lease_end(&r),
                 );
             }
+            Request::MonitorStart(r) => {
+                let reply = inner.monitor_start(&r);
+                responder.send(reply);
+            }
+            Request::MonitorStop => {
+                inner.monitor_stop();
+                responder.ok(ReplyBody::Ack);
+            }
+            Request::MonitorPoll(r) => {
+                let reply = inner.monitor_poll(&r);
+                responder.send(reply);
+            }
+            Request::PresenceAct(r) => {
+                submit_io(
+                    inner,
+                    id,
+                    DEFAULT_TASK_MS,
+                    SharedResponder::new(responder),
+                    move |i| i.presence_act(&r),
+                );
+            }
+            Request::PresenceHide => {
+                submit_io(
+                    inner,
+                    id,
+                    DEFAULT_TASK_MS,
+                    SharedResponder::new(responder),
+                    move |i| {
+                        i.presence_hide();
+                        Ok(ReplyBody::Ack)
+                    },
+                );
+            }
             // Answered by the loop before they get here.
             Request::Hello(_) | Request::Cancel(_) | Request::Quit => {
                 responder.fail(ErrorCode::Internal, "this op is answered by the loop");
@@ -1185,6 +1299,11 @@ impl Backend for WinBackend {
         let held = locked(&self.inner.lease).is_some();
         if held {
             let _ = self.inner.end_lease(true, false, true);
+        }
+        self.inner.monitor_stop();
+        let overlay = locked(&self.inner.presence).take();
+        if let Some(overlay) = overlay {
+            overlay.stop();
         }
     }
 

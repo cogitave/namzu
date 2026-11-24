@@ -688,6 +688,7 @@ fn the_helper_acts_on_a_real_window() {
     let ReplyBody::ForegroundGet(state) = h
         .call(Request::ForegroundGet(ForegroundGetRequest {
             window_id: Some(id.clone()),
+            process_id: None,
         }))
         .unwrap()
     else {

@@ -91,7 +91,7 @@ impl Drop for Helper {
     }
 }
 
-pub fn hello(h: &mut Helper) {
+pub fn hello(h: &mut Helper) -> protocol::HelloReply {
     let reply = h
         .call(Request::Hello(protocol::HelloRequest {
             protocol: protocol::PROTOCOL.to_owned(),
@@ -113,4 +113,5 @@ pub fn hello(h: &mut Helper) {
     ] {
         assert!(hello.caps.iter().any(|c| c == cap), "missing cap {cap}");
     }
+    hello
 }

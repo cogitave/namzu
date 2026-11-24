@@ -75,6 +75,9 @@ pub struct ForegroundGetRequest {
     /// Also report this window's process.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub window_id: Option<String>,
+    /// Also report this process (when no window of it is at hand).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub process_id: Option<u32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -201,6 +204,11 @@ pub struct LeaseEndReply {
     pub front_elevated: bool,
     /// The lease file was deleted.
     pub released: bool,
+    /// Input events a person's keyboard and mouse produced between `begin`
+    /// and `end`, as the monitor counts them. Absent when the monitor was not
+    /// running for the whole burst.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inputs_during: Option<u64>,
 }
 
 // ---------------------------------------------------------------------------
@@ -228,6 +236,8 @@ pub struct Lease {
     /// The system's last-input tick after the raise: input that moves it is the burst's.
     pub tick: u64,
     pub file: Option<(String, String)>,
+    /// The monitor's count of a person's input at `begin`, when it was running.
+    pub person_inputs: Option<u64>,
 }
 
 impl Lease {
@@ -355,6 +365,7 @@ mod tests {
             cursor: Point { x: 0, y: 0 },
             tick: 0,
             file: None,
+            person_inputs: None,
         }
     }
 
