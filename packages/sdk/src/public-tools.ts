@@ -185,6 +185,7 @@ export {
 	STANDARD_SCREENSHOT_LIMITS,
 	computerUseUnavailableReason,
 	createComputerUseTool,
+	screenshotLimitsForModel,
 	screenshotTargetSize,
 } from './tools/builtins/computer-use.js'
 // The browser contract: the two tools over a host a separate package

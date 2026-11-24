@@ -83,7 +83,11 @@ function makeHost(options: Options = {}) {
 			windowCapture: true,
 			uiTree: true,
 		},
-		getDisplayGeometry: async () => ({ width: 640, height: 400, scaleFactor: 1 }),
+		getDisplayGeometry: async () => ({
+			width: 640,
+			height: 400,
+			scaleFactor: 1,
+		}),
 		async execute(action) {
 			if (action.type === 'screenshot')
 				return {
@@ -93,7 +97,14 @@ function makeHost(options: Options = {}) {
 						mimeType: 'image/png',
 						width: 640,
 						height: 400,
-						display: { id: 'p', x: 0, y: 0, width: 640, height: 400, scaleFactor: 1 },
+						display: {
+							id: 'p',
+							x: 0,
+							y: 0,
+							width: 640,
+							height: 400,
+							scaleFactor: 1,
+						},
 					},
 				}
 			return options.display?.() ?? { type: 'ok' }
@@ -169,7 +180,11 @@ describe('ui_act delivery', () => {
 		})
 		const tool = createComputerUseTool(host, FAST)
 		await withRefs(tool)
-		const result = await run(tool, { type: 'ui_act', ref: 'e1', action: 'invoke' })
+		const result = await run(tool, {
+			type: 'ui_act',
+			ref: 'e1',
+			action: 'invoke',
+		})
 		expect(result.success).toBe(true)
 		expect(text(result)).toContain('done, verified (reads "Ada")')
 		expect(result.data).toMatchObject({
@@ -188,7 +203,11 @@ describe('ui_act delivery', () => {
 		})
 		const tool = createComputerUseTool(host, FAST)
 		await withRefs(tool)
-		const result = await run(tool, { type: 'ui_act', ref: 'e1', action: 'invoke' })
+		const result = await run(tool, {
+			type: 'ui_act',
+			ref: 'e1',
+			action: 'invoke',
+		})
 		const shown = text(result)
 		expect(shown).toContain('sent, no effect seen. The window did not change after the input.')
 		expect(shown).toContain('safe to send it again')
@@ -206,7 +225,11 @@ describe('ui_act delivery', () => {
 		})
 		const tool = createComputerUseTool(host, FAST)
 		await withRefs(tool)
-		const result = await run(tool, { type: 'ui_act', ref: 'e1', action: 'invoke' })
+		const result = await run(tool, {
+			type: 'ui_act',
+			ref: 'e1',
+			action: 'invoke',
+		})
 		expect(result.success).toBe(true)
 		const shown = text(result)
 		expect(shown).toContain('sent, not confirmed')
@@ -228,7 +251,11 @@ describe('ui_act delivery', () => {
 		})
 		const tool = createComputerUseTool(host, FAST)
 		await withRefs(tool)
-		const result = await run(tool, { type: 'ui_act', ref: 'e2', action: 'invoke' })
+		const result = await run(tool, {
+			type: 'ui_act',
+			ref: 'e2',
+			action: 'invoke',
+		})
 		expect(result.success).toBe(false)
 		expect(result.error).toContain('still holds "red"')
 		expect(result.error).toContain('Not delivered')
@@ -248,17 +275,27 @@ describe('ui_act delivery', () => {
 		})
 		const tool = createComputerUseTool(host, FAST)
 		await withRefs(tool)
-		const result = await run(tool, { type: 'ui_act', ref: 'e1', action: 'invoke' })
+		const result = await run(tool, {
+			type: 'ui_act',
+			ref: 'e1',
+			action: 'invoke',
+		})
 		expect(result.success).toBe(false)
 		expect(result.error).toContain('It may have taken effect')
-		expect(result.data).toMatchObject({ steps: [{ delivery: 'delivered_unverified' }] })
+		expect(result.data).toMatchObject({
+			steps: [{ delivery: 'delivered_unverified' }],
+		})
 	})
 
 	it('still says plain done for a host that does not classify', async () => {
 		const { host } = makeHost()
 		const tool = createComputerUseTool(host, FAST)
 		await withRefs(tool)
-		const result = await run(tool, { type: 'ui_act', ref: 'e1', action: 'invoke' })
+		const result = await run(tool, {
+			type: 'ui_act',
+			ref: 'e1',
+			action: 'invoke',
+		})
 		expect(text(result)).toMatch(/: done/)
 	})
 })
@@ -322,16 +359,26 @@ describe('first coordinate click in a window', () => {
 		const tool = createComputerUseTool(host, FAST)
 		await run(tool, { type: 'ui_snapshot', window_id: '0x10' })
 		await run(tool, { type: 'screenshot', window_id: '0x10' })
-		const first = await run(tool, { type: 'mouse_click', at: { x: 10, y: 10 } })
+		const first = await run(tool, {
+			type: 'mouse_click',
+			at: { x: 10, y: 10 },
+		})
 		expect(first.success).toBe(true)
 		expect(text(first)).toContain('use ui_act on a ref')
-		const second = await run(tool, { type: 'mouse_click', at: { x: 10, y: 10 } })
+		const second = await run(tool, {
+			type: 'mouse_click',
+			at: { x: 10, y: 10 },
+		})
 		expect(second.success).toBe(true)
 		expect(text(second)).not.toContain('use ui_act on a ref')
 	})
 
 	it('points a window nobody has read at ui_snapshot, and stays quiet for a window with no controls', async () => {
-		const unread = makeHost()
+		const unread = makeHost({
+			snapshots: () => {
+				throw new Error('the window did not answer')
+			},
+		})
 		const tool = createComputerUseTool(unread.host, FAST)
 		await run(tool, { type: 'screenshot', window_id: '0x10' })
 		expect(text(await run(tool, { type: 'mouse_click', at: { x: 1, y: 1 } }))).toContain(
@@ -341,7 +388,10 @@ describe('first coordinate click in a window', () => {
 		const second = createComputerUseTool(bare.host, FAST)
 		await run(second, { type: 'ui_snapshot', window_id: '0x10' })
 		await run(second, { type: 'screenshot', window_id: '0x10' })
-		const result = await run(second, { type: 'mouse_click', at: { x: 1, y: 1 } })
+		const result = await run(second, {
+			type: 'mouse_click',
+			at: { x: 1, y: 1 },
+		})
 		expect(result.success).toBe(true)
 		expect(text(result)).not.toContain('ui_snapshot')
 	})
@@ -353,13 +403,22 @@ describe('wait_for', () => {
 		const schema = tool.modelInputSchema as {
 			properties: Record<
 				string,
-				{ enum?: string[]; items?: { properties: Record<string, { enum?: string[] }> } }
+				{
+					enum?: string[]
+					items?: { properties: Record<string, { enum?: string[] }> }
+				}
 			>
 		}
 		expect(schema.properties.type?.enum).toContain('wait_for')
 		expect(schema.properties.actions?.items?.properties.type?.enum).not.toContain('wait_for')
 		expect(schema.properties).toHaveProperty('until')
-		expect(tool.isReadOnly?.({ type: 'wait_for', until: 'element_appears', match: 'x' })).toBe(true)
+		expect(
+			tool.isReadOnly?.({
+				type: 'wait_for',
+				until: 'element_appears',
+				match: 'x',
+			}),
+		).toBe(true)
 	})
 
 	it('returns the controls as soon as an element appears, with fresh refs', async () => {
@@ -391,7 +450,9 @@ describe('wait_for', () => {
 	it('waits for an element to go and for text to appear', async () => {
 		vi.useFakeTimers()
 		let reads = 0
-		const { host } = makeHost({ snapshots: () => (++reads < 2 ? tree('Busy') : tree('Done')) })
+		const { host } = makeHost({
+			snapshots: () => (++reads < 2 ? tree('Busy') : tree('Done')),
+		})
 		const tool = createComputerUseTool(host, FAST)
 		const gone = run(tool, {
 			type: 'wait_for',
@@ -401,7 +462,11 @@ describe('wait_for', () => {
 		})
 		await vi.advanceTimersByTimeAsync(2_000)
 		expect((await gone).success).toBe(true)
-		const text2 = run(tool, { type: 'wait_for', until: 'text_appears', match: 'DONE' })
+		const text2 = run(tool, {
+			type: 'wait_for',
+			until: 'text_appears',
+			match: 'DONE',
+		})
 		await vi.advanceTimersByTimeAsync(2_000)
 		expect((await text2).success).toBe(true)
 	})
@@ -511,17 +576,29 @@ describe('wait_for', () => {
 			windows: () => (++listed < 2 ? [] : [{ ...WINDOW, title: 'Save As' }]),
 		})
 		const tool = createComputerUseTool(host, FAST)
-		const open = run(tool, { type: 'wait_for', until: 'window_appears', match: 'save as' })
+		const open = run(tool, {
+			type: 'wait_for',
+			until: 'window_appears',
+			match: 'save as',
+		})
 		await vi.advanceTimersByTimeAsync(2_000)
 		expect(text(await open)).toContain('satisfied')
-		const closed = run(tool, { type: 'wait_for', until: 'window_closed', match: 'zzz' })
+		const closed = run(tool, {
+			type: 'wait_for',
+			until: 'window_closed',
+			match: 'zzz',
+		})
 		await vi.advanceTimersByTimeAsync(2_000)
 		expect((await closed).success).toBe(true)
 	})
 
 	it('needs a window for a control or text condition', async () => {
 		const tool = createComputerUseTool(makeHost().host, FAST)
-		const result = await run(tool, { type: 'wait_for', until: 'text_appears', match: 'x' })
+		const result = await run(tool, {
+			type: 'wait_for',
+			until: 'text_appears',
+			match: 'x',
+		})
 		expect(result.success).toBe(false)
 		expect(result.error).toContain('needs window_id')
 	})
@@ -532,7 +609,12 @@ describe('wait_for', () => {
 		const tool = createComputerUseTool(makeHost().host, FAST)
 		const result = await run(
 			tool,
-			{ type: 'wait_for', until: 'text_appears', match: 'x', window_id: '0x10' },
+			{
+				type: 'wait_for',
+				until: 'text_appears',
+				match: 'x',
+				window_id: '0x10',
+			},
 			controller.signal,
 		)
 		expect(result.success).toBe(false)

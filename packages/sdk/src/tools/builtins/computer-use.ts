@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { z } from 'zod'
 import { modelReadsImages, resolveProviderCapabilities } from '../../provider/capabilities.js'
 import type {
@@ -38,6 +39,7 @@ import {
 } from './computer-use-coordinates.js'
 import {
 	type FittedImage,
+	HIGH_RES_SCREENSHOT_LIMITS,
 	STANDARD_SCREENSHOT_LIMITS,
 	type ScreenshotLimits,
 	cropAndFitPng,
@@ -52,6 +54,26 @@ export {
 	screenshotTargetSize,
 } from './computer-use-image.js'
 export type { ImageSize, ScreenshotLimits } from './computer-use-image.js'
+
+/**
+ * The limits to fit a screenshot to for `model`: the high-resolution tier for
+ * a model known to read it (the 4.7 and later models of the vendor behind that
+ * tier, with or without a vendor prefix or a dated suffix), the standard tier for every
+ * other model, including one the table does not know. A wrong "high" costs a
+ * rejected tool result; a wrong "standard" only costs detail, so an unknown
+ * model gets the standard tier.
+ */
+export function screenshotLimitsForModel(model: string | undefined): ScreenshotLimits {
+	if (model === undefined) return STANDARD_SCREENSHOT_LIMITS
+	const match = /claude-(?:opus|sonnet|haiku|fable)-(\d+)(?:[-.](\d{1,2})(?!\d))?/i.exec(model)
+	if (!match) return STANDARD_SCREENSHOT_LIMITS
+	const major = Number(match[1])
+	const minor = match[2] === undefined ? 0 : Number(match[2])
+	// A dated id such as `claude-sonnet-4-20250514` has no minor: the date is not one.
+	return major > 4 || (major === 4 && minor >= 7)
+		? HIGH_RES_SCREENSHOT_LIMITS
+		: STANDARD_SCREENSHOT_LIMITS
+}
 
 export const COMPUTER_USE_TOOL_NAME = 'computer_use' as const
 
@@ -87,8 +109,12 @@ async function settleAfterActions(
 	await sleep(settleMs, signal)
 }
 const MAX_LISTED_WINDOWS = 50
-/** The most of a ui_snapshot the model is shown, in characters (about 4 000 tokens). */
-const MAX_UI_SNAPSHOT_CHARS = 14_000
+/** Steps after which a batch may end with the window's controls instead of a picture. */
+const TREE_ENDING_STEPS: ReadonlySet<string> = new Set(['ui_act', 'ui_do', 'type_text', 'key'])
+/** Steps that aim at a pixel of a screenshot. */
+const PIXEL_STEPS: ReadonlySet<string> = new Set(['mouse_click', 'mouse_drag', 'scroll'])
+/** The most of a ui_snapshot the model is shown, in characters (about 7 000 tokens). */
+const MAX_UI_SNAPSHOT_CHARS = 24_000
 /** The refs of earlier snapshots the tool still resolves for the host. */
 const MAX_HELD_UI_REFS = 4_000
 
@@ -162,9 +188,11 @@ export interface ComputerUseToolOptions {
 	 * What every screenshot and zoom image is fitted to before the model sees
 	 * it. Default {@link STANDARD_SCREENSHOT_LIMITS}, which every current vision
 	 * model takes without a further resize; {@link HIGH_RES_SCREENSHOT_LIMITS}
-	 * only when every model the session can reach is on that tier.
+	 * only when every model the session can reach is on that tier. A function
+	 * is asked before every capture, for a session whose model changes between
+	 * turns; see {@link screenshotLimitsForModel}.
 	 */
-	readonly screenshotLimits?: ScreenshotLimits
+	readonly screenshotLimits?: ScreenshotLimits | (() => ScreenshotLimits)
 	/**
 	 * Milliseconds to wait after an action before the screenshot it returns,
 	 * so a menu has opened or a page has started to paint. Default 500.
@@ -357,6 +385,10 @@ const uiSnapshotSchema = z.object({
 	offset: z.number().int().min(0).max(1_000_000).optional(),
 	/** Only controls whose text contains this, with the elements above them. */
 	query: z.string().min(1).max(200).optional(),
+	/** Only controls of this role (comma-separated for several), with the elements above them. */
+	role: z.string().min(1).max(120).optional(),
+	/** Show the whole tree even where the window was read before (the default shows what changed). */
+	full: z.boolean().optional(),
 })
 const WAIT_FOR_CONDITIONS = [
 	'element_appears',
@@ -767,20 +799,20 @@ function buildDescription(
 		)
 	lines.push(
 		'Coordinates: every x/y you send is a pixel of the most recent screenshot this tool returned — origin at its top-left, x to the right, y down — never a screen pixel. Each screenshot states its id and size (for example "s3: 1456x819"); stay inside it. Display screenshots map onto the display. To aim at an earlier display screenshot, pass its id as screenshot_id.',
-		'Take a screenshot before your first click on pixels.',
+		'Click coordinates need a screenshot to refer to; any action that changes something already returns one, so take one yourself only when none has been shown yet.',
 		"Look at the screen before you say what state an application is in. Never click links with computer use: a page is the browser tool's. Prefer a connected tool or a command line to the screen when one does the job.",
 	)
 	if (settings.screenshotAfterActions)
 		lines.push(
-			`After any action that changes something, the tool waits ${settings.settleMs} ms and returns a new screenshot — do not call screenshot again after acting.`,
+			`After any action that changes something, the tool itself waits for the window to stop changing (at most ${settings.settleMs} ms) and then returns the result — do not add a wait or call screenshot after acting.`,
 		)
 	lines.push(
-		'zoom returns a closer, sharper view of region {x, y, width, height} of the screenshot; your coordinates still refer to the screenshot, not to the zoomed image.',
+		`zoom returns a closer, sharper view of region {x, y, width, height} of the screenshot; your coordinates still refer to the screenshot, not to the zoomed image. It is for reading small text that ${available.includes('ui_snapshot') ? "the window's controls do not name" : 'the screenshot shows too small'}, not a step to take before acting: act on what you can already see.`,
 		`wait pauses for ms milliseconds (at most ${settings.maxWaitMs} per call, a batch's waits together) and then shows the screen.${available.includes('wait_for') ? ' Prefer wait_for to a fixed wait whenever you know what you are waiting for.' : ''}`,
 	)
 	if (available.includes('batch'))
 		lines.push(
-			`batch: {"type":"batch","actions":[...]} runs up to ${settings.maxBatchActions} actions in order, stops at the first one that fails, and returns one screenshot at the end. Every call costs a model round trip of several seconds, so put the steps you can already predict into one batch (click a field, type, press ENTER) rather than one call each — but end the batch at any step that should bring up a new window, and look before typing into it. A batch cannot contain screenshot${available.includes('ui_snapshot') ? ', zoom or ui_snapshot' : ' or zoom'}.`,
+			`batch: {"type":"batch","actions":[...]} runs up to ${settings.maxBatchActions} actions in order, stops at the first one that fails (a ref that cannot be found or is ambiguous included, so nothing after it runs), and ends with what changed in the window's controls when you have read that window, or else one screenshot. The tool settles after each action, so a batch needs no wait between steps. Every call costs a model round trip of several seconds, so put the steps you can already predict into one batch (click a field, type, press ENTER) rather than one call each — but end the batch at any step that should bring up a new window, and look before typing into it. A batch cannot contain screenshot${available.includes('ui_snapshot') ? ', zoom or ui_snapshot' : ' or zoom'}.`,
 		)
 	if (
 		caps.displayServer === 'win32' &&
@@ -804,7 +836,7 @@ function buildDescription(
 		)
 	if (available.includes('ui_snapshot'))
 		lines.push(
-			`ui_snapshot {window_id} reads a window's controls (its accessibility tree) as text, each control you can act on with a ref such as e12; without window_id it reads the window in front. A large window comes back as an outline: a region ends with "(+N more inside)" and has a ref; ui_snapshot {root: <that ref>} reads that region alone (a long one in pages: offset) and keeps every other ref usable, and ui_snapshot {query: <text>} lists only the controls whose text matches. ui_act {ref, action, value} acts on one control: invoke (press a button, open a menu item), set_value (replace a field's text with value), toggle, select, expand, collapse. A batch of ui_act steps (for example pressing several buttons) runs in one call. A ref names its control and stays usable after later snapshots and after you act: the control is found again by its id, its place and its name before anything is sent. If it cannot be found the step fails with STALE_REF, and if several controls fit it fails with AMBIGUOUS_TARGET; in both nothing was sent, so take a ui_snapshot and choose again.`,
+			`ui_snapshot {window_id} reads a window's controls (its accessibility tree) as text, each control you can act on with a ref such as e12; without window_id it reads the window in front. A large window comes back as an outline: a region ends with "(+N more inside)" and has a ref; ui_snapshot {root: <that ref>} reads that region alone (a long one in pages: offset) and keeps every other ref usable, and ui_snapshot {query: <text>} lists only the controls whose text matches, and ui_snapshot {role: "Button"} only those of that type (both keep the elements above them). A window you have read before comes back as what changed since (+ added, ~ changed, - gone, or "no change"), with every earlier ref still usable; ui_snapshot {full: true} lists the whole tree. The result ends with the focused control and any selected text. A window screenshot of a window not yet read comes with its controls. ui_act {ref, action, value} acts on one control: invoke (press a button, open a menu item), set_value (replace a field's text with value), toggle, select, expand, collapse. A batch of ui_act steps (for example pressing several buttons) runs in one call. A ref names its control and stays usable after later snapshots and after you act: the control is found again by its id, its place and its name before anything is sent. If it cannot be found the step fails with STALE_REF, and if several controls fit it fails with AMBIGUOUS_TARGET; in both nothing was sent, so take a ui_snapshot and choose again.`,
 			'Each ui_act says what is known. "done, verified" means the control was read back and matches. "sent, not confirmed" means the input went out and nothing could check it: look (ui_snapshot, or a window screenshot) before repeating it, because repeating can act twice. A failure that says "not delivered" means nothing reached the control, so trying again, or another way, is safe. set_value on a control that does not take the value fails with that reason instead of being typed in; select on a list row selects it without opening it (invoke opens it).',
 			...(available.includes('wait_for')
 				? [
@@ -889,7 +921,7 @@ const ACTION_REQUIREMENTS: Readonly<Record<ToolActionType, string>> = {
 	list_windows: 'list_windows needs no other fields',
 	focus_window: 'focus_window needs window_id',
 	ui_snapshot:
-		'ui_snapshot takes an optional window_id, root (a ref to open) and query (text to find)',
+		'ui_snapshot takes an optional window_id, root (a ref to open), query (text to find), role (a control type to list) and full (the whole tree instead of what changed)',
 	wait_for: 'wait_for needs until and match; role, window_id and timeout_ms are optional',
 	ui_act: 'ui_act needs ref and action, and value for set_value',
 	ui_do: 'ui_do needs target (the control, in words) and action, and value for set_value',
@@ -1003,6 +1035,16 @@ function hostModelSchema(
 				type: 'string',
 				description:
 					'For ui_snapshot: list only the controls whose text contains this (case-insensitive), with the elements above them.',
+			}
+			fields.role = {
+				type: 'string',
+				description:
+					'For ui_snapshot: list only controls of this role, such as Button or Edit (comma-separated for several), with the elements above them. Combines with query.',
+			}
+			fields.full = {
+				type: 'boolean',
+				description:
+					'For ui_snapshot: true shows the whole tree. By default a window read before shows only what changed since that read.',
 			}
 		}
 		if (!forItems && present.includes('wait_for')) {
@@ -1280,7 +1322,7 @@ function batchLabel(
 // ---------------------------------------------------------------------------
 
 interface ResolvedSettings {
-	readonly limits: ScreenshotLimits
+	readonly limits: () => ScreenshotLimits
 	readonly settleMs: number
 	readonly screenshotAfterActions: boolean
 	readonly maxBatchActions: number
@@ -1294,18 +1336,22 @@ function resolveSettings(options: ComputerUseToolOptions): ResolvedSettings {
 			throw new RangeError(`createComputerUseTool: ${name} must be an integer ≥ ${min}`)
 		return value
 	}
-	const limits = options.screenshotLimits ?? STANDARD_SCREENSHOT_LIMITS
-	if (
-		!Number.isSafeInteger(limits.maxLongEdge) ||
-		!Number.isSafeInteger(limits.maxTiles) ||
-		limits.maxLongEdge < 28 ||
-		limits.maxTiles < 1
-	)
-		throw new RangeError(
-			'createComputerUseTool: screenshotLimits needs an integer maxLongEdge ≥ 28 and maxTiles ≥ 1',
+	const source = options.screenshotLimits ?? STANDARD_SCREENSHOT_LIMITS
+	const check = (limits: ScreenshotLimits): ScreenshotLimits => {
+		if (
+			!Number.isSafeInteger(limits.maxLongEdge) ||
+			!Number.isSafeInteger(limits.maxTiles) ||
+			limits.maxLongEdge < 28 ||
+			limits.maxTiles < 1
 		)
+			throw new RangeError(
+				'createComputerUseTool: screenshotLimits needs an integer maxLongEdge ≥ 28 and maxTiles ≥ 1',
+			)
+		return limits
+	}
+	check(typeof source === 'function' ? source() : source)
 	return {
-		limits,
+		limits: () => check(typeof source === 'function' ? source() : source),
 		settleMs: count(options.settleMs, DEFAULT_SETTLE_MS, 0, 'settleMs'),
 		screenshotAfterActions: options.screenshotAfterActions ?? true,
 		maxBatchActions: count(
@@ -1647,6 +1693,19 @@ export function createComputerUseTool(
 	const uiRefByHost = new Map<string, string>()
 	// The refs the latest reading of each window showed, so an advisor is asked about what is there now.
 	const shownRefs = new Map<string, Set<string>>()
+	// The last whole-window read of each window, for showing only what changed next time.
+	const uiSnapshotMemory = new Map<
+		string,
+		{
+			readonly id: string
+			readonly entries:
+				| readonly {
+						readonly hostRef: string | undefined
+						readonly text: string
+				  }[]
+				| undefined
+		}
+	>()
 	let uiSnapshots = 0
 	let uiRefCount = 0
 	let uiSnapshotWindowId: string | undefined
@@ -1714,12 +1773,14 @@ export function createComputerUseTool(
 				windowId,
 				callSignal,
 			)
-			const image = await fitPng(shot.data, settings.limits)
+			const image = await fitPng(shot.data, settings.limits())
 			if (image.sourceWidth !== shot.width || image.sourceHeight !== shot.height)
 				throw new StepFailure(
 					'the window PNG dimensions changed during capture; take a new screenshot',
 				)
-			return { frame: frames.recordWindow(image, shot), image }
+			const frame = frames.recordWindow(image, shot)
+			noteDigest(frame, image)
+			return { frame, image }
 		}
 		if (!hostActionAvailable(caps, 'screenshot'))
 			throw new StepFailure(
@@ -1729,9 +1790,57 @@ export function createComputerUseTool(
 		if (result.type !== 'screenshot')
 			throw new Error(`computer_use: the host answered a screenshot with "${result.type}"`)
 		const shot = result.result
-		const image = await fitPng(shot.data, settings.limits)
+		const image = await fitPng(shot.data, settings.limits())
 		const display = shot.display ?? assumedDisplay(image.sourceWidth, image.sourceHeight)
-		return { frame: frames.record(image, display), image }
+		const frame = frames.record(image, display)
+		noteDigest(frame, image)
+		return { frame, image }
+	}
+
+	/**
+	 * Before a click, drag or scroll on a window screenshot: the window must still be where that
+	 * picture was taken. A moved or resized window turns every coordinate into a different control,
+	 * and a closed one has nothing left to click. Nothing is sent. A host that cannot list windows
+	 * leaves the check to its own.
+	 */
+	const refuseMovedWindow = async (frame: ScreenshotFrame): Promise<void> => {
+		const shown = frame.window?.window
+		if (!shown || typeof host.listWindows !== 'function') return
+		let windows: readonly WindowInfo[]
+		try {
+			windows = rememberWindows(await host.listWindows(callSignal))
+		} catch {
+			if (callSignal?.aborted) throw new StepFailure('cancelled')
+			return
+		}
+		const now = windows.find((window) => window.id === shown.id)
+		const where = `window ${visibleWindowId(shown.id)}`
+		let why: string | undefined
+		if (!now) why = `${where} is no longer open`
+		else if (now.minimized) why = `${where} is minimized now`
+		else if (
+			now.bounds.x !== shown.bounds.x ||
+			now.bounds.y !== shown.bounds.y ||
+			now.bounds.width !== shown.bounds.width ||
+			now.bounds.height !== shown.bounds.height
+		)
+			why = `${where} moved or was resized since ${frame.id} was taken (${shown.bounds.width}x${shown.bounds.height} at ${shown.bounds.x},${shown.bounds.y}, now ${now.bounds.width}x${now.bounds.height} at ${now.bounds.x},${now.bounds.y})`
+		if (why)
+			throw deliveryFailure({
+				delivery: 'not_delivered',
+				retrySafety: 'safe',
+				detail: `${why}, so nothing was clicked: the coordinates of ${frame.id} no longer point at what they did. Take a new window screenshot (or read its controls with ui_snapshot) and choose the target again.`,
+			})
+	}
+
+	/** A fingerprint of each frame's picture, to tell a click that changed nothing from one that did. */
+	const frameDigest = new Map<string, string>()
+	const noteDigest = (frame: ScreenshotFrame, image: FittedImage): void => {
+		frameDigest.set(frame.id, createHash('sha1').update(image.data).digest('hex'))
+		// Only the few newest are ever compared.
+		if (frameDigest.size > 16)
+			for (const key of [...frameDigest.keys()].slice(0, frameDigest.size - 16))
+				frameDigest.delete(key)
 	}
 
 	const frameFor = (id: string | undefined): ScreenshotFrame => {
@@ -1864,6 +1973,7 @@ export function createComputerUseTool(
 				const frame = frameFor(frameId)
 				const at = mapPoint(frame, item.at, 'at')
 				return step(async () => {
+					await refuseMovedWindow(frame)
 					const outcome = await runHost(
 						{
 							type: 'mouse_click',
@@ -1893,7 +2003,10 @@ export function createComputerUseTool(
 				const frame = frameFor(frameId)
 				const from = mapPoint(frame, item.from, 'from')
 				const to = mapPoint(frame, item.to, 'to')
-				return step(() => runHost({ type: 'mouse_drag', from, to, button: item.button }, frame))
+				return step(async () => {
+					await refuseMovedWindow(frame)
+					return runHost({ type: 'mouse_drag', from, to, button: item.button }, frame)
+				})
 			}
 			case 'scroll': {
 				const frame = frameFor(frameId)
@@ -1906,8 +2019,9 @@ export function createComputerUseTool(
 						'window pixel scrolling is unavailable on this host; take a deliberate display screenshot before display scrolling, or use the browser tool for a page',
 					)
 				const at = mapPoint(frame, item.at, 'at')
-				return step(() =>
-					runHost(
+				return step(async () => {
+					await refuseMovedWindow(frame)
+					return runHost(
 						{
 							type: 'scroll',
 							at,
@@ -1915,8 +2029,8 @@ export function createComputerUseTool(
 							amount: item.amount,
 						},
 						frame,
-					),
-				)
+					)
+				})
 			}
 			case 'type_text': {
 				if (item.at)
@@ -2131,6 +2245,7 @@ export function createComputerUseTool(
 			...(rootRef ? { root: rootRef.hostRef } : {}),
 			...(rootRef && input.offset !== undefined ? { offset: input.offset } : {}),
 			...(input.query !== undefined ? { query: input.query } : {}),
+			...(input.role !== undefined ? { role: input.role } : {}),
 		}
 		try {
 			snapshot = await (host.uiSnapshot as NonNullable<ComputerUseHost['uiSnapshot']>)(
@@ -2141,7 +2256,17 @@ export function createComputerUseTool(
 		} catch (error) {
 			throw new StepFailure(errorText(error))
 		}
-		return showUiSnapshot(snapshot, windowId, [], input.root)
+		return showUiSnapshot(snapshot, windowId, [], input.root, {
+			...(input.full === true ? { full: true } : {}),
+			...(input.query !== undefined || input.role !== undefined
+				? {
+						filter: [
+							...(input.role !== undefined ? [`role ${quotedText(input.role)}`] : []),
+							...(input.query !== undefined ? [`text ${quotedText(input.query)}`] : []),
+						].join(' and '),
+					}
+				: {}),
+		})
 	}
 
 	/** Number a read tree's controls and show it; this snapshot's refs replace the last one's. */
@@ -2150,6 +2275,7 @@ export function createComputerUseTool(
 		requestedWindowId: string | undefined,
 		preface: readonly string[] = [],
 		openedRef?: string,
+		mode: { readonly full?: boolean; readonly filter?: string } = {},
 	): ToolResult => {
 		uiSnapshots += 1
 		const id = `u${uiSnapshots}`
@@ -2162,6 +2288,12 @@ export function createComputerUseTool(
 		let shown = 0
 		let total = 0
 		let cut = false
+		// What was listed, for the diff against the next read of this window.
+		const entries: {
+			readonly hostRef: string | undefined
+			readonly text: string
+		}[] = []
+		let focusedLine: string | undefined
 		const visit = (element: UiElement, depth: number): void => {
 			total += 1
 			const actionable = element.ref.length > 0
@@ -2179,6 +2311,12 @@ export function createComputerUseTool(
 					cut = true
 				} else {
 					lines.push(line)
+					entries.push({
+						hostRef: actionable ? element.ref : undefined,
+						text: line.trim(),
+					})
+					if (focusedLine === undefined && element.states?.includes('focused') === true)
+						focusedLine = line.trim()
 					chars += line.length + 1
 					shown += 1
 					if (ref) {
@@ -2215,7 +2353,78 @@ export function createComputerUseTool(
 		const window =
 			snapshot.windowId && /^[\w.:-]{1,64}$/.test(snapshot.windowId) ? snapshot.windowId : undefined
 		const opened = openedRef !== undefined && /^e\d{1,6}$/.test(openedRef) ? openedRef : undefined
-		const summaryLine = `UI snapshot ${id}${window ? ` of window ${window}` : ''}${snapshot.region ? `${opened ? `, region ${opened}` : ', one region'}` : ''}: ${shown} controls shown${snapshot.total !== undefined && snapshot.total > shown ? ` of ${snapshot.total}` : ''}, ${refs.size} with a ref you can pass to ui_act. A ref names its control and stays usable after later snapshots; if the control has gone or several fit, ui_act says so (STALE_REF, AMBIGUOUS_TARGET) and nothing is sent.`
+		// The window's title and application, when the tree's own root does not
+		// already say them; inside the frame, since an application sets both.
+		const about = [
+			...(snapshot.app !== undefined ? [`Application ${quotedText(snapshot.app)}`] : []),
+			...(snapshot.title !== undefined && snapshot.title !== snapshot.root.name
+				? [`Window title ${quotedText(snapshot.title)}`]
+				: []),
+		]
+		// A window read before shows what changed since, unless the whole tree is
+		// asked for, the read is a region or a filtered one, or either read was cut.
+		const whole = !snapshot.region && mode.filter === undefined
+		const key = windowKey(uiSnapshotWindowId)
+		const before = whole ? uiSnapshotMemory.get(key) : undefined
+		if (whole) uiSnapshotMemory.set(key, { id, entries: cut ? undefined : entries })
+		let changes: { added: string[]; changed: string[]; removed: string[] } | undefined
+		if (before?.entries && !cut && mode.full !== true) {
+			const prevByRef = new Map<string, string>()
+			const prevCounts = new Map<string, number>()
+			for (const entry of before.entries) {
+				if (entry.hostRef) prevByRef.set(entry.hostRef, entry.text)
+				else prevCounts.set(entry.text, (prevCounts.get(entry.text) ?? 0) + 1)
+			}
+			const added: string[] = []
+			const changed: string[] = []
+			const seenRefs = new Set<string>()
+			const left = new Map(prevCounts)
+			for (const entry of entries) {
+				if (entry.hostRef) {
+					seenRefs.add(entry.hostRef)
+					const was = prevByRef.get(entry.hostRef)
+					if (was === undefined) added.push(entry.text)
+					else if (was !== entry.text) changed.push(entry.text)
+				} else {
+					const count = left.get(entry.text) ?? 0
+					if (count > 0) left.set(entry.text, count - 1)
+					else added.push(entry.text)
+				}
+			}
+			const removed: string[] = []
+			for (const [hostRef, text] of prevByRef) if (!seenRefs.has(hostRef)) removed.push(text)
+			for (const [text, count] of left) for (let i = 0; i < count; i++) removed.push(text)
+			// A window that mostly changed is shorter, and clearer, read whole.
+			if (added.length + changed.length + removed.length < entries.length)
+				changes = { added, changed, removed }
+		}
+		const trailer = [
+			...(focusedLine !== undefined ? [`Focused: ${focusedLine}`] : []),
+			...(snapshot.selectedText !== undefined
+				? [
+						`Selected text: ${neutralizeEnvelopeDelimiter(JSON.stringify(snapshot.selectedText.slice(0, 500)))}`,
+					]
+				: []),
+		]
+		const body = changes
+			? [
+					...about,
+					...changes.added.map((line) => `+ ${line}`),
+					...changes.changed.map((line) => `~ ${line}`),
+					...changes.removed.map((line) => `- ${line}`),
+					...trailer,
+				].join('\n')
+			: [...about, ...lines, ...trailer].join('\n')
+		const noChange =
+			changes !== undefined &&
+			changes.added.length + changes.changed.length + changes.removed.length === 0
+		const where = `${window ? ` of window ${window}` : ''}${snapshot.region ? `${opened ? `, region ${opened}` : ', one region'}` : ''}${mode.filter ? `, only ${mode.filter}` : ''}`
+		const counts = `${shown} controls shown${snapshot.total !== undefined ? ` of the ${snapshot.total} the window holds` : ''}, ${refs.size} with a ref you can pass to ui_act`
+		const summaryLine = changes
+			? noChange
+				? `UI snapshot ${id}${where}: no change since ${before ? before.id : 'the last read'} (${counts}). Refs from that read are used while the host still has them.`
+				: `UI snapshot ${id}${where}: ${changes.added.length} added (+), ${changes.changed.length} changed (~), ${changes.removed.length} gone (-) since ${before ? before.id : 'the last read'}; ${counts}. Refs from that read are used while the host still has them. ui_snapshot {full: true} lists the whole tree.`
+			: `UI snapshot ${id}${where}: ${counts}. A ref names its control and stays usable after later snapshots; if the control has gone or several fit, ui_act says so (STALE_REF, AMBIGUOUS_TARGET) and nothing is sent.${mode.filter && shown <= 1 ? ' Nothing matched the filter.' : ''}`
 		const header = [
 			...preface,
 			summaryLine,
@@ -2225,50 +2434,47 @@ export function createComputerUseTool(
 					]
 				: []),
 		]
-		// The window's title and application, when the tree's own root does not
-		// already say them; inside the frame, since an application sets both.
-		const about = [
-			...(snapshot.app !== undefined ? [`Application ${quotedText(snapshot.app)}`] : []),
-			...(snapshot.title !== undefined && snapshot.title !== snapshot.root.name
-				? [`Window title ${quotedText(snapshot.title)}`]
-				: []),
-		]
-		const body = [...about, ...lines].join('\n')
 		const drill =
 			'Open a region with ui_snapshot {root: <its ref>}, or find a control by its text with ui_snapshot {query}.'
-		const footer = [
-			...(snapshot.next !== undefined && opened
-				? [
-						`This is one page of a long region. Next page: ui_snapshot {root: "${opened}", offset: ${snapshot.next}}.`,
-					]
-				: []),
-			...(snapshot.outline
-				? [
-						`This is an outline: regions marked "(+N more inside)" hold controls that are not listed. ${drill}`,
-					]
-				: []),
-			...(cut
-				? [
-						`The listing was cut at ${MAX_UI_SNAPSHOT_CHARS} characters after ${shown} of ${total} controls. Drill into the region you need: ${drill}`,
-					]
-				: []),
-			...(snapshot.truncated
-				? [
-						`The host stopped reading the tree before it ended, so some controls are missing. Drill into the region you need: ${drill} A window screenshot shows the rest.`,
-					]
-				: []),
-		]
+		const footer = changes
+			? []
+			: [
+					...(snapshot.next !== undefined && opened
+						? [
+								`This is one page of a long region. Next page: ui_snapshot {root: "${opened}", offset: ${snapshot.next}}.`,
+							]
+						: []),
+					...(snapshot.outline
+						? [
+								`This is an outline: regions marked "(+N more inside)" hold controls that are not listed. ${drill}`,
+							]
+						: []),
+					...(cut
+						? [
+								`The listing was cut at ${MAX_UI_SNAPSHOT_CHARS} characters after ${shown} of ${total} controls. Drill into the region you need: ${drill}`,
+							]
+						: []),
+					...(snapshot.truncated
+						? [
+								`The host stopped reading the tree before it ended, so some controls are missing. Drill into the region you need: ${drill} A window screenshot shows the rest.`,
+							]
+						: []),
+				]
 		const text = [
 			...header,
-			wrapUntrusted(
-				{
-					kind: 'desktop-ui',
-					...(window ? { attributes: { window } } : {}),
-					provenance:
-						"The accessibility tree of a window on the user's desktop, as the host read it. Names and values are whatever the application shows, which can include text anyone wrote.",
-				},
-				body,
-			),
+			...(noChange && body.length === 0
+				? []
+				: [
+						wrapUntrusted(
+							{
+								kind: 'desktop-ui',
+								...(window ? { attributes: { window } } : {}),
+								provenance:
+									"The accessibility tree of a window on the user's desktop, as the host read it. Names and values are whatever the application shows, which can include text anyone wrote.",
+							},
+							body,
+						),
+					]),
 			...footer,
 		].join('\n')
 		return {
@@ -2283,6 +2489,7 @@ export function createComputerUseTool(
 					refs: refs.size,
 					truncated: cut || snapshot.truncated === true,
 					...(snapshot.outline ? { outline: true } : {}),
+					...(changes ? { diff: noChange ? ('none' as const) : ('changes' as const) } : {}),
 					...(snapshot.total !== undefined ? { total: snapshot.total } : {}),
 				},
 			},
@@ -2521,7 +2728,11 @@ export function createComputerUseTool(
 		const shrink = display.width / frame.imageWidth
 		const shrunkNote =
 			shrink >= 2
-				? ` The display is ${Math.round(shrink * 10) / 10} times larger than this image, so small text is hard to read here: use zoom on the area to read it at full detail.`
+				? ` The display is ${Math.round(shrink * 10) / 10} times larger than this image, so small text is hard to read here.${
+						windowCaptureAvailable(host, caps)
+							? ' For the application you are working in, take a window screenshot (list_windows, then screenshot with its window_id): it is close to full size.'
+							: ''
+					}`
 				: ''
 		return scaled
 			? `Screenshot ${frame.id}: ${frame.imageWidth}x${frame.imageHeight} pixels, showing the ${display.width}x${display.height} display. Send coordinates in this image's pixels (x 0–${frame.imageWidth - 1}, y 0–${frame.imageHeight - 1}); the tool maps them onto the display.${shrunkNote}`
@@ -2585,6 +2796,53 @@ export function createComputerUseTool(
 		workingState: pin(shot.frame),
 	})
 
+	/**
+	 * The first look at a window carries its controls with the picture, so the
+	 * model starts from names, not pixels. Later looks are the picture alone
+	 * (ui_snapshot shows what changed). A host that cannot read the tree, or a
+	 * read that fails, leaves the screenshot as it was.
+	 */
+	const firstLookWithTree = async (
+		shot: Capture,
+		windowId: string | undefined,
+	): Promise<ToolResult> => {
+		const result = screenshotResult(shot)
+		if (
+			!shot.frame.window ||
+			windowId === undefined ||
+			!available.has('ui_snapshot') ||
+			uiSnapshotMemory.has(windowKey(windowId))
+		)
+			return result
+		try {
+			const snapshot = await (host.uiSnapshot as NonNullable<ComputerUseHost['uiSnapshot']>)(
+				windowId,
+				undefined,
+				callSignal,
+			)
+			const tree = showUiSnapshot(snapshot, windowId)
+			const treeBlocks = Array.isArray(tree.content) ? tree.content : []
+			const treeText = treeBlocks.find((block) => block.type === 'text')
+			if (!treeText || treeText.type !== 'text') return result
+			const [head, ...rest] = Array.isArray(result.content) ? result.content : []
+			return {
+				...result,
+				content: [
+					...(head ? [head] : []),
+					{
+						type: 'text',
+						text: `The window's controls, read with this screenshot (ui_act on a ref; pixels only for what the controls do not name):\n${treeText.text}`,
+					},
+					...rest,
+				],
+				data: { ...(result.data as object), ...(tree.data as object) },
+			}
+		} catch (error) {
+			if (callSignal?.aborted) throw error
+			return result
+		}
+	}
+
 	const zoom = async (input: Extract<ActionInput, { type: 'zoom' }>): Promise<ToolResult> => {
 		const frame = frameFor(input.screenshot_id)
 		const { region } = input
@@ -2603,10 +2861,10 @@ export function createComputerUseTool(
 		if (frame.window) {
 			if (!frame.window.data)
 				throw new StepFailure(`window screenshot ${frame.id} is stale; capture the window again`)
-			fitted = await cropAndFitPng(frame.window.data, rect, settings.limits)
+			fitted = await cropAndFitPng(frame.window.data, rect, settings.limits())
 		} else if (caps.regionCapture === true && typeof host.captureRegion === 'function') {
 			const piece = await host.captureRegion(rect, callSignal)
-			fitted = await fitPng(piece.data, settings.limits)
+			fitted = await fitPng(piece.data, settings.limits())
 		} else {
 			const result = await host.execute({ type: 'screenshot' }, callSignal)
 			if (result.type !== 'screenshot')
@@ -2631,7 +2889,7 @@ export function createComputerUseTool(
 					width: Math.max(1, Math.min(size.width, Math.ceil((rect.x + rect.width) * sx)) - left),
 					height: Math.max(1, Math.min(size.height, Math.ceil((rect.y + rect.height) * sy)) - top),
 				},
-				settings.limits,
+				settings.limits(),
 			)
 		}
 		const detail = fitted.width / onImage.width
@@ -2692,6 +2950,24 @@ export function createComputerUseTool(
 		const unsent: readonly BatchItem[] = blockedAt >= 0 ? items.slice(blockedAt) : []
 		const toPlan: readonly BatchItem[] = blockedAt >= 0 ? items.slice(0, blockedAt) : items
 		const actionFrame = frameId ? frames.get(frameId) : frames.latest()
+		// What the model last saw, to tell afterwards whether a pixel action changed it.
+		const frameBefore = frames.latest()
+		// The baseline for "a new window opened" is the host's list right now, never the last list the
+		// model asked for, which may be old. A list that fails leaves no baseline, so no note.
+		let windowsBefore: readonly WindowInfo[] = []
+		if (
+			typeof host.listWindows === 'function' &&
+			typeof host.uiSnapshot === 'function' &&
+			toPlan.length > 0 &&
+			toPlan.every((item) => TREE_ENDING_STEPS.has(item.type)) &&
+			[...treeUsable.values()].includes(true)
+		) {
+			try {
+				windowsBefore = rememberWindows(await host.listWindows(callSignal))
+			} catch {
+				if (callSignal?.aborted) throw new Error('cancelled')
+			}
+		}
 		const explicitDisplayFrame =
 			frameId !== undefined && actionFrame !== undefined && !actionFrame.window
 		if (
@@ -2842,14 +3118,108 @@ export function createComputerUseTool(
 			!signal?.aborted
 		let shot: Capture | undefined = frameShot
 		let shotError: string | undefined
-		if (looks) {
+		// A batch of element and keyboard steps on a window whose controls were read ends with what
+		// changed there, not a picture: the model acts on the next refs, and the text is far cheaper.
+		const executed = planned.filter((_, index) => records[index]?.status === 'done')
+		let treeText: string | undefined
+		let treeData: unknown
+		let windowClosed: string | undefined
+		let newWindows: readonly WindowInfo[] = []
+		const treeEnding =
+			looks &&
+			!failure &&
+			frameShot === undefined &&
+			frameId === undefined &&
+			postWindowId !== undefined &&
+			available.has('ui_snapshot') &&
+			typeof host.uiSnapshot === 'function' &&
+			treeUsable.get(windowKey(postWindowId)) === true &&
+			executed.length > 0 &&
+			executed.every((step) => TREE_ENDING_STEPS.has(step.item.type))
+		/** Whether a window is gone from the host's list: the action closed it. */
+		const isGone = async (id: string): Promise<boolean> => {
+			if (typeof host.listWindows !== 'function') return false
+			try {
+				const listed = rememberWindows(await host.listWindows(callSignal))
+				return !listed.some((window) => window.id === id)
+			} catch {
+				return false
+			}
+		}
+		if (treeEnding && postWindowId !== undefined) {
+			try {
+				await settleAfterActions(host, postWindowId, settings.settleMs, signal)
+				const read = await uiSnapshot({
+					type: 'ui_snapshot',
+					window_id: postWindowId,
+				} as Extract<ActionInput, { type: 'ui_snapshot' }>)
+				const block = Array.isArray(read.content)
+					? read.content.find((entry) => entry.type === 'text')
+					: undefined
+				treeText = block?.type === 'text' ? block.text : read.output
+				treeData = read.data
+				if (windowsBefore.length > 0 && typeof host.listWindows === 'function') {
+					try {
+						const listed = rememberWindows(await host.listWindows(callSignal))
+						newWindows = listed.filter(
+							(window) =>
+								!windowsBefore.some((old) => old.id === window.id) &&
+								!deniedKeys.has(deniedAppKey(window.app)),
+						)
+					} catch {
+						// A list that fails says nothing; the tree above stands.
+					}
+				}
+			} catch {
+				// Fall back to the picture below; a cancelled call stops there too.
+				if (signal?.aborted) shotError = 'cancelled'
+				else if (await isGone(postWindowId)) windowClosed = postWindowId
+			}
+		}
+		if (looks && treeText === undefined && windowClosed === undefined) {
 			try {
 				await settleAfterActions(host, postWindowId, settings.settleMs, signal)
 				shot = await capture(postWindowId)
 			} catch (error) {
 				shotError = signal?.aborted ? 'cancelled' : errorText(error)
+				if (!signal?.aborted && postWindowId !== undefined && (await isGone(postWindowId)))
+					windowClosed = postWindowId
 			}
 		}
+		// The window is gone: show what is left of the screen, when the host can.
+		if (
+			windowClosed !== undefined &&
+			shot === undefined &&
+			!signal?.aborted &&
+			hostActionAvailable(caps, 'screenshot')
+		) {
+			try {
+				shot = await capture()
+				shotError = undefined
+			} catch (error) {
+				shotError = errorText(error)
+			}
+		}
+		const closedLine =
+			windowClosed !== undefined
+				? `Window ${visibleWindowId(windowClosed)} is no longer open: the action closed it (or the application did). This is a result, not a failure of the tool; list_windows shows what is open now.${shot ? ' The display screenshot follows.' : ''}`
+				: undefined
+		// A pixel action after which the picture is identical to the one before it did nothing visible.
+		const pixelActed = executed.some((step) => PIXEL_STEPS.has(step.item.type))
+		const noVisibleChange =
+			pixelActed &&
+			shot !== undefined &&
+			frameShot === undefined &&
+			frameBefore !== undefined &&
+			shot.frame !== frameBefore &&
+			(frameBefore.window?.window.id ?? null) === (shot.frame.window?.window.id ?? null) &&
+			frameBefore.imageWidth === shot.frame.imageWidth &&
+			frameBefore.imageHeight === shot.frame.imageHeight &&
+			frameDigest.get(frameBefore.id) !== undefined &&
+			frameDigest.get(frameBefore.id) === frameDigest.get(shot.frame.id)
+		const noChangeLine = noVisibleChange
+			? `No visible change: the screen looks the same after the settle wait as in ${frameBefore?.id}. The click may have landed without showing it, or it may have missed; check with a fresh look or a control by ref.`
+			: undefined
 
 		const summary = (record: StepRecord, index: number): string => {
 			const n = single ? '' : `${index + 1}. `
@@ -2881,10 +3251,33 @@ export function createComputerUseTool(
 				? [`The screenshot after acting failed: ${shotError}. Take one before acting again.`]
 				: []
 		const unknownLines = failure?.unknown ? [failure.unknown.message] : []
-		const text = [...header, ...stepLines, ...unknownLines, ...shotLines].join('\n')
+		const afterLines = [
+			...(closedLine ? [closedLine] : []),
+			...(noChangeLine ? [noChangeLine] : []),
+			...(treeText !== undefined ? [treeText] : []),
+			...(newWindows.length > 0
+				? [
+						`A new window opened during the batch; read it with ui_snapshot {window_id}:\n${wrapUntrusted(
+							{
+								kind: 'desktop-windows',
+								provenance:
+									"Windows that opened on the user's desktop during the batch, as the host listed them. Titles are whatever each application shows, which can include text anyone wrote.",
+							},
+							newWindows
+								.slice(0, 5)
+								.map((window) => `- ${window.id} · ${JSON.stringify(window.title)} · ${window.app}`)
+								.join('\n'),
+						)}`,
+					]
+				: []),
+		]
+		const text = [...header, ...stepLines, ...unknownLines, ...afterLines, ...shotLines].join('\n')
 		const output = [
 			...header,
 			...stepLines,
+			...(closedLine ? [closedLine] : []),
+			...(noChangeLine ? [noChangeLine] : []),
+			...(treeText !== undefined ? ['Window controls after the batch follow.'] : []),
 			...(shot
 				? [`Screenshot ${shot.frame.id} (${shot.frame.imageWidth}x${shot.frame.imageHeight}).`]
 				: []),
@@ -2910,6 +3303,9 @@ export function createComputerUseTool(
 						: { label: record.label, status: record.status },
 			),
 			...(shot ? { screenshot: frameData(shot.frame) } : {}),
+			...(treeData && typeof treeData === 'object' ? treeData : {}),
+			...(windowClosed !== undefined ? { windowClosed } : {}),
+			...(noVisibleChange ? { noVisibleChange: true } : {}),
 			...(failure?.unknown
 				? {
 						code: failure.unknown.code,
@@ -3241,7 +3637,7 @@ export function createComputerUseTool(
 		try {
 			switch (input.type) {
 				case 'screenshot':
-					return screenshotResult(await capture(input.window_id))
+					return await firstLookWithTree(await capture(input.window_id), input.window_id)
 				case 'zoom':
 					return await zoom(input)
 				case 'ui_snapshot':
@@ -3316,7 +3712,10 @@ export function createComputerUseTool(
 			const result = await runAction(input, context)
 			if (app && result.success !== false && !appsUsed.has(app) && !isReadOnlyInput(input)) {
 				appsUsed.add(app)
-				result.data = { ...(isRecord(result.data) ? result.data : {}), firstUseOf: app }
+				result.data = {
+					...(isRecord(result.data) ? result.data : {}),
+					firstUseOf: app,
+				}
 			}
 			await observe(input, before, result, context.toolUseId, app)
 			return result

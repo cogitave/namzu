@@ -22,6 +22,7 @@ interface Node {
 	id?: string
 	actions?: string[]
 	value?: string
+	focused?: boolean
 	children?: Node[]
 }
 
@@ -38,6 +39,7 @@ function window(
 		onTool?: (call: ToolCall) => void
 		foreground?: CuaDriverAdapterOptions['foreground']
 		a11y?: CuaDriverAdapterOptions['a11y']
+		selectedText?: string
 	} = {},
 ) {
 	const state = {
@@ -78,6 +80,7 @@ function window(
 					label,
 					...(node.value !== undefined ? { value: node.value } : {}),
 					enabled: true,
+					...(node.focused ? { focused: true } : {}),
 					actions: node.actions,
 					...(parent !== undefined ? { parent_index: parent } : {}),
 				})
@@ -98,6 +101,7 @@ function window(
 			app_name: options.app ?? 'page.exe',
 			pid: state.pid,
 			elements,
+			...(options.selectedText !== undefined ? { selected_text: options.selectedText } : {}),
 			tree_markdown: lines.join('\n'),
 		}
 	}
@@ -170,7 +174,10 @@ function window(
 						return options.refuseBackgroundClick() as never
 					clicks.push({ token, read: latestRead })
 					options.onClick?.()
-					return toolResult({ effect: options.effect ?? 'unverifiable', route: 'accessibility' })
+					return toolResult({
+						effect: options.effect ?? 'unverifiable',
+						route: 'accessibility',
+					})
 				}
 				default:
 					options.onTool?.(call)
@@ -728,7 +735,7 @@ describe('refs of a big match set', () => {
 
 describe('paging an outline', () => {
 	it('does not list a nameless container after the cut, so the next page does not repeat it', async () => {
-		const rows = Array.from({ length: 300 }, (_, i) => ({
+		const rows = Array.from({ length: 500 }, (_, i) => ({
 			role: 'ListItem',
 			label: `Row ${i}`,
 			actions: ['select'],
@@ -796,7 +803,10 @@ describe('an input the driver cannot confirm, judged by what the window shows', 
 		const w = window(page(button('Submit'), text('none')))
 		const snapshot = await w.adapter.uiSnapshot('0x64')
 		const outcome = await w.adapter.uiAct(find(snapshot, 'Button', 'Submit').ref, 'invoke')
-		expect(outcome).toMatchObject({ ok: true, delivery: 'delivered_unverified' })
+		expect(outcome).toMatchObject({
+			ok: true,
+			delivery: 'delivered_unverified',
+		})
 		expect(outcome.readBack).toBeUndefined()
 		await w.adapter.dispose()
 	})
@@ -808,9 +818,15 @@ describe('an input the driver cannot confirm, judged by what the window shows', 
 		const snapshot = await w.adapter.uiSnapshot('0x64')
 		const submit = find(snapshot, 'Button', 'Submit').ref
 		// The text differs on every read, as a clock's does.
-		Object.defineProperty(clock, 'label', { get: () => `t${tick++}`, configurable: true })
+		Object.defineProperty(clock, 'label', {
+			get: () => `t${tick++}`,
+			configurable: true,
+		})
 		const outcome = await w.adapter.uiAct(submit, 'invoke')
-		expect(outcome).toMatchObject({ ok: true, delivery: 'delivered_unverified' })
+		expect(outcome).toMatchObject({
+			ok: true,
+			delivery: 'delivered_unverified',
+		})
 		await w.adapter.dispose()
 	})
 })
@@ -868,7 +884,9 @@ describe('choosing an option in a list the driver does not change', () => {
 	})
 
 	it('names the browser tool when the keyboard does not change it either', async () => {
-		const w = window(page(combo()), { foreground: ladder((value) => ({ ...ran, value })) })
+		const w = window(page(combo()), {
+			foreground: ladder((value) => ({ ...ran, value })),
+		})
 		const snapshot = await w.adapter.uiSnapshot('0x64')
 		const outcome = await w.adapter.uiAct(
 			find(snapshot, 'ComboBox', 'Color').ref,
@@ -893,7 +911,11 @@ describe('choosing an option in a list the driver does not change', () => {
 			'set_value',
 			'blue',
 		)
-		expect(outcome).toMatchObject({ ok: false, delivery: 'not_delivered', retrySafety: 'safe' })
+		expect(outcome).toMatchObject({
+			ok: false,
+			delivery: 'not_delivered',
+			retrySafety: 'safe',
+		})
 		expect(outcome.detail).toContain('A person is using the screen.')
 		await w.adapter.dispose()
 	})
@@ -924,7 +946,11 @@ describe('when the keyboard-and-mouse helper is down', () => {
 		})
 		const snapshot = await w.adapter.uiSnapshot('0x64')
 		const outcome = await w.adapter.uiAct(find(snapshot, 'Button', 'Save').ref, 'invoke')
-		expect(outcome).toMatchObject({ ok: false, delivery: 'not_delivered', retrySafety: 'safe' })
+		expect(outcome).toMatchObject({
+			ok: false,
+			delivery: 'not_delivered',
+			retrySafety: 'safe',
+		})
 		expect(outcome.detail).toContain('could not be pressed in the background')
 		expect(outcome.detail).toContain('exit code 1): blocked')
 		expect(outcome.detail).toMatch(/another control, or ask the user/i)
@@ -934,7 +960,12 @@ describe('when the keyboard-and-mouse helper is down', () => {
 
 	it('gives the same advice when choosing an option by keyboard', async () => {
 		const w = window(
-			page({ role: 'ComboBox', label: 'Color', actions: ['set_value'], value: 'red' }),
+			page({
+				role: 'ComboBox',
+				label: 'Color',
+				actions: ['set_value'],
+				value: 'red',
+			}),
 			{
 				foreground: down(),
 			},
@@ -1013,9 +1044,118 @@ describe('settling after acting on a control', () => {
 		// The marker came first, then the click; the settle counts from that marker.
 		expect(log.indexOf('seq')).toBeGreaterThan(-1)
 		expect(log.indexOf('seq')).toBeLessThan(log.indexOf('click'))
-		const settled = await w.adapter.settleAfterInput({ windowId: '0x64', budgetMs: 500 })
+		const settled = await w.adapter.settleAfterInput({
+			windowId: '0x64',
+			budgetMs: 500,
+		})
 		expect(settled).toEqual({ waitedMs: 120, changed: true })
 		expect(waits[0]?.since).toBeDefined()
+		await w.adapter.dispose()
+	})
+})
+
+describe('reading a large window for what is wanted', () => {
+	const rows = (n: number): Node[] =>
+		Array.from({ length: n }, (_, i) => ({
+			role: 'ListItem',
+			label: `Row ${i}`,
+			actions: ['select'],
+		}))
+
+	it('lists a window of a few hundred controls whole, with how many it holds', async () => {
+		const w = window(
+			page(button('Search'), {
+				role: 'List',
+				label: 'Results',
+				children: rows(330),
+			}),
+		)
+		const snapshot = await w.adapter.uiSnapshot('0x64')
+		expect(snapshot.outline).toBeUndefined()
+		expect(snapshot.total).toBeGreaterThan(330)
+		expect(find(snapshot, 'ListItem', 'Row 329').ref).not.toBe('')
+		await w.adapter.dispose()
+	})
+
+	it('shows an outline of 300 controls and counts the rest', async () => {
+		const w = window(
+			page(button('Search'), {
+				role: 'List',
+				label: 'Results',
+				children: rows(450),
+			}),
+		)
+		const snapshot = await w.adapter.uiSnapshot('0x64')
+		expect(snapshot.outline).toBe(true)
+		const list = find(snapshot, 'List', 'Results')
+		// 20 children of one parent are listed, the rest are counted.
+		expect(list.children).toHaveLength(20)
+		expect(list.hiddenChildren).toBe(430)
+		await w.adapter.dispose()
+	})
+
+	it('keeps only the controls of a role, with the elements above them', async () => {
+		const w = window(
+			page(
+				button('Search'),
+				{ role: 'List', label: 'Results', children: rows(450) },
+				{
+					role: 'Group',
+					label: 'Footer',
+					children: [
+						{ role: 'Text', label: 'Status' },
+						{ role: 'Group', children: [button('Help')] },
+					],
+				},
+			),
+		)
+		const snapshot = await w.adapter.uiSnapshot('0x64', { role: 'Button' })
+		expect(snapshot.outline).toBeUndefined()
+		expect(find(snapshot, 'Button', 'Search').ref).not.toBe('')
+		const help = find(snapshot, 'Button', 'Help')
+		expect(help.ref).not.toBe('')
+		// The groups above Help stay; the list and the text do not.
+		expect(find(snapshot, 'Group', 'Footer')).toBeDefined()
+		const names: string[] = []
+		const walk = (element: UiElement): void => {
+			names.push(`${element.role}:${element.name}`)
+			for (const child of element.children ?? []) walk(child)
+		}
+		walk(snapshot.root)
+		expect(names.some((name) => name.startsWith('ListItem'))).toBe(false)
+		expect(names).not.toContain('Text:Status')
+		// A ref from the filtered read acts on the right control.
+		await expect(w.adapter.uiAct(help.ref, 'invoke')).resolves.toMatchObject({
+			ok: true,
+		})
+		expect(w.clicks).toHaveLength(1)
+		// Several roles, any case.
+		const both = await w.adapter.uiSnapshot('0x64', { role: 'button, text' })
+		expect(find(both, 'Text', 'Status')).toBeDefined()
+		await w.adapter.dispose()
+	})
+
+	it('answers a role nothing has with the window alone', async () => {
+		const w = window(page(button('Search')))
+		const snapshot = await w.adapter.uiSnapshot('0x64', { role: 'Slider' })
+		expect(snapshot.root.children ?? []).toHaveLength(0)
+		await w.adapter.dispose()
+	})
+
+	it('reports the focused control and the selected text when the driver says them', async () => {
+		const w = window(
+			page(button('Search'), {
+				role: 'Edit',
+				label: 'Name',
+				actions: ['set_value'],
+				focused: true,
+			}),
+			{ selectedText: 'Ada' },
+		)
+		const snapshot = await w.adapter.uiSnapshot('0x64')
+		expect(find(snapshot, 'Edit', 'Name').states).toContain('focused')
+		expect(find(snapshot, 'Button', 'Search').states ?? []).not.toContain('focused')
+		expect(snapshot.selectedText).toBe('Ada')
 		await w.adapter.dispose()
 	})
 })

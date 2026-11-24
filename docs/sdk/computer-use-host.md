@@ -446,9 +446,13 @@ resolved the same way. A driver crash, timeout, or any response without the
 exact structured refusal does not trigger an action retry, because the action
 may already have reached the desktop.
 
-A window with more than 220 shown controls is returned as an outline of about
-150: breadth first, at most 12 children per element, a region's page at most 60
-of its children. Regions carry `hiddenChildren` and a ref. The adapter walks a
+A window with more than 400 shown controls is returned as an outline of about
+300: breadth first, at most 20 children per element, a region's page at most 60
+of its children. `UiSnapshotOptions.role` keeps only controls of the named
+roles (case-insensitive, comma-separated) with the elements above them, read
+from the whole tree so a match is never lost to the outline cut. The adapter
+marks a control the driver reports as focused with the `focused` state and
+returns `selected_text` as `UiSnapshot.selectedText` when the driver sends it. Regions carry `hiddenChildren` and a ref. The adapter walks a
 window with the driver's own 5 000 node cap (it cuts a walk silently, so a walk
 within 5% of the cap is reported `truncated`), and reads a browser window once
 more when its first walk shows only the frame, because the page tree is built on

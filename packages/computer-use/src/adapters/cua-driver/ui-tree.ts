@@ -26,6 +26,7 @@ export interface CuaUiElement {
 	readonly value?: unknown
 	readonly enabled?: unknown
 	readonly selected?: unknown
+	readonly focused?: unknown
 	readonly actions?: unknown
 	readonly frame?: unknown
 	readonly parent_index?: unknown
@@ -152,6 +153,7 @@ function fromRecord(record: CuaUiElement, automationId: string | undefined): Mut
 	const states: string[] = []
 	if (record.enabled === false) states.push('disabled')
 	if (record.selected === true) states.push('selected')
+	if (record.focused === true) states.push('focused')
 	const value = text(record.value)
 	const bounds = boundsOf(record.frame)
 	return {

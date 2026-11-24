@@ -301,6 +301,8 @@ export interface UiSnapshot {
 	readonly region?: boolean
 	/** For a region listed in pages: the `offset` that reads the page after this one. */
 	readonly next?: number
+	/** The text selected in the window, when the host could read it. */
+	readonly selectedText?: string
 }
 
 /**
@@ -315,6 +317,11 @@ export interface UiSnapshotOptions {
 	readonly offset?: number
 	/** Only controls whose text contains this (case-insensitive), with the elements above them. */
 	readonly query?: string
+	/**
+	 * Only controls of this role (case-insensitive; several may be joined with
+	 * a comma), with the elements above them. Combines with `query`.
+	 */
+	readonly role?: string
 }
 
 /** Why a ref could not be acted on, as a typed failure. */

@@ -36,11 +36,23 @@ than `maxTiles` 28-pixel patches.
 
 The standard limits are taken unchanged by every current vision model: they
 are Anthropic's standard tier, and inside OpenAI's `detail: "high"` budget
-(2048 px, 2 500 32-pixel patches). Choose the high-resolution limits only when
-every model the session can reach is on Anthropic's high-resolution tier
-(its 4.7 and later models): a standard-tier model rejects such an image in a tool
-result, OpenAI shrinks anything over 2048 px, and a request carrying more than
-20 images caps each at 2000 px.
+(2048 px, 2 500 32-pixel patches). The high-resolution limits are for a model
+known to take them: Anthropic's 4.7 and later models. A standard-tier model
+rejects such an image in a tool result, OpenAI shrinks anything over 2048 px,
+and a request carrying more than 20 images caps each at 2000 px.
+
+`screenshotLimits` is either one set of limits or a function returning them,
+asked before every capture. `screenshotLimitsForModel(model)` is the rule the
+CLI uses: the high tier for an Anthropic model of version 4.7 or later (a vendor
+prefix, a `.` or `-` separator and a dated suffix are all read), the standard
+tier for every other model and for one it does not know, because a wrong
+"high" costs a rejected result and a wrong "standard" only costs detail. The
+CLI passes `() => screenshotLimitsForModel(turnModel)`, so Auto routing or
+`/model` changes the tier with the model. A 3840x2160 display is shown at
+1568x882 on the standard tier and 2576x1449 on the high one: about 1.6 times
+the pixels on each side, at roughly three times the image tokens (1 568 versus
+4 784 patches at most), which is why the tier follows the model and is not a
+default.
 
 Each screenshot is numbered (`s1`, `s2`, …) and its tool result starts with
 one line of text before the image:
@@ -50,11 +62,12 @@ Screenshot s3: 1568x656 pixels, showing the 3440x1440 display. Send coordinates 
 ```
 
 When the display is at least twice as large as the image (a 5120×1440 ultrawide
-fitted to 1568×441, a 3.3 times shrink), the line ends with a sentence telling
-the model so and to use `zoom` on the area to read small text at full detail:
-`The display is 3.3 times larger than this image, so small text is hard to read
-here: use zoom on the area to read it at full detail.` A smaller shrink adds
-nothing.
+fitted to 1568×441, a 3.3 times shrink), the line ends with a sentence saying
+so: `The display is 3.3 times larger than this image, so small text is hard to
+read here.` On a host that captures a single window it adds a pointer to a
+window screenshot of the application in use (`list_windows`, then `screenshot`
+with its `window_id`), which is close to full size, in place of a pointer to
+`zoom`. A smaller shrink adds nothing.
 
 Every x/y the model sends is a pixel of the latest screenshot (or of the one
 named in `screenshot_id`), never a screen pixel. The tool maps image pixel
@@ -87,7 +100,10 @@ from the fitted model image back to the driver's exact window PNG, then use
 window-scoped input. This matters when the driver already shrank the window
 and the SDK fits it a second time. The tool refuses an older window frame,
 and the host refuses one after the window moves, is minimized, is replaced,
-or its driver session restarts. A window id may be written however the model has it
+or its driver session restarts. On top of that, the tool checks the window list
+just before a click, drag or scroll on a window screenshot and refuses when the window moved,
+was resized, was minimized or closed; this check is best effort (a list that fails lets the
+click through, and a click on a display screenshot is not checked against moved windows). A window id may be written however the model has it
 (`0x2b040a`, `2819082`, a bare number, or an object such as `{ "hwnd": 2819082 }`):
 the tool remembers a window by its number, so a read of its controls, a screenshot
 and a click agree whichever spelling each used. Post-action screenshots of a window frame
@@ -107,8 +123,15 @@ decode, resize and encode; one that already fits is passed through untouched.
 
 An action that changes something — a click, a drag, a scroll, typing, a key,
 `focus_window` — and `wait` return a new screenshot after `settleMs` (500 ms
-by default), so the model does not spend a round trip asking for one.
-`screenshotAfterActions: false` turns this off. If only that screenshot fails,
+by default), so the model does not spend a round trip asking for one. The
+wait is the host's: a host that can tell when the window stopped changing
+(`ComputerUseHost.settle`) ends it early, one that cannot waits the full
+`settleMs`, and the description tells the model to add no `wait` of its own
+after an action. A pixel click, drag or scroll whose result picture is
+identical to the one before it adds `No visible change: …` to the text (and
+`noVisibleChange` to the data). The line compares the whole batch's start and
+end and only says the screen looks the same, so the model checks with a fresh
+look; it does not tell the model to avoid repeating a click. `screenshotAfterActions: false` turns this off. If only that screenshot fails,
 the action still reports success and the text says to take one.
 
 ## Actions
@@ -142,7 +165,12 @@ captured window or the display's focused window.
 fresh full capture). For a window frame, it crops the captured window PNG
 without taking another driver snapshot, which preserves its capture token.
 Both paths fit the crop without enlarging it. Coordinates still refer to the
-screenshot it came from; zoom never starts a new coordinate space.
+screenshot it came from; zoom never starts a new coordinate space. The tool
+description presents `zoom` as the way to read small text that the window's
+controls (`ui_snapshot`) do not name, not as a step before acting. Likewise it
+no longer asks for a screenshot before the first pixel click: an action that
+changes something already returns one, and a coordinate sent before any
+screenshot exists is still refused with that reason.
 
 `list_windows` and `focus_window` are offered only when the host declares
 `windows` and implements both methods. The list gives each window's id,
@@ -256,10 +284,26 @@ Window "Hesap Makinesi"
   `ui_snapshot { root: "e12" }` reads just that region (a long one in pages:
   the text ends with `ui_snapshot {root, offset}` for the next), and every ref
   outside it stays valid. `ui_snapshot { query: "text" }` lists only the
-  controls whose text matches, with the elements above them. `ui_act` on a
+  controls whose text matches, with the elements above them;
+  `ui_snapshot { role: "Button" }` does the same by control type (several
+  roles joined with a comma, and it combines with `query`). `ui_act` on a
   region is refused with how to open it. The header says how many controls were
   shown out of how many the window holds.
-- The text is cut at 14 000 characters (about 4 000 tokens); the line that says
+- A window read before comes back as what changed since that read, by default:
+  `+` lines for controls that appeared, `~` for ones whose text, value or state
+  changed, `-` for ones that went, or `no change since u3` when nothing did.
+  Refs from the earlier read are used while the host still has them. `ui_snapshot { full: true }`
+  lists the whole tree; a region, a filtered read, a read that was cut, and a
+  window that mostly changed (the diff would not be shorter than the tree) are
+  shown whole. The tool keeps the last whole read of each window for this.
+- The text ends with the control that has focus (a `focused` state, when the
+  host reports it) and any text selected in the window (`UiSnapshot.selectedText`),
+  inside the same untrusted frame.
+- The first window screenshot of a window nobody has read carries its controls
+  in the same result, ahead of the picture, so the model starts from names. A
+  host that cannot read the tree, or a read that fails, leaves the screenshot
+  alone.
+- The text is cut at 24 000 characters (about 7 000 tokens); the line that says
   so tells the model to drill into the region it needs. A host that stopped its
   own walk sets `truncated` and the text says so.
 
@@ -358,7 +402,7 @@ shows a person the call before it runs; the activity line uses it too
 ## Batches
 
 `{ "type": "batch", "actions": [...] }` runs up to `maxBatchActions` (20)
-actions in order and returns one screenshot at the end. Every action is
+actions in order and ends with the result of the window it worked in. Every action is
 checked first — capability, button, a coordinate on the screenshot — and a
 batch with one bad action runs none of them. At run time it stops at the
 first action that fails and reports which:
@@ -370,6 +414,24 @@ Batch stopped at action 2 of 3; 1 not run.
 3. Press ENTER: not run
 Screenshot s5: 1568x656 pixels, …
 ```
+
+When the window the batch acted on has had its controls read (`ui_snapshot`,
+or the first window screenshot), and every step that ran was `ui_act`,
+`ui_do`, `type_text` or `key`, the end is that window's controls as a diff
+(`+`, `~`, `-` or `no change`) with no picture, and any window that opened
+during the batch is named with its id. Otherwise, and always after a pixel
+step, a `wait`, a failure, or when a screenshot id is given, it is a screenshot as
+before. A step that fails its element check (`STALE_REF`, `AMBIGUOUS_TARGET`,
+a control that cannot be found) stops the batch there; nothing after it runs.
+If the window is gone when the batch ends, the text says the action closed it
+(`windowClosed` in the data) and shows the display instead of failing the
+screenshot.
+
+A click, drag or scroll on a window screenshot first checks that the window is
+still open, not minimized and the same size and place as when the picture was
+taken. If not, nothing is sent and the step fails as not delivered (safe to
+retry) with a request for a fresh look, since the coordinates would hit a
+different control.
 
 The description tells the model that every call costs a round trip and to
 batch the steps it can already predict, but to end a batch at any step that

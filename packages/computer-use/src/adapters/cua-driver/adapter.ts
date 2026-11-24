@@ -142,11 +142,11 @@ const UI_MAX_ELEMENTS = 5_000
  */
 const UI_WALK_CUT_AT = Math.floor(UI_MAX_ELEMENTS * 0.95)
 /** A window with more shown controls than this is returned as an outline. */
-const OUTLINE_THRESHOLD = 220
+const OUTLINE_THRESHOLD = 400
 /** The most controls an outline shows; the rest are counted, not listed. */
-const OUTLINE_BUDGET = 150
+const OUTLINE_BUDGET = 300
 /** The most children of one element an outline lists; a long list is opened as a region. */
-const OUTLINE_PER_PARENT = 12
+const OUTLINE_PER_PARENT = 20
 /** The children of a region opened by itself that one page lists. */
 const OUTLINE_PAGE = 60
 /** A browser tree this small is the window frame alone: the page has not been built yet. */
@@ -377,6 +377,32 @@ function outlineOf(
 		}) as UiElement
 	}
 	return { root: build(root, basePath), regions, next }
+}
+
+/**
+ * The controls whose role is one of `roles`, with every element above them.
+ * Kept children carry their index in the full tree, as an outline's do, so
+ * refs bind to the right places.
+ */
+function pruneByRole(root: UiElement, roles: ReadonlySet<string>): UiElement {
+	const walk = (element: UiElement): UiElement | undefined => {
+		const kept: UiElement[] = []
+		;(element.children ?? []).forEach((child, index) => {
+			const built = walk(child)
+			if (!built) return
+			ORIGINAL_INDEX.set(built, index)
+			kept.push(built)
+		})
+		const matches = roles.has(element.role.toLowerCase())
+		if (!matches && kept.length === 0) return undefined
+		const { children: _children, ...rest } = element
+		return Object.freeze({
+			...rest,
+			...(kept.length > 0 ? { children: Object.freeze(kept) } : {}),
+		}) as UiElement
+	}
+	const { children: _children, ...bare } = root
+	return walk(root) ?? (Object.freeze(bare) as UiElement)
 }
 
 /** The paths of the elements a view contains. */
@@ -1426,15 +1452,27 @@ export class CuaDriverAdapter implements Adapter {
 		}
 		const viewRoot = located?.element ?? tree.root
 		const basePath = located?.path ?? []
+		const roles = new Set(
+			(options.role ?? '')
+				.split(',')
+				.map((role) => role.trim().toLowerCase())
+				.filter((role) => role.length > 0),
+		)
 		const view =
-			!query && visibleCount(viewRoot) > OUTLINE_THRESHOLD
-				? outlineOf(
-						viewRoot,
-						basePath,
-						OUTLINE_BUDGET,
-						located ? { offset: options.offset ?? 0 } : undefined,
-					)
-				: { root: viewRoot, regions: new Set<string>(), next: undefined }
+			roles.size > 0
+				? {
+						root: pruneByRole(viewRoot, roles),
+						regions: new Set<string>(),
+						next: undefined,
+					}
+				: !query && visibleCount(viewRoot) > OUTLINE_THRESHOLD
+					? outlineOf(
+							viewRoot,
+							basePath,
+							OUTLINE_BUDGET,
+							located ? { offset: options.offset ?? 0 } : undefined,
+						)
+					: { root: viewRoot, regions: new Set<string>(), next: undefined }
 		const shownKeys = new Set<string>()
 		collectShown(view.root, basePath, shownKeys)
 		const refs = this.bindRead(target, read, {
@@ -1448,8 +1486,13 @@ export class CuaDriverAdapter implements Adapter {
 		const title = typeof state.window_title === 'string' ? state.window_title : undefined
 		const app =
 			typeof state.app_name === 'string' ? state.app_name.replace(/\.exe$/i, '') : undefined
+		const selectedText =
+			typeof state.selected_text === 'string' && state.selected_text.trim().length > 0
+				? state.selected_text.slice(0, 2_000)
+				: undefined
 		return {
 			windowId: windowIdOf(target.hwnd),
+			...(selectedText !== undefined ? { selectedText } : {}),
 			...(title !== undefined ? { title } : {}),
 			...(app !== undefined ? { app } : {}),
 			root,
@@ -2027,10 +2070,7 @@ export class CuaDriverAdapter implements Adapter {
 		const windows = await this.windowIdsOf(target.pid)
 		// Each read of the window replaces the driver's handles: click through the refreshed one.
 		const current = this.uiRefs.get(uiRef.ref) ?? facts
-		const sent = await this.clickRef(current, {
-			ref: uiRef.ref,
-			facts: current,
-		})
+		const sent = await this.clickRef(current, { ref: uiRef.ref, facts: current })
 		if (!sent.ok || sent.delivery !== 'delivered_unverified' || !before) return sent
 		const seen = await this.verifyByReading(target, {
 			typed: undefined,
