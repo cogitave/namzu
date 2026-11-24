@@ -386,6 +386,50 @@ it('a teammate the lead stopped stays stopped: it is not woken by mail or by a t
 	}
 })
 
+it('an idle teammate can be stopped too: it takes no more mail and claims no more tasks', async () => {
+	const t = await setup({ enabled: true })
+	try {
+		const done = t.nextCompletion()
+		await t.runtime.agentTool.execute(spawnCall('bob', 'Work B'), t.context)
+		await done
+		const stopped = await t.runtime.stopTaskTool.execute({ id: 'bob' }, t.context)
+		expect(stopped.success).toBe(true)
+		expect(stopped.output).toContain('Teammate stopped')
+		const before = t.requests.length
+		const refused = await t.runtime.sendMessageTool.execute(
+			{ task_id: 'bob', message: 'wake up' },
+			t.context,
+		)
+		expect(refused.success).toBe(false)
+		const created = await t.tasks.create({
+			sessionId: generateSessionId(),
+			turnId: generateTurnId(),
+			subject: 'later',
+			description: 'x',
+		})
+		await new Promise<void>((resolve) => setImmediate(resolve))
+		expect(t.requests.length).toBe(before)
+		expect((await t.tasks.get(created.id))?.owner).toBeUndefined()
+		expect(t.store.readTeam(t.team)?.members[0]?.active).toBe(false)
+		// Stopping it again says it is already stopped rather than touching anything.
+		const again = await t.runtime.stopTaskTool.execute({ id: 'bob' }, t.context)
+		expect(again.output).toContain('already ended')
+	} finally {
+		await t.close()
+	}
+})
+
+it('closing the runtime cancels a teammate that is mid-turn, so its turn never reaches the model', async () => {
+	const t = await setup({ enabled: true, hold: true })
+	await t.runtime.agentTool.execute(spawnCall('bob', 'Work B'), t.context)
+	// The turn is held at the model. Closing cancels it; letting the held request go changes nothing.
+	const closing = t.close()
+	t.release()
+	await closing
+	await new Promise<void>((resolve) => setImmediate(resolve))
+	expect(t.requests.filter((r) => JSON.stringify(r.messages).includes('Work B'))).toEqual([])
+})
+
 it('ends the team when the runtime closes: the team directory is gone, the task list stays', async () => {
 	const t = await setup({ enabled: true })
 	const done = t.nextCompletion()

@@ -3052,6 +3052,16 @@ export async function createSubagentRuntime(
 					success: true,
 					output: `Task ${taskId} is already stopping. No further cancellation sent.`,
 				}
+			// An idle teammate's last turn has ended, but its seat has not: stopping it keeps it from waking again.
+			if (
+				(found.kind === 'settled' || isTerminalAgentTaskState(task.state)) &&
+				stopIdleTeammate(task.taskId, why)
+			)
+				return {
+					success: true,
+					output: `Teammate stopped: ${asked}. It takes no more mail and claims no more tasks.${why ? ` Reason noted: ${why}` : ''}`,
+					data: { task_id: taskId, status: 'stopped' },
+				}
 			if (found.kind === 'settled' || isTerminalAgentTaskState(task.state))
 				return {
 					success: true,
@@ -3574,7 +3584,13 @@ export async function createSubagentRuntime(
 		},
 		abort(team: string, name: string) {
 			const found = findTeammate(team, name)
-			if (found) stopChild(found.viewId)
+			if (!found) return
+			// Not through `stopChild`: closing the runtime ends the team after `closed` is set, and that
+			// guard would turn this into nothing while the child kept running.
+			const current = found.owned.gateway.getTask(found.owned.task.taskId) ?? found.owned.task
+			if (isTerminalAgentTaskState(current.state)) return
+			activity.markStopped(found.viewId, 'user')
+			found.owned.gateway.cancelTask(found.owned.task.taskId, 'user')
 		},
 		tellLead(team: string, from: string, summary: string, text: string) {
 			showLead(findTeammate(team, from), from, team, summary, text)
@@ -3828,13 +3844,27 @@ export async function createSubagentRuntime(
 			})
 		: undefined
 
+	/** A teammate between turns has an ended task but a live seat: stop the seat. False when the task is not a teammate's, or it is already stopped. */
+	function stopIdleTeammate(taskId: string, why: string | undefined): boolean {
+		if (!teamRunner) return false
+		for (const owned of conversations.values()) {
+			const target = owned.teammate
+			if (!target || owned.task.taskId !== taskId) continue
+			const state = teamRunner.stateOf(target.team, target.name)
+			if (state === undefined || state === 'stopped' || state === 'busy') return false
+			return teamRunner.stop(target.lead, target.name, why)
+		}
+		return false
+	}
+
 	const stopChild = (viewId: string): boolean => {
 		if (closed) return false
 		const owned = conversations.get(viewId)
 		const shown = activity.getSnapshot().find((value) => value.viewId === viewId)
 		if (!owned || !shown || shown.replayed) return false
 		const current = owned.gateway.getTask(owned.task.taskId) ?? owned.task
-		if (isTerminalAgentTaskState(current.state)) return false
+		if (isTerminalAgentTaskState(current.state))
+			return stopIdleTeammate(owned.task.taskId, undefined)
 		activity.markStopped(viewId, 'user')
 		owned.gateway.cancelTask(owned.task.taskId, 'user')
 		return true
