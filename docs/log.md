@@ -1,5 +1,8 @@
 # Documentation update log
 
+## 2026-11-24
+
+- **Update** [Scheduled tasks](cli/scheduled-tasks.md), [The scheduler service](cli/scheduler-service.md#named-services): `namzu schedule list` and the TUI's `/schedule` show the jobs of every installed scheduler service under its name after the current home's (a home that cannot be read says so), and a job command without `--service` finds the job by name across the current home and the services (one match acts and names its service, several are refused with the `--service` form, none is the usual not-found). `/schedule confirm|pause|resume|run|remove` act on the service's home and accept `--service <name>`. `.changeset/cli-schedule-sees-every-service.md`.
 ## 2026-11-23
 
 - **Update** [Handing a file to the person](sdk/present-file.md), [Task tracking](sdk/task-tracking.md): after the five lanes met, the standing git line names the code host instead of a product, the browser ask-first line makes an exception for a step the person asked for exactly (and a scheduled run decides), the document skill hands scratch files and edited copies over with `present_file`, the `present_file` catalogue line leads with its rule, and `task_create` loads `task_list` with it. `.changeset/sdk-batch-1123b-text.md`, `.changeset/cli-batch-1123b-text.md`.

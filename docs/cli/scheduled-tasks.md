@@ -1091,6 +1091,18 @@ serves instead of the current `NAMZU_HOME`
 (`namzu schedule pause nightly --service autodev`); see
 [the scheduler service](scheduler-service.md#named-services).
 
+Without `--service` a job command finds the job by name (or id prefix) in the current
+home and in the home of every installed scheduler service. One match acts on it, and
+for a service's job says so in one line (`Using the scheduler service autodev (<home>).`);
+a name in several homes is refused with one line that lists them and the `--service
+<name>` (or `--home <dir>`) form; no match is the usual not-found error. `--home` or
+`--service` skips the search. `namzu schedule list` without them lists the current
+home's jobs first (`This home (<home>)`), then each service's jobs under
+`Service <name> (<home>)`; a service home that cannot be opened reads
+`cannot read: <reason>` instead of failing the list, and `--json` adds a `services`
+array (`name`, `home`, and `jobs` or `unreadable`) after `jobs`. A service's
+`daemon.env` and other secret files are never opened.
+
 `remove` refuses a job with a run in progress, waiting for approval or holding
 a result not yet delivered unless you pass `--force`. A forced removal leaves
 a running run to finish, and its end is still written to the removed job's
@@ -1134,7 +1146,7 @@ job, state, history }`; `history` prints `{ "v": 1, "job": { id, name },
 run record and `lastRun` carry `refusedCalls` and `failedCalls` when a run had
 any (see [One run](#one-run)).
 
-In the TUI, `/schedule` is the same list with actions, and the `schedule` tool
+In the TUI, `/schedule` is the same list (this home, then each installed service under its name) with actions, and the `schedule` tool
 lets a model propose a job — always confirmed by you on a screen namzu draws
 from its own computation, never from the model's words. That screen is the
 only question: the tool's `create`, `resume` and `delete` skip the ordinary

@@ -262,6 +262,10 @@ service in a per-user index, `schedule/services.json` in the default Namzu home
 - The job commands (`list`, `show`, `history`, `pause`, `resume`, `run`, `remove`, `edit`,
   `confirm`, `prune`, `add`) take `--service <name>` the same way:
   `namzu schedule pause nightly --service autodev`.
+  Without `--service`, a job is found by name in the current home and every service's
+  home (see [Scheduled tasks](scheduled-tasks.md)); `namzu schedule list` and the TUI's
+  `/schedule` show each service's jobs under its name, and `/schedule confirm` (a person's
+  confirmation, as for the current home) acts on the service's home.
 
 ## Status
 

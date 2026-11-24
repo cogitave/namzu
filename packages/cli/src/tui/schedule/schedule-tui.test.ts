@@ -1798,3 +1798,98 @@ describe('the startup line', () => {
 		expect(again).not.toMatch(/failed/)
 	})
 })
+
+describe('/schedule across the installed scheduler services', () => {
+	let svc: Sandbox
+	beforeEach(async () => {
+		const { mkdirSync: mk } = await import('node:fs')
+		const { recordService } = await import('../../schedule/service/registry.js')
+		const { schedulePaths } = await import('../../schedule/paths.js')
+		const home = join(sb.osHome, 'autodev-home')
+		mk(home, { recursive: true })
+		svc = { ...sb, home, paths: schedulePaths(home) }
+		vi.stubEnv('HOME', sb.osHome)
+		vi.stubEnv('USERPROFILE', sb.osHome)
+		recordService(
+			{ name: 'autodev', home, platform: 'systemd-user', installedAt: new Date().toISOString() },
+			sb.osHome,
+		)
+	})
+	afterEach(() => vi.unstubAllEnvs())
+
+	function context(over: Partial<ScheduleCommandContext> = {}) {
+		const said: string[] = []
+		const context: ScheduleCommandContext = {
+			home: sb.home,
+			cwd: sb.project,
+			config: {},
+			say: (text) => said.push(text),
+			ask: async () => ({ kind: 'answer', selectedOptionIds: ['yes'] }),
+			...over,
+		}
+		return { said, context }
+	}
+
+	it('groups the jobs under this home and each service', async () => {
+		confirmedJob(sb, { name: 'local-job' })
+		confirmedJob(svc, { name: 'autodev-scout' })
+		const { said, context: c } = context()
+		await runScheduleCommand([], c)
+		const text = said.join('\n')
+		expect(text.indexOf('This home')).toBeLessThan(text.indexOf('Service autodev'))
+		expect(text.indexOf('autodev-scout')).toBeGreaterThan(text.indexOf('Service autodev'))
+		expect(text.indexOf('local-job')).toBeLessThan(text.indexOf('Service autodev'))
+	})
+
+	it('confirms a service job by a person, on the service’s home', async () => {
+		const original = confirmedJob(svc, { name: 'autodev-scout' })
+		updateJob(svc.paths, original.id, original.revision, (job) => ({
+			...job,
+			state: 'pending-confirmation',
+			confirmation: null,
+		}))
+		const reviewed: string[] = []
+		const { said, context: c } = context({
+			review: async (request) => {
+				reviewed.push(request.preview.name)
+				return 'create'
+			},
+		})
+		await runScheduleCommand(['confirm', 'autodev-scout'], c)
+		expect(reviewed).toEqual(['autodev-scout'])
+		const stored = readJob(svc.paths, original.id)
+		expect(stored?.state).toBe('active')
+		expect(stored?.confirmation?.surface).toBe('tui')
+		expect(stored && confirmationHolds(stored)).toBe(true)
+		expect(said.join('\n')).toContain('Using the scheduler service autodev')
+		expect(said.join('\n')).toContain('Confirmed autodev-scout (active).')
+	})
+
+	it('does not confirm when the person cancels', async () => {
+		const original = confirmedJob(svc, { name: 'autodev-scout' })
+		updateJob(svc.paths, original.id, original.revision, (job) => ({
+			...job,
+			state: 'pending-confirmation',
+			confirmation: null,
+		}))
+		const { context: c } = context({ review: async () => 'cancel' })
+		await runScheduleCommand(['confirm', 'autodev-scout'], c)
+		expect(readJob(svc.paths, original.id)?.state).toBe('pending-confirmation')
+	})
+
+	it('pauses a service job, and refuses a name found in two homes', async () => {
+		const there = confirmedJob(svc, { name: 'autodev-scout' })
+		const { context: c } = context()
+		await runScheduleCommand(['pause', 'autodev-scout'], c)
+		expect(readJob(svc.paths, there.id)?.state).toBe('paused')
+		const same = confirmedJob(sb, { name: 'twin' })
+		const twin = confirmedJob(svc, { name: 'twin' })
+		const second = context()
+		await runScheduleCommand(['pause', 'twin'], second.context)
+		expect(second.said.join('\n')).toContain('more than one scheduler home')
+		expect(readJob(sb.paths, same.id)?.state).toBe('active')
+		expect(readJob(svc.paths, twin.id)?.state).toBe('active')
+		await runScheduleCommand(['pause', 'twin', '--service', 'autodev'], second.context)
+		expect(readJob(svc.paths, twin.id)?.state).toBe('paused')
+	})
+})

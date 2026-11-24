@@ -10,8 +10,10 @@ import { EXIT_OK, EXIT_USAGE } from '../../exit-codes.js'
 import { sanitizeLine } from '../../integrations/notifications/desktop/sanitize.js'
 import { callsCount, callsLine } from '../fire/calls.js'
 import { gateLines } from '../gate.js'
+import type { SchedulePaths } from '../paths.js'
 import { compileJobPolicy } from '../policy.js'
 import { parkedRunWords, resumeCommand } from '../resume-command.js'
+import { scheduleHomes } from '../service/homes.js'
 import { foldHistory, readHistory } from '../store/history.js'
 import { confirmationHolds, findJob, listJobs } from '../store/jobs.js'
 import { nextFireOf, readState } from '../store/state.js'
@@ -96,35 +98,8 @@ export function listing(job: ScheduleJob, state: ScheduleJobState): JobListing {
 	}
 }
 
-export async function listCommand(ctx: CommandContext, argv: readonly string[]): Promise<number> {
-	const args = parseArgs(argv, ['home', 'json!'])
-	if (args.unknown.length > 0) {
-		ctx.formatter.error({
-			message: `unknown option: ${args.unknown.join(', ')}`,
-		})
-		return EXIT_USAGE
-	}
-	const paths = pathsFor(args)
-	const { jobs, errors } = listJobs(paths)
-	const rows = jobs.map((job) => listing(job, readState(paths, job.id)))
-	for (const error of errors)
-		ctx.formatter.error({ message: visibleScheduleMessage(error.message) })
-	if (has(args, 'json') || ctx.formatter.name !== 'text') {
-		const payload = { v: 1, jobs: rows }
-		ctx.formatter.print(ctx.formatter.name === 'text' ? JSON.stringify(payload, null, 2) : payload)
-		return EXIT_OK
-	}
-	if (rows.length === 0) {
-		// "No scheduled jobs" is only true when there is nothing at all;
-		// `errors` above already said why each such file could not be read,
-		// so this line says there is something, not nothing, to look at.
-		ctx.formatter.print(
-			errors.length > 0
-				? `${errors.length} job file${errors.length === 1 ? '' : 's'} could not be read; see above.`
-				: 'No scheduled jobs. Create one with `namzu schedule add`, or /schedule in the TUI.',
-		)
-		return EXIT_OK
-	}
+/** The text a list of rows is shown as: three lines per job. */
+function rowLines(rows: readonly JobListing[]): string {
 	const host = hostTimeZone()
 	const lines = rows.map((r) => {
 		const next = r.nextFireAt ? `next ${when(r.nextFireAt, r.tz)}` : ''
@@ -165,8 +140,87 @@ export async function listCommand(ctx: CommandContext, argv: readonly string[]):
 				: []),
 		].join('\n')
 	})
-	ctx.formatter.print(visibleScheduleMessage(lines.join('\n')))
+	return lines.join('\n')
+}
+
+function rowsOf(paths: SchedulePaths): {
+	rows: JobListing[]
+	errors: ReturnType<typeof listJobs>['errors']
+} {
+	const { jobs, errors } = listJobs(paths)
+	return { rows: jobs.map((job) => listing(job, readState(paths, job.id))), errors }
+}
+
+export async function listCommand(ctx: CommandContext, argv: readonly string[]): Promise<number> {
+	const args = parseArgs(argv, ['home', 'json!'])
+	if (args.unknown.length > 0) {
+		ctx.formatter.error({
+			message: `unknown option: ${args.unknown.join(', ')}`,
+		})
+		return EXIT_USAGE
+	}
+	const paths = pathsFor(args)
+	const { rows, errors } = rowsOf(paths)
+	for (const error of errors)
+		ctx.formatter.error({ message: visibleScheduleMessage(error.message) })
+	// Without --home (and so without --service, which sets it) the installed
+	// services' jobs follow the current home's, each under the service name.
+	const others = has(args, 'home') ? [] : scheduleHomes(paths.home).homes.slice(1)
+	const services = others.map((at) => {
+		if (at.unreadable) return { at, unreadable: at.unreadable, rows: [] as JobListing[] }
+		const read = rowsOf(at.paths)
+		return { at, rows: read.rows, problems: read.errors.length }
+	})
+	if (has(args, 'json') || ctx.formatter.name !== 'text') {
+		const payload = {
+			v: 1,
+			jobs: rows,
+			...(services.length > 0
+				? {
+						services: services.map((s) => ({
+							name: s.at.service,
+							home: s.at.home,
+							...('unreadable' in s ? { unreadable: s.unreadable } : { jobs: s.rows }),
+						})),
+					}
+				: {}),
+		}
+		ctx.formatter.print(ctx.formatter.name === 'text' ? JSON.stringify(payload, null, 2) : payload)
+		return EXIT_OK
+	}
+	const currentText =
+		rows.length === 0
+			? // "No scheduled jobs" is only true when there is nothing at all;
+				// `errors` above already said why each such file could not be read,
+				// so this line says there is something, not nothing, to look at.
+				errors.length > 0
+				? `${errors.length} job file${errors.length === 1 ? '' : 's'} could not be read; see above.`
+				: 'No scheduled jobs. Create one with `namzu schedule add`, or /schedule in the TUI.'
+			: rowLines(rows)
+	if (services.length === 0) {
+		ctx.formatter.print(visibleScheduleMessage(currentText))
+		return EXIT_OK
+	}
+	const sections = [
+		`This home (${paths.home})\n${indent(currentText)}`,
+		...services.map((s) => {
+			const heading = `Service ${s.at.service} (${s.at.home})`
+			if ('unreadable' in s) return `${heading}\n  cannot read: ${s.unreadable}`
+			const note = s.problems
+				? `\n  ${s.problems} job file${s.problems === 1 ? '' : 's'} could not be read.`
+				: ''
+			return `${heading}\n${indent(s.rows.length === 0 ? 'No scheduled jobs.' : rowLines(s.rows))}${note}`
+		}),
+	]
+	ctx.formatter.print(visibleScheduleMessage(sections.join('\n\n')))
 	return EXIT_OK
+}
+
+function indent(text: string): string {
+	return text
+		.split('\n')
+		.map((l) => `  ${l}`)
+		.join('\n')
 }
 
 function describeRecord(r: ScheduleHistoryRecord, tz: string): string {
