@@ -564,7 +564,7 @@ describe('the session list', () => {
 		)
 	})
 
-	it('sorts this terminal first, then this machine by start time (unknown last), then machines by name', () => {
+	it('sorts this terminal first, then this machine newest first (unknown last), then machines by name', () => {
 		const text = formatSessionList(
 			[
 				row({ ref: '000001', name: 'zeta', machine: 'b-box' }),
@@ -580,7 +580,7 @@ describe('the session list', () => {
 			.split('\n')
 			.filter((l) => l.startsWith('  ['))
 			.map((l) => l.split('  ·  ')[1])
-		expect(order).toEqual(['me', 'early', 'late', 'unknown-start', 'alpha', 'zeta'])
+		expect(order).toEqual(['me', 'late', 'early', 'unknown-start', 'alpha', 'zeta'])
 	})
 
 	it('reads an unnamed session as a placeholder, with its folder on the second line', () => {

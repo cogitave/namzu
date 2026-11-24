@@ -96,7 +96,7 @@ export function fit(lines: readonly string[], columns: number): string[] {
 	return out
 }
 
-/** The order of the list: this terminal, then this machine by start time (unknown last), then other machines by name. */
+/** The order of the list: this terminal, then this machine newest first (unknown last), then other machines by name. */
 export function sortSessions(rows: readonly SessionRow[]): SessionRow[] {
 	const rank = (row: SessionRow) => (row.self ? 0 : row.machine === undefined ? 1 : 2)
 	return [...rows].sort((a, b) => {
@@ -104,9 +104,9 @@ export function sortSessions(rows: readonly SessionRow[]): SessionRow[] {
 		if (a.machine !== undefined && b.machine !== undefined && a.machine !== b.machine)
 			return a.machine.localeCompare(b.machine)
 		if (a.machine === undefined) {
-			const x = a.startedAt ?? Number.POSITIVE_INFINITY
-			const y = b.startedAt ?? Number.POSITIVE_INFINITY
-			if (x !== y) return x < y ? -1 : 1
+			const x = a.startedAt ?? Number.NEGATIVE_INFINITY
+			const y = b.startedAt ?? Number.NEGATIVE_INFINITY
+			if (x !== y) return x > y ? -1 : 1
 		}
 		return a.name.localeCompare(b.name) || a.ref.localeCompare(b.ref)
 	})
