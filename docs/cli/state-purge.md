@@ -47,6 +47,9 @@ every line of the prompt history under the same rules; it takes no path.
 - Every path is checked before it is measured and again before it is deleted. A path
   that is a link, or whose parent resolves outside the real Namzu home, is left alone and
   reported; nothing outside the Namzu home is ever deleted.
+- `services/<name>` under the Namzu home is a scheduler service's own home (its jobs,
+  history and conversations), not a project's state: it is never listed, counted or
+  deleted, with `--all` as well. A path inside `services/` is refused the same way a link is.
 
 The exit status is 0 when everything listed was deleted (or nothing was kept), 1 when
 something was left alone or could not be deleted, and 64 for a usage error.

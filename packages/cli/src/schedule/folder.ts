@@ -4,13 +4,15 @@
  * Refused: the file system root, the operator's home directory itself, a
  * folder that contains `NAMZU_HOME` (a run there could rewrite its own job,
  * its history and the credentials beside them), and anything inside
- * `NAMZU_HOME`. The folder is canonicalised once, here; every later check
+ * `NAMZU_HOME`; the same two rules hold for the default Namzu home and for
+ * the home of every installed scheduler service. The folder is canonicalised once, here; every later check
  * compares against that canonical path.
  */
 
 import { lstatSync, mkdirSync, readdirSync, realpathSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { basename, dirname, join, parse, relative, resolve, sep } from 'node:path'
+import { defaultNamzuHome, readServiceIndex } from './service/registry.js'
 
 function isWithinOrSame(parent: string, child: string): boolean {
 	const rel = relative(parent, child)
@@ -74,7 +76,7 @@ export function checkScratchFolder(namzuHome: string, jobId: string): FolderChec
 			}
 		}
 	}
-	const checked = checkJobFolder(path, { namzuHome })
+	const checked = checkJobFolder(path, { namzuHome, scratch: true })
 	if (!checked.ok) return checked
 	if (checked.canonical !== path)
 		return { ok: false, reason: `scratch folder ${path} resolves elsewhere` }
@@ -129,7 +131,16 @@ export function ensureScratchFolder(namzuHome: string, jobId: string): FolderChe
 
 export function checkJobFolder(
 	folder: string,
-	options: { readonly namzuHome: string; readonly osHome?: string },
+	options: {
+		readonly namzuHome: string
+		readonly osHome?: string
+		/**
+		 * The job's own scratch folder, which sits beside its home (and so inside
+		 * the default Namzu home when that home is a named service's). Only the
+		 * rule against the default home is waived, never the one for a service's home.
+		 */
+		readonly scratch?: boolean
+	},
 ): FolderCheck {
 	let real: string
 	try {
@@ -160,6 +171,23 @@ export function checkJobFolder(
 	}
 	if (isWithinOrSame(namzuHome, real)) {
 		return { ok: false, reason: `${real} is inside NAMZU_HOME (${namzuHome})` }
+	}
+	// The default Namzu home and every registered service's home: a service's
+	// home is inside the default home, so a folder there would sit beside the
+	// keys and every other service's jobs.
+	const defaultHome = canonical(defaultNamzuHome(options.osHome ?? homedir()))
+	const registered = readServiceIndex(options.osHome ?? homedir()).map((e) => canonical(e.home))
+	for (const home of new Set([...registered, defaultHome])) {
+		const label = home === defaultHome ? 'the Namzu home' : 'a scheduler service’s home'
+		if (isWithinOrSame(real, home)) {
+			return {
+				ok: false,
+				reason: `${real} contains ${label} (${home}); a run there could rewrite its own job`,
+			}
+		}
+		if (isWithinOrSame(home, real) && !(options.scratch && home === defaultHome)) {
+			return { ok: false, reason: `${real} is inside ${label} (${home})` }
+		}
 	}
 	return { ok: true, canonical: real }
 }

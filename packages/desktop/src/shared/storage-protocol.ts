@@ -5,6 +5,7 @@
 
 export const STORAGE_PART_IDS = [
 	'conversations',
+	'services',
 	'engine',
 	'voice',
 	'logs',
