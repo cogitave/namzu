@@ -210,6 +210,13 @@ export class WorkingPill {
 	private approvalOf(request: PermissionView): PillApproval {
 		if (request.appRequest) {
 			const apps = request.appRequest.apps.map((app) => (app === WHOLE_SCREEN ? 'the screen' : app))
+			// A browser is asked once, in its own words; a yes there covers the conversation, so there is no "once".
+			if (request.appRequest.browser)
+				return {
+					requestId: request.id,
+					title: `Let Namzu click and type in ${apps.join(' and ')} in this conversation?`,
+					choices: ['allow', 'deny'],
+				}
 			return {
 				requestId: request.id,
 				title: `Allow Namzu to use ${apps.join(' and ')} in this conversation?`,

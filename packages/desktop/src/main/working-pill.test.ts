@@ -168,6 +168,21 @@ describe('the working pill', () => {
 		expect(shown.at(-1)).not.toHaveProperty('approval')
 	})
 
+	it('asks about a browser in its own words, with no "once"', () => {
+		const { pill, shown, press, answers } = setup()
+		pill.observe(call('Click'))
+		pill.observe(frame('Brave'))
+		pill.observe(ask('r1', { appRequest: { apps: ['Brave'], browser: true } }))
+		expect((shown.at(-1) as PillView).approval).toMatchObject({
+			title: 'Let Namzu click and type in Brave in this conversation?',
+			choices: ['allow', 'deny'],
+		})
+		press({ type: 'answer', requestId: 'r1', choice: 'allow' })
+		expect(answers).toEqual([
+			{ sessionId: 's1', requestId: 'r1', response: { outcome: 'approve_all' } },
+		])
+	})
+
 	it('stays up between the answer and the action the question was about', () => {
 		const { pill, shown, press, created } = setup()
 		pill.observe(ask('r1'))

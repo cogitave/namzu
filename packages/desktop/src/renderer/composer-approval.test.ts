@@ -257,6 +257,35 @@ it('draws the browser window question as allow for this conversation or not now'
 	expect(html).not.toContain('Tell Namzu what to do instead')
 })
 
+it('draws a browser application request as one card: allow for this conversation or not now, no allow once', () => {
+	const html = draw(
+		{
+			id: 'r6',
+			sessionId: 's',
+			projectId: 'p',
+			calls: [
+				{
+					id: 'c1',
+					name: 'computer_use',
+					input: { type: 'mouse_click', at: { x: 1, y: 1 } },
+					isDestructive: true,
+					computer: { app: 'brave-browser', browserAsk: ['brave-browser'] },
+				},
+			],
+			appRequest: { apps: ['Brave'], browser: true },
+		},
+		'/work/site',
+		'Site',
+		true,
+	)
+	expect(html).toContain('aria-label="A question about a browser window"')
+	expect(html).toContain('Let Namzu click and type in Brave in this conversation?')
+	expect(html).toMatch(/data-tone="accept"[^>]*>Allow for this conversation</)
+	expect(html).toMatch(/data-tone="reject"[^>]*>Not now</)
+	expect(html).not.toContain('Allow once')
+	expect(html).not.toContain('Use of an app')
+})
+
 it('keeps a stray Enter from allowing the keyboard to be taken', () => {
 	const html = draw(screenMoment())
 	expect(html).toMatch(/title="Not now · Enter or Esc"/)

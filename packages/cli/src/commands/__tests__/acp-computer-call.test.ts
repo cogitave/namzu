@@ -36,7 +36,9 @@ const bash = { id: 'c2', name: 'bash', input: { command: 'ls' }, isDestructive: 
 
 async function run(options: {
 	calls: Record<string, unknown>[]
-	described?: (name: string) => { app?: string; consequence?: string } | undefined
+	described?: (
+		name: string,
+	) => { app?: string; consequence?: string; browserAsk?: string[] } | undefined
 	observeComputer?: (id: string, seen: unknown) => void
 }) {
 	let sessionOptions: Record<string, unknown> | undefined
@@ -115,6 +117,18 @@ describe('a computer action asked about', () => {
 		expect(calls[0]).toMatchObject({ computer: { app: 'Notepad', consequence: 'presses ALT+F4' } })
 		// Another tool says nothing about a computer.
 		expect(calls[1]).not.toHaveProperty('computer')
+	})
+
+	it('names the browser the engine will put its own question about, so the host asks once', async () => {
+		const { ask } = await run({
+			calls: [click],
+			described: () => ({ app: 'brave-browser', browserAsk: ['brave-browser'] }),
+		})
+		const calls = (ask.mock.calls[0] as unknown as [{ toolCalls: Record<string, unknown>[] }])[0]
+			.toolCalls
+		expect(calls[0]).toMatchObject({
+			computer: { app: 'brave-browser', browserAsk: ['brave-browser'] },
+		})
 	})
 
 	it('sends nothing extra when the application cannot be told', async () => {

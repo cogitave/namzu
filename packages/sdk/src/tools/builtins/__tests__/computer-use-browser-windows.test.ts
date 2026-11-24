@@ -362,3 +362,26 @@ describe('a live setting and the password field', () => {
 		expect(touched).toEqual([])
 	})
 })
+
+describe('browserQuestionPending', () => {
+	const ask = async (): Promise<BrowserWindowAnswer> => 'allow'
+
+	it('is true only for a browser under ask with somebody to ask and no yes yet', async () => {
+		const { tool } = build('brave-browser', { browserWindows: 'ask', askBrowserWindow: ask })
+		expect(tool.browserQuestionPending('brave-browser')).toBe(true)
+		expect(tool.browserQuestionPending('notepad')).toBe(false)
+		await run(tool, CLICK)
+		expect(tool.browserQuestionPending('brave-browser')).toBe(false)
+	})
+
+	it('is false under look and act, and with nobody to ask', () => {
+		for (const options of [
+			{ browserWindows: 'look' as const, askBrowserWindow: ask },
+			{ browserWindows: 'act' as const, askBrowserWindow: ask },
+			{ browserWindows: 'ask' as const },
+		])
+			expect(build('brave-browser', options).tool.browserQuestionPending('brave-browser')).toBe(
+				false,
+			)
+	})
+})

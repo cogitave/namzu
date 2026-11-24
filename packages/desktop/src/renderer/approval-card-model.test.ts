@@ -502,3 +502,23 @@ describe('a change to one of the settings', () => {
 		expect(offersConversationAllowance(request([settingCall()]))).toBe(false)
 	})
 })
+
+describe('a browser application request', () => {
+	it('is the one browser card: browser wording, and the yes covers the conversation', () => {
+		const card = buildApprovalCard({
+			...request([call('computer_use', { type: 'mouse_click' })]),
+			appRequest: { apps: ['Brave'], browser: true },
+		})
+		expect(card.title).toBe('Let Namzu click and type in Brave in this conversation?')
+		expect(card.appAccess).toEqual({ apps: ['Brave'], browser: true })
+	})
+
+	it('keeps the ordinary wording for any other application', () => {
+		const card = buildApprovalCard({
+			...request([call('computer_use', { type: 'mouse_click' })]),
+			appRequest: { apps: ['Notepad'] },
+		})
+		expect(card.title).toBe('Allow Namzu to use Notepad in this conversation?')
+		expect(card.appAccess).toEqual({ apps: ['Notepad'] })
+	})
+})

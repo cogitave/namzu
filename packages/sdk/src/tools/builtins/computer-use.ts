@@ -1636,6 +1636,12 @@ export interface ComputerUseTool extends ToolDefinition<ActionInput> {
 	browserGrants(): string[]
 	/** Takes a browser back (by any name the host gives it). Returns whether it was allowed. */
 	revokeBrowserGrant(app: string): boolean
+	/**
+	 * Whether an action in this application would put the browser question to a person: it is a
+	 * browser, the setting is `ask`, somebody can be asked, and nobody has allowed it yet. A host
+	 * that draws its own application card uses it to ask once, in the browser's words, not twice.
+	 */
+	browserQuestionPending(app: string): boolean
 }
 
 const CONSEQUENTIAL_KEYS =
@@ -3896,5 +3902,10 @@ export function createComputerUseTool(
 		consequence,
 		browserGrants: (): string[] => [...browserGranted.values()],
 		revokeBrowserGrant: (app: string): boolean => browserGranted.delete(browserKey(app)),
+		browserQuestionPending: (app: string): boolean =>
+			appTier(app) === 'view' &&
+			readBrowserSetting() === 'ask' &&
+			options.askBrowserWindow !== undefined &&
+			!browserGranted.has(browserKey(app)),
 	})
 }

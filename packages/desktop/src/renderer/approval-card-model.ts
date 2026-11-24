@@ -40,7 +40,7 @@ export interface ApprovalCardModel {
 	/** The engine's question that needs the person's own answer: the real keyboard and mouse for a moment, or a browser window to click and type in. */
 	screenMoment?: { app: string; browser?: true }
 	/** The question whether Namzu may use these applications in this conversation. */
-	appAccess?: { apps: string[] }
+	appAccess?: { apps: string[]; browser?: true }
 	/** A change to one of the person's settings: its name and the old and new value in Settings' words. */
 	settingChange?: { setting: string; from: string; to: string }
 	/** Titles of the other calls of the same batch, which one answer covers. */
@@ -248,10 +248,13 @@ export function buildApprovalCard(
 ): ApprovalCardModel {
 	if (permission.appRequest && permission.appRequest.apps.length > 0) {
 		const apps = permission.appRequest.apps
+		const browser = permission.appRequest.browser === true
 		return {
 			kind: 'other',
-			title: `Allow Namzu to use ${apps.join(' and ')} in this conversation?`,
-			appAccess: { apps },
+			title: browser
+				? `Let Namzu click and type in ${apps.join(' and ')} in this conversation?`
+				: `Allow Namzu to use ${apps.join(' and ')} in this conversation?`,
+			appAccess: browser ? { apps, browser: true } : { apps },
 			previewMissing: false,
 			entries: [],
 			destructive: false,

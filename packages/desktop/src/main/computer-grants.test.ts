@@ -111,4 +111,47 @@ describe('computer grants', () => {
 		expect(held.view().granted).toEqual([])
 		expect(held.decide([act('Notepad')])).toEqual({ kind: 'ask-app', apps: ['Notepad'] })
 	})
+
+	describe('a browser the engine will ask about', () => {
+		const brave = (extra: Partial<Call> = {}) =>
+			act('brave-browser', {
+				computer: { app: 'brave-browser', browserAsk: ['brave-browser'] },
+				...extra,
+			})
+
+		it('is asked once, in the browser card, never in the ordinary card as well', () => {
+			expect(grants().decide([brave()])).toEqual({
+				kind: 'ask-app',
+				apps: ['Brave'],
+				browser: true,
+			})
+		})
+
+		it('answers by itself once the person allowed it for this conversation', () => {
+			const held = grants()
+			held.grant(['brave-browser'], { browser: true })
+			expect(held.decide([brave()])).toEqual({ kind: 'allow' })
+			expect(held.browserAllowed('Brave')).toBe(true)
+		})
+
+		it('an ordinary application yes is not a yes to click and type in a browser', () => {
+			const held = grants()
+			held.grant(['brave-browser'])
+			expect(held.browserAllowed('brave-browser')).toBe(false)
+			held.grant(['brave-browser'], { browser: true })
+			expect(held.revoke('brave-browser')).toBe(true)
+			expect(held.browserAllowed('brave-browser')).toBe(false)
+		})
+
+		it('asks the ordinary card first when the batch also holds an application nobody allowed', () => {
+			expect(grants().decide([brave(), act('Notepad')])).toEqual({
+				kind: 'ask-app',
+				apps: ['Notepad'],
+			})
+		})
+
+		it('leaves a consequence or the first look at the screen to the ordinary card', () => {
+			expect(grants().decide([brave({ alwaysAsk: true })])).toEqual({ kind: 'ask' })
+		})
+	})
 })

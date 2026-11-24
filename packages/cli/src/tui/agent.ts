@@ -2090,7 +2090,9 @@ export interface AgentSession {
 	readonly describeComputerUseCall?: (
 		name: string,
 		input: unknown,
-	) => Promise<{ app?: string; apps?: string[]; consequence?: string } | undefined>
+	) => Promise<
+		{ app?: string; apps?: string[]; consequence?: string; browserAsk?: string[] } | undefined
+	>
 	send(messages: readonly Message[], opts?: SendOptions): AsyncIterable<AgentEvent>
 	/**
 	 * Continue a turn some OTHER process started, from its session log.
@@ -7506,11 +7508,15 @@ export async function createAgentSession(
 			const apps = await computerUseTool.appsOf(input)
 			const app = apps[0]
 			const consequence = computerUseTool.consequence(input)
+			// Browsers this call acts in that the engine will put its own question about: a host that
+			// draws an application card asks once, in the browser's words, instead of twice.
+			const browserAsk = apps.filter((name) => computerUseTool?.browserQuestionPending(name))
 			return app || consequence
 				? {
 						...(app ? { app } : {}),
 						...(apps.length > 1 ? { apps } : {}),
 						...(consequence ? { consequence } : {}),
+						...(browserAsk.length > 0 ? { browserAsk } : {}),
 					}
 				: undefined
 		},

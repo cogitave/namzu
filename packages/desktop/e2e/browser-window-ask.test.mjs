@@ -84,16 +84,26 @@ const clicks = (w) =>
 const questionCard = (w) =>
 	w.page.getByRole("region", { name: "A question about a browser window" });
 // Every computer action is a "Permission to act" card first (Accept is the person's, the scripted model never answers
-// it). Accept those until `target` shows; the browser question is asked in place of the click, after the screenshot.
+// it). Accept those until `target` shows. The browser is asked about once: Desktop's own per-application card is
+// never drawn for it, and the cards that name Brave are recorded in w.braveCards so a test can count them.
+const braveCards = (w) => (w.braveCards ??= []);
 async function acceptUntil(w, target) {
 	const act = w.page.getByRole("region", { name: "Permission to act" });
 	const access = w.page.getByRole("region", { name: "Use of an app" });
+	const browser = questionCard(w);
 	await expect
 		.poll(
 			async () => {
 				if (await target.first().isVisible()) return true;
-				// Desktop's own per-application card ("Allow Namzu to use Brave-browser in this conversation?")
-				// comes before the engine's browser question; both are recorded in the pictures.
+				for (const card of [access, browser, act]) {
+					if (await card.count()) {
+						const title = (await card.getByRole("heading").first().textContent()) ?? "";
+						if (/Brave/i.test(title) && !braveCards(w).includes(title + (card === browser ? "|browser" : "|app")))
+							braveCards(w).push(title + (card === browser ? "|browser" : "|app"));
+					}
+				}
+				// The browser question is the person's: a test answers it itself, so it is left showing.
+				if (await browser.count()) return false;
 				if (await access.count())
 					await access
 						.getByRole("button", { name: "Allow", exact: true })
@@ -119,8 +129,15 @@ flow(
 			"Computer use'u kullan, açık Brave penceresinde Sites → Active sites'a tıkla (Brave)",
 		);
 		await acceptUntil(w, questionCard(w));
+		// Exactly one card for the browser before the first click, in the browser's words: Desktop's own
+		// "Allow Namzu to use Brave" card is not drawn as well.
+		assert.deepEqual(
+			braveCards(w),
+			["Let Namzu click and type in Brave in this conversation?|browser"],
+			"one card for Brave, and it is the browser card",
+		);
 		await expect(questionCard(w).getByRole("heading")).toContainText(
-			"click and type in",
+			"click and type in Brave",
 		);
 		await expect(questionCard(w)).toContainText("in this conversation");
 		await expect(
@@ -131,6 +148,9 @@ flow(
 		await expect(
 			questionCard(w).getByRole("button", { name: "Not now" }),
 		).toBeVisible();
+		await expect(
+			questionCard(w).getByRole("button", { name: "Allow once" }),
+		).toHaveCount(0);
 		assert.deepEqual(clicks(w), [], "nothing is clicked before the answer");
 		await shot(w, "desktop-browser-question");
 		await questionCard(w)
@@ -141,6 +161,11 @@ flow(
 			clicks(w).length,
 			1,
 			"one click reached the window after the yes",
+		);
+		assert.equal(
+			braveCards(w).length,
+			1,
+			"the yes answered the application and the engine's question both: no second card for Brave",
 		);
 		await shot(w, "desktop-browser-after-allow");
 	},
@@ -155,6 +180,7 @@ flow(
 			"Computer use'u kullan, açık Brave penceresinde Sites → Active sites'a tıkla (Brave)",
 		);
 		await acceptUntil(w, questionCard(w));
+		assert.equal(braveCards(w).length, 1, "one card for Brave");
 		await questionCard(w).getByRole("button", { name: "Not now" }).click();
 		await acceptUntil(w, finished(w));
 		assert.deepEqual(clicks(w), [], "no click reached the browser");
