@@ -2,6 +2,7 @@ import type { ToolCallView } from '@namzu/sdk'
 import { describe, expect, it } from 'vitest'
 import { type ThreadState, applyEvent, emptyThread } from '../shared/projection.js'
 import { toolTranscriptPresentation } from './tool-transcript-presentation.js'
+import { actionRunLabel, runActionOf } from './transcript-layout.js'
 
 function start(view: ToolCallView, title = 'custom_tool'): ThreadState {
 	let thread = applyEvent(emptyThread(), {
@@ -540,5 +541,34 @@ describe('a message to a Pal from an ordinary conversation', () => {
 		)
 		expect(row?.label).toBe('send_pal_message')
 		expect(row?.tooltip).toBeUndefined()
+	})
+})
+
+describe('a generated image', () => {
+	function finished(status: 'pending' | 'completed' | 'failed') {
+		// The result view a tool without its own presenter gets: the whole output as a terminal view.
+		const thread = result(
+			start({ kind: 'generic', label: 'Generate image: a red fox' }, 'generate_image'),
+			{ kind: 'terminal', output: 'Image generated and already shown to the person.' },
+			status,
+			'generate_image',
+		)
+		return toolTranscriptPresentation(thread, key)
+	}
+
+	it('is an image row, never a command', () => {
+		expect(finished('completed')).toMatchObject({ kind: 'image', label: 'Generated an image' })
+		expect(finished('completed')?.detailView).toBeUndefined()
+		expect(finished('pending')).toMatchObject({ kind: 'image', label: 'Generating an image' })
+		expect(finished('failed')).toMatchObject({ kind: 'image', label: 'Couldn’t generate an image' })
+	})
+
+	it('reads as "Generated an image" in the turn summary, beside a tool load', () => {
+		const run = (kind: 'other' | 'image') => runActionOf({ kind, state: 'completed' })
+		expect(actionRunLabel([run('image')], false)).toBe('Generated an image')
+		expect(actionRunLabel([run('other'), run('image')], false)).toBe(
+			'Used a tool, generated an image',
+		)
+		expect(actionRunLabel([run('image')], true)).toBe('Generating an image')
 	})
 })

@@ -12,7 +12,6 @@ import type {
 } from '@namzu/sdk'
 import {
 	ProviderRequestError,
-	attributionHeaders,
 	isCallerAbortError,
 	isProviderRequestError,
 	providerVendorError,
@@ -33,6 +32,7 @@ import type {
 } from 'openai/resources/responses/responses'
 
 import { type FastTier, assertFastModeAccepted, servedSpeed } from './fast-mode.js'
+import { CODEX_DEFAULT_BASE_URL, codexRequestHeaders } from './images.js'
 import { subscriptionLimits } from './model-limits.js'
 import type { CodexConfig } from './types.js'
 
@@ -48,7 +48,7 @@ export const CODEX_CAPABILITIES: ProviderCapabilities = {
 	supportsToolResultDocuments: false,
 }
 
-const DEFAULT_CODEX_BASE_URL = 'https://chatgpt.com/backend-api/codex'
+const DEFAULT_CODEX_BASE_URL = CODEX_DEFAULT_BASE_URL
 
 interface SubscriptionReasoningProfile {
 	readonly default?: ReasoningEffort
@@ -570,10 +570,7 @@ export class CodexProvider implements LLMProvider {
 			timeout: config.timeout,
 			...(config.maxRetries !== undefined ? { maxRetries: config.maxRetries } : {}),
 			defaultHeaders: {
-				...attributionHeaders(),
-				'ChatGPT-Account-Id': config.accountId,
-				originator: 'Codex Namzu',
-				'User-Agent': 'Codex Namzu/1.0',
+				...codexRequestHeaders(config.accountId),
 				...(config.defaultHeaders ?? {}),
 			},
 		})

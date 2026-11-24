@@ -110,6 +110,7 @@ export async function learnNow(ctx: CommandContext, cwd: string): Promise<number
 		cwd: await realpath(resolve(cwd)),
 		ephemeral: true,
 		...(ctx.config.smallModel ? { smallModel: ctx.config.smallModel } : {}),
+		...(ctx.config.imageGeneration ? { imageGeneration: ctx.config.imageGeneration } : {}),
 	})
 	process.on('SIGINT', interrupt)
 	process.on('SIGTERM', interrupt)

@@ -561,6 +561,10 @@ export function withProviderFallback(
 			const serving = members[cursor] ?? first
 			return serving.provider.supportsImageInputFor?.(serving.model ?? model) ?? true
 		},
+		imageModelFor: (model: string) => {
+			const serving = members[cursor] ?? first
+			return serving.provider.imageModelFor?.(serving.model ?? model)
+		},
 		// A chain takes a forced choice only if every member says it does: the
 		// request may be served by any of them, and one that refuses (or cannot
 		// say) must not be sent a choice it may turn down.

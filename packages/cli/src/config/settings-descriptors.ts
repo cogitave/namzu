@@ -526,6 +526,7 @@ export function appliesWhenFor(path: string): AppliesWhen {
 		'computerUse.',
 		'permissions.',
 		'codeAnalysis.',
+		'imageGeneration.',
 	]
 	const conversationKeys = new Set([
 		'hypermode',
@@ -2232,6 +2233,18 @@ const DECLARED: readonly SettingDescriptor[] = [
 		'Let Namzu read the structure of your code (definitions and references), in the terminal app and in Desktop conversations. Off removes the code analysis tool.',
 		on,
 		{ group: 'code-plugins', keywords: ['lsp', 'definitions', 'references'], default: true },
+	),
+	d(
+		'imageGeneration.enabled',
+		'tools',
+		'Image generation',
+		'Create and edit images with your OpenAI plan. Works with any model while you are signed in with your OpenAI subscription on a paid plan; off removes the image tool.',
+		on,
+		{
+			group: 'code-plugins',
+			keywords: ['images', 'imagegen', 'picture', 'openai', 'chatgpt'],
+			default: true,
+		},
 	),
 	d(
 		'mcpServers',

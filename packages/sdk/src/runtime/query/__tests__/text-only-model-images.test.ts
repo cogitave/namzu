@@ -183,24 +183,67 @@ describe('a text-only model inside a conversation that holds images', () => {
 		expect(JSON.stringify(vision.requests[0]?.messages)).toContain(image.data)
 	})
 
-	it('tells the person, naming the model, when the message it answers carries a picture', async () => {
+	it("refuses before sending when the message it answers carries the person's own picture", async () => {
 		const withPicture = () => [...history(), createUserMessage('and this one?', [image])]
 		const provider = new ModelAwareProvider(new Set(['beam']))
-		const { result, events } = await run(provider, 'beam', undefined, withPicture())
-		expect(result.status).toBe('completed')
-		expect(JSON.stringify(provider.requests[0]?.messages)).not.toContain(image.data)
-		const warnings = events.filter((e) => e.type === 'capability_warning')
-		expect(warnings).toHaveLength(1)
-		expect(warnings[0]).toMatchObject({
-			capability: 'vision',
-			providerId: 'model-aware',
-			model: 'beam',
+		// Nothing left the machine, and the picture was not quietly dropped.
+		await expect(run(provider, 'beam', undefined, withPicture())).rejects.toMatchObject({
+			code: 'capability_unavailable',
+			message: expect.stringContaining("Model 'beam' does not accept image input"),
 		})
-		// A model that reads images gets the picture and no warning.
+		expect(provider.requests).toHaveLength(0)
+	})
+
+	it('names an image-capable model of the same provider when the driver knows one', async () => {
+		const provider = new ModelAwareProvider(new Set(['beam']))
+		Object.assign(provider, { imageModelFor: () => 'seer' })
+		await expect(
+			run(provider, 'beam', undefined, [createUserMessage('look', [image])]),
+		).rejects.toThrow("Select 'seer'")
+		expect(provider.requests).toHaveLength(0)
+	})
+
+	it('leaves the picture out and goes on when the run continues past the message that carried it', async () => {
+		// A resume after an approval pause: the picture's message is no longer the
+		// last one, so the person's turn is not refused a second time.
+		const continued = () => [
+			createUserMessage('look', [image]),
+			createAssistantMessage('capturing', [call]),
+			createToolMessage([{ type: 'text', text: 'done' }], call.id),
+		]
+		const provider = new ModelAwareProvider(new Set(['beam']))
+		const { result } = await run(provider, 'beam', undefined, continued())
+		expect(result.status).toBe('completed')
+		expect(provider.requests).toHaveLength(1)
+		expect(JSON.stringify(provider.requests[0]?.messages)).not.toContain(image.data)
+	})
+
+	it('goes on, quietly, when only a tool returned the image', async () => {
+		const toolOnly = () => [
+			createUserMessage('capture it'),
+			createAssistantMessage('capturing', [call]),
+			createToolMessage(
+				[
+					{ type: 'text', text: 'Screenshot s1 captured' },
+					{ type: 'image', ...image },
+				],
+				call.id,
+			),
+			createUserMessage('and now?'),
+		]
+		const provider = new ModelAwareProvider(new Set(['beam']))
+		const { result, events } = await run(provider, 'beam', undefined, toolOnly())
+		expect(result.status).toBe('completed')
+		expect(provider.requests).toHaveLength(1)
+		const wire = JSON.stringify(provider.requests[0]?.messages)
+		expect(wire).not.toContain(image.data)
+		expect(wire).toContain('Screenshot s1 captured')
+		expect(events.some((e) => e.type === 'capability_warning')).toBe(false)
+		// A model that reads images still gets a pasted picture.
 		const vision = new ModelAwareProvider(new Set(['beam']))
-		const seen = await run(vision, 'seer', undefined, withPicture())
+		const seen = await run(vision, 'seer', undefined, [createUserMessage('look', [image])])
+		expect(seen.result.status).toBe('completed')
 		expect(JSON.stringify(vision.requests[0]?.messages)).toContain(image.data)
-		expect(seen.events.some((e) => e.type === 'capability_warning')).toBe(false)
 	})
 
 	it('retries once without images when an undeclared model refuses them, and says so', async () => {

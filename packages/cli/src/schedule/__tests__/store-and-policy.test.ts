@@ -541,6 +541,16 @@ describe('what a scheduled run may do', () => {
 		}
 	})
 
+	it('withholds generate_image unless the job grants it, even when it runs without asking', () => {
+		const open = expandPermissions({ rules: { read: 'allow' }, unmatched: 'allow' })
+		const policy = compileJobPolicy(open, { layers: [], namzuHome: sb.home })
+		expect(policy.network).toBe(false)
+		expect(decide(gate(policy.rules), 'generate_image', { prompt: 'x' })).toBe('deny')
+		const granted = expandPermissions({ rules: { generate_image: 'allow' }, unmatched: 'deny' })
+		const grantedPolicy = compileJobPolicy(granted, { layers: [], namzuHome: sb.home })
+		expect(grantedPolicy.network).toBe(true)
+	})
+
 	it('allows come only from the job; a deny in any config file holds', () => {
 		const set = expandPermissions({ rules: { bash: 'ask', edit: 'allow' }, unmatched: 'park' })
 		const policy = compileJobPolicy(set, {

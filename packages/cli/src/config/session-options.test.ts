@@ -59,6 +59,7 @@ const FULL = {
 	sandbox: { enabled: true },
 	decision: { enabled: true },
 	codeAnalysis: { enabled: true },
+	imageGeneration: { enabled: true },
 	computerUse: { enabled: true, deniedApps: ['Banking'] },
 	additionalDirectories: ['extra'],
 	toolResultScreens: [],

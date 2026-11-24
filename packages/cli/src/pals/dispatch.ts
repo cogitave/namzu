@@ -108,6 +108,7 @@ export async function dispatchCliPalMessages(
 				rules: permission.rules,
 				permissionMode: 'strict',
 				...(ctx.config.limits ? { limits: ctx.config.limits } : {}),
+				...(ctx.config.imageGeneration ? { imageGeneration: ctx.config.imageGeneration } : {}),
 			})
 			const messages = await loadConversation(state, binding.sessionId)
 			for await (const event of agent.send(messages, {

@@ -1887,6 +1887,18 @@ const CONFIG_READERS: ConfigReaders = {
 			return invalidConfigValue(context, ['enabled'], 'must be true or false')
 		return raw.enabled !== undefined ? { enabled: raw.enabled } : {}
 	},
+	imageGeneration: (v, context) => {
+		if (!isConfigMapping(v)) return invalidConfigValue(context, [], 'must be a mapping')
+		for (const key of Object.keys(v)) {
+			if (key !== 'enabled') {
+				return invalidConfigValue(context, [key], 'is not an imageGeneration setting (enabled)')
+			}
+		}
+		const raw = v as { enabled?: unknown }
+		if (raw.enabled !== undefined && typeof raw.enabled !== 'boolean')
+			return invalidConfigValue(context, ['enabled'], 'must be true or false')
+		return raw.enabled !== undefined ? { enabled: raw.enabled } : {}
+	},
 	web: (v, context) => {
 		if (!isConfigMapping(v)) return invalidConfigValue(context, [], 'must be a mapping')
 		for (const key of Object.keys(v)) {
@@ -2864,6 +2876,8 @@ export const ENV_VARIABLE_NAMES: EnvVariableNames = {
 	// Reads project files into an index kept under the Namzu home; a file
 	// decision, never a variable a shell profile could carry invisibly.
 	codeAnalysis: undefined,
+	// Sends prompts and images to the person's plan provider: a file decision.
+	imageGeneration: undefined,
 	// Whether the model is nudged to speak is a file decision, not a shell's.
 	progressNudge: undefined,
 	// A hook runs a command with the operator's authority; the file is the only
@@ -3500,6 +3514,15 @@ function mergeConfigs(...layers: readonly ConfigLayer[]): {
 				provenance[key] = layer.sourceFor(key)
 				continue
 			}
+			if (key === 'imageGeneration' && layer.config.imageGeneration) {
+				// `enabled: false` holds: a later file may turn the tool off, never back on.
+				out.imageGeneration = mergeCodeAnalysisConfig(
+					out.imageGeneration,
+					layer.config.imageGeneration,
+				)
+				provenance[key] = layer.sourceFor(key)
+				continue
+			}
 			if (key === 'codeAnalysis' && layer.config.codeAnalysis) {
 				// `enabled: false` holds: a later file may turn the tool off, never back on.
 				out.codeAnalysis = mergeCodeAnalysisConfig(out.codeAnalysis, layer.config.codeAnalysis)
@@ -3844,6 +3867,7 @@ export function projectLayerHolds(path: string, value: unknown): boolean {
 		case 'network':
 			return false
 		case 'codeAnalysis':
+		case 'imageGeneration':
 			return tail === 'enabled' ? value === false : true
 		case 'learningGenerator':
 			return tail === 'enabled' ? value === false : false

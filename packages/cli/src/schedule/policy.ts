@@ -56,7 +56,8 @@ import type { SchedulePermissionSet } from './types.js'
 
 export type PresetName = 'read-only' | 'edit-in-folder'
 
-const NETWORK_TOOLS = ['web_fetch', 'web_search'] as const
+// generate_image sends the prompt and any referenced image to the person's plan, so it is network too.
+const NETWORK_TOOLS = ['web_fetch', 'web_search', 'generate_image'] as const
 /** The browser tools: reached only through a job's browser grant, never through its rules. */
 const BROWSER_TOOLS = [BROWSER_TOOL_NAME, BROWSER_ACT_TOOL_NAME] as const
 const GRANT_LEVELS: readonly ScheduleBrowserSiteLevel[] = ['read', 'ask', 'act']
@@ -72,6 +73,7 @@ const READ_ONLY: PermissionsConfig = {
 	bash: 'deny',
 	web_fetch: 'deny',
 	web_search: 'deny',
+	generate_image: 'deny',
 }
 
 /**

@@ -16,6 +16,7 @@ import type { LLMProvider } from '../types/provider/interface.js'
 const MODEL_FIRST_METHODS: ReadonlySet<string> = new Set([
 	'supportsHostedWebSearchFor',
 	'supportsImageInputFor',
+	'imageModelFor',
 	'reasoningEffortLevelsFor',
 	'speedTiersFor',
 	'reasoningEffortDefaultFor',

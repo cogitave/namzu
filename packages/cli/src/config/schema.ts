@@ -510,6 +510,12 @@ export interface CodeAnalysisConfig {
 	readonly enabled?: boolean
 }
 
+/** See `NamzuCliConfig.imageGeneration`. */
+export interface ImageGenerationConfig {
+	/** Offer the `generate_image` tool while a subscription plan sign-in is connected. Default `true`. */
+	readonly enabled?: boolean
+}
+
 /** See `NamzuCliConfig.web`. */
 export interface WebConfig {
 	/** Web search is live by default. Set off to disable it. */
@@ -826,6 +832,17 @@ export interface NamzuCliConfig {
 	 * from the environment. `exec`, `drain` and `acp` never mount it.
 	 */
 	readonly codeAnalysis?: CodeAnalysisConfig
+	/**
+	 * Image generation and editing on the person's subscription plan: the
+	 * `generate_image` tool, offered to every model (not only the plan's own)
+	 * while the subscription sign-in is connected and the plan is not Free. An API key
+	 * alone does not enable it.
+	 *
+	 * On by default. `{ "enabled": false }` removes the tool. Merged across
+	 * files: `enabled: false` in any file holds, and a later file cannot switch
+	 * it back on. Not settable from the environment.
+	 */
+	readonly imageGeneration?: ImageGenerationConfig
 	/**
 	 * The one-sentence nudge after a long quiet stretch: when a run has worked
 	 * for `afterSeconds` and made `afterCalls` tool calls since the person last
