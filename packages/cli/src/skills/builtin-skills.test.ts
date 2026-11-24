@@ -138,8 +138,6 @@ describe('the built-in skills', () => {
 			'google-chrome',
 			'chromium',
 			'msedge',
-			'brave-browser',
-			'firefox',
 			'Get-Command',
 			'command -v python',
 		])

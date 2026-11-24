@@ -14,7 +14,7 @@ only said to exist, or to be right, after you have read it back.
 Run one probe in the `bash` tool, once per conversation, and keep the answer:
 
 ```
-for t in pdftotext pdfinfo pdftoppm pdfimages pdfunite pdfseparate qpdf mutool tesseract pandoc soffice groff rsvg-convert google-chrome chromium chromium-browser microsoft-edge msedge brave-browser firefox; do command -v $t >/dev/null && echo "have $t"; done
+for t in pdftotext pdfinfo pdftoppm pdfimages pdfunite pdfseparate qpdf mutool tesseract pandoc soffice groff rsvg-convert google-chrome chromium chromium-browser microsoft-edge msedge; do command -v $t >/dev/null && echo "have $t"; done
 py=$(command -v python3 || command -v python); [ -n "$py" ] && $py -c 'import importlib.util as u;[print("have py:"+m) for m in ("pypdf","pdfplumber","reportlab") if u.find_spec(m)]'
 ```
 
