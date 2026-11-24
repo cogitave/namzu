@@ -22,3 +22,24 @@ export type {
 	A11yWindow,
 	AccessibilityBackend,
 } from './interface.js'
+export { MacA11yHost, cgWindowId, createMacA11yHost } from './macos.js'
+export type {
+	MacA11yFactoryOptions,
+	MacA11yHandle,
+	MacActResult,
+	MacCapture,
+	MacControlAction,
+	MacNode,
+	MacPermissions,
+	MacSelfCheck,
+	MacTree,
+	MacTreeRequest,
+} from './macos.js'
+export {
+	MAC_HELPER_BUNDLE_ID,
+	MAC_HELPER_NAME,
+	ensureMacHelper,
+	macHelperPaths,
+	macHelperSourceHash,
+} from './macos-helper.js'
+export type { MacHelperPaths } from './macos-helper.js'

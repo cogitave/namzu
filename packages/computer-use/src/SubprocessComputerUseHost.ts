@@ -18,7 +18,12 @@ import type {
 	WindowInputResult,
 	WindowScreenshotResult,
 } from '@namzu/sdk'
-import { type AccessibilityBackend, createWindowsA11yHost } from './a11y/index.js'
+import {
+	type AccessibilityBackend,
+	type MacA11yHandle,
+	createMacA11yHost,
+	createWindowsA11yHost,
+} from './a11y/index.js'
 import { type Adapter, AdapterUnavailableError } from './adapters/types.js'
 import type { Win32AdapterOptions } from './adapters/win32.js'
 import { detectDisplayServer } from './detect/index.js'
@@ -94,6 +99,12 @@ export interface SubprocessComputerUseHostOptions {
 	 */
 	readonly a11y?: boolean | AccessibilityBackend
 	/**
+	 * macOS: the accessibility helper ("Namzu Helper", a small app built from source on first use) that
+	 * gives the host windows, window capture, the accessibility tree and scroll. On by default; `a11y:
+	 * false` or `NAMZU_COMPUTER_USE_A11Y=off` turns it off. A ready handle replaces the real one (for tests).
+	 */
+	readonly macHelper?: MacA11yHandle
+	/**
 	 * How long the host may sit unused before it lets go of what its adapter keeps running (on Windows
 	 * the cua-driver process and the cursor overlay it draws). The next call starts it again. Without
 	 * this, every conversation of an app keeps its own driver until the conversation closes. Default 60
@@ -142,6 +153,7 @@ export class SubprocessComputerUseHost implements ComputerUseHost {
 	private ladder: ForegroundLadder | undefined
 	private presence: Presence | undefined
 	private a11y: AccessibilityBackend | undefined
+	private macHelper: MacA11yHandle | undefined
 	private idleTimer: NodeJS.Timeout | undefined
 	private busy = 0
 	/** Counts every call start, so a release can tell that one began while it was winding down. */
@@ -212,12 +224,23 @@ export class SubprocessComputerUseHost implements ComputerUseHost {
 							...(option === false ? { enabled: false } : {}),
 						})
 		}
+		if (!this.macHelper && displayServer === 'darwin') {
+			this.macHelper =
+				this.options.macHelper ??
+				createMacA11yHost({
+					...(this.options.env !== undefined ? { env: this.options.env } : {}),
+					...(this.options.platform !== undefined ? { platform: this.options.platform } : {}),
+					...(this.options.a11y === false ? { enabled: false } : {}),
+					...(this.options.windows?.onNotice ? { onNotice: this.options.windows.onNotice } : {}),
+				})
+		}
 		const adapter = await loadAdapter(
 			displayServer,
 			this.options,
 			this.ladder,
 			this.presence,
 			this.a11y,
+			this.macHelper,
 		)
 		// Loading an adapter proves its tools exist on PATH, not that a desktop
 		// answers. A WSL process finds PowerShell and still may have no
@@ -588,11 +611,12 @@ async function loadAdapter(
 	ladder: ForegroundLadder | undefined,
 	presence: Presence | undefined,
 	a11y: AccessibilityBackend | undefined,
+	macHelper: MacA11yHandle | undefined,
 ): Promise<Adapter> {
 	switch (displayServer) {
 		case 'darwin': {
 			const { DarwinAdapter } = await import('./adapters/darwin.js')
-			return DarwinAdapter.create()
+			return DarwinAdapter.create(macHelper ? { ax: macHelper } : {})
 		}
 		case 'x11': {
 			const { LinuxX11Adapter } = await import('./adapters/linux-x11.js')

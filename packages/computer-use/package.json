@@ -26,6 +26,7 @@
   },
   "files": [
     "dist",
+    "helper-macos",
     "!dist/**/*.test.*",
     "!dist/**/*.proc-test.*",
     "!dist/**/__tests__",
