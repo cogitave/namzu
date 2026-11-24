@@ -145,7 +145,14 @@ The process is started directly (no shell) from the package folder with an envir
 built from scratch: no `NAMZU_*` variable but `NAMZU_EXT_*`, no API key, never the secret
 setting. It talks to the host over standard input and output and serves a local read-only
 query endpoint (a named pipe for the owning user on Windows, a Unix socket in a private
-folder elsewhere). The host refuses what the manifest did not declare:
+folder elsewhere). The extension is shown as running only once that endpoint accepts a
+connection, so a query issued the moment it shows as running reaches it; one that does not
+open within 10 seconds of its first status is stopped and restarted like a missing `hello`. The host
+probes by opening a connection and closing it at once without sending a request, so an extension's
+server must tolerate an empty connection (no bytes) without logging an error or changing state. A stop
+during that wait ends the probe and the extension stays stopped. The Windows named-pipe path of the probe
+is written but was not exercised by a test.
+The host refuses what the manifest did not declare:
 
 | Code | Refused |
 |---|---|

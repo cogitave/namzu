@@ -26,6 +26,60 @@ export function queryAddress(
 		: join(tmpdir(), `nx-${h(extensionId)}-${h(userHash)}.sock`)
 }
 
+/** How long a freshly started process may take to open its query endpoint after it said it is collecting. */
+export const ENDPOINT_READY_MS = 10_000
+const ENDPOINT_RETRY_MS = 20
+
+/**
+ * Resolves true once something accepts a connection at `address` (a connect that is then closed at once, so
+ * no request is sent), false when `deadlineMs` passes first. A process that is still opening its socket
+ * refuses or has no file yet; those are retried until the deadline, which only bounds a failure: a normal
+ * start resolves on the first connect that works, not on the clock. An aborted `signal` ends the polling at
+ * once (resolving false) so a superseded start leaves nothing connecting to the next one's socket.
+ */
+export function waitForEndpoint(
+	address: string,
+	deadlineMs = ENDPOINT_READY_MS,
+	signal?: AbortSignal,
+): Promise<boolean> {
+	return new Promise((resolve) => {
+		let over = false
+		let retry: ReturnType<typeof setTimeout> | undefined
+		let current: ReturnType<typeof createConnection> | undefined
+		const finish = (up: boolean) => {
+			if (over) return
+			over = true
+			clearTimeout(stop)
+			if (retry) clearTimeout(retry)
+			current?.destroy()
+			signal?.removeEventListener('abort', onAbort)
+			resolve(up)
+		}
+		const onAbort = () => finish(false)
+		const stop = setTimeout(() => finish(false), deadlineMs)
+		stop.unref?.()
+		if (signal?.aborted) return finish(false)
+		signal?.addEventListener('abort', onAbort, { once: true })
+		const attempt = () => {
+			if (over) return
+			const socket = createConnection(address)
+			current = socket
+			socket.once('connect', () => {
+				socket.destroy()
+				finish(true)
+			})
+			socket.once('error', () => {
+				socket.destroy()
+				if (!over) {
+					retry = setTimeout(attempt, ENDPOINT_RETRY_MS)
+					retry.unref?.()
+				}
+			})
+		}
+		attempt()
+	})
+}
+
 export function requestOnce(
 	address: string,
 	request: unknown,
