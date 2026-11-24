@@ -850,12 +850,16 @@ export function holdsForBatch(
 export function settledBatchRows(
 	members: readonly SubagentActivity[],
 	enabled = true,
+	/** True for a teammate: its launch does not say where to follow it, the team's rail already does. */
+	isTeammate?: (member: SubagentActivity) => boolean,
 ): readonly ToolRow[] {
 	const blocked = blockedAgents(members, enabled)
 	const rows: ToolRow[] = []
 	if (blocked.length !== members.length) {
 		rows.push(agentLaunchRow(members))
-		const follow = launchFollowNote(members)
+		const follow = members.some((member) => isTeammate?.(member))
+			? undefined
+			: launchFollowNote(members)
 		if (follow) rows.push({ role: 'tool', content: follow, glyph: '⎿' })
 	}
 	if (blocked.length > 0) {

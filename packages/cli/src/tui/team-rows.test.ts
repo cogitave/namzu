@@ -121,6 +121,13 @@ describe('an idle teammate', () => {
 		expect(rows[1]?.content.endsWith('…')).toBe(true)
 		expect(rows[1]?.detail).toBeDefined()
 	})
+
+	it('never cuts an emoji in half', () => {
+		const rows = idleRows('one', 'red', { reason: 'available', result: `${'x'.repeat(98)}😀😀😀` })
+		const line = rows[1]?.content ?? ''
+		expect(line).toBe(`${'x'.repeat(98)}😀…`)
+		expect(line).not.toMatch(/[\ud800-\udbff](?![\udc00-\udfff])/u)
+	})
 })
 
 describe('shutdown', () => {

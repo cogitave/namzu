@@ -4984,6 +4984,12 @@ function AppBody({
 		reportedWorkflowLinesRef.current.add(first.workflowGroupId)
 		return true
 	}, [])
+	/** True for an agent that is a member of the team: its launch line says no `follow it with` hint. */
+	const isTeamMember = useCallback(
+		(agent: SubagentActivity): boolean =>
+			session?.team?.members().some((member) => member.viewId === agent.viewId) ?? false,
+		[session],
+	)
 	/**
 	 * Writes the receipt of every batch that is whole. `force` skips the settle
 	 * window (a reply is about to print under it); a batch whose `Agent` call is
@@ -5037,11 +5043,11 @@ function AppBody({
 				}
 				reportedBatchesRef.current.add(key)
 				if (!claimReceipt(members)) continue
-				for (const row of settledBatchRows(members, agentCallsOn)) pushRow(row)
+				for (const row of settledBatchRows(members, agentCallsOn, isTeamMember)) pushRow(row)
 			}
 			return retryIn
 		},
-		[agentCallsOn, claimReceipt, pushRow, session],
+		[agentCallsOn, claimReceipt, isTeamMember, pushRow, session],
 	)
 	flushLaunchReceiptsRef.current = () => {
 		writeLaunchReceipts(subagentsRef.current, activeToolsRef.current, true)
@@ -5096,7 +5102,11 @@ function AppBody({
 			) {
 				reportedBatchesRef.current.add(key)
 				if (claimReceipt(batches.get(key) ?? [agent])) {
-					for (const row of settledBatchRows(batches.get(key) ?? [agent], agentCallsOn))
+					for (const row of settledBatchRows(
+						batches.get(key) ?? [agent],
+						agentCallsOn,
+						isTeamMember,
+					))
 						pushRow(row)
 				}
 			}
@@ -5137,12 +5147,13 @@ function AppBody({
 				agent.status === 'completed' ? session?.team?.left?.(agent.viewId) : undefined
 			if (leftName !== undefined) {
 				// An approved shutdown already wrote its line from the team's mail; a forced one has not.
-				if (!shutDownNamesRef.current.has(leftName)) {
-					shutDownNamesRef.current.add(leftName)
+				// The name is spent once this member has left, so a later teammate with the same name that
+				// is stopped by force writes its own line.
+				if (shutDownNamesRef.current.has(leftName)) shutDownNamesRef.current.delete(leftName)
+				else
 					pushRow(
 						shutDownRow([{ name: leftName, color: colorFor(session?.team?.colorOf, leftName) }]),
 					)
-				}
 				continue
 			}
 			for (const done of agentCompletionRows(agent, previousFailure, agentCallsOn)) pushRow(done)
@@ -5159,6 +5170,7 @@ function AppBody({
 		writeLaunchReceipts,
 		claimReceipt,
 		agentCallsOn,
+		isTeamMember,
 		teamSnap,
 	])
 
@@ -5273,7 +5285,11 @@ function AppBody({
 		})
 		return () => {
 			off()
-			if (timer !== undefined) clearTimeout(timer)
+			// Mail already taken from the runner is never sent again: write what is folded, do not drop it.
+			if (timer !== undefined) {
+				clearTimeout(timer)
+				for (const row of batcher.flush()) pushRow(row)
+			}
 		}
 	}, [session, pushRow])
 

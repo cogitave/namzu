@@ -41,7 +41,8 @@ function lines(text: string): string[] {
 function firstLine(text: string, max = 100): string {
 	const first = lines(text.trim()).find((line) => line.trim() !== '') ?? ''
 	const one = first.replace(/\s+/gu, ' ').trim()
-	return one.length > max ? `${one.slice(0, max - 1)}…` : one
+	const chars = [...one]
+	return chars.length > max ? `${chars.slice(0, max - 1).join('')}…` : one
 }
 
 // ─── mail ────────────────────────────────────────────────────────────────
