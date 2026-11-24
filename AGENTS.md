@@ -51,6 +51,8 @@ comment saying why, only when the operation is legitimately slow — real
 subprocess, socket or filesystem I/O). Either way, nothing in the test should
 depend on how fast the host happens to be.
 
+The Rust workspace (`Cargo.toml`, `crates/`, `rust-toolchain.toml`) is separate from the pnpm one: `crates/namzu-win-core` is plain Rust that tests on any platform, `crates/namzu-win` is the native Windows helper, and `conformance/namzu-win/*.json` is the data both it and `@namzu/computer-use` are held to. On a machine, run cargo with `CARGO_HOME` and `CARGO_TARGET_DIR` outside the checkout; `/target/` is ignored. The workspace's `Cargo.lock` is committed and every CI cargo call is `--locked`.
+
 Four packages are **local-only**: `packages/contracts`, `packages/agents`,
 `packages/api` and `packages/docs`. They are absent from a fresh checkout by
 design — `.gitignore` lists them under "Local-only packages" and
@@ -69,6 +71,7 @@ Those four are a **subset**. `ci.yml` runs the gates below, split across jobs th
 - `sdk-coverage`: the three SDK coverage and test-presence gates and the process-level regression tests. The SDK unit suite runs once here on node 24, instrumented; `test-sdk` runs it on node 22.
 - `test-cli` (`Test CLI (<node>, <n>/3)`): the CLI suite in three vitest shards on each of node 22 and 24.
 - `publish-shape`: publish-metadata, signature types, publint. `publish-install`: the pre-publish consumer install check.
+- `rust` (`Rust (Linux)`): `cargo fmt`, `clippy`, `cargo test` over the Cargo workspace. `windows-helper` (`Windows helper (<target>)`, `windows-latest`): builds `namzu-win` for `x86_64-pc-windows-msvc` and `aarch64-pc-windows-msvc`, runs the x64 build's tests, uploads the unsigned executables and a SHA-256 as run artifacts. Both are in `Record the validated tree`'s `needs`. The Windows build and test steps are exempt from the direct-push path by name (they need a Windows runner); the Rust format, lint and test steps run on both paths.
 - `docs`: the two docs gates below.
 
 Each of those jobs installs and builds on its own, and `Record the validated tree` lists every one in `needs`. A new job that runs a gate must join that list; `check-workflow-gate-parity.mjs` fails otherwise.
@@ -90,6 +93,10 @@ Each of those jobs installs and builds on its own, and `Record the validated tre
 | Zen snapshot generator tests | `node --import tsx --test scripts/__tests__/generate-zen-models.test.ts` |
 | Startup and resume budget gate | `node --import tsx --test scripts/__tests__/bench-startup-budgets.test.ts && node scripts/bench-startup.mjs --check` |
 | Installer parses as POSIX sh | `sh -n install.sh && dash -n install.sh` |
+| Rust format | `cargo fmt --all --check` |
+| Rust lint | `cargo clippy --workspace --all-targets --locked -- -D warnings` |
+| Rust tests (also run the conformance vectors the TypeScript codec reads) | `cargo test --workspace --locked`, then `pnpm --filter @namzu/computer-use test -- native-protocol` |
+| Windows helper builds and tests | CI only (`windows-latest`): `cargo build --release --locked --target x86_64-pc-windows-msvc -p namzu-win`, same for `aarch64-pc-windows-msvc`, and `cargo test --workspace --locked --target x86_64-pc-windows-msvc`. Never run the exe on a developer's own desktop. |
 | Evals | `node packages/cli/dist/bin.js eval --dir packages/evals --out eval-report.json` |
 | SDK coverage (produce summary) | `pnpm --filter @namzu/sdk test:coverage` |
 | SDK coverage floor gate | `node .github/scripts/check-sdk-module-coverage.mjs` |

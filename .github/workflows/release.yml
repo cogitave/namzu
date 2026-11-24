@@ -226,6 +226,26 @@ jobs:
         if: steps.revalidation.outputs.skip != 'true'
         run: node .github/scripts/check-signature-types-exported.mjs
 
+      # The Rust workspace. ubuntu-latest carries rustup; the channel and
+      # components come from rust-toolchain.toml. The Windows build of the
+      # helper is not here: it needs a Windows runner, so it is exempted by name
+      # in check-workflow-gate-parity.mjs, and nothing this workflow publishes
+      # contains the helper yet.
+      - run: rustup toolchain install stable --profile minimal --component rustfmt --component clippy
+        if: steps.revalidation.outputs.skip != 'true'
+
+      - name: Rust format check
+        if: steps.revalidation.outputs.skip != 'true'
+        run: cargo fmt --all --check
+
+      - name: Rust lint
+        if: steps.revalidation.outputs.skip != 'true'
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+      - name: Rust tests
+        if: steps.revalidation.outputs.skip != 'true'
+        run: cargo test --workspace --locked
+
       - name: Docs OKF gate
         if: steps.revalidation.outputs.skip != 'true'
         run: pnpm docs:check
