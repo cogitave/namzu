@@ -30,7 +30,7 @@ export interface TrustedNetworkView {
 export interface AutoJoinView {
 	readonly machineId: string
 	readonly name: string
-	readonly mode: 'trusted-network' | 'always'
+	readonly mode: 'trusted-network' | 'always' | 'same-computer'
 	/** The trusted network's name, when that is why. */
 	readonly network?: string
 	readonly at: number
@@ -143,5 +143,7 @@ export type NetworkSettings = {
 	readonly enabled: 'auto' | boolean
 	readonly acceptMail: MailSetting
 	readonly autoAdmit: AutoAdmitSetting
+	/** Absent means true. */
+	readonly sameComputer?: boolean
 	readonly machineName?: string
 }

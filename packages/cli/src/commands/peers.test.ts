@@ -647,3 +647,24 @@ it('trusts a network on allow, lists trusted networks, renames and removes one',
 	expect(await run(off, ['untrust', 'Home'])).toBe(EXIT_UNAVAILABLE)
 	off.done()
 })
+
+it('same computer reset is a keyword command that deletes the shared secret through the home it runs in', async () => {
+	expect(parsePeersArgs(['same', 'computer', 'reset'])).toEqual({ verb: 'same', json: false })
+	expect(parsePeersArgs(['same', 'computer'])).toHaveProperty('error')
+	expect(parsePeersArgs(['same'])).toHaveProperty('error')
+	const h = harness()
+	let resets = 0
+	const deps = {
+		...h.deps,
+		resetComputerSecret: async () => {
+			resets++
+			return true
+		},
+	}
+	expect(await executePeers({ verb: 'same', json: false }, deps, h.io)).toBe(EXIT_OK)
+	expect(resets).toBe(1)
+	expect(h.out[0]?.text).toContain('is deleted')
+	const none = { ...h.deps, resetComputerSecret: async () => false }
+	expect(await executePeers({ verb: 'same', json: false }, none, h.io)).toBe(EXIT_OK)
+	expect(h.out[1]?.text).toContain('nothing to reset')
+})

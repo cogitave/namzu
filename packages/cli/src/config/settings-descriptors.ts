@@ -1014,6 +1014,27 @@ const DECLARED: readonly SettingDescriptor[] = [
 		},
 	),
 	d(
+		'network.sameComputer',
+		'terminal',
+		'Other Namzu on this computer',
+		'Whether another Namzu of yours on this same computer (Desktop, the terminal, WSL, a scheduled service) joins your Namzu network without asking you. Turn it off to be asked for each one.',
+		on,
+		{
+			group: 'terminal-network',
+			keywords: [
+				'peers',
+				'same computer',
+				'this computer',
+				'join',
+				'allow',
+				'wsl',
+				'desktop',
+				'pairing',
+			],
+			default: true,
+		},
+	),
+	d(
 		'network.machineName',
 		'terminal',
 		'This machine’s name',

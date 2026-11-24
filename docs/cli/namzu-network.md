@@ -38,6 +38,18 @@ On your home network you should not have to click Allow for every machine. A mem
 
 Remember what trust is not: the network's fingerprint is not a secret, and a machine that shares your Wi-Fi can ask. A trusted network means you accept that every machine on it that runs Namzu may join. Use `untrust` after a visitor stays on your Wi-Fi, or keep guests on a separate network.
 
+## Your other Namzu on this computer
+
+You may run several Namzu homes on one computer: the terminal, a scheduled service (`~/.namzu/services/<name>`), Namzu Desktop on Windows and the terminal in WSL. Each has its own machine key, so each is another machine on your network. The Allow is for other machines, so these join **without asking**, with one passing line: "`studio (autodev)` joined from this computer."
+
+- **Proof, not a guess.** A home joins this way only when it shows it holds the same secret as the member it asked. The secret is one file per OS user, `~/.namzu/network/machine-secret` (32 random bytes, mode 0600 in a 0700 folder, made the first time a home needs it, never replaced). It is never sent: the joiner sends a short HMAC over both ends of the connection and its nonce, so a copy of it is useless to anyone else. The source address, the machine name and the host name are not looked at.
+- **Which homes.** The default home and the service homes directly under it (`~/.namzu/services/<name>`). A home with another `NAMZU_HOME` (a scratch or sandboxed home) has no secret and asks like any other machine, as does a different OS user on the same computer.
+- **WSL and Windows.** From WSL the Windows profile's copy (`C:\Users\<you>\.namzu\network\machine-secret`, read as `/mnt/c/Users/<you>/.namzu/network/`) is the one secret when it exists; WSL never creates a file in the Windows profile. The path is found through `cmd.exe` and `wslpath` and remembered in `~/.namzu/network/machine-secret.windows-path`, so a service without WSL interop still finds it. Without the Windows copy, the WSL homes share their own native copy and Windows asks. Windows never reads into WSL (the distro may not be running). If the two sit on different virtual networks (WSL2 in NAT mode) they may not find each other; `namzu peers add <host:port>` reaches the other, and the proof then admits it. A file seen from WSL shows no real permissions, so it is trusted by where it is (a Windows profile folder only the Windows account can open), not by its mode. Another Linux account in the same WSL distro can read it: turn the setting off there.
+- **Refused, then asked.** A secret that is a symbolic link, owned by another user, readable by group or others, in a folder others can write, or the wrong size is never used and is never repaired or replaced (a new one would split your homes); the audit log says `same_computer_unavailable` and the home asks. A wrong proof is the ordinary request, logged as `same_computer_mismatch`.
+- **Removal wins.** A machine you removed is refused even with a valid proof. `namzu peers same computer reset` deletes the secret; the next home that needs one makes a new one for all of them. Machines already in the network stay in it.
+- **Turn it off.** `network.sameComputer: false`, or `network.autoAdmit: never`, asks for every home.
+- **The list.** `/peers` and `namzu peers list` put these homes right after this machine, marked "this computer" (`sameComputer` in `--json`). The mark is a live fact: it needs the secret to still read, and is not part of the signed network records. A service home is called `<host name> (<service name>)` unless `network.machineName` is set.
+
 ## What the list shows
 
 `/peers`, or `namzu peers list` from a shell, draws every machine and its live sessions (in the terminal, inside the "Waiting for you" picker when something needs an answer, otherwise as the command's one result row):
@@ -101,6 +113,7 @@ Any member can remove any other; a lost laptop is removed from a machine you sti
 | `network.acceptMail` | `members`, `hold`, `off` | `members` |
 | `network.machineName` | text, at most 40 characters | the host name |
 | `network.autoAdmit` | `trusted-networks`, `always`, `never` | `trusted-networks` |
+| `network.sameComputer` | `true`, `false` | `true` |
 
 These are your own config file's (`~/.namzu/config.yaml`) and the Settings screen's; a repository's `.namzu/config.yaml` cannot set them. `NAMZU_NETWORK=off` in the environment is a hard stop for one run.
 
