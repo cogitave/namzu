@@ -93,6 +93,31 @@ describe('an opened teammate transcript', () => {
 			'bash(ls)\n(no output)',
 		)
 	})
+
+	it('says a declined call was declined, without the text the model was handed', () => {
+		const stock =
+			'Error: Tool "exit_plan_mode" was not executed. The user declined this. Do not get the same content or result another way unless you ask the user first.'
+		const row: SubagentActivity['transcript'][number] = {
+			id: 't2',
+			kind: 'tool',
+			text: 'exit_plan_mode',
+			status: 'failed',
+			detail: stock,
+		}
+		expect(teammateRowText(row)).toBe(
+			'exit_plan_mode\nPlan not approved. Revise it and send it again.',
+		)
+		expect(teammateRowText({ ...row, text: 'bash(rm x)' })).toBe(
+			'bash(rm x)\nDeclined, so it did not run.',
+		)
+		expect(
+			teammateRowText({
+				...row,
+				text: 'bash(rm x)',
+				detail: 'The user declined this and said: not that file',
+			}),
+		).toBe('bash(rm x)\nDeclined: not that file')
+	})
 })
 
 describe('the task block of a team', () => {

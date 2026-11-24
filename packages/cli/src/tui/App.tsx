@@ -764,8 +764,9 @@ import {
 } from './team-rows.js'
 import {
 	EMPTY_TEAM,
+	TEAM_FOLDED_HINT,
+	TEAM_IDLE_FOLD_FOCUS,
 	TEAM_STOP_CONFIRM_MS,
-	TEAM_VIEW_ESC_HINT,
 	type TeamSnapshot,
 	lastFinishedTask,
 	mailBody,
@@ -778,6 +779,8 @@ import {
 	teamStopStep,
 	teamSummaryLines,
 	teamTaskLines,
+	teamViewEscHint,
+	teammateWaiting,
 } from './team-view.js'
 import { eraseLastChoiceGrapheme } from './terminal-choice-text.js'
 import { describeReducedMotion, saveReducedMotion, saveTheme } from './theme-command.js'
@@ -2877,6 +2880,10 @@ function AppBody({
 	 * burst of keys arrives before React commits the state.
 	 */
 	const [railFocus, setRailFocusState] = useState<string | null>(null)
+	/** The person opened the folded `N idle agents` row: every idle teammate has its own row. */
+	const [teamIdleOpen, setTeamIdleOpen] = useState(false)
+	/** How many idle teammates the rail folds into one row now. */
+	const teamFoldedRef = useRef(0)
 	const railFocusRef = useRef<string | null>(null)
 	/** Running background shells, read by key handlers that run before the render that counts them. */
 	const shellCountRef = useRef(0)
@@ -2960,13 +2967,13 @@ function AppBody({
 			subagents,
 			Date.now(),
 			workflowRuns,
-			teamRailOf(teamSnap, subagents, Date.now()),
+			teamRailOf(teamSnap, subagents, Date.now(), teamIdleOpen, pinnedViewId),
 		)
 		if (wait === undefined) return
 		const timer = setTimeout(() => setRailNow(Date.now()), wait + 20)
 		timer.unref?.()
 		return () => clearTimeout(timer)
-	}, [subagents, workflowRuns, railNow, teamSnap])
+	}, [subagents, workflowRuns, railNow, teamSnap, teamIdleOpen, pinnedViewId])
 	// The rail cannot keep the keyboard once it has nothing to show.
 	const railHasRows =
 		railAgents(
@@ -2974,8 +2981,10 @@ function AppBody({
 			railNow,
 			dismissedAgents,
 			pinnedViewId,
-			teamRailOf(teamSnap, subagents, railNow),
-		).length > 0 || railWorkflows(subagents, railNow, dismissedAgents, workflowRuns).length > 0
+			teamRailOf(teamSnap, subagents, railNow, teamIdleOpen, pinnedViewId),
+		).length > 0 ||
+		(teamRailOf(teamSnap, subagents, railNow, teamIdleOpen, pinnedViewId)?.plan.folded ?? 0) > 0 ||
+		railWorkflows(subagents, railNow, dismissedAgents, workflowRuns).length > 0
 	// The footer's shell pill is the rail's first stop, so shells keep it focused too.
 	const footerHasShells = backgroundJobs.some((job) => job.status === 'running')
 	useEffect(() => {
@@ -3273,6 +3282,7 @@ function AppBody({
 			viewingAgentRef.current ??
 			(shellCountRef.current > 0 ? SHELLS_FOCUS : undefined) ??
 			railRowsRef.current[0]?.viewId ??
+			(teamFoldedRef.current > 0 ? TEAM_IDLE_FOLD_FOCUS : undefined) ??
 			railWorkflowsRef.current[0]?.focusId
 		if (first && (agentSurfaceRef.current === null || viewingAgentRef.current !== null)) {
 			// The ↓ that gets here is also dispatched to App's own key handler in
@@ -3325,6 +3335,10 @@ function AppBody({
 				else void openAgentCockpit()
 			} else if (target === SHELLS_FOCUS) {
 				openBackgroundTasks()
+			} else if (target === TEAM_IDLE_FOLD_FOCUS) {
+				// The folded row opens: the idle teammates get rows of their own, and the keyboard stays on the first.
+				setTeamIdleOpen(true)
+				setRailFocus(teamSnapRef.current.members.find((m) => m.state === 'idle')?.viewId ?? null)
 			} else if (flow) {
 				openWorkflowFromRail(flow.id, flow.focusId)
 			} else if (agent) {
@@ -4353,6 +4367,7 @@ function AppBody({
 			contentColor?: string,
 			attachments?: readonly AttachmentRow[],
 			spans?: TranscriptMessage['spans'],
+			box?: TranscriptMessage['box'],
 		) => {
 			// A command the model ran for the person tells the model what it printed.
 			if (role === 'system') commandCaptureRef.current?.push(content)
@@ -4415,6 +4430,7 @@ function AppBody({
 								...(diff ? { diff } : {}),
 								...(contentColor ? { contentColor } : {}),
 								...(spans && spans.length > 0 ? { spans } : {}),
+								...(box ? { box } : {}),
 								...(attachments && attachments.length > 0 ? { attachments } : {}),
 								...(sourceDelivery ? { sourceDelivery } : {}),
 								// Numbered only if this body will actually be COLLAPSED — the
@@ -4496,6 +4512,7 @@ function AppBody({
 				row.contentColor,
 				undefined,
 				row.spans,
+				row.box,
 			),
 		[pushMessage],
 	)
@@ -5126,6 +5143,15 @@ function AppBody({
 			const previousFailure = reportedFailuresRef.current.get(agent.viewId)
 			if (agent.status === 'failed')
 				reportedFailuresRef.current.set(agent.viewId, failureReason(agent))
+			// A teammate whose turn the person cut short says so through its own idle line
+			// (`was interrupted`), not as a stopped agent.
+			if (
+				agent.status === 'cancelled' &&
+				agent.interrupted === true &&
+				agent.stoppedBy === undefined &&
+				session?.team?.members().some((m) => m.viewId === agent.viewId)
+			)
+				continue
 			// A teammate that finished its turn is idle, not finished: one plain row, once per turn.
 			const teammate =
 				agent.status === 'completed'
@@ -18495,8 +18521,14 @@ function AppBody({
 				// the order they are drawn in.
 				const ids = [
 					...(shellCountRef.current > 0 ? [SHELLS_FOCUS] : []),
-					...(railShowsMain(rows.length, viewingAgentRef.current) ? ['main'] : []),
+					...(railShowsMain(
+						rows.length + (teamFoldedRef.current > 0 ? 1 : 0),
+						viewingAgentRef.current,
+					)
+						? ['main']
+						: []),
 					...rows.map((agent) => agent.viewId),
+					...(teamFoldedRef.current > 0 ? [TEAM_IDLE_FOLD_FOCUS] : []),
 					...flows.map((f) => f.focusId),
 				]
 				const at = Math.max(0, ids.indexOf(railTarget))
@@ -18844,6 +18876,11 @@ function AppBody({
 							session?.stopSubagent?.(selected.viewId)
 							return
 						}
+						// A working teammate has its turn cut short and stays on the team; the next Esc, once it is idle, goes back.
+						if (teammate?.state === 'working' && session?.interruptTeammate?.(selected.viewId)) {
+							setViewNotice(undefined)
+							return
+						}
 						setAgentSurface(null)
 						setViewNotice(undefined)
 						return
@@ -18862,7 +18899,12 @@ function AppBody({
 							rows,
 							Math.max(1, terminal.columns - SCREEN_MARGIN),
 							teamSnapRef.current.members.some((m) => m.viewId === selected.viewId)
-								? { name: '', hint: TEAM_VIEW_ESC_HINT }
+								? {
+										name: '',
+										hint: teamViewEscHint(
+											teamSnapRef.current.members.find((m) => m.viewId === selected.viewId)?.state,
+										),
+									}
 								: undefined,
 						)
 						const offset = Math.min(agentView.tailOffset, max)
@@ -19255,9 +19297,22 @@ function AppBody({
 	// Background is left natural — we inherit the terminal's own background
 	// and only theme the foreground. Forcing
 	// a filled bg left mismatched patches around bordered areas, so we don't.
-	const teamRail: TeamRail | undefined = teamRailOf(teamSnap, subagents, railNow)
+	const teamRail: TeamRail | undefined = teamRailOf(
+		teamSnap,
+		subagents,
+		railNow,
+		teamIdleOpen,
+		pinnedViewId,
+	)
+	// The folded row goes back once no teammate is idle.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: only the team's members move this.
+	useEffect(() => {
+		if (teamIdleOpen && !teamSnap.members.some((member) => member.state === 'idle'))
+			setTeamIdleOpen(false)
+	}, [teamSnap.members])
 	const liveSubagents = railAgents(subagents, railNow, dismissedAgents, pinnedViewId, teamRail)
 	railRowsRef.current = liveSubagents
+	teamFoldedRef.current = teamRail?.plan.folded ?? 0
 	const liveWorkflows = railWorkflows(subagents, railNow, dismissedAgents, workflowRuns, {
 		hypermode,
 		guideline: ctxRef.current.workflow?.sizeGuideline ?? DEFAULT_WORKFLOW_SIZE_GUIDELINE,
@@ -19528,11 +19583,14 @@ function AppBody({
 		jobSurface === null
 	// The conversation keeps its top rows; the detail is the rest of the screen (less the extension row).
 	const detailRows = workflowDetailHeight(terminal.rows - (extensionMarks.length > 0 ? 1 : 0))
+	// The folded `N idle agents` row is a row of the rail too.
+	const foldRows = (teamRail?.plan.folded ?? 0) > 0 ? 1 : 0
 	const viewRailRows =
-		liveSubagents.length > 0 || liveWorkflows.length > 0
+		liveSubagents.length > 0 || liveWorkflows.length > 0 || foldRows > 0
 			? 1 +
-				(railShowsMain(liveSubagents.length, viewingAgent?.viewId) ? 1 : 0) +
+				(railShowsMain(liveSubagents.length + foldRows, viewingAgent?.viewId) ? 1 : 0) +
 				Math.min(liveSubagents.length, AGENT_RAIL_WINDOW) +
+				foldRows +
 				(liveSubagents.length > AGENT_RAIL_WINDOW ? 1 : 0) +
 				liveWorkflows.length
 			: 0
@@ -19577,8 +19635,9 @@ function AppBody({
 		showComposerSurface &&
 		permission === null &&
 		(agentSurface === null || viewingAgent !== undefined) &&
-		(liveSubagents.length > 0 || liveWorkflows.length > 0)
+		(liveSubagents.length > 0 || liveWorkflows.length > 0 || foldRows > 0)
 			? (() => {
+					if (railFocus === TEAM_IDLE_FOLD_FOCUS) return TEAM_FOLDED_HINT
 					const member = teamRail?.members.get(railFocus)
 					// A teammate's row has its own keys: enter opens its transcript, x asks twice.
 					if (member)
@@ -19587,6 +19646,10 @@ function AppBody({
 							member.name,
 							teamStopAsked === member.viewId,
 							viewingAgent?.viewId === member.viewId,
+							{
+								running: stoppableBackgroundAgents(liveSubagents).length,
+								columns: terminal.columns,
+							},
 						)
 					return railHint(
 						railFocus === 'main'
@@ -20048,7 +20111,12 @@ function AppBody({
 												teammate: {
 													name: teamRail.members.get(viewingAgent.viewId)?.name ?? '',
 													colorOf: (name: string) => session?.team?.colorOf?.(name),
-													hint: TEAM_VIEW_ESC_HINT,
+													hint: teamViewEscHint(teamRail.members.get(viewingAgent.viewId)?.state),
+													taskNumberOf: (subject: string) => {
+														const mine = teamSnap.tasks.find((task) => task.subject === subject)
+														return mine ? taskNumbers(teamSnap.tasks).get(mine.id) : undefined
+													},
+													...teammateWaiting(teamRail.members.get(viewingAgent.viewId)),
 												},
 											}
 										: {})}
@@ -20377,15 +20445,25 @@ function AppBody({
 										selectedIndex:
 											railFocus === 'main'
 												? 0
-												: railFocus.startsWith('workflow:')
+												: railFocus === TEAM_IDLE_FOLD_FOCUS
 													? liveSubagents.length +
-														(railShowsMain(liveSubagents.length, viewingAgent?.viewId) ? 1 : 0) +
-														Math.max(
-															0,
-															liveWorkflows.findIndex((flow) => flow.focusId === railFocus),
-														)
-													: liveSubagents.findIndex((agent) => agent.viewId === railFocus) +
-														(railShowsMain(liveSubagents.length, viewingAgent?.viewId) ? 1 : 0),
+														(railShowsMain(liveSubagents.length + foldRows, viewingAgent?.viewId)
+															? 1
+															: 0)
+													: railFocus.startsWith('workflow:')
+														? liveSubagents.length +
+															(railShowsMain(liveSubagents.length + foldRows, viewingAgent?.viewId)
+																? 1
+																: 0) +
+															(teamRail !== undefined && teamRail.plan.folded > 0 ? 1 : 0) +
+															Math.max(
+																0,
+																liveWorkflows.findIndex((flow) => flow.focusId === railFocus),
+															)
+														: liveSubagents.findIndex((agent) => agent.viewId === railFocus) +
+															(railShowsMain(liveSubagents.length + foldRows, viewingAgent?.viewId)
+																? 1
+																: 0),
 									}
 								: {})}
 						/>

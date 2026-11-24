@@ -653,6 +653,12 @@ export interface SubagentRuntime {
 	 * and the other children are untouched.
 	 */
 	stopChild(viewId: string): boolean
+	/**
+	 * Operator route: cut a working teammate's current turn short from its open transcript. The
+	 * teammate stays on the team, goes idle and takes messages again. False when the row is not a
+	 * working teammate.
+	 */
+	interruptTeammate(viewId: string): boolean
 	readonly modelCatalogueTool?: ToolDefinition
 	readonly agentTool: ToolDefinition
 	/** Retrieve a child result without starting another task. */
@@ -3290,7 +3296,8 @@ export async function createSubagentRuntime(
 		if (!owned || !shown || shown.replayed)
 			throw new Error('This agent is a saved record and is no longer running.')
 		// Stopped on purpose: not resumed by a message from either side.
-		if (shown.status === 'cancelled')
+		// An interrupted teammate was not stopped: it is idle, and a message resumes it.
+		if (shown.status === 'cancelled' && !(owned.teammate && shown.stoppedBy === undefined))
 			throw new Error(
 				source === 'operator'
 					? `${shown.agentId} was stopped, so it cannot take a message. Start a new agent for that work.`
@@ -3627,6 +3634,15 @@ export async function createSubagentRuntime(
 			activity.markStopped(found.viewId, 'user')
 			found.owned.gateway.cancelTask(found.owned.task.taskId, 'user')
 		},
+		interrupt(team: string, name: string) {
+			const found = findTeammate(team, name)
+			if (!found) return
+			const current = found.owned.gateway.getTask(found.owned.task.taskId) ?? found.owned.task
+			if (isTerminalAgentTaskState(current.state)) return
+			// No `stoppedBy`: the turn ends as an interrupted one and the seat stays.
+			activity.markInterrupted(found.viewId)
+			found.owned.gateway.cancelTask(found.owned.task.taskId, 'user')
+		},
 		tellLead(team: string, from: string, summary: string, text: string) {
 			showLead(findTeammate(team, from), from, team, summary, text)
 		},
@@ -3657,6 +3673,9 @@ export async function createSubagentRuntime(
 		readonly name: string
 		readonly sessionId: string
 		readonly callIds: readonly string[]
+		/** The call it holds, as the teammate's waiting box names it. */
+		readonly tool: string
+		readonly action?: string
 	}
 	const teamAsks = new Set<TeamAsk>()
 	/** Colours by team: handed out in the order members are first seen, the lead's first, and kept. */
@@ -3714,9 +3733,10 @@ export async function createSubagentRuntime(
 						// Not tracked any more: it approved a shutdown and left the team.
 						if (!entry) continue
 						const shown = activity.getSnapshot().find((value) => value.viewId === viewId)
-						const asking = [...teamAsks].some(
+						const waitingAsk = [...teamAsks].find(
 							(ask) => ask.team === team && ask.name === target.name,
 						)
+						const asking = waitingAsk !== undefined
 						const state: TeamMemberView['state'] =
 							entry.state === 'stopped'
 								? 'stopped'
@@ -3731,6 +3751,14 @@ export async function createSubagentRuntime(
 							state,
 							color: colorsOf(team).assign(target.name),
 							...(teamPlans.has(`${team}\u0000${target.name}`) ? { awaitingPlan: true } : {}),
+							...(waitingAsk && state === 'waiting'
+								? {
+										ask: {
+											tool: waitingAsk.tool,
+											...(waitingAsk.action ? { action: waitingAsk.action } : {}),
+										},
+									}
+								: {}),
 							since:
 								state === 'idle'
 									? entry.idleSince
@@ -3787,6 +3815,26 @@ export async function createSubagentRuntime(
 	 * name the member, and the answer goes back to this one call and nowhere else. Nothing a teammate
 	 * writes, or mails, reaches this handler: only the person's answer does.
 	 */
+	/** What the waiting teammate's own screen says it is waiting to do: the tool, and its command, file or address. */
+	const askLabel = (
+		calls: readonly { readonly name: string; readonly input?: unknown }[],
+	): { readonly tool: string; readonly action?: string } => {
+		const first = calls.find((call) => call.name !== EXIT_PLAN_MODE_TOOL_NAME) ?? calls[0]
+		if (!first) return { tool: '' }
+		const input = (first.input ?? {}) as Record<string, unknown>
+		const pick = [
+			input.command,
+			input.file_path,
+			input.path,
+			input.url,
+			input.query,
+			input.pattern,
+		].find((value) => typeof value === 'string' && value.trim() !== '')
+		const action =
+			typeof pick === 'string' ? pick.replace(/\s+/gu, ' ').trim().slice(0, 200) : undefined
+		return { tool: first.name, ...(action ? { action } : {}) }
+	}
+
 	const memberReview = (
 		target: { readonly team: string; readonly name: string },
 		inner: ResumeHandler,
@@ -3804,6 +3852,7 @@ export async function createSubagentRuntime(
 				name: target.name,
 				sessionId: String(request.sessionId),
 				callIds,
+				...askLabel(request.toolCalls),
 			}
 			teamAsks.add(ask)
 			if (planText !== undefined) teamPlans.add(`${target.team}\u0000${target.name}`)
@@ -4176,6 +4225,13 @@ export async function createSubagentRuntime(
 		return true
 	}
 
+	const interruptTeammate = (viewId: string): boolean => {
+		if (closed || !teamRunner) return false
+		const target = conversations.get(viewId)?.teammate
+		if (!target) return false
+		return teamRunner.interrupt(target.lead, target.name)
+	}
+
 	return {
 		onChildMessage(listener) {
 			childMessageListeners.add(listener)
@@ -4193,6 +4249,7 @@ export async function createSubagentRuntime(
 		modelCatalogueTool,
 		messageChild,
 		stopChild,
+		interruptTeammate,
 		gatewayForTurn,
 		completionInboxForTurn,
 		releaseTurn,

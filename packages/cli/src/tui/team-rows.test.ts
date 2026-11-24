@@ -1,19 +1,25 @@
 import { describe, expect, it } from 'vitest'
+import { boxText } from './box-rows.js'
 
 import { TEAM_COLORS, TeamColors, fallbackTeamColor } from '../integrations/teams/colors.js'
 import type { TeamMailEvent } from '../integrations/teams/view.js'
 import {
 	TeamRowBatcher,
+	boxRow,
 	idleRows,
 	mailRow,
 	newlyCompleted,
 	parseIdle,
-	planAnswerRows,
-	planRequestRow,
+	planAnswerBox,
+	planRequestBox,
+	planSubmittedBox,
 	sentRow,
 	shutDownRow,
-	shutdownRefusedRows,
+	shutdownRefusedBox,
+	shutdownRequestBox,
+	taskAssignedBox,
 	taskCompletedRow,
+	waitingForLeadBox,
 } from './team-rows.js'
 import { EXPAND_HINT } from './truncation.js'
 
@@ -105,7 +111,7 @@ describe('an idle teammate', () => {
 		)
 		expect(rows).toHaveLength(2)
 		expect(rows[1]).toMatchObject({ glyph: '⎿', content: 'wrote part one', meta: EXPAND_HINT })
-		expect(rows[1]?.detail).toEqual(['(task #3)', 'wrote part one', 'and tests'])
+		expect(rows[1]?.detail).toEqual(['(task #3)', 'and tests'])
 	})
 
 	it('has nothing to open when the answer is one short line and no task', () => {
@@ -141,39 +147,133 @@ describe('shutdown', () => {
 		).toBe('2 teammates shut down')
 	})
 
-	it('says who refused, why, and that it can be asked again', () => {
-		const rows = shutdownRefusedRows('one', 'red', 'still writing the tests')
-		expect(rows.map((row) => row.content)).toEqual([
-			'Shutdown refused by @one',
-			'Reason: still writing the tests',
-			'Still working. Ask again later.',
-		])
-		expect(shutdownRefusedRows('one', 'red', undefined)).toHaveLength(2)
+	it('says who refused and why in a neutral box, with the line that it can be asked again', () => {
+		const box = shutdownRefusedBox('one', 'still writing the tests')
+		expect(boxText(box)).toBe(
+			'Shutdown refused by @one\nReason: still writing the tests\nStill working. Ask again later.',
+		)
+		expect(box.tone).toBe('theme:text.muted')
+		expect(box.notes).toHaveLength(1)
+		expect(boxText(shutdownRefusedBox('one', undefined)).split('\n')).toHaveLength(2)
+	})
+
+	it('shows a request to stop as a warning box with the reason', () => {
+		const box = shutdownRequestBox('lead', 'wrapping up for the day')
+		expect(boxText(box)).toBe('Shutdown request from lead\nReason: wrapping up for the day')
+		expect(box.tone).toBe('theme:status.warn')
+		expect(boxText(shutdownRequestBox('lead', undefined))).toBe('Shutdown request from lead')
 	})
 })
 
 describe('plans', () => {
-	it('shows the request with the plan behind ctrl+o', () => {
-		const row = planRequestRow('one', 'red', '1. read\n2. write')
-		expect(row.content).toBe('Plan approval request from @one')
-		expect(row.detail).toEqual(['1. read', '2. write'])
-		expect(planRequestRow('one', 'red', undefined).detail).toBeUndefined()
+	it('shows the request as a box in the plan colour with the plan as text, and the plan file dim', () => {
+		const box = planRequestBox('one', '# Plan\n1. read **a.ts**\n2. write', '/tmp/plan.md')
+		expect(box.tone).toBe('theme:accent.plan')
+		expect(boxText(box)).toBe(
+			'Plan approval request from @one\nPlan\n1. read a.ts\n2. write\nPlan file: /tmp/plan.md',
+		)
+		// The heading and the marked word are drawn bold.
+		expect(box.body?.[0]?.[0]?.bold).toBe(true)
+		expect(box.body?.[1]?.some((span) => span.bold === true && span.text === 'a.ts')).toBe(true)
+		expect(box.notes).toHaveLength(1)
+		expect(planRequestBox('one', undefined).body).toBeUndefined()
 	})
 
-	it('answers approved or rejected, with the feedback and what happens next', () => {
-		const yes = planAnswerRows('one', 'red', true, undefined)
-		expect(yes.map((row) => row.content)).toEqual([
-			'Plan from @one approved',
-			'@one can now proceed.',
-		])
-		expect(yes[0]?.glyphColor).toBe('theme:status.ok')
-		const no = planAnswerRows('one', 'red', false, 'cover the failure case')
-		expect(no.map((row) => row.content)).toEqual([
-			'Plan from @one rejected',
-			'Feedback: cover the failure case',
-			'@one will revise the plan.',
-		])
-		expect(no[0]?.glyphColor).toBe('theme:status.error')
+	it('answers approved in green and rejected in red, with the feedback and the line to revise', () => {
+		const yes = planAnswerBox('one', true, undefined)
+		expect(boxText(yes)).toBe('✓ Plan from @one approved')
+		expect(yes.tone).toBe('theme:status.ok')
+		const feedback = planAnswerBox('one', true, 'go ahead, keep it small')
+		expect(boxText(feedback)).toBe('✓ Plan from @one approved\nFeedback: go ahead, keep it small')
+		const no = planAnswerBox('one', false, 'cover the failure case')
+		expect(boxText(no)).toBe(
+			'✗ Plan from @one rejected\nFeedback: cover the failure case\nRevise the plan and send it again for approval.',
+		)
+		expect(no.tone).toBe('theme:status.error')
+	})
+
+	it('shows only what the person wrote in a refusal, never the stock text sent to the model', () => {
+		const stock = planAnswerBox(
+			'one',
+			false,
+			'The user declined this. Do not get the same content or result another way unless you ask first.',
+		)
+		expect(boxText(stock)).toBe(
+			'✗ Plan from @one rejected\nRevise the plan and send it again for approval.',
+		)
+		const said = planAnswerBox('one', false, 'The user declined this and said: split step two')
+		expect(boxText(said)).toBe(
+			'✗ Plan from @one rejected\nFeedback: split step two\nRevise the plan and send it again for approval.',
+		)
+	})
+
+	it('is one box row in the batch for a request, an answer and a refusal', () => {
+		const batcher = new TeamRowBatcher(() => 'red')
+		batcher.add({
+			team: 't',
+			from: 'one',
+			to: 'lead',
+			kind: 'plan_request',
+			text: JSON.stringify({ plan: '1. read', planFile: '/tmp/p.md' }),
+		})
+		batcher.add({
+			team: 't',
+			from: 'lead',
+			to: 'one',
+			kind: 'plan_response',
+			text: JSON.stringify({ allow: false, feedback: 'smaller' }),
+		})
+		batcher.add({
+			team: 't',
+			from: 'two',
+			to: 'lead',
+			kind: 'shutdown_response',
+			text: JSON.stringify({ approve: false, reason: 'busy' }),
+		})
+		const rows = batcher.flush()
+		expect(rows).toHaveLength(3)
+		expect(rows.every((row) => row.box !== undefined)).toBe(true)
+		expect(rows[0]?.content).toContain('Plan file: /tmp/p.md')
+		expect(rows[1]?.content).toContain('Plan from @one rejected')
+		expect(rows[2]?.content).toContain('Shutdown refused by @two')
+	})
+})
+
+describe('boxes a teammate reads', () => {
+	it('names the task, who gave it, its subject in bold and what it asks dim', () => {
+		const box = taskAssignedBox(3, 'lead', 'Write part two', 'two sections\nwith examples')
+		expect(box.title.map((span) => span.text).join('')).toBe('Task #3 assigned by lead')
+		expect(box.body?.[0]?.[0]).toMatchObject({ text: 'Write part two', bold: true })
+		expect(box.notes?.map((line) => line[0]?.text)).toEqual(['two sections', 'with examples'])
+		expect(
+			taskAssignedBox(undefined, 'two', 'x')
+				.title.map((span) => span.text)
+				.join(''),
+		).toBe('Task assigned by @two')
+	})
+
+	it('says what the waiting teammate waits for, and that the request went to the lead', () => {
+		const box = waitingForLeadBox({ tool: 'bash', action: 'touch a.txt' })
+		expect(box.tone).toBe('theme:status.warn')
+		expect(boxText(box)).toBe(
+			'Waiting for team lead approval\nTool   bash\nAction touch a.txt\nThe request was sent to the team lead.',
+		)
+		expect(box.body?.[0]?.[0]?.muted).toBe(true)
+	})
+
+	it('says the plan went to the lead after it is sent', () => {
+		const box = planSubmittedBox()
+		expect(boxText(box)).toBe(
+			'Plan submitted for team lead approval\nWaiting for team lead approval…',
+		)
+		expect(box.tone).toBe('theme:accent.plan')
+		expect(boxText(planSubmittedBox('/tmp/p.md'))).toContain('Plan file: /tmp/p.md')
+	})
+
+	it('is a row with the box and the same words as plain text', () => {
+		const row = boxRow(planSubmittedBox())
+		expect(row.box).toBeDefined()
+		expect(row.content).toBe(boxText(planSubmittedBox()))
 	})
 })
 
@@ -262,9 +362,7 @@ describe('the rows of one moment', () => {
 		)
 		expect(batcher.flush().map((row) => row.content)).toEqual([
 			'2 teammates shut down',
-			'Shutdown refused by @three',
-			'Reason: busy',
-			'Still working. Ask again later.',
+			'Shutdown refused by @three\nReason: busy\nStill working. Ask again later.',
 		])
 	})
 
@@ -282,6 +380,33 @@ describe('the rows of one moment', () => {
 		expect(rows[1]?.detail?.[0]).toBe('(task #4)')
 	})
 
+	it('adds what the teammate last told the lead to the expanded idle row', () => {
+		const note = parseIdle(
+			JSON.stringify({
+				idleReason: 'available',
+				result: 'done',
+				lastMessage: 'part two is ready for review',
+			}),
+		)
+		expect(note.lastMessage).toBe('part two is ready for review')
+		const rows = idleRows('one', 'red', note, 2)
+		expect(rows[1]?.content).toBe('done')
+		expect(rows[1]?.detail).toEqual(['(task #2)', 'Last message: part two is ready for review'])
+		// A first line cut short is shown whole in the expansion.
+		const long = 'x'.repeat(130)
+		expect(idleRows('one', 'red', { reason: 'available', result: long })[1]?.detail).toEqual([long])
+		// Without one, the expanded row has no such line.
+		expect(
+			idleRows('one', 'red', { reason: 'available', result: 'done\nmore' })[1]?.detail?.some((l) =>
+				l.startsWith('Last message'),
+			),
+		).toBe(false)
+		// A teammate that only sent a message still shows it, dim.
+		expect(
+			idleRows('one', 'red', { reason: 'available', lastMessage: 'ping' }).map((r) => r.content),
+		).toEqual(['Teammate @one finished', 'Last message: ping'])
+	})
+
 	it('writes the plan request, and the answer under the name of the teammate it was for', () => {
 		const batcher = new TeamRowBatcher(colorOf)
 		batcher.add(event({ kind: 'plan_request', text: JSON.stringify({ plan: 'step 1' }) }))
@@ -294,9 +419,8 @@ describe('the rows of one moment', () => {
 			}),
 		)
 		expect(batcher.flush().map((row) => row.content)).toEqual([
-			'Plan approval request from @one',
-			'Plan from @one approved',
-			'@one can now proceed.',
+			'Plan approval request from @one\nstep 1',
+			'✓ Plan from @one approved',
 		])
 	})
 

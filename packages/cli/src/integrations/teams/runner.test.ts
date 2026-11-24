@@ -64,6 +64,7 @@ function fakeEngine() {
 	const launched: string[] = []
 	const delivered: { name: string; text: string; mail?: TeamMailLabel }[] = []
 	const aborted: string[] = []
+	const interrupted: string[] = []
 	const told: { from: string; summary: string; text: string }[] = []
 	const running = new Set<string>()
 	let failLaunch: Error | undefined
@@ -90,6 +91,10 @@ function fakeEngine() {
 			aborted.push(name)
 			running.delete(name)
 		},
+		interrupt(_team, name) {
+			interrupted.push(name)
+			running.delete(name)
+		},
 		isRunning: (_team, name) => running.has(name),
 		tellLead: (_team, from, summary, text) => {
 			told.push({ from, summary, text })
@@ -100,6 +105,7 @@ function fakeEngine() {
 		launched,
 		delivered,
 		aborted,
+		interrupted,
 		told,
 		running,
 		failNextLaunch(error: Error) {
@@ -177,6 +183,59 @@ describe('the teammate_idle hook', () => {
 		answer(undefined)
 		await flush()
 		expect(t.runner.snapshot(t.team)[0]).toMatchObject({ name: 'alice', state: 'idle' })
+	})
+})
+
+describe('interrupting a working teammate', () => {
+	it('cuts the turn short without stopping it: it goes idle as interrupted and takes mail again', async () => {
+		const t = setup()
+		await t.spawn('alice')
+		expect(t.runner.interrupt(LEAD, 'alice')).toBe(true)
+		expect(t.fake.interrupted).toEqual(['alice'])
+		// Nothing was aborted for good, and the seat is still there.
+		expect(t.fake.aborted).toEqual([])
+		t.runner.turnEnded(t.team, 'alice', { state: 'cancelled' })
+		expect(t.runner.stateOf(t.team, 'alice')).toBe('idle')
+		expect(JSON.parse(t.mailTo('lead')[0]?.text ?? '{}').idleReason).toBe('interrupted')
+		await flush()
+		// It can be messaged again: the mail is handed over and it works.
+		const next = t.fake.nextDelivery()
+		await t.runner.send({ leadSessionId: LEAD, from: 'lead', to: 'alice', text: 'carry on' })
+		expect((await next).name).toBe('alice')
+		expect(t.runner.stateOf(t.team, 'alice')).toBe('busy')
+	})
+
+	it('does nothing for a teammate that is idle, stopped or not on the team', async () => {
+		const t = setup()
+		await t.spawn('alice')
+		t.runner.turnEnded(t.team, 'alice', { state: 'completed' })
+		await flush()
+		expect(t.runner.interrupt(LEAD, 'alice')).toBe(false)
+		expect(t.runner.interrupt(LEAD, 'nobody')).toBe(false)
+		expect(t.runner.interrupt('0198a1b2-0000-7000-8000-000000000000', 'alice')).toBe(false)
+		expect(t.fake.interrupted).toEqual([])
+	})
+})
+
+describe('what a teammate last said to the lead', () => {
+	it('is kept for the idle record of that turn only', async () => {
+		const t = setup()
+		await t.spawn('alice')
+		await t.runner.send({
+			leadSessionId: LEAD,
+			from: 'alice',
+			to: 'lead',
+			text: 'long text about part two',
+			summary: 'part two is ready',
+		})
+		t.runner.turnEnded(t.team, 'alice', { state: 'completed', text: 'done' })
+		const idle = t.mailTo('lead').filter((m) => m.kind === 'idle')
+		expect(JSON.parse(idle[0]?.text ?? '{}').lastMessage).toBe('part two is ready')
+		// A new turn starts clean: no message in it, none in its idle record.
+		t.runner.turnStarted(t.team, 'alice')
+		t.runner.turnEnded(t.team, 'alice', { state: 'completed', text: 'again' })
+		const second = t.mailTo('lead').filter((m) => m.kind === 'idle')[1]
+		expect(JSON.parse(second?.text ?? '{}').lastMessage).toBeUndefined()
 	})
 })
 

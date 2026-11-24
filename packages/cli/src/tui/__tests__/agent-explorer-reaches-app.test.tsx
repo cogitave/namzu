@@ -150,6 +150,8 @@ const childMessageBridge: {
  */
 /** The rows `x` stopped on the rail, in order. */
 const stoppedChildren: string[] = vi.hoisted(() => [])
+/** The teammates whose turn Esc cut short from their open transcript, in order. */
+const interruptedTeammates: string[] = vi.hoisted(() => [])
 /** The team the session reports, when a test gives it one. */
 const teamState = vi.hoisted(() => {
 	const listeners = new Set<() => void>()
@@ -161,6 +163,8 @@ const teamState = vi.hoisted(() => {
 			state: 'working' | 'idle' | 'waiting' | 'stopped'
 			since: number
 			color: string
+			awaitingPlan?: boolean
+			ask?: { tool: string; action?: string }
 		}[]
 		tasks: readonly {
 			id: string
@@ -264,6 +268,10 @@ vi.mock('../agent.js', async (importOriginal) => {
 			...prepareChildMessageBridge(options?.scope),
 			stopSubagent: (viewId: string) => {
 				stoppedChildren.push(viewId)
+				return true
+			},
+			interruptTeammate: (viewId: string) => {
+				interruptedTeammates.push(viewId)
 				return true
 			},
 			hasProvider: true,
@@ -5038,5 +5046,174 @@ describe('teammates on the rail', () => {
 		screen.press('\r')
 		await waitUntil(screen, () => text(screen).includes('esc to return to team lead'), 'no hint')
 		expect(text(screen)).toMatch(/@one\s+Message this teammate/u)
+	})
+
+	it('interrupts a working teammate with Esc, keeping its transcript open; Esc on an idle one goes back', async () => {
+		interruptedTeammates.length = 0
+		stoppedChildren.length = 0
+		childMessageBridge.current = vi.fn(async () => ({
+			kind: 'queued' as const,
+			taskId: 'task',
+			state: 'running',
+			parentNotice: 'admitted',
+		}))
+		activity.set([
+			agent({
+				viewId: 'v-one',
+				agentId: 'teammate-type',
+				description: 'one works',
+				background: true,
+				status: 'working',
+			}),
+		])
+		teamState.set({
+			members: [{ name: 'one', viewId: 'v-one', state: 'working', color: 'blue', since: 0 }],
+			tasks: [],
+		})
+		const screen = await mount()
+		await waitUntil(screen, () => /one\s.*working/u.test(text(screen)), 'no working row')
+		screen.press('\x1b[B')
+		await waitUntil(screen, () => text(screen).includes('enter to'), 'rail not focused')
+		screen.press('\x1b[B')
+		await waitUntil(screen, () => text(screen).includes('enter to view'), 'row not selected')
+		screen.press('\r')
+		await waitUntil(screen, () => text(screen).includes('esc to interrupt'), 'no interrupt hint')
+		screen.press('\x1b')
+		await waitUntil(screen, () => interruptedTeammates.length === 1, 'Esc did not interrupt')
+		expect(interruptedTeammates).toEqual(['v-one'])
+		// Not stopped, and still open.
+		expect(stoppedChildren).toEqual([])
+		expect(text(screen)).toMatch(/@one\s+Message this teammate/u)
+		// Once the teammate is idle, the hint changes and Esc goes back to the lead.
+		const since = Date.now()
+		activity.set([
+			agent({
+				viewId: 'v-one',
+				agentId: 'teammate-type',
+				description: 'one works',
+				background: true,
+				status: 'cancelled',
+				interrupted: true,
+				completedAt: since,
+			}),
+		])
+		teamState.set({
+			members: [{ name: 'one', viewId: 'v-one', state: 'idle', color: 'blue', since }],
+		})
+		await waitUntil(
+			screen,
+			() => text(screen).includes('esc to return to team lead'),
+			'no return hint',
+		)
+		screen.press('\x1b')
+		await waitUntil(
+			screen,
+			() => !/@one\s+Message this teammate/u.test(text(screen)),
+			'did not return',
+		)
+		expect(interruptedTeammates).toEqual(['v-one'])
+		// The cut-short turn is not written as a stopped agent: the team's own line says it.
+		expect(text(screen)).not.toContain('was stopped')
+	})
+
+	it('opens the folded idle row with Enter', async () => {
+		const since = Date.now() - 2_000
+		const names = ['a', 'b', 'c', 'd']
+		activity.set(
+			names.map((name) =>
+				agent({
+					viewId: `v-${name}`,
+					agentId: 'teammate-type',
+					description: `${name} works`,
+					background: true,
+					status: 'completed',
+					completedAt: since,
+				}),
+			),
+		)
+		teamState.set({
+			members: names.map((name) => ({
+				name,
+				viewId: `v-${name}`,
+				state: 'idle' as const,
+				color: 'blue',
+				since,
+			})),
+			tasks: [],
+		})
+		const screen = await mount()
+		await waitUntil(screen, () => text(screen).includes('4 idle agents'), 'no folded row')
+		screen.press('\x1b[B')
+		await waitUntil(
+			screen,
+			() => text(screen).includes('enter to expand'),
+			'folded row not selected',
+		)
+		expect(text(screen)).not.toContain('ctrl+x ctrl+k')
+		screen.press('\r')
+		await waitUntil(screen, () => !text(screen).includes('4 idle agents'), 'did not expand')
+		for (const name of names) expect(text(screen)).toMatch(new RegExp(`◯ ${name}\\s`, 'u'))
+	})
+
+	it("draws the waiting box in a waiting teammate's own transcript", async () => {
+		childMessageBridge.current = vi.fn(async () => ({
+			kind: 'queued' as const,
+			taskId: 'task',
+			state: 'running',
+			parentNotice: 'admitted',
+		}))
+		activity.set([
+			agent({
+				viewId: 'v-one',
+				agentId: 'teammate-type',
+				description: 'one works',
+				background: true,
+				status: 'working',
+			}),
+		])
+		teamState.set({
+			members: [
+				{
+					name: 'one',
+					viewId: 'v-one',
+					state: 'waiting',
+					color: 'blue',
+					since: 0,
+					ask: { tool: 'bash', action: 'touch a.txt' },
+				},
+			],
+			tasks: [],
+		})
+		const screen = await mount()
+		await waitUntil(screen, () => /one\s.*waiting for you/u.test(text(screen)), 'no waiting row')
+		screen.press('\x1b[B')
+		await waitUntil(screen, () => text(screen).includes('enter to'), 'rail not focused')
+		screen.press('\x1b[B')
+		await waitUntil(screen, () => text(screen).includes('enter to view'), 'row not selected')
+		screen.press('\r')
+		await waitUntil(
+			screen,
+			() => text(screen).includes('Waiting for team lead approval'),
+			'no waiting box',
+		)
+		expect(text(screen)).toContain('touch a.txt')
+		expect(text(screen)).toContain('The request was sent to the team lead.')
+		teamState.set({
+			members: [
+				{
+					name: 'one',
+					viewId: 'v-one',
+					state: 'waiting',
+					color: 'blue',
+					since: 0,
+					awaitingPlan: true,
+				},
+			],
+		})
+		await waitUntil(
+			screen,
+			() => text(screen).includes('Plan submitted for team lead approval'),
+			'no plan box',
+		)
 	})
 })

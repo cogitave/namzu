@@ -80,6 +80,8 @@ export interface TeammateEngine {
 	deliver(team: string, name: string, text: string, mail?: TeamMailLabel): Promise<void>
 	/** Stop the child's work now. */
 	abort(team: string, name: string, reason: string): void
+	/** Cut the child's current turn short and leave it on the team: it ends the turn and can be messaged again. */
+	interrupt?(team: string, name: string): void
 	/** Whether the child's task has not ended. */
 	isRunning(team: string, name: string): boolean
 	/** Show the lead's conversation something the runner decided (a refusal to relay, a shutdown answer). */
@@ -120,6 +122,8 @@ interface Tracked {
 	hookKept: number
 	/** `teammate_stop` has run for this member. */
 	stopFired: boolean
+	/** What the member last told the lead in this turn (its summary, else the first words), or undefined. */
+	lastMessage: string | undefined
 }
 
 export class TeamError extends Error {
@@ -425,6 +429,7 @@ export class TeamRunner {
 			shutdown: undefined,
 			hookKept: 0,
 			stopFired: false,
+			lastMessage: undefined,
 		}
 		let byName = this.members.get(team)
 		if (!byName) {
@@ -471,6 +476,7 @@ export class TeamRunner {
 		this.disarm(tracked.timer)
 		tracked.timer = undefined
 		tracked.state = 'busy'
+		tracked.lastMessage = undefined
 		this.changed()
 	}
 
@@ -587,6 +593,7 @@ export class TeamRunner {
 				text: JSON.stringify({
 					idleReason,
 					...(outcome.text ? { result: outcome.text.slice(0, IDLE_RESULT_CHARS) } : {}),
+					...(tracked.lastMessage ? { lastMessage: tracked.lastMessage } : {}),
 				}),
 				summary: `${tracked.name} is idle (${idleReason})`,
 			})
@@ -924,6 +931,12 @@ export class TeamRunner {
 		this.noteSend(team, sender, target)
 		if (countsInChain) this.noteChain(team)
 		if (isLead) {
+			// The idle line of this turn names it.
+			const from = this.find(team, input.from)
+			if (from) {
+				const said = (input.summary ?? input.text).replace(/\s+/gu, ' ').trim()
+				from.lastMessage = said.length > 200 ? `${said.slice(0, 199)}…` : said
+			}
 			// Delivered by the host to the conversation as it is shown; the file keeps the record.
 			this.markRead(team, TEAM_LEAD_NAME, entry)
 			return { team, entry }
@@ -1177,6 +1190,20 @@ export class TeamRunner {
 		const team = this.teamsByLead.get(leadSessionId)
 		if (team === undefined || this.find(team, name) === undefined) return false
 		this.stopMember(team, name, reason ?? 'The lead stopped this teammate.')
+		return true
+	}
+
+	/**
+	 * Cut a working teammate's current turn short. The member is not stopped or retired: its turn ends as
+	 * an interrupted one, it goes idle, and it takes mail and tasks again. False when it is not working.
+	 */
+	interrupt(leadSessionId: string, name: string): boolean {
+		const team = this.teamsByLead.get(leadSessionId)
+		if (team === undefined) return false
+		const tracked = this.find(team, name)
+		if (!tracked || tracked.state !== 'busy' || !this.engine.interrupt) return false
+		if (!this.engine.isRunning(team, name)) return false
+		this.engine.interrupt(team, name)
 		return true
 	}
 

@@ -65,6 +65,14 @@ describe('which teammates the rail draws', () => {
 		expect(foldedIdleText(4)).toBe('4 idle agents')
 	})
 
+	it('leaves the teammate on screen out of the folded count, since it has its own row', () => {
+		const four = ['a', 'b', 'c', 'd'].map((n) => member(n, 'idle', NOW - 1000))
+		const plan = teamRailPlan(four, NOW, false, false, 'v-d')
+		expect([...plan.shown]).toEqual(['v-d'])
+		expect(plan.folded).toBe(3)
+		expect(teamRailPlan(four, NOW, false, false, 'v-zzz').folded).toBe(4)
+	})
+
 	it('drops idle rows only after the whole rail has been idle for 30 seconds', () => {
 		const idle = [
 			member('a', 'idle', NOW - TEAM_IDLE_FADE_MS + 1),

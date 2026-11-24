@@ -493,6 +493,26 @@ export function WrappedSpans({
 	)
 }
 
+/** One row of spans already cut to fit, as one line of text (no wrapping of its own). */
+export function SpanLine({
+	line,
+	color,
+	truncate,
+}: {
+	readonly line: DisplayLine
+	readonly color: string
+	readonly truncate?: boolean
+}) {
+	return (
+		<Text color={color} wrap={truncate ? 'truncate-end' : 'wrap'}>
+			{line.map((span, j) => (
+				// biome-ignore lint/suspicious/noArrayIndexKey: spans are positional.
+				<SpanView key={`s-${j}`} span={span} color={color} hyperlinks={false} />
+			))}
+		</Text>
+	)
+}
+
 /** One drawn span: code, a link, dim text, a rule, or styled prose. */
 function SpanView({
 	span,

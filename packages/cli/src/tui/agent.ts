@@ -1956,6 +1956,8 @@ export interface AgentSession {
 	) => Promise<SubagentMessageReceipt>
 	/** Stop one running child from the agents rail; false when it is not ours or already ended. */
 	readonly stopSubagent?: (viewId: string) => boolean
+	/** Cut a working teammate's current turn short; it stays on the team and goes idle. False when it is not working. */
+	readonly interruptTeammate?: (viewId: string) => boolean
 	/**
 	 * The teammate behind a review request that is open now, so the screen names the member in the
 	 * question. Absent without delegation; `undefined` for the person's own conversation and for
@@ -7227,6 +7229,8 @@ export async function createAgentSession(
 					onSubagentCompletion: (listener: (completion: SubagentCompletion) => void) =>
 						subagentRuntime?.onBackgroundCompletion(listener) ?? (() => {}),
 					stopSubagent: (viewId: string) => subagentRuntime?.stopChild(viewId) ?? false,
+					interruptTeammate: (viewId: string) =>
+						subagentRuntime?.interruptTeammate(viewId) ?? false,
 					teammateAsking: (request) => subagentRuntime?.teammateAsking(request),
 					messageSubagent: (viewId: string, message: string, opts?: SendOptions) =>
 						operations.promise(opts?.signal, async (signal) => {

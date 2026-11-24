@@ -9,7 +9,8 @@
 import type { SubagentMailLabel } from '../integrations/subagents/activity.js'
 import { fallbackTeamColor } from '../integrations/teams/colors.js'
 import type { TeamMailEvent } from '../integrations/teams/view.js'
-import type { DisplaySpan } from './markdown-wrap.js'
+import { type BoxRow, boxText } from './box-rows.js'
+import { type DisplaySpan, inlineDisplaySpans } from './markdown-wrap.js'
 import { tokenColor } from './theme.js'
 import type { ToolRow } from './tool-end-rows.js'
 import { EXPAND_HINT } from './truncation.js'
@@ -88,12 +89,18 @@ export type IdleReason = 'available' | 'interrupted' | 'failed'
 export interface IdleNote {
 	readonly reason: IdleReason
 	readonly result?: string
+	/** What the teammate last told the lead in this turn. */
+	readonly lastMessage?: string
 }
 
 /** What an idle record says: why the teammate stopped, and what it answered. */
 export function parseIdle(text: string): IdleNote {
 	try {
-		const value = JSON.parse(text) as { idleReason?: unknown; result?: unknown }
+		const value = JSON.parse(text) as {
+			idleReason?: unknown
+			result?: unknown
+			lastMessage?: unknown
+		}
 		const reason: IdleReason =
 			value.idleReason === 'failed' || value.idleReason === 'interrupted'
 				? value.idleReason
@@ -102,6 +109,9 @@ export function parseIdle(text: string): IdleNote {
 			reason,
 			...(typeof value.result === 'string' && value.result.trim() !== ''
 				? { result: value.result }
+				: {}),
+			...(typeof value.lastMessage === 'string' && value.lastMessage.trim() !== ''
+				? { lastMessage: value.lastMessage }
 				: {}),
 		}
 	} catch {
@@ -141,11 +151,21 @@ export function idleRows(
 	const rows: ToolRow[] = [
 		{ role: 'tool', content: plain(spans), spans, glyph: '●', glyphColor: tone },
 	]
-	if (note.result === undefined) return rows
+	if (note.result === undefined) {
+		if (note.lastMessage === undefined) return rows
+		rows.push(dimResult(`Last message: ${firstLine(note.lastMessage)}`))
+		return rows
+	}
 	const first = firstLine(note.result)
 	const all = lines(note.result.trim())
-	const more = all.length > 1 || first.endsWith('…') || taskNumber !== undefined
-	const detail = [...(taskNumber !== undefined ? [`(task #${taskNumber})`] : []), ...all]
+	const said = note.lastMessage !== undefined
+	const more = all.length > 1 || first.endsWith('…') || taskNumber !== undefined || said
+	const detail = [
+		...(taskNumber !== undefined ? [`(task #${taskNumber})`] : []),
+		...(said ? [`Last message: ${note.lastMessage}`] : []),
+		// The row itself already shows the first line, unless it was cut short.
+		...(first === all[0] ? all.slice(1) : all),
+	]
 	rows.push({
 		role: 'tool',
 		content: first,
@@ -186,20 +206,63 @@ export function shutDownRow(
 	}
 }
 
-/** A teammate that would not stop: who, why, and that it can be asked again. */
-export function shutdownRefusedRows(
-	name: string,
-	color: string,
-	reason: string | undefined,
-): readonly ToolRow[] {
-	const head: DisplaySpan[] = [{ text: 'Shutdown refused by ' }, nameSpan(name, color)]
-	const rows: ToolRow[] = [
-		{ role: 'tool', content: plain(head), spans: head, glyph: '●', glyphColor: MUTED },
-	]
+/** A teammate that would not stop: a neutral box with its reason, and that it can be asked again. */
+export function shutdownRefusedBox(name: string, reason: string | undefined): BoxRow {
 	const why = reason?.trim()
-	if (why) rows.push(dimResult(`Reason: ${firstLine(why, 200)}`))
-	rows.push(dimResult('Still working. Ask again later.'))
-	return rows
+	return {
+		tone: MUTED,
+		title: [{ text: 'Shutdown refused by ' }, { text: `@${name}` }],
+		...(why ? { body: [[{ text: `Reason: ${firstLine(why, 400)}` }]] } : {}),
+		notes: [[{ text: 'Still working. Ask again later.' }]],
+	}
+}
+
+/** The request to stop a teammate, as the teammate reads it: a warning box with the lead's reason. */
+export function shutdownRequestBox(from: string, reason: string | undefined): BoxRow {
+	const why = reason?.trim()
+	return {
+		tone: tokenColor('status.warn'),
+		title: [{ text: 'Shutdown request from ' }, { text: from === LEAD ? 'lead' : `@${from}` }],
+		...(why ? { body: [[{ text: `Reason: ${firstLine(why, 400)}` }]] } : {}),
+	}
+}
+
+/** A task handed to a teammate, as the teammate reads it: its number, who gave it, the subject and what it asks. */
+export function taskAssignedBox(
+	number: number | undefined,
+	by: string,
+	subject: string,
+	description?: string,
+): BoxRow {
+	const extra = description?.trim()
+	return {
+		tone: tokenColor('accent.system'),
+		title: [
+			{ text: `Task${number !== undefined ? ` #${number}` : ''} assigned by ` },
+			{ text: by === LEAD ? 'lead' : `@${by}` },
+		],
+		body: [[{ text: firstLine(subject, 200), bold: true }]],
+		...(extra ? { notes: lines(extra).map((line) => [{ text: line }]) } : {}),
+	}
+}
+
+/** A box as a transcript row: the words as plain text for copy, the box for the screen that draws it. */
+export function boxRow(box: BoxRow): ToolRow {
+	return { role: 'tool', content: boxText(box), box }
+}
+
+/** Plan text as lines of spans: inline marks drawn, a heading bold, list marks and indentation kept. */
+function planLines(plan: string): (readonly DisplaySpan[])[] {
+	return lines(plan.trim()).map((line) => {
+		if (line.trim() === '') return []
+		const heading = /^\s{0,3}#{1,6}\s+(.*)$/u.exec(line)
+		if (heading) return [{ text: heading[1] as string, bold: true }]
+		const indent = /^\s*/u.exec(line)?.[0] ?? ''
+		return [
+			...(indent ? [{ text: indent }] : []),
+			...inlineDisplaySpans(line.slice(indent.length), false),
+		]
+	})
 }
 
 function dimResult(text: string): ToolRow {
@@ -215,40 +278,79 @@ function dimResult(text: string): ToolRow {
 
 // ─── plans ───────────────────────────────────────────────────────────────
 
-/** A plan a teammate sent for the person to approve. The plan opens with Ctrl+O. */
-export function planRequestRow(name: string, color: string, plan: string | undefined): ToolRow {
-	const spans: DisplaySpan[] = [{ text: 'Plan approval request from ' }, nameSpan(name, color)]
+/** A plan a teammate sent for the person to approve: a box in the plan colour with the plan inside. */
+export function planRequestBox(name: string, plan: string | undefined, planFile?: string): BoxRow {
 	const body = plan?.trim()
+	const file = planFile?.trim()
 	return {
-		role: 'tool',
-		content: plain(spans),
-		spans,
-		glyph: '●',
-		glyphColor: tokenColor('accent.tool'),
-		...(body ? { detail: lines(body), meta: EXPAND_HINT, activity: 'agent-result' as const } : {}),
+		tone: tokenColor('accent.plan'),
+		title: [{ text: 'Plan approval request from ' }, { text: `@${name}` }],
+		...(body ? { body: planLines(body) } : {}),
+		...(file ? { notes: [[{ text: `Plan file: ${file}` }]] } : {}),
 	}
 }
 
-/** The person's answer to a plan: approved or rejected, any feedback, and what the teammate does next. */
-export function planAnswerRows(
-	name: string,
-	color: string,
-	allow: boolean,
-	feedback: string | undefined,
-): readonly ToolRow[] {
-	const tone = tokenColor(allow ? 'status.ok' : 'status.error')
-	const head: DisplaySpan[] = [
-		{ text: 'Plan from ', tone },
-		nameSpan(name, color),
-		{ text: allow ? ' approved' : ' rejected', tone },
-	]
-	const rows: ToolRow[] = [
-		{ role: 'tool', content: plain(head), spans: head, glyph: allow ? '✓' : '✗', glyphColor: tone },
-	]
-	const note = feedback?.trim()
-	if (note) rows.push(dimResult(`Feedback: ${firstLine(note, 200)}`))
-	rows.push(dimResult(allow ? `@${name} can now proceed.` : `@${name} will revise the plan.`))
-	return rows
+const SAID_PREFIX = 'The user declined this and said: '
+const GENERIC_DECLINE_PREFIX = 'The user declined this.'
+
+/** What a person wrote in a refusal. The stock text sent to the model when they wrote nothing is not theirs, so it is dropped. */
+function personsWords(feedback: string | undefined): string | undefined {
+	const text = feedback?.trim()
+	if (!text) return undefined
+	if (text.startsWith(SAID_PREFIX)) return text.slice(SAID_PREFIX.length).trim() || undefined
+	if (text.startsWith(GENERIC_DECLINE_PREFIX)) return undefined
+	return text
+}
+
+/** The answer to a plan: a green box when it is approved, a red one with what to change when it is not. */
+export function planAnswerBox(name: string, allow: boolean, feedback: string | undefined): BoxRow {
+	const note = personsWords(feedback)
+	return {
+		tone: tokenColor(allow ? 'status.ok' : 'status.error'),
+		// The lead's transcript: the plan is the teammate's, the answer is the person's.
+		title: [
+			{ text: `${allow ? '✓' : '✗'} Plan from ` },
+			{ text: `@${name}` },
+			{ text: ` ${allow ? 'approved' : 'rejected'}` },
+		],
+		...(note ? { body: [[{ text: `Feedback: ${firstLine(note, 400)}` }]] } : {}),
+		...(allow ? {} : { notes: [[{ text: 'Revise the plan and send it again for approval.' }]] }),
+	}
+}
+
+// ─── what a waiting teammate shows ───────────────────────────────────────
+
+/**
+ * A teammate's own screen while its call waits for the lead's person: a warning box naming the tool
+ * and what it would do, and that the request has gone to the lead.
+ */
+export function waitingForLeadBox(ask: {
+	readonly tool: string
+	readonly action?: string
+}): BoxRow {
+	const label = (text: string): DisplaySpan => ({ text: `${text.padEnd(7)}`, muted: true })
+	return {
+		tone: tokenColor('status.warn'),
+		title: [{ text: 'Waiting for team lead approval' }],
+		body: [
+			...(ask.tool ? [[label('Tool'), { text: ask.tool }]] : []),
+			...(ask.action ? [[label('Action'), { text: ask.action }]] : []),
+		],
+		notes: [[{ text: 'The request was sent to the team lead.' }]],
+	}
+}
+
+/** A teammate's screen after it sent a plan: the plan went to the lead's person and it waits. */
+export function planSubmittedBox(planFile?: string): BoxRow {
+	const file = planFile?.trim()
+	return {
+		tone: tokenColor('accent.plan'),
+		title: [{ text: 'Plan submitted for team lead approval' }],
+		notes: [
+			...(file ? [[{ text: `Plan file: ${file}` }]] : []),
+			[{ text: 'Waiting for team lead approval…' }],
+		],
+	}
 }
 
 // ─── what the lead sent ──────────────────────────────────────────────────
@@ -371,23 +473,29 @@ export class TeamRowBatcher {
 			else
 				this.entries.push({
 					type: 'rows',
-					rows: shutdownRefusedRows(
-						event.from,
-						colorFor(this.colorOf, event.from),
-						typeof answer.reason === 'string' ? answer.reason : undefined,
-					),
+					rows: [
+						boxRow(
+							shutdownRefusedBox(
+								event.from,
+								typeof answer.reason === 'string' ? answer.reason : undefined,
+							),
+						),
+					],
 				})
 			return true
 		}
 		if (event.to === LEAD && event.kind === 'plan_request') {
 			const plan = readJson(event.text).plan
+			const file = readJson(event.text).planFile
 			this.entries.push({
 				type: 'rows',
 				rows: [
-					planRequestRow(
-						event.from,
-						colorFor(this.colorOf, event.from),
-						typeof plan === 'string' ? plan : undefined,
+					boxRow(
+						planRequestBox(
+							event.from,
+							typeof plan === 'string' ? plan : undefined,
+							typeof file === 'string' ? file : undefined,
+						),
 					),
 				],
 			})
@@ -397,12 +505,15 @@ export class TeamRowBatcher {
 			const answer = readJson(event.text)
 			this.entries.push({
 				type: 'rows',
-				rows: planAnswerRows(
-					event.to,
-					colorFor(this.colorOf, event.to),
-					answer.allow === true,
-					typeof answer.feedback === 'string' ? answer.feedback : undefined,
-				),
+				rows: [
+					boxRow(
+						planAnswerBox(
+							event.to,
+							answer.allow === true,
+							typeof answer.feedback === 'string' ? answer.feedback : undefined,
+						),
+					),
+				],
 			})
 			return true
 		}

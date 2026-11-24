@@ -127,6 +127,11 @@ export interface TranscriptMessage {
 	 * `content` stays the same words as plain text, for copy, search and every screen that draws no spans.
 	 */
 	readonly spans?: readonly import('./markdown-wrap.js').DisplaySpan[]
+	/**
+	 * The row is a bordered box (see `box-rows.ts`) instead of a line: a title, body lines and dim
+	 * footnotes inside a rounded border. `content` carries the same words as plain text.
+	 */
+	readonly box?: import('./box-rows.js').BoxRow
 	/** On a message the person sent: the files that went with it, one quiet row each under it. */
 	readonly attachments?: readonly AttachmentRow[]
 	/** Dim suffix after the content (e.g. a tool's elapsed time). */

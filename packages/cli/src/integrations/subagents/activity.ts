@@ -165,6 +165,8 @@ export interface SubagentActivity {
 	 * nobody recorded it.
 	 */
 	readonly stoppedBy?: 'user' | 'parent'
+	/** A teammate whose turn the person cut short: it stays on its team and can be messaged again. */
+	readonly interrupted?: true
 	readonly prompt: string
 	/** Direct tool batch that launched this concurrent sibling cohort. */
 	readonly batchId: string
@@ -380,6 +382,8 @@ interface MutableActivity {
 	background?: boolean
 	released?: boolean
 	stoppedBy?: 'user' | 'parent'
+	/** Its turn was cut short, and it stays on its team: a later message resumes it. */
+	interrupted?: true
 	prompt: string
 	batchId: string
 	toolUseId?: string
@@ -582,7 +586,7 @@ export class SubagentActivityMonitor implements SubagentActivitySource {
 				owned.status = cancelled ? 'cancelled' : 'failed'
 				// A stop nobody recorded is the operator's (Esc or Ctrl+C aborting the
 				// parent's wait), so every stop reads "stopped by user".
-				if (cancelled && !owned.stoppedBy) owned.stoppedBy = 'user'
+				if (cancelled && !owned.stoppedBy && !owned.interrupted) owned.stoppedBy = 'user'
 				owned.completedAt = Date.now()
 				owned.latestActivity = terminalLabel(owned.status)
 				pushFailure(owned, `${owned.viewId}:failure`, errorMessage(error))
@@ -694,6 +698,18 @@ export class SubagentActivityMonitor implements SubagentActivitySource {
 		const record = this.records.get(viewId)
 		if (!record || this.closed || isTerminal(record.status) || record.stoppedBy) return
 		record.stoppedBy = by
+		delete record.interrupted
+		this.scheduleNotify()
+	}
+
+	/**
+	 * Records that a running agent's turn is being cut short and the agent itself carries on (a teammate
+	 * between turns). Unlike a stop, it leaves no `stoppedBy`, so the agent can be messaged again.
+	 */
+	markInterrupted(viewId: string): void {
+		const record = this.records.get(viewId)
+		if (!record || this.closed || isTerminal(record.status) || record.stoppedBy) return
+		record.interrupted = true
 		this.scheduleNotify()
 	}
 
@@ -802,6 +818,7 @@ export class SubagentActivityMonitor implements SubagentActivitySource {
 			...(record.background ? { background: true } : {}),
 			...(record.released ? { released: true } : {}),
 			...(record.stoppedBy ? { stoppedBy: record.stoppedBy } : {}),
+			...(record.interrupted ? { interrupted: true as const } : {}),
 			prompt: record.prompt,
 			batchId: record.batchId,
 			...(record.toolUseId ? { toolUseId: record.toolUseId } : {}),
@@ -1060,6 +1077,8 @@ function projectEvent(record: MutableActivity, event: SessionEvent): void {
 			record.sessionId = String(event.sessionId)
 			record.status = 'working'
 			record.latestActivity = 'Working'
+			// A new turn is a new life: an earlier cut-short turn must not hide how this one ends.
+			delete record.interrupted
 			return
 		case 'token_usage_updated':
 			// `usage` is cumulative spend across the turn; `contextTokens` beside
@@ -1174,7 +1193,7 @@ function projectEvent(record: MutableActivity, event: SessionEvent): void {
 			record.status = 'cancelled'
 			// A stop nobody recorded is the operator's (Esc or Ctrl+C), so every
 			// stop reads "stopped by user".
-			if (!record.stoppedBy) record.stoppedBy = 'user'
+			if (!record.stoppedBy && !record.interrupted) record.stoppedBy = 'user'
 			record.completedAt = Date.now()
 			record.latestActivity = 'Cancelled'
 			return
