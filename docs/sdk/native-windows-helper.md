@@ -311,7 +311,11 @@ default) starts one thread that does two things and nothing else:
   asked for. An event is `{seq, kind: "input", tMs, device: "keyboard"|"mouse",
   injected}`: no key, no character, no scan code, no position.
 - **Foreground.** `SetWinEventHook(EVENT_SYSTEM_FOREGROUND)` records each window
-  that comes to the front as `{seq, kind: "foreground", tMs, windowId}`.
+  that comes to the front as `{seq, kind: "foreground", tMs, windowId}`. The
+  system does not promise an out-of-context hook every change (a window can be
+  in front with no event ever sent), so each `monitor.poll` also reads the
+  window in front and records a change the hook did not report; the same change
+  is never recorded twice.
 
 `monitor.start` answers `{input, foreground}`, whether each is running; a caller
 that needs to see a person (the foreground ladder) refuses to run a burst when
