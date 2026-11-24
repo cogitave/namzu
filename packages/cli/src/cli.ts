@@ -1141,6 +1141,11 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 					...(resolvedCtx.config.codeAnalysis
 						? { codeAnalysis: resolvedCtx.config.codeAnalysis }
 						: {}),
+					...(resolvedCtx.config.imageGeneration
+						? { imageGeneration: resolvedCtx.config.imageGeneration }
+						: {}),
+					readImageGenerationEnabled: () =>
+						refreshTrustedProjectContext(commandCtx, cwd).config.imageGeneration?.enabled !== false,
 					...(resolvedCtx.config.computerUse
 						? { computerUse: resolvedCtx.config.computerUse }
 						: {}),

@@ -419,6 +419,7 @@ export function factsHeadline(facts: ToolFacts | undefined): string | undefined 
 		case 'shared': {
 			const [first, ...rest] = facts.files
 			if (!first) return undefined
+			if (facts.generatedImage) return `Generated image · ${first.path}`
 			// One file: its name and where it is. Several: the names, and how many.
 			if (rest.length === 0) return `Shared ${fileName(first.path)} · ${first.path}`
 			const names = facts.files.map((file) => fileName(file.path))

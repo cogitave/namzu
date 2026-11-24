@@ -18,6 +18,7 @@ import type {
 	GoalCliConfig,
 	HandBackCliConfig,
 	HooksConfig,
+	ImageGenerationConfig,
 	MemoryCliConfig,
 	NamzuCliConfig,
 	PluginConfig,
@@ -294,6 +295,10 @@ export interface TuiContext {
 	readonly readComputerUseEnabled?: () => boolean
 	/** See `NamzuCliConfig.codeAnalysis`. */
 	readonly codeAnalysis?: CodeAnalysisConfig
+	/** See `NamzuCliConfig.imageGeneration`. */
+	readonly imageGeneration?: ImageGenerationConfig
+	/** `imageGeneration.enabled` as the settings files say it now, read for every request. */
+	readonly readImageGenerationEnabled?: () => boolean
 	/** See `NamzuCliConfig.progressNudge`. */
 	readonly progressNudge?: ProgressNudgeConfig
 	/** See `NamzuCliConfig.hooks`. */

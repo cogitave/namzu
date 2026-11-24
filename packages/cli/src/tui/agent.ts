@@ -2,6 +2,11 @@ import { childScratchpadFact } from '../context/subagent-scratchpad-fact.js'
 import { debugRequested } from '../debug-requested.js'
 import { isDefaultAccountId } from '../integrations/accounts/binding.js'
 import { resolveIdleCompactionMinTokens } from '../integrations/compaction/idle-compaction.js'
+import {
+	createGenerateImageTool,
+	generatedImagesDirectory,
+} from '../integrations/images/generate-image.js'
+import { createImageAccess } from '../integrations/images/image-access.js'
 import { type LimitsKind, rememberLimitsSource } from '../integrations/limits/sources.js'
 import { changeDetectorFor } from '../integrations/outcome/change-detector.js'
 import { createCurrentCredentialReader } from '../integrations/providers/current-credential.js'
@@ -3110,6 +3115,14 @@ export interface AgentSessionOptions {
 	 */
 	readonly codeAnalysis?: CodeAnalysisConfig
 	/**
+	 * `generate_image` on the person's subscription plan (`NamzuCliConfig.imageGeneration`). On unless
+	 * `enabled` is `false`; the tool is also absent for the model whenever no subscription plan sign-in is
+	 * connected, the plan is Free, or the session is ephemeral. Whatever model leads gets it.
+	 */
+	readonly imageGeneration?: { readonly enabled?: boolean }
+	/** The live value of `imageGeneration.enabled`, read for every request; absent: `imageGeneration` stands. */
+	readonly readImageGenerationEnabled?: () => boolean
+	/**
 	 * Lowest ceiling, in milliseconds, on how long one `monitor` may watch. A
 	 * single-shot run (`exec`) passes 600000 because it waits for its monitors
 	 * before it exits; an interactive host leaves the kernel's 30 minutes.
@@ -5343,6 +5356,44 @@ export async function createAgentSession(
 	// `search_tools` itself when anything is deferred.
 	if (codeAnalysis) {
 		toolsets.push(deferred(toolset('code-analysis', getCodeAnalysisTools(codeAnalysis))))
+	}
+	// `generate_image`: the person's subscription plan makes the pictures, whatever model leads the
+	// conversation. Mounted always (except where no tool is offered), offered per request while the
+	// sign-in is connected, the plan is not Free and the setting is on, so connecting a sign-in or
+	// switching the setting mid-conversation applies at once. An API key alone never enables it.
+	// The folder this session's generated images are saved in; the file tools of this session read it.
+	let generatedImagesFolder: (sessionId: SessionId) => string | undefined = () => undefined
+	if (!options.ephemeral) {
+		const imageAccess = createImageAccess({
+			detected: () => detected,
+			primaryId: primary.id,
+			prepare: async (signal) => {
+				await prepareProviderCredential(signal)
+				return currentToken !== undefined && currentCodexAccount !== undefined
+					? { accessToken: currentToken, accountId: currentCodexAccount }
+					: undefined
+			},
+		})
+		const imageEnabled = (): boolean =>
+			options.readImageGenerationEnabled
+				? options.readImageGenerationEnabled()
+				: options.imageGeneration?.enabled !== false
+		generatedImagesFolder = (sessionId) =>
+			imageEnabled() && imageAccess.available()
+				? generatedImagesDirectory(paths.home, String(sessionId))
+				: undefined
+		toolsets.push(
+			readyWhen(
+				toolset('image-generation', [
+					createGenerateImageTool({
+						access: imageAccess.read,
+						home: paths.home,
+						readsImages: () => turnReadsImages,
+					}),
+				]),
+				() => imageEnabled() && imageAccess.available(),
+			),
+		)
 	}
 	// The `monitor` tool: each stdout line of a long-running command becomes an
 	// event the model reads while it works, and wakes an idle host. Mounted where
@@ -8004,7 +8055,11 @@ export async function createAgentSession(
 								...(goalConfirmation ? { goalConfirmation } : {}),
 								...(options.handBack === true ? { handBack: true } : {}),
 								workingDirectory: cwd,
-								...(directories.length > 0 ? { additionalDirectories: [...directories] } : {}),
+								...(() => {
+									const generated = generatedImagesFolder(turnScope.sessionId)
+									const roots = generated ? [...directories, generated] : [...directories]
+									return roots.length > 0 ? { additionalDirectories: roots } : {}
+								})(),
 								escalation,
 								limits: turnLimits,
 								sandboxWorkspace,
