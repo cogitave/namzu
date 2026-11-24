@@ -41,6 +41,7 @@ import {
 } from '@namzu/sdk'
 
 import type { SkillsConfig } from '../config/schema.js'
+import { retiredSkill } from './retired.js'
 import type { SkillHooksHost } from './skill-hooks.js'
 import {
 	SKILL_TIERS,
@@ -276,7 +277,11 @@ export async function createSessionSkillCatalog(
 				async load(name) {
 					if (offered.has(name)) return files.load(name)
 					if (plugins?.has(name)) return plugins.load(name)
-					return undefined
+					// A built-in that no longer ships answers with what replaced it.
+					const retired = retiredSkill(name, options.systemDir ?? options.cwd)
+					return retired
+						? { skill: retired, disclosureLevel: 'full', tokenEstimate: 40 }
+						: undefined
 				},
 				...(input.skillHooks ? { prepareHooks: input.skillHooks.prepareHooks } : {}),
 			}

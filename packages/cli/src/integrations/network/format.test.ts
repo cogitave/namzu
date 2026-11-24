@@ -479,3 +479,33 @@ describe('trusted networks on the screens', () => {
 		expect(renderStatus(s, NOW)).toContain('Trusted networks: Home')
 	})
 })
+
+describe('the same computer on the lists', () => {
+	it("puts this computer's other homes right after this machine, marked, and says so in JSON", () => {
+		const base = fixture()
+		const view: RosterView = {
+			machines: [
+				base.machines[0] as RosterView['machines'][number],
+				base.machines[1] as RosterView['machines'][number],
+				{
+					machineId: 'c'.repeat(64),
+					name: 'studio-air (autodev)',
+					status: 'online',
+					seenAt: NOW,
+					sameComputer: true,
+					sessions: [],
+				},
+			],
+		}
+		const heads = renderRosterList(view, { now: NOW })
+			.split('\n')
+			.filter((l) => !l.startsWith(' '))
+		expect(heads).toEqual([
+			'studio-air · this machine · online',
+			'studio-air (autodev) · this computer · online',
+			'desk-linux · online',
+		])
+		expect(rosterJson(view).find((m) => m.name === 'studio-air (autodev)')?.sameComputer).toBe(true)
+		expect(rosterJson(view).find((m) => m.name === 'desk-linux')?.sameComputer).toBeUndefined()
+	})
+})

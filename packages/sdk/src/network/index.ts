@@ -61,6 +61,26 @@ export type {
 export { createNetworkStore } from './store.js'
 export type { NetworkStore, NetworkStoreOptions } from './store.js'
 
+export {
+	COMPUTER_SECRET_FILE,
+	COMPUTER_SECRET_WINDOWS_PATH_FILE,
+	computerJoinProof,
+	ensureComputerSecret,
+	homeQualifies,
+	readComputerSecret,
+	resolveComputerSecret,
+	verifyComputerJoinProof,
+	windowsProfilePathOk,
+} from './computer.js'
+export type {
+	ComputerSecretCheck,
+	ComputerSecretRead,
+	ComputerSecretSource,
+	ReadSecretOptions,
+	ResolveSecretDeps,
+	ResolveSecretInput,
+} from './computer.js'
+
 export { formatJoinCode, joinCode } from './join.js'
 export type { PendingJoin } from './join.js'
 
