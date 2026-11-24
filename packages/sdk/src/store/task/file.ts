@@ -1,8 +1,8 @@
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { NAMZU } from '../../constants/telemetry/index.js'
 import { resolveNamzuHome } from '../../session/home.js'
-import { lockedSync, sleepSync, writeAtomicSync } from '../../teams/fs-sync.js'
+import { lockedSync, removeSync, sleepSync, writeAtomicSync } from '../../teams/fs-sync.js'
 import type { SessionId, TaskId, TenantId } from '../../types/ids/index.js'
 import type {
 	CreateTaskParams,
@@ -50,7 +50,13 @@ export type TaskClaimResult =
 			readonly blockedBy?: readonly TaskId[]
 	  }
 
-export type TaskListErrorCode = 'cycle' | 'not_found' | 'not_all_completed' | 'bad_list_id'
+export type TaskListErrorCode =
+	| 'cycle'
+	| 'not_found'
+	| 'not_all_completed'
+	| 'bad_list_id'
+	| 'owner_conflict'
+	| 'blocked'
 
 export class TaskListError extends Error {
 	override readonly name = 'TaskListError'
@@ -348,6 +354,26 @@ export class FileTaskStore implements ClaimableTaskStore {
 			const task = this.readStored(id)
 			if (!task) return undefined
 			const previousStatus = task.status
+			// A change here never takes a task from its owner (that is what a claim is for), and a task
+			// that still waits on an unfinished blocker is not completed.
+			if (updates.owner !== undefined && task.owner !== undefined && updates.owner !== task.owner) {
+				throw new TaskListError(
+					'owner_conflict',
+					`Task ${id} is owned by ${task.owner}; it is not reassigned to ${updates.owner}.`,
+				)
+			}
+			if (updates.status === 'completed' && previousStatus !== 'completed') {
+				const waiting = task.blockedBy.filter((b) => {
+					const blocker = this.readStored(b)
+					return blocker !== undefined && blocker.status !== 'completed'
+				})
+				if (waiting.length > 0) {
+					throw new TaskListError(
+						'blocked',
+						`Task ${id} is blocked by ${waiting.join(', ')}; finish those first.`,
+					)
+				}
+			}
 			if (updates.subject !== undefined) task.subject = updates.subject
 			if (updates.description !== undefined) task.description = updates.description
 			if (updates.activeForm !== undefined) task.activeForm = updates.activeForm
@@ -496,7 +522,7 @@ export class FileTaskStore implements ClaimableTaskStore {
 						touched.push(stored)
 					}
 				}
-				rmSync(this.taskFile(id), { force: true })
+				removeSync(this.taskFile(id), this.sleep)
 				return { task, touched }
 			})
 		})
@@ -535,7 +561,7 @@ export class FileTaskStore implements ClaimableTaskStore {
 			this.inTasks(
 				all.map((t) => t.id),
 				() => {
-					for (const t of all) rmSync(this.taskFile(t.id), { force: true })
+					for (const t of all) removeSync(this.taskFile(t.id), this.sleep)
 				},
 			)
 		})

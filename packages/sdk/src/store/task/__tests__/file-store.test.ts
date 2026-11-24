@@ -274,3 +274,22 @@ describe('FileTaskStore', () => {
 		})
 	})
 })
+
+describe('FileTaskStore update guards', () => {
+	it('does not take a task from its owner or complete it while a blocker is open', async () => {
+		const { store } = open()
+		const a = await make(store, 'blocker')
+		const b = await make(store, 'blocked', [a.id])
+		await store.claimTask(a.id, 'alice')
+		await expect(store.update(a.id, { owner: 'bob' })).rejects.toMatchObject({
+			code: 'owner_conflict',
+		})
+		expect((await store.get(a.id))?.owner).toBe('alice')
+		await expect(store.update(b.id, { status: 'completed' })).rejects.toMatchObject({
+			code: 'blocked',
+		})
+		expect((await store.get(b.id))?.status).toBe('pending')
+		await store.update(a.id, { status: 'completed' })
+		expect((await store.update(b.id, { status: 'completed' }))?.status).toBe('completed')
+	})
+})

@@ -373,3 +373,73 @@ describe('TeamStore orphan sweep', () => {
 		expect(store.listTeams()).toEqual([])
 	})
 })
+
+describe('TeamStore hardening', () => {
+	function team() {
+		const f = fixture()
+		f.store.createTeam({ name: 't', leadSessionId: 's' })
+		f.store.reserveMember('t', { name: 'alice' })
+		return f
+	}
+
+	it('refuses a mailbox name that is not a plain name, and leaves the config alone', () => {
+		const { store } = team()
+		const before = readFileSync(store.configPath('t'), 'utf8')
+		for (const bad of ['..', '../config', '..\\config', '/etc/x', 'a/b', '../../x', '']) {
+			expect(codeOf(() => store.readMail('t', bad))).toBe('bad_name')
+			expect(codeOf(() => store.drainMail('t', bad))).toBe('bad_name')
+			expect(codeOf(() => store.markRead('t', bad, []))).toBe('bad_name')
+			expect(codeOf(() => store.pruneMail('t', bad))).toBe('bad_name')
+			expect(codeOf(() => store.removeMember('t', bad))).toBe('bad_name')
+		}
+		expect(readFileSync(store.configPath('t'), 'utf8')).toBe(before)
+		expect(store.readTeam('t')?.members).toHaveLength(1)
+	})
+
+	it('moves a corrupt mailbox aside instead of dropping its mail silently', () => {
+		const { store } = team()
+		const path = store.inboxPath('t', 'alice')
+		store.appendMail('t', 'alice', { from: 'lead', text: 'one' })
+		writeFileSync(path, '{not json')
+		store.appendMail('t', 'alice', { from: 'lead', text: 'two' })
+		expect(store.readMail('t', 'alice').map((e) => e.text)).toEqual(['two'])
+		const aside = readdirSync(join(path, '..')).filter((n) => n.includes('.corrupt-'))
+		expect(aside).toHaveLength(1)
+		expect(readFileSync(join(path, '..', aside[0] as string), 'utf8')).toBe('{not json')
+	})
+
+	it('reads a zero-length mailbox as empty and keeps no corrupt copy', () => {
+		const { store } = team()
+		const path = store.inboxPath('t', 'alice')
+		store.appendMail('t', 'alice', { from: 'lead', text: 'one' })
+		writeFileSync(path, '')
+		store.appendMail('t', 'alice', { from: 'lead', text: 'two' })
+		expect(store.readMail('t', 'alice')).toHaveLength(1)
+		expect(readdirSync(join(path, '..')).some((n) => n.includes('.corrupt-'))).toBe(false)
+	})
+
+	it('waits for the config of a team being created by the same lead instead of reporting team_exists', () => {
+		const { root, store } = fixture()
+		mkdirSync(join(root, 'teams', 't'), { recursive: true })
+		const config = {
+			version: 1,
+			name: 't',
+			leadSessionId: 's',
+			leadPid: process.pid,
+			createdAt: 1,
+			members: [],
+		}
+		let slept = 0
+		const racing = new TeamStore({
+			rootDir: join(root, 'teams'),
+			sleep: () => {
+				slept++
+				if (slept === 2)
+					writeFileSync(join(root, 'teams', 't', 'config.json'), JSON.stringify(config))
+			},
+		})
+		expect(racing.createTeam({ name: 't', leadSessionId: 's' }).leadSessionId).toBe('s')
+		expect(slept).toBe(2)
+		expect(store.readTeam('t')).toBeDefined()
+	})
+})

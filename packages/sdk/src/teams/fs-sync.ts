@@ -43,7 +43,24 @@ export function lockedSync<T>(file: string, sleep: (ms: number) => void, operati
 
 const CONTENDED = new Set(['EPERM', 'EACCES', 'EBUSY'])
 
-/** Publish `content` at `path` by rename, private to the user. Transient Windows contention is retried briefly. */
+/** Tries on transient rename or remove contention (a reader holding the file open on Windows). */
+const CONTENTION_ATTEMPTS = 20
+
+/** Remove a file (absent is fine), retrying transient contention like {@link writeAtomicSync}. */
+export function removeSync(path: string, sleep: (ms: number) => void = sleepSync): void {
+	for (let attempt = 1; ; attempt++) {
+		try {
+			rmSync(path, { force: true })
+			return
+		} catch (error) {
+			const code = (error as NodeJS.ErrnoException).code ?? ''
+			if (!CONTENDED.has(code) || attempt >= CONTENTION_ATTEMPTS) throw error
+			sleep(randomInt(5, 51))
+		}
+	}
+}
+
+/** Publish `content` at `path` by rename, private to the user. Transient Windows contention is retried with a jittered wait. */
 export function writeAtomicSync(
 	path: string,
 	content: string,
@@ -58,8 +75,8 @@ export function writeAtomicSync(
 				return
 			} catch (error) {
 				const code = (error as NodeJS.ErrnoException).code ?? ''
-				if (!CONTENDED.has(code) || attempt >= 5) throw error
-				sleep(attempt)
+				if (!CONTENDED.has(code) || attempt >= CONTENTION_ATTEMPTS) throw error
+				sleep(randomInt(5, 51))
 			}
 		}
 	} catch (error) {

@@ -7,13 +7,14 @@ import {
 	openSync,
 	readFileSync,
 	readdirSync,
+	renameSync,
 	rmSync,
 	rmdirSync,
 	writeSync,
 } from 'node:fs'
 import { join } from 'node:path'
 import { resolveNamzuHome } from '../session/home.js'
-import { lockedSync, sleepSync, writeAtomicSync } from './fs-sync.js'
+import { lockedSync, removeSync, sleepSync, writeAtomicSync } from './fs-sync.js'
 import { TEAM_LEAD_NAME, normalizeTeamName, teamNameProblem, teammateNameProblem } from './names.js'
 import {
 	type MailDraft,
@@ -107,6 +108,8 @@ function errnoOf(error: unknown): string | undefined {
 	return (error as NodeJS.ErrnoException | undefined)?.code
 }
 
+const MAILBOX_SHAPE = /^[a-z0-9][a-z0-9_-]{0,63}$/
+
 export class TeamStore {
 	readonly rootDir: string
 	private readonly now: () => number
@@ -141,7 +144,11 @@ export class TeamStore {
 	}
 
 	inboxPath(team: string, name: string): string {
-		return join(this.teamDir(team), 'inboxes', `${normalizeTeamName(name)}.json`)
+		const folded = normalizeTeamName(name)
+		// A mailbox name is a file name: the shape rule applies to every caller, not only the one that sends.
+		if (!MAILBOX_SHAPE.test(folded))
+			throw new TeamStoreError('bad_name', `${JSON.stringify(name)} is not a valid mailbox name.`)
+		return join(this.teamDir(team), 'inboxes', `${folded}.json`)
 	}
 
 	// ─── teams ───────────────────────────────────────────────────────────
@@ -157,7 +164,12 @@ export class TeamStore {
 			mkdirSync(dir, { mode: 0o700 })
 		} catch (error) {
 			if (errnoOf(error) !== 'EEXIST') throw error
-			const existing = this.readTeam(input.name)
+			// The creator makes the directory before it writes the config; give it a moment to finish.
+			let existing = this.readTeam(input.name)
+			for (let attempt = 0; existing === undefined && attempt < 20; attempt++) {
+				this.sleep(5 + attempt * 5)
+				existing = this.readTeam(input.name)
+			}
 			if (existing && existing.leadSessionId === input.leadSessionId) return existing
 			throw new TeamStoreError('team_exists', `The team ${input.name} already exists.`)
 		}
@@ -350,12 +362,13 @@ export class TeamStore {
 	/** Remove a member and its mailbox. False when there is no such member. */
 	removeMember(team: string, name: string): boolean {
 		const folded = normalizeTeamName(name)
+		this.inboxPath(team, name)
 		const removed = this.mutate(team, (config) => {
 			const keep = config.members.filter((m) => normalizeTeamName(m.name) !== folded)
 			if (keep.length === config.members.length) return { config, result: false }
 			return { config: { ...config, members: keep }, result: true }
 		})
-		if (removed) rmSync(this.inboxPath(team, name), { force: true })
+		if (removed) removeSync(this.inboxPath(team, name), this.sleep)
 		return removed
 	}
 
@@ -517,20 +530,22 @@ export class TeamStore {
 		}
 	}
 
-	private readInbox(path: string): { entries: MailEntry[]; invalid: number } {
+	private readInbox(path: string): { entries: MailEntry[]; invalid: number; corrupt?: boolean } {
 		let text: string
 		try {
 			text = readFileSync(path, 'utf8')
 		} catch {
 			return { entries: [], invalid: 0 }
 		}
+		// A zero-length file is what a crash between create and first write leaves: an empty mailbox.
+		if (text.trim() === '') return { entries: [], invalid: 0 }
 		let raw: unknown
 		try {
 			raw = JSON.parse(text)
 		} catch {
-			return { entries: [], invalid: 1 }
+			return { entries: [], invalid: 1, corrupt: true }
 		}
-		if (!Array.isArray(raw)) return { entries: [], invalid: 1 }
+		if (!Array.isArray(raw)) return { entries: [], invalid: 1, corrupt: true }
 		const entries: MailEntry[] = []
 		let invalid = 0
 		for (const item of raw) {
@@ -554,7 +569,15 @@ export class TeamStore {
 					found = false
 					throw new TeamStoreError('team_not_found', `There is no team ${team}.`)
 				}
-				const { entries, invalid } = this.readInbox(path)
+				const { entries, invalid, corrupt } = this.readInbox(path)
+				if (corrupt) {
+					// Keep what was there for a person to look at rather than replacing it silently.
+					try {
+						renameSync(path, `${path}.corrupt-${this.now()}`)
+					} catch {
+						// The file went away: nothing to keep.
+					}
+				}
 				let next = change(entries, invalid)
 				if (next.length > MAX_MAIL_ENTRIES) {
 					let over = next.length - MAX_MAIL_ENTRIES

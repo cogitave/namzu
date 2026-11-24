@@ -92,7 +92,13 @@ export function buildTaskUpdateTool(
 			let claimed: Awaited<ReturnType<TaskStore['get']>>
 			if (shared && status === 'in_progress') {
 				const claimant = owner ?? scope?.member
-				if (claimant !== undefined) {
+				if (claimant === undefined) {
+					return {
+						success: false,
+						output: `Task ${id} cannot move to in_progress without an owner; pass owner (your member name).`,
+					}
+				}
+				{
 					const result = await shared.claimTask(taskId, claimant)
 					if (!result.ok) {
 						const reason: Record<typeof result.code, string> = {
@@ -111,14 +117,38 @@ export function buildTaskUpdateTool(
 				}
 			}
 
-			const updated = await taskStore.update(taskId, {
-				subject,
-				description,
-				activeForm,
-				status: claimed && status === 'in_progress' ? undefined : status,
-				owner: claimed ? undefined : owner,
-				metadata,
-			})
+			// One member does not close another's task.
+			if (
+				shared &&
+				scope?.member !== undefined &&
+				(status === 'completed' || status === 'failed')
+			) {
+				const current = await shared.get(taskId)
+				if (current?.owner !== undefined && current.owner !== scope.member) {
+					return {
+						success: false,
+						output: `Task ${id} is owned by ${current.owner}; only its owner closes it.`,
+						data: { code: 'already_claimed' },
+					}
+				}
+			}
+
+			let updated: Awaited<ReturnType<TaskStore['update']>>
+			try {
+				updated = await taskStore.update(taskId, {
+					subject,
+					description,
+					activeForm,
+					status: claimed && status === 'in_progress' ? undefined : status,
+					owner: claimed ? undefined : owner,
+					metadata,
+				})
+			} catch (error) {
+				if (shared && error instanceof TaskListError) {
+					return { success: false, output: error.message, data: { code: error.code } }
+				}
+				throw error
+			}
 
 			if (!updated) {
 				return { success: false, output: `Task ${id} not found` }
