@@ -423,3 +423,11 @@ describe('which DeepSeek ids accept images', () => {
 		},
 	)
 })
+
+describe('which DeepSeek models read images', () => {
+	it('says so per model, so a host sends a picture only where it is read', () => {
+		const provider = new DeepSeekProvider({ apiKey: 'k' } as never)
+		expect(provider.supportsImageInputFor(VISION_MODEL)).toBe(true)
+		expect(provider.supportsImageInputFor('deepseek-chat')).toBe(false)
+	})
+})

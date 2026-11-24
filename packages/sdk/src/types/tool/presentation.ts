@@ -230,6 +230,8 @@ export type ToolFacts =
 			}[]
 			/** One line saying what they are. */
 			readonly caption?: string
+			/** The one file is an image the agent made: the prompt it was made from. A host draws the picture itself. */
+			readonly generatedImage?: { readonly prompt: string }
 	  }
 	| {
 			readonly kind: 'failure'

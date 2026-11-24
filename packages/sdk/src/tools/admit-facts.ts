@@ -200,7 +200,15 @@ export function admitToolFacts(value: unknown): ToolFacts | undefined {
 					...(bytes === undefined ? {} : { bytes }),
 				})
 			}
-			return pick<ToolFacts>({ kind: 'shared', files, caption: text(value.caption) })
+			const generated = isRecord(value.generatedImage)
+				? text(value.generatedImage.prompt)
+				: undefined
+			return pick<ToolFacts>({
+				kind: 'shared',
+				files,
+				caption: text(value.caption),
+				generatedImage: generated === undefined ? undefined : { prompt: generated },
+			})
 		}
 		case 'failure': {
 			const reason = FAILURE_REASONS.find((candidate) => candidate === value.reason)

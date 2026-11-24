@@ -172,6 +172,7 @@ export { VerifyOutputsTool } from './tools/builtins/verify-outputs.js'
 export {
 	ViewImageTool,
 	createViewImageTool,
+	inspectImageBytes,
 } from './tools/builtins/view-image.js'
 export { createPalReferenceImageTool } from './pals/reference-images.js'
 export {

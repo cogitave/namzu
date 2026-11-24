@@ -746,6 +746,11 @@ export class DeepSeekProvider implements LLMProvider {
 	/** Last models-endpoint answer, once a turn has fetched it; the sync menus read this. */
 	private vendorSnapshot: Map<string, VendorLimits> | undefined
 
+	/** Only the models this driver sends images to read them; the rest are text-only. */
+	supportsImageInputFor(model: string): boolean {
+		return IMAGE_MODELS.has(model)
+	}
+
 	/**
 	 * `none` (thinking off) plus the levels the models endpoint lists for the
 	 * model, or the vendor's documented low, high and max until it has been read.
