@@ -60,6 +60,8 @@ export function applyTarget(
 	argv: readonly string[],
 	mode: 'word' | 'flag',
 	needsHome: boolean,
+	/** The service was found by the job's name, not typed: no remark about NAMZU_HOME. */
+	found = false,
 ): Targeted | { code: number } {
 	const { name, rest } = pull(argv, mode)
 	if (name === undefined) return { argv: rest, restore: () => undefined }
@@ -85,7 +87,7 @@ export function applyTarget(
 	}
 	ctx.formatter.info(`Using the scheduler service ${name} (${home}).`)
 	const current = process.env.NAMZU_HOME
-	if (current !== undefined && current.length > 0 && resolve(current) !== home)
+	if (!found && current !== undefined && current.length > 0 && resolve(current) !== home)
 		ctx.formatter.info(`NAMZU_HOME points at ${current}; the service name wins.`)
 	const usable = existsSync(home) && statSync(home).isDirectory()
 	if (usable) process.env.NAMZU_HOME = home

@@ -39,17 +39,19 @@ describe('measuring storage', () => {
 		file(join(userData, 'Cache', 'c'), 5)
 		file(join(userData, 'GPUCache', 'g'), 5)
 		file(join(userData, 'desktop-settings.json'), 7)
+		file(join(namzuHome, 'services', 'autodev', 'schedule', 'jobs', 'j.json'), 60)
 		const report = await measureStorage(layout())
 		const by = Object.fromEntries(report.parts.map((part) => [part.id, part.bytes]))
 		expect(by).toEqual({
 			conversations: 400,
+			services: 60,
 			engine: 300,
 			voice: 220,
 			logs: 10,
 			caches: 10,
 			other: 7,
 		})
-		expect(report.totalBytes).toBe(947)
+		expect(report.totalBytes).toBe(1007)
 		expect(report.parts.filter((part) => part.clearable).map((part) => part.id)).toEqual([
 			'logs',
 			'caches',
