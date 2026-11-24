@@ -42,7 +42,10 @@ describe('where the schedule tools are registered', () => {
 		expect(filesMentioning(/extraTools:/)).toEqual(['commands/acp.ts', 'tui/App.tsx'])
 		// The desktop host hands over the skill-save tool alone: never the schedule tools.
 		const acp = readFileSync(join(SRC, 'commands/acp.ts'), 'utf8')
-		const extra = acp.slice(acp.indexOf('extraTools: ['), acp.indexOf(']', acp.indexOf('extraTools: [')))
+		const extra = acp.slice(
+			acp.indexOf('extraTools: ['),
+			acp.indexOf(']', acp.indexOf('extraTools: [')),
+		)
 		expect(extra).toContain('buildSaveSkillTool(')
 		expect(extra).not.toMatch(/buildScheduleTools|buildSessionLoopTools/)
 		const agent = readFileSync(join(SRC, 'tui/agent.ts'), 'utf8')
