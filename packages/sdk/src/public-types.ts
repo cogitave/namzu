@@ -325,6 +325,13 @@ export type {
 export type { TaskContextScope } from './store/task/context.js'
 
 export type { TaskToolScope } from './tools/task/index.js'
+export type {
+	ClaimableTaskStore,
+	FileTaskStoreConfig,
+	TaskClaimFailure,
+	TaskClaimResult,
+	TaskListErrorCode,
+} from './store/task/file.js'
 
 export type { MappedStreamEvent } from './bridge/sse/index.js'
 
@@ -886,3 +893,19 @@ export type {
 } from './pals/activity/subscription-policy.js'
 export type { PalActivitySubscriptionRunnerOptions } from './pals/activity/subscriptions.js'
 export type { PalActivityCausalityOptions } from './pals/activity/causality.js'
+
+export type {
+	CreateTeamInput,
+	MailDraft,
+	MailEntry,
+	MailKind,
+	MailReadOptions,
+	ReserveMemberInput,
+	TeamBackendKind,
+	TeamConfig,
+	TeamMember,
+	TeamStoreErrorCode,
+	TeamStoreOptions,
+	TeammateBackend,
+	TeammateStartSpec,
+} from './teams/index.js'

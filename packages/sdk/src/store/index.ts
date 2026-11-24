@@ -7,6 +7,14 @@ export type { ActivityEvent, ActivityEventListener } from './activity/memory.js'
 export { InMemoryTaskStore } from './task/memory.js'
 export { DiskTaskStore } from './task/disk.js'
 export type { DiskTaskStoreConfig } from './task/disk.js'
+export { FileTaskStore, TaskListError, isClaimableTaskStore } from './task/file.js'
+export type {
+	ClaimableTaskStore,
+	FileTaskStoreConfig,
+	TaskClaimFailure,
+	TaskClaimResult,
+	TaskListErrorCode,
+} from './task/file.js'
 
 export { InMemoryMemoryIndex } from './memory/index.js'
 export { InMemoryMemoryStore } from './memory/memory.js'
