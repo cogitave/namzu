@@ -3,6 +3,8 @@
 // non-loopback host. Test-only: nothing in the product reads NAMZU_E2E_MODEL_URL.
 const target = process.env.NAMZU_E2E_MODEL_URL;
 const messagesTarget = process.env.NAMZU_E2E_MESSAGES_URL;
+// The plan's image requests go to a scripted images server when a flow starts one.
+const imagesTarget = process.env.NAMZU_E2E_IMAGES_URL;
 if (target) {
 	const real = globalThis.fetch;
 	globalThis.fetch = (input, init) => {
@@ -21,6 +23,11 @@ if (target) {
 				input instanceof Request ? new Request(next, input) : next,
 				init,
 			);
+		}
+		if (imagesTarget && url.hostname === "chatgpt.com" && url.pathname.startsWith("/backend-api/codex/images/")) {
+			const next = new URL(imagesTarget);
+			next.pathname = url.pathname;
+			return real(input instanceof Request ? new Request(next, input) : next, init);
 		}
 		if (url.hostname === "127.0.0.1" || url.hostname === "localhost")
 			return real(input, init);

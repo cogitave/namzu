@@ -49,6 +49,8 @@ export interface OutputCard {
 	shared?: true
 	/** The one line the agent gave with a shared file. */
 	caption?: string
+	/** The file is a picture the agent made; the prompt it was made from. The card shows the picture itself. */
+	generated?: { prompt: string }
 }
 
 /** Cards beyond this many are folded behind "Show N more". */
@@ -142,6 +144,7 @@ function sharedCard(
 	file: { path: string; bytes?: number },
 	caption: string | undefined,
 	detail: SessionOutputDetail | undefined,
+	generated?: { prompt: string },
 ): OutputCard {
 	const gone = detail?.missing === true
 	const size = detail?.size ?? file.bytes
@@ -152,15 +155,17 @@ function sharedCard(
 		kind: outputCardKind(file.path),
 		state: gone ? 'gone' : 'done',
 		kindLine: gone ? 'No longer in the folder' : cardKindLine(file.path, size),
-		stateWord: gone ? 'Missing' : 'Shared',
+		stateWord: gone ? 'Missing' : generated ? 'Generated' : 'Shared',
 		canOpen: !gone,
 		canOpenInBrowser: !gone && /\.html?$/i.test(file.path),
 		canOpenWithSystem: !gone && mayOpenWithSystem(file.path),
-		canCopy: !gone && isTextOutput(file.path),
+		// A picture the agent made is copied as a picture; other files copy their text.
+		canCopy: !gone && (generated !== undefined || isTextOutput(file.path)),
 		canSave: !gone,
 		canShowInFolder: !gone,
 		shared: true,
-		...(caption ? { caption } : {}),
+		...(generated ? { generated } : {}),
+		...(caption && !generated ? { caption } : {}),
 	}
 }
 
@@ -168,8 +173,9 @@ function sharedCard(
 export function sharedFilesOf(
 	thread: Pick<ThreadState, 'timeline' | 'tools'>,
 	turn: number,
-): { path: string; bytes?: number; caption?: string }[] {
-	const out: { path: string; bytes?: number; caption?: string }[] = []
+): { path: string; bytes?: number; caption?: string; generated?: { prompt: string } }[] {
+	const out: { path: string; bytes?: number; caption?: string; generated?: { prompt: string } }[] =
+		[]
 	for (const entry of thread.timeline) {
 		if (entry.kind !== 'tool' || entry.turn !== turn) continue
 		const tool = thread.tools[entry.id]
@@ -178,7 +184,11 @@ export function sharedFilesOf(
 		for (const file of tool.facts.files) {
 			if (out.some((seen) => seen.path === file.path)) continue
 			// The caption speaks for the whole call, so only its first card carries it.
-			out.push({ ...file, ...(first && tool.facts.caption ? { caption: tool.facts.caption } : {}) })
+			out.push({
+				...file,
+				...(first && tool.facts.caption ? { caption: tool.facts.caption } : {}),
+				...(tool.facts.generatedImage ? { generated: tool.facts.generatedImage } : {}),
+			})
 			first = false
 		}
 	}
@@ -235,7 +245,7 @@ export function turnOutputCards(
 	// What the agent handed over comes first and stands on its own: it needs no document skill.
 	for (const file of sharedFilesOf(thread, turn)) {
 		seen.add(file.path)
-		cards.push(sharedCard(turn, file, file.caption, details.get(file.path)))
+		cards.push(sharedCard(turn, file, file.caption, details.get(file.path), file.generated))
 	}
 	if (!documentTurn) return cards
 	for (const file of changes?.files ?? []) {

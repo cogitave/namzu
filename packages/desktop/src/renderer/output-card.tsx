@@ -91,8 +91,13 @@ function CardActions({ card, ctx }: { card: OutputCard; ctx: OutputCardsContextV
 			const read = ctx.api.readSessionOutput
 			if (!read) throw new Error('Copying is not available.')
 			const content = await read(ctx.sessionId, card.path)
-			if (content.text === undefined) throw new Error('This file is not text.')
-			await copyPlainText(content.text)
+			if (card.generated) {
+				if (content.image === undefined) throw new Error('This picture is too large to copy.')
+				await copyImageDataUrl(content.image)
+			} else {
+				if (content.text === undefined) throw new Error('This file is not text.')
+				await copyPlainText(content.text)
+			}
 			setCopied(true)
 			window.clearTimeout(timer.current)
 			timer.current = window.setTimeout(() => setCopied(false), 1500)
@@ -142,8 +147,14 @@ function CardActions({ card, ctx }: { card: OutputCard; ctx: OutputCardsContextV
 				<button
 					type="button"
 					className="output-card-action"
-					title={copied ? 'Copied' : 'Copy the text'}
-					aria-label={copied ? 'Copied' : `Copy the text of ${card.name}`}
+					title={copied ? 'Copied' : card.generated ? 'Copy the picture' : 'Copy the text'}
+					aria-label={
+						copied
+							? 'Copied'
+							: card.generated
+								? `Copy the picture ${card.name}`
+								: `Copy the text of ${card.name}`
+					}
 					onClick={copy}
 				>
 					<Copy aria-hidden />
@@ -164,6 +175,31 @@ function CardActions({ card, ctx }: { card: OutputCard; ctx: OutputCardsContextV
 	)
 }
 
+/** Puts a picture on the clipboard from the `data:` URL the host read it as. */
+async function copyImageDataUrl(dataUrl: string): Promise<void> {
+	const blob = await (await fetch(dataUrl)).blob()
+	await navigator.clipboard.write([new ClipboardItem({ [blob.type || 'image/png']: blob })])
+}
+
+/** The picture of a generated image card, read through the host like a copy; nothing while it loads or when it is too large to show. */
+function useCardPicture(card: OutputCard, ctx: OutputCardsContextValue): string | undefined {
+	const [picture, setPicture] = useState<string | undefined>(undefined)
+	const read = ctx.api.readSessionOutput
+	const wanted = card.generated !== undefined && card.state === 'done'
+	useEffect(() => {
+		if (!wanted || !read) return
+		let current = true
+		read(ctx.sessionId, card.path).then(
+			(content) => current && setPicture(content.image),
+			() => undefined,
+		)
+		return () => {
+			current = false
+		}
+	}, [wanted, read, ctx.sessionId, card.path])
+	return picture
+}
+
 const slashes = (path: string): string => path.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
 
 /** A handed-over file that sits outside the conversation's folder, which the Files pane cannot show. */
@@ -177,6 +213,7 @@ function outsideFolder(card: OutputCard, projectPath: string | undefined): boole
 export function OutputCardView({ card, ctx }: { card: OutputCard; ctx: OutputCardsContextValue }) {
 	const [opened, setOpened] = useState(false)
 	const outside = outsideFolder(card, ctx.projectPath)
+	const picture = useCardPicture(card, ctx)
 	const beside = card.canOpen && !outside
 	const press = () => {
 		setOpened(true)
@@ -221,6 +258,15 @@ export function OutputCardView({ card, ctx }: { card: OutputCard; ctx: OutputCar
 					{body}
 				</div>
 			)}
+			{picture && card.generated && (
+				<img
+					className="output-card-picture"
+					src={picture}
+					alt={card.generated.prompt}
+					data-generated-image={card.path}
+				/>
+			)}
+			{card.generated && <span className="output-card-caption">{card.generated.prompt}</span>}
 			{failed && card.reason && <span className="output-card-reason">{card.reason}</span>}
 			{card.caption && <span className="output-card-caption">{card.caption}</span>}
 			<CardActions card={card} ctx={ctx} />

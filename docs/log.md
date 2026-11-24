@@ -1,5 +1,9 @@
 # Documentation update log
 
+## 2026-11-24
+
+- **Creation** [Image generation](cli/image-generation.md): `generate_image` creates and edits images with the subscription plan whichever model leads the conversation; offered while a subscription sign-in is connected, the plan is not Free and `imageGeneration.enabled` is not `false`; saved under `<Namzu home>/generated_images/<session>/`; a terminal row after the answer and a Desktop image card. `.changeset/openai-image-requests.md`, `.changeset/sdk-inspect-image-bytes-export.md`, `.changeset/cli-image-generation.md`, `.changeset/desktop-generated-image-card.md`.
+
 ## 2026-11-23
 
 - **Update** [Handing a file to the person](sdk/present-file.md), [Task tracking](sdk/task-tracking.md): after the five lanes met, the standing git line names the code host instead of a product, the browser ask-first line makes an exception for a step the person asked for exactly (and a scheduled run decides), the document skill hands scratch files and edited copies over with `present_file`, the `present_file` catalogue line leads with its rule, and `task_create` loads `task_list` with it. `.changeset/sdk-batch-1123b-text.md`, `.changeset/cli-batch-1123b-text.md`.

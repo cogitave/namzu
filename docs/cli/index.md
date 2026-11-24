@@ -11,6 +11,7 @@
 * [Updates](updates.md) - Background updates in the terminal: which installs update themselves, the safety steps, the `updates` keys and environment variables, and `namzu update`.
 * [Installing and reopening Namzu](installation.md) - Correct shell commands, installer diagnostics and portable conversation resume handoffs.
 * [Code analysis in the terminal](code-analysis.md) - The `code_analysis` tool: cited, paged lookups of a string, its function, source and callers; where its index lives, what it costs, and the `codeAnalysis` key that turns it off.
+* [Image generation](image-generation.md) - The `generate_image` tool: create and edit images with the person's subscription plan whichever model leads, when it is offered, where the files go, and the `imageGeneration` key.
 * [Auto model routing](auto-model-routing.md) - `model: auto` and the `routing` block: per-task fast, default or big model, sized by the decision model, failing open to `routing.default`.
 * [Decision points](decision-points.md) - `decision.points`: yes/no questions the CLI can ask the decision model beside its own rule, in `off`, `shadow` or `on` mode, starting with whether a finished reply is worth a chime.
 * [Scheduled tasks](scheduled-tasks.md) - Prompts that run later in a folder while namzu is closed: jobs, the required permission set, approvals, missed runs, notifications and history.

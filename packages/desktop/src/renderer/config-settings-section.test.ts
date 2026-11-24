@@ -466,6 +466,7 @@ describe('the real engine list, section by section', () => {
 			check('computerUse.deniedApps', 'tools', 'computer-use')
 			check('permissions.allowBypassMode', 'projects', 'permissions')
 			check('codeAnalysis.enabled', 'tools', 'code-plugins')
+			check('imageGeneration.enabled', 'tools', 'code-plugins')
 			check('format', 'terminal', 'command-line')
 			check('quiet', 'terminal', 'command-line')
 			check('tui.theme', 'terminal', 'terminal-look')
