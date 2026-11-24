@@ -493,7 +493,8 @@ export async function executePeers(
 	deps: PeersDeps,
 	io: PeersIo,
 ): Promise<number> {
-	const base = { home: deps.home, cwd: deps.cwd, version: deps.version }
+	// The environment the command was given, so the runtime folder it reads is that one, not this process's.
+	const base = { home: deps.home, cwd: deps.cwd, version: deps.version, env: deps.env }
 	const settings = networkSettings(deps.config)
 	switch (parsed.verb) {
 		case 'list': {
