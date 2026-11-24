@@ -39,6 +39,11 @@ export type NativeOp =
 	| 'foreground.set'
 	| 'lease.begin'
 	| 'lease.end'
+	| 'monitor.start'
+	| 'monitor.stop'
+	| 'monitor.poll'
+	| 'presence.act'
+	| 'presence.hide'
 	| 'cancel'
 	| 'quit'
 
@@ -76,7 +81,7 @@ export type NativeRequest =
 	| NativeActRequest
 	| NativeInputRequest
 	| NativeCaptureRequest
-	| { readonly op: 'foreground.get'; readonly windowId?: string }
+	| { readonly op: 'foreground.get'; readonly windowId?: string; readonly processId?: number }
 	| { readonly op: 'foreground.set'; readonly windowId: string }
 	| NativeLeaseBeginRequest
 	| {
@@ -85,6 +90,11 @@ export type NativeRequest =
 			readonly keepCursor?: boolean
 			readonly release?: boolean
 	  }
+	| NativeMonitorStartRequest
+	| { readonly op: 'monitor.stop' }
+	| { readonly op: 'monitor.poll'; readonly since?: number }
+	| NativePresenceActRequest
+	| { readonly op: 'presence.hide' }
 	| { readonly op: 'cancel'; readonly target: number }
 	| { readonly op: 'quit' }
 
@@ -167,6 +177,24 @@ export interface NativeCaptureRequest {
 	readonly inline?: boolean
 	readonly cursor?: boolean
 	readonly timeoutMs?: number
+}
+
+export type NativeMonitorHook = 'foreground' | 'input'
+
+/** What to watch; default both. */
+export interface NativeMonitorStartRequest {
+	readonly op: 'monitor.start'
+	readonly hooks?: readonly NativeMonitorHook[]
+}
+
+export type NativePresenceKind = 'click' | 'type' | 'move'
+
+export interface NativePresenceActRequest {
+	readonly op: 'presence.act'
+	readonly windowId: string
+	readonly kind: NativePresenceKind
+	/** Where the action lands, in virtual-desktop pixels; absent for typing. */
+	readonly at?: { readonly x: number; readonly y: number }
 }
 
 export interface NativeLeaseBeginRequest {
@@ -321,6 +349,49 @@ export interface NativeLeaseEndReply {
 	readonly inputMoved: boolean
 	readonly frontElevated: boolean
 	readonly released: boolean
+	/** A person's input events between begin and end; absent when the monitor was not running throughout. */
+	readonly inputsDuring?: number
+}
+
+export interface NativeMonitorStartReply {
+	/** Raw Input is registered: a person's use of keyboard and mouse is seen. */
+	readonly input: boolean
+	/** Foreground changes are hooked. */
+	readonly foreground: boolean
+}
+
+/**
+ * One thing that happened. Input carries the device class and a time only,
+ * never a key, a character or a position.
+ */
+export interface NativeMonitorEvent {
+	readonly seq: number
+	readonly kind: 'input' | 'foreground'
+	/** ms since the monitor started. */
+	readonly tMs: number
+	readonly device?: 'keyboard' | 'mouse'
+	/** The system synthesised the input (SendInput, from this helper or another program). */
+	readonly injected?: boolean
+	/** For a foreground change: the window that came to the front. */
+	readonly windowId?: string
+}
+
+export interface NativeMonitorPollReply {
+	readonly events: readonly NativeMonitorEvent[]
+	readonly seq: number
+	/** Events a person's devices produced since the monitor started. */
+	readonly inputs: number
+	readonly injectedInputs: number
+	readonly foregroundChanges: number
+	/** ms since a person's last input, when there was one. */
+	readonly lastInputAgoMs?: number
+	/** `since` was older than the oldest event kept. */
+	readonly dropped: boolean
+}
+
+export interface NativePresenceActReply {
+	readonly cursorWindow: number
+	readonly frameWindow: number
 }
 
 export interface NativeReplyBodies {
@@ -339,6 +410,11 @@ export interface NativeReplyBodies {
 	readonly 'foreground.set': NativeForegroundSetReply
 	readonly 'lease.begin': NativeLeaseBeginReply
 	readonly 'lease.end': NativeLeaseEndReply
+	readonly 'monitor.start': NativeMonitorStartReply
+	readonly 'monitor.stop': Record<string, never>
+	readonly 'monitor.poll': NativeMonitorPollReply
+	readonly 'presence.act': NativePresenceActReply
+	readonly 'presence.hide': Record<string, never>
 	readonly cancel: Record<string, never>
 	readonly quit: Record<string, never>
 }
@@ -735,6 +811,40 @@ function leaseEnd(o: Obj): NativeLeaseEndReply {
 	}
 	const note = optStr(o, 'restoreNote', 'lease.end')
 	if (note !== undefined) out.restoreNote = note
+	const during = optInt(o, 'inputsDuring', 'lease.end')
+	if (during !== undefined) out.inputsDuring = during
+	return out
+}
+
+function monitorEvent(v: unknown, path: string): NativeMonitorEvent {
+	const o = obj(v, path)
+	const out: { -readonly [K in keyof NativeMonitorEvent]: NativeMonitorEvent[K] } = {
+		seq: int(o, 'seq', path),
+		kind: oneOf<'input' | 'foreground'>(o.kind, ['input', 'foreground'], `${path}.kind`),
+		tMs: int(o, 'tMs', path),
+	}
+	if (o.device !== undefined)
+		out.device = oneOf<'keyboard' | 'mouse'>(o.device, ['keyboard', 'mouse'], `${path}.device`)
+	const injected = optBool(o, 'injected', path)
+	if (injected !== undefined) out.injected = injected
+	const windowId = optStr(o, 'windowId', path)
+	if (windowId !== undefined) out.windowId = windowId
+	return out
+}
+
+function monitorPoll(o: Obj): NativeMonitorPollReply {
+	const out: { -readonly [K in keyof NativeMonitorPollReply]: NativeMonitorPollReply[K] } = {
+		events: arr(o, 'events', 'monitor.poll').map((e, i) =>
+			monitorEvent(e, `monitor.poll.events[${i}]`),
+		),
+		seq: int(o, 'seq', 'monitor.poll'),
+		inputs: int(o, 'inputs', 'monitor.poll'),
+		injectedInputs: int(o, 'injectedInputs', 'monitor.poll'),
+		foregroundChanges: int(o, 'foregroundChanges', 'monitor.poll'),
+		dropped: bool(o, 'dropped', 'monitor.poll'),
+	}
+	const ago = optInt(o, 'lastInputAgoMs', 'monitor.poll')
+	if (ago !== undefined) out.lastInputAgoMs = ago
 	return out
 }
 
@@ -772,6 +882,20 @@ function body(op: NativeOp, o: Obj): NativeReplyBodies[NativeOp] {
 			return leaseBegin(o)
 		case 'lease.end':
 			return leaseEnd(o)
+		case 'monitor.start':
+			return {
+				input: bool(o, 'input', 'monitor.start'),
+				foreground: bool(o, 'foreground', 'monitor.start'),
+			}
+		case 'monitor.poll':
+			return monitorPoll(o)
+		case 'presence.act':
+			return {
+				cursorWindow: int(o, 'cursorWindow', 'presence.act'),
+				frameWindow: int(o, 'frameWindow', 'presence.act'),
+			}
+		case 'monitor.stop':
+		case 'presence.hide':
 		case 'cancel':
 		case 'quit':
 			return {}

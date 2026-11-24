@@ -1,7 +1,7 @@
 ---
 type: Reference
 title: The native Windows helper
-description: namzu-win, the compiled helper that replaces the PowerShell scripts behind Windows computer use; its namzu-win/1 line protocol, the read side (windows, displays, snapshot, identity, resolve, seq, wait_change), acting by pattern, input, capture, the foreground and its lease, refs, element fingerprints, key names, DPI math, the TypeScript backend and display adapter, conformance vectors and the CI jobs that build and test it.
+description: namzu-win, the compiled helper that replaces the PowerShell scripts behind Windows computer use; its namzu-win/1 line protocol, the read side (windows, displays, snapshot, identity, resolve, seq, wait_change), acting by pattern, input, capture, the foreground and its lease, the monitor (raw input and foreground events, no hooks), the presence overlay, refs, element fingerprints, key names, DPI math, the TypeScript backend and display adapter, conformance vectors and the CI jobs that build and test it.
 resource: crates/namzu-win-core/src/protocol.rs
 tags: [sdk, computer-use, windows, rust, protocol]
 status: draft
@@ -28,7 +28,8 @@ which parts do not yet.
 | `NativeWinProcess` and `NativeA11yBackend` in `@namzu/computer-use`, chosen by `NAMZU_WIN_HELPER` | built, opt-in |
 | Acting by pattern (`act`), input (`input`), capture (`capture`), the foreground (`foreground.get`, `foreground.set`) and its lease (`lease.begin`, `lease.end`) | built; written without a compiler for Windows on the machine it was written on, so the first Windows CI run is its first build; `windows_act.rs` drives every op against a window the test makes |
 | `NativeWin32Adapter` (screenshot, zoom region, click, drag, scroll, type, key, cursor, displays) in `@namzu/computer-use`, chosen by `NAMZU_WIN_HELPER` | built, opt-in |
-| Monitor (raw input, no low-level hooks) and presence overlay | not yet; the foreground ladder still watches the desktop with its PowerShell monitor |
+| Monitor (raw input and foreground events, no low-level hooks): `monitor.start`, `monitor.stop`, `monitor.poll`, and a person's input count in `lease.end`; presence overlay (`presence.act`, `presence.hide`) without capture exclusion | built; same caveat as the acting ops, and `windows_monitor.rs` is its test |
+| `NativeForegroundMonitor` and `NativePresence` in `@namzu/computer-use`, chosen by `NAMZU_WIN_HELPER` | built, opt-in; the PowerShell monitor and overlay (and their global hooks and capture exclusion) stay for a machine that names no helper, until the backend ladder lane removes them |
 | Delivery (pinned download, bundling, signing) | not yet; CI uploads unsigned builds, and a person points `NAMZU_WIN_HELPER` at one |
 | An embedded manifest (per-monitor DPI, `asInvoker`) and version resource | not yet; the helper sets per-monitor v2 awareness itself when it starts |
 
@@ -40,7 +41,11 @@ PowerShell host, and no PowerShell is started for the accessibility reads; and
 PowerShell path (cua-driver, when it is available and not turned off, is still
 tried first). With a helper named there is no PowerShell fallback: a helper that
 does not start is an error that names the helper, not a reason to run scripts.
-Each of the two starts its own helper process.
+The foreground ladder and the presence overlay follow the same variable:
+`createWindowsForegroundLadder` builds its monitor on the helper
+(`NativeForegroundMonitor`) and `createWindowsPresence` draws the overlay with it
+(`NativePresence`), and neither starts PowerShell. Each of the four starts its
+own helper process.
 
 ## Layout
 
@@ -53,6 +58,7 @@ Each of the two starts its own helper process.
 | `packages/computer-use/src/native/protocol.ts` | The TypeScript codec: `encodeRequest`, `decodeReply`, `formatRef`, `parseRef`, `nameHash`. |
 | `packages/computer-use/src/native/process.ts` | `NativeWinProcess`: starts the executable (no shell, no window), greets it, matches replies to requests by id, cancels at the helper on a timeout or an abort, starts it again (up to three times, counted afresh after a run of a minute or more) when it ends. The shipped helper aborts on a panic, so a panic ends it and this restart is the recovery. |
 | `packages/computer-use/src/native/a11y.ts` | `NativeA11yBackend`: the `AccessibilityBackend` interface answered by the helper, and `act` (a control by ref or fingerprint, through its pattern); `actFailureCode` names the two failures a ref can have (`STALE_REF`, `AMBIGUOUS_TARGET`). |
+| `packages/computer-use/src/native/foreground-monitor.ts`, `native/presence.ts` | `NativeForegroundMonitor` (the ladder's `ForegroundMonitor`: `monitor.start`, `foreground.get`, `monitor.poll`, `lease.begin`, `lease.end`) and `NativePresence` (the overlay's `Presence`: `presence.act`, `presence.hide`). Neither starts a process of its own. |
 | `packages/computer-use/src/adapters/win32-native.ts` | `NativeWin32Adapter`: the display `Adapter` (screenshot, zoom region, click, drag, scroll, type, key, cursor position, display geometry) on top of `input`, `capture`, `displays` and `foreground.get`. |
 
 ## The protocol: `namzu-win/1`
@@ -116,7 +122,7 @@ A build without the Windows calls (any other platform) answers the ops beyond
 `hello` reports `caps` as an empty list, so a caller can tell a build apart from
 a finished one. The Windows build reports `windows`, `displays`, `snapshot`,
 `identity`, `resolve`, `seq`, `wait_change`, `act`, `input`, `capture`,
-`foreground`, `lease`, `uia`, `hooks`, `sendinput`, `wgc` and `printwindow`, its
+`foreground`, `lease`, `monitor`, `rawinput`, `presence`, `uia`, `hooks`, `sendinput`, `wgc` and `printwindow`, its
 OS build number and `dpiAwareness: "perMonitorV2"`. `NativeWin32Adapter` starts
 only on a helper that reports `capture`, `input` and `foreground`.
 
@@ -275,13 +281,69 @@ when asked, and holds the lease. While it is held:
 
 How long a person has been still (`userIdleMs`) comes from the system's last
 input tick with the helper's own input left out (input that falls inside its own
-sending, plus a short tail, is its own; a key or button held down is use). The
-helper cannot yet tell a person's input from another program's, and cannot count
-a person's input during a burst: that is what the monitor (raw input, with no
-low-level hooks) adds, and until it exists the ladder keeps using its
-PowerShell monitor for the counts, and the adapter calls the helper's `input`,
-`capture`, `displays` and `foreground.get` only. Without a lease `input` goes at once, as the
-PowerShell adapter's did.
+sending, plus a short tail, is its own; a key or button held down is use). A
+person's input during a burst is counted by the monitor (next section) and
+reported by `lease.end` as `inputsDuring`. Without a lease `input` goes at once,
+as the PowerShell adapter's did.
+
+## The monitor
+
+The PowerShell monitor noticed a person taking over with system-wide low-level
+keyboard and mouse hooks (`SetWindowsHookEx` 13 and 14), which is what a key
+logger does. The helper installs no such hook, and no code of it runs inside
+another program. `monitor.start` (`hooks` is `["foreground","input"]`, both by
+default) starts one thread that does two things and nothing else:
+
+- **Input.** It registers for Raw Input (`RegisterRawInputDevices`, keyboard and
+  mouse, `RIDEV_INPUTSINK`) on a message-only window and reads each `WM_INPUT`
+  through its header only (`GetRawInputData` with `RID_HEADER`). The header says
+  which class of device sent it and whether the system made it up: input from
+  `SendInput` (the helper's own, or another program's) has no device and is
+  `injected`. The body of the message, where a key or a button would be, is never
+  asked for. An event is `{seq, kind: "input", tMs, device: "keyboard"|"mouse",
+  injected}`: no key, no character, no scan code, no position.
+- **Foreground.** `SetWinEventHook(EVENT_SYSTEM_FOREGROUND)` records each window
+  that comes to the front as `{seq, kind: "foreground", tMs, windowId}`.
+
+`monitor.start` answers `{input, foreground}`, whether each is running; a caller
+that needs to see a person (the foreground ladder) refuses to run a burst when
+`input` is false. A second start changes nothing; `monitor.stop` ends the thread.
+`monitor.poll` (`since`: events after that `seq`) answers the kept events (the
+last 256; a run of movement within 50 ms is one event), the exact counts since
+the start (`inputs` for a person's, `injectedInputs`, `foregroundChanges`),
+`lastInputAgoMs` and `dropped`, which says that `since` was older than the
+oldest kept event. It is `bad_request` while no monitor runs.
+
+`lease.end` answers `inputsDuring`, the person's input events between `begin`
+and `end`, when the monitor ran for the whole burst, and leaves it out
+otherwise. Because the monitor never reads a key, `NativeForegroundMonitor`
+reports no Escape presses (`escapes` is always 0): a person who wants a burst
+to stop uses the machine, which the count sees.
+
+## The presence overlay
+
+`presence.act` (`windowId`, `kind` `click`, `type` or `move`, `at`: where the
+action lands in virtual-desktop pixels, none for typing) shows the agent's own
+cursor and a frame round the operated window, and answers the handles of the two
+windows. The first call starts a thread that owns them. Both are layered,
+click-through (`WS_EX_TRANSPARENT`), never activated (`WS_EX_NOACTIVATE`), off
+the taskbar and Alt-Tab (`WS_EX_TOOLWINDOW`) and placed directly above the
+operated window in the z-order, never above the others. `presence.hide` removes
+both.
+
+The overlay is **not** excluded from screen capture: the helper never calls
+`SetWindowDisplayAffinity`. The PowerShell overlay did, which together with a
+transparent window above the others reads as hiding from the person's own
+screenshot tools. A screenshot of the display may show the cursor and the frame,
+which is honest (the picture shows where the agent pointed); a window capture
+shows only that window.
+
+What is drawn comes from `namzu-win-core::presence`: the motion (the numbers and
+formulas of `presence/motion.ts`, which the TypeScript tests pin), a state
+machine that says what to draw at a given time, and a software renderer that
+fills a premultiplied bitmap. All of it is tested on Linux; the Windows file only
+puts bitmaps on windows. Sizes are in logical pixels times the operated window's
+display scale, and nothing is redrawn when nothing moves.
 
 ## Refs
 
@@ -377,7 +439,13 @@ scrolls a list, checks every refusal, acts by fingerprint, then sends a click, a
 right and a double click, a drag, the wheel, text and key combinations with
 `SendInput`, takes a lease and ends it, lets one run out, and takes pictures of
 the window, the display and a region and checks them against their own PNG
-header and hash. The executables are uploaded as run artifacts with a SHA-256, unsigned.
+header and hash. `tests/windows_monitor.rs` makes two windows and checks that
+the helper's own `SendInput` arrives through raw input as synthesised input with
+a device class and nothing of what was typed, that a person's count stays zero
+at a runner with nobody at it, that foreground changes arrive as the test brings
+its windows forward, that the overlay's two windows exist with the expected
+styles, the helper's process, the operated window's rectangle and no display
+affinity, and that hiding hides them. The executables are uploaded as run artifacts with a SHA-256, unsigned.
 Nothing in CI or in this repository runs the helper on a person's machine.
 The release build sets `NAMZU_WIN_BUILD_HASH`, which `hello` reports as
 `buildHash`; a local build reports `dev`.
