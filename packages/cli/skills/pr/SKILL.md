@@ -28,7 +28,7 @@ $ARGUMENTS
    stat is not enough. If uncommitted changes exist, say they are not in it and
    offer `commit`.
 4. **Read the repository's rules** (its instructions file, a pull request
-   template under `.github/`, a contributing guide) and follow them: title
+   template in the code host's folder, a contributing guide) and follow them: title
    format, sections, labels, what must pass first.
 5. **Write the title and body from the changes**: a title in the style of the
    log, then what changed and why in plain words, how it was checked (only
