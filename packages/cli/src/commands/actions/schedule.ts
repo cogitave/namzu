@@ -164,17 +164,29 @@ export const SCHEDULE_ACTIONS: readonly ActionHelp[] = [
 	},
 	{
 		path: ['service', 'install'],
-		summary: 'Install the scheduler service so jobs run while namzu is closed.',
+		operands: '[name]',
+		summary:
+			'Install the scheduler service so jobs run while namzu is closed. A name keeps its home in the Namzu folder (services/<name>).',
 		flags: [
 			{
 				flag: '--platform <name>',
 				description: 'auto, systemd-user, launchd, windows-task or wsl-windows-task.',
 			},
-			{ flag: '--name <service>', description: 'Name this service (default: the main one).' },
+			{ flag: '--home <dir>', description: 'Serve this folder instead of the one the name gives.' },
 			{ flag: '--at-boot', description: 'Start it at boot, not only at sign-in.' },
 			{ flag: '--dry-run', description: 'Print what would be installed and install nothing.' },
 		],
-		example: 'namzu schedule service install --dry-run',
+		example: 'namzu schedule service install autodev --dry-run',
+	},
+	{
+		path: ['service', 'move'],
+		operands: '<name>',
+		summary: 'Bring an installed service’s home into the Namzu folder (services/<name>).',
+		flags: [
+			{ flag: '--dry-run', description: 'Print what would move and change nothing.' },
+			{ flag: '--wait <time>', description: 'Wait this long for running jobs, e.g. 10m.' },
+		],
+		example: 'namzu schedule service move autodev --dry-run',
 	},
 	{
 		path: ['service', 'list'],

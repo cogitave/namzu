@@ -242,6 +242,23 @@ describe('namzu state purge', () => {
 		expect(readFileSync(join(a.home, 'history.jsonl'), 'utf8')).toBe('')
 	})
 
+	it('--all never reaches a scheduler service’s home under services/', async () => {
+		const a = await world('services')
+		const service = join(a.home, 'services', 'autodev')
+		mkdirSync(join(service, 'schedule', 'jobs'), { recursive: true })
+		mkdirSync(join(service, 'projects', a.slug), { recursive: true })
+		writeFileSync(join(service, 'schedule', 'jobs', 'j.json'), '{}\n')
+		writeFileSync(join(service, 'schedule', 'daemon.env'), 'K=v\n')
+		mkdirSync(join(a.home, 'services', 'autodev-schedule-workspaces', 'id'), { recursive: true })
+		const r = run(a, ['--all', '--yes'], { seams: quiet })
+		expect(await r.code).toBe(0)
+		expect(existsSync(join(a.home, 'projects', a.slug))).toBe(false)
+		expect(existsSync(join(service, 'schedule', 'jobs', 'j.json'))).toBe(true)
+		expect(existsSync(join(service, 'schedule', 'daemon.env'))).toBe(true)
+		expect(existsSync(join(service, 'projects', a.slug))).toBe(true)
+		expect(existsSync(join(a.home, 'services', 'autodev-schedule-workspaces', 'id'))).toBe(true)
+	})
+
 	it('removes the project from the session index', async () => {
 		const w = await world('index')
 		const { DatabaseSync } = createRequire(import.meta.url)('node:sqlite') as {

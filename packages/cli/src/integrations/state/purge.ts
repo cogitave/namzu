@@ -17,7 +17,7 @@
 
 import { lstat, readFile, readdir, realpath, rm } from 'node:fs/promises'
 import { createRequire } from 'node:module'
-import { join, sep } from 'node:path'
+import { basename, join, sep } from 'node:path'
 import { isLeaseLive, readSessionLease, slugForCwd } from '@namzu/sdk'
 import {
 	promptHistoryPath,
@@ -109,6 +109,9 @@ async function checkPath(realHome: string, path: string): Promise<'absent' | 'ok
 	if (!within(realHome, realParent)) {
 		return 'it is outside the Namzu home'
 	}
+	// `services/<name>` is the home of a scheduler service, not a project's state.
+	if (within(join(realHome, 'services'), join(realParent, basename(path))))
+		return 'it is a scheduler service’s home'
 	return 'ok'
 }
 
