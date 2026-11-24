@@ -363,7 +363,7 @@ export function renderListing(
 			ref: peer.ref,
 			name: peer.title,
 			named: peer.named,
-			folder: peer.folder,
+			folder: peer.path,
 			state: peer.state,
 			startedAt: peer.startedAt,
 			mode: modeWord(peer.mode),

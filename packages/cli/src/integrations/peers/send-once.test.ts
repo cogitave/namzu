@@ -180,6 +180,9 @@ it('lists live terminals without tokens or addresses', async () => {
 		state: 'idle',
 		acceptsMessages: true,
 	})
+	// `folder` stays the folder's own name; `path` is the full path.
+	expect(peers[0]?.folder).not.toContain('/')
+	expect(peers[0]?.path.endsWith(`/${peers[0]?.folder}`)).toBe(true)
 	expect(JSON.stringify(peers)).not.toMatch(/token|uds:/)
 })
 

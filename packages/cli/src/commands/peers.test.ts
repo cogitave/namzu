@@ -90,6 +90,7 @@ it('renders the listing', () => {
 					mode: 'classify',
 					acceptsMessages: true,
 					folder: 'proj',
+					path: '~/proj',
 					named: false,
 					startedAt: 1_000,
 				},
@@ -100,7 +101,7 @@ it('renders the listing', () => {
 		[
 			'Namzu sessions (1):',
 			'  [idle]  ·  (unnamed session)  ·  started 7m ago',
-			'      in proj  ·  auto mode',
+			'      in ~/proj  ·  auto mode',
 			'',
 			'Sessions shown as (unnamed session) have no name of their own: /rename <name> in that terminal gives one others can message.',
 		].join('\n'),

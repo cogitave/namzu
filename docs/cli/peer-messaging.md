@@ -71,7 +71,7 @@ unambiguous title returned by discovery (or `machine/name` for a session on anot
 conversation (the one you gave it with `/rename`, else the one the small model
 wrote, at most 40 characters on one line) and the folder's name until it has
 one; a rename reaches the live record at once, so two terminals in one folder
-tell each other apart by more than a reference. Endpoint tokens are never returned to
+tell each other apart by more than a reference. An unnamed terminal's title is its folder's name, so two folders with the same name share it; address one of them by its reference (the refusal lists both folders). Endpoint tokens are never returned to
 the model. A live terminal id is separate from its durable conversation id;
 resuming another conversation does not redirect that conversation's queued mail.
 
@@ -87,7 +87,7 @@ and endpoint, and differs in the ways that matter:
 
 | | Another session or `namzu peers send` | `namzu send` |
 |---|---|---|
-| Addressed by | live terminal reference, id or title, in this folder | the conversation's id, as `namzu watch` names it, in any folder of the account |
+| Addressed by | live terminal reference, id or title, in any folder of this user | the conversation's id, as `namzu watch` names it, in any folder of the account |
 | Sender's kind | `tui` or `cli` | `person` |
 | Permission mode | must equal the receiver's, or it is held for the receiver's person | not compared: a person has no mode to match, and the message cannot change the receiver's |
 | The model is told | it carries no authority, not the operator's instruction | the text arrived from another terminal of this account and is meant to be the person's words, but the kernel did not check who sent it; it cannot approve anything, change a mode or run a command, and what the model does because of it passes the same permission checks |

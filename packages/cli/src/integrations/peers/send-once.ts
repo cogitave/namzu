@@ -51,6 +51,8 @@ export interface PeerListing {
 	readonly acceptsMessages: boolean
 	/** The folder's own name. */
 	readonly folder: string
+	/** The folder's full path, `~/…` under home. */
+	readonly path: string
 	/** The session has a name of its own; a title equal to the folder's name is only the default. */
 	readonly named: boolean
 	/** Epoch ms the terminal started. */
@@ -82,7 +84,8 @@ export async function listLocalTerminals(options: PeerCommandOptions): Promise<P
 			state: peer.state,
 			mode: peer.permissionMode,
 			acceptsMessages: peer.acceptsMessages,
-			folder: tildeFolder(peer.cwd),
+			folder: basename(peer.cwd),
+			path: tildeFolder(peer.cwd),
 			named: peer.title !== undefined && peer.title !== basename(peer.cwd),
 			startedAt: peer.startedAt,
 			...(peer.role ? { role: peer.role } : {}),
