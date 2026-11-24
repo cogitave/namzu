@@ -478,7 +478,7 @@ fn the_helper_acts_on_a_real_window() {
     wait_until(|s| s.text == "hello native");
 
     let list_node = nodes.iter().find(|n| n.role == "List").expect("the list");
-    let scrolled = act_with(
+    let scroll = act_with(
         &mut h,
         &id,
         &list_node.reference,
@@ -486,10 +486,17 @@ fn the_helper_acts_on_a_real_window() {
         None,
         None,
         Some(3),
-    )
-    .expect("scroll");
-    assert!(scrolled.done);
-    assert!(window.top_index() > 0, "the list did not scroll");
+    );
+    if list_node
+        .actions
+        .contains(&namzu_win_core::protocol::Action::Scroll)
+    {
+        assert!(scroll.expect("scroll").done);
+        assert!(window.top_index() > 0, "the list did not scroll");
+    } else {
+        // A system whose list box offers no scroll pattern is refused, not clicked.
+        assert_eq!(scroll.unwrap_err().code, "background_unavailable");
+    }
 
     let item = named(&nodes, "ListItem", "Item 1");
     let selected = act(&mut h, &id, &item.reference, ActKind::Select).expect("select");
