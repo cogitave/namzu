@@ -46,8 +46,12 @@ export const SCHEDULE_HELP = [
 	'  e.g. namzu schedule pause nightly --service autodev',
 	'',
 	'The scheduler service',
-	'  service install [--platform auto|systemd-user|launchd|windows-task|wsl-windows-task]',
-	'          [--name <service>] [--at-boot] [--dry-run]',
+	'  service install [<name>] [--platform auto|systemd-user|launchd|windows-task|wsl-windows-task]',
+	'          [--home <dir>] [--at-boot] [--dry-run]',
+	'      With a <name>, the service keeps its home in the Namzu folder: ~/.namzu/services/<name>.',
+	'      Without one, it is the scheduler of the current home.',
+	'  service move <name> [--dry-run] [--wait 10m]   Bring an installed service’s home into',
+	'      ~/.namzu/services/<name> (refused while a run is in progress)',
 	'  service list [--json]         Installed services: name, home, platform, state',
 	'  service uninstall [<name>] [--keep-data | --purge-data] [--wait 10m | --interrupt-runs]',
 	'  service status [<name>] [--json]   Exit 0 healthy, 69 not running, 2 not installed',
@@ -203,6 +207,14 @@ export const scheduleCommand: CommandDef = {
 							targeted.restore()
 						}
 					}
+					case 'move': {
+						const [, target, ...more] = rest
+						return (await service()).moveCommand(
+							ctx,
+							more,
+							target !== undefined && !target.startsWith('--') ? target : undefined,
+						)
+					}
 					case 'install':
 						return (await service()).installCommand(ctx, rest.slice(1))
 					case 'daemon':
@@ -212,7 +224,7 @@ export const scheduleCommand: CommandDef = {
 						ctx.formatter.error({
 							message: rest[0]
 								? `unknown schedule service command: ${rest[0]}`
-								: 'a schedule service command is required: install, list, uninstall, status, start, stop, logs or daemon',
+								: 'a schedule service command is required: install, move, list, uninstall, status, start, stop, logs or daemon',
 						})
 						return EXIT_USAGE
 				}

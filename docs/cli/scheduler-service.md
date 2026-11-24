@@ -32,8 +32,9 @@ scheduler, so an installed service does not break. Reinstalling
 `schedule service daemon`.
 
 ```sh
-namzu schedule service install [--platform auto|systemd-user|launchd|windows-task|wsl-windows-task] \
-                       [--name <service>] [--at-boot] [--dry-run]
+namzu schedule service install [<name>] [--platform auto|systemd-user|launchd|windows-task|wsl-windows-task] \
+                       [--home <dir>] [--at-boot] [--dry-run]
+namzu schedule service move <name> [--dry-run] [--wait 10m]
 namzu schedule service status [<name>] [--json]
 namzu schedule service stop [<name>] | start [<name>]
 namzu schedule service logs [<name>] [--follow] [--job <name>] [--since 1h]
@@ -41,11 +42,22 @@ namzu schedule service uninstall [<name>] [--keep-data | --purge-data] [--wait 1
 namzu schedule service list [--json]
 ```
 
-`--dry-run` prints the unit, property list or task XML it would write. The
-service is named `namzu-scheduler` for `~/.namzu`, else
-`namzu-scheduler-<8 hex of the home's hash>`; `--name` overrides it.
+`--dry-run` prints the unit, property list or task XML it would write, and
+the home it would use; it creates nothing. With a `<name>` the service is that
+name and its home is `~/.namzu/services/<name>` (created if missing): the
+home is the default Namzu home's, whatever `NAMZU_HOME` says, so every service
+you create sits in one place you can find, back up and manage. `--home <dir>`
+is still an explicit choice of the person. Without a name, `install` is the
+scheduler of the current home, as before, named `namzu-scheduler` for
+`~/.namzu`, else `namzu-scheduler-<8 hex of the home's hash>`.
 
-When `--name` is omitted the service gets the name above, and that default is what the
+`--name <n>` no longer exists: typed, it prints one line naming
+`namzu schedule service install <n>` and exits 64. A name may not end in
+`-schedule-workspaces`, which a home's no-project jobs use for their scratch
+folders (`services/<name>-schedule-workspaces/<job id>`, beside the home, never
+inside it).
+
+When no name is given the service gets the default name above, and that default is what the
 index below records. The name you give is the name you type: `service list`, `status`,
 `start`, `stop`, `logs` and `uninstall` all use it on every platform, WSL included.
 
@@ -235,8 +247,9 @@ service in a per-user index, `schedule/services.json` in the default Namzu home
   "services": [{ "name": "autodev", "home": "/data/autodev", "platform": "systemd-user", "installedAt": "2026-11-22T10:00:00.000Z" }] }
 ```
 
-- `install --name <n>` refuses a name the index maps to a different home (both homes are
-  named; uninstall the other one or pick another `--name`). Installing the same name for
+- `install <n>` refuses a name the index maps to a different home (both homes are
+  named; uninstall the other one or pick another name; when the other one is outside
+  `services/`, the line also names `service move <n>`). Installing the same name for
   the same home again updates the entry.
   Installing a different name for a home that already has one replaces that home's entry:
   one home has one service, so a name always resolves to the service that has it.
@@ -266,6 +279,46 @@ service in a per-user index, `schedule/services.json` in the default Namzu home
   home (see [Scheduled tasks](scheduled-tasks.md)); `namzu schedule list` and the TUI's
   `/schedule` show each service's jobs under its name, and `/schedule confirm` (a person's
   confirmation, as for the current home) acts on the service's home.
+
+## Moving a service into the Namzu folder
+
+A service installed before this change keeps its home wherever it was created.
+`namzu schedule service move <name>` brings it to `~/.namzu/services/<name>`:
+
+1. It refuses, changing nothing, when the destination exists, when the home is
+   the Namzu home itself or contains it, when the service is not installed in that
+   home, when a run is in progress (`--wait 10m` waits for runs the way `uninstall`
+   does; a run cannot be interrupted here, its files would move under it), when
+   the old home and the Namzu folder are on different file systems (it never
+   copies and then deletes; the line says how to move the folder by hand and
+   run `install <name>`), and for a WSL service registered under an older
+   `<name>-wsl-<distro>` name (uninstall it and install it by name).
+2. It stops the daemon through the supervisor, renames the home (and the
+   `<home>-schedule-workspaces` folder beside it, when there is one) to the new
+   place, rewrites the index and the service manifest, and reinstalls the unit,
+   task or property list for the new home. A service that was running is started
+   again; one that was stopped stays stopped. `--at-boot` (linger) and the first
+   install time are kept.
+3. `daemon.env` and every other file that may hold a secret move with the folder and are
+   never opened or printed.
+4. `--dry-run` prints the plan and changes nothing.
+
+What inside the home stores the home's path, and what the move does with it:
+
+| Where | What the move does |
+|---|---|
+| `schedule/service.json` (`namzuHome`) and the unit, task or property list | rewritten by the reinstall |
+| the services index | entry points at the new home |
+| a no-project job (`workspace: none`): `folder` and `trust` paths | rewritten to the moved scratch folder |
+| a job with a project folder | stores the project folder, not the home: nothing to rewrite |
+| history, run logs, conversations | may quote the old path as a record; left as written |
+| any other `.json` file that still contains the old path | listed by name in the move's summary, never rewritten |
+
+**Confirmations.** A job's confirmation digest covers its folder, trust and the
+other security fields, never the home's path. A job with a project folder
+stays confirmed. A no-project job's folder is inside the home's scratch folder, which has a
+new path, so its confirmation no longer holds: the move lists those jobs and says
+to run `namzu schedule confirm <job> --service <name>`. The move never confirms a job for a person.
 
 ## Status
 

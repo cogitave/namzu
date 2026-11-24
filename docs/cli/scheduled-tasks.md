@@ -28,6 +28,8 @@ on Linux, macOS, Windows and WSL.
 
 ```sh
 namzu schedule service install
+# or a service of its own, kept in ~/.namzu/services/<name>:
+# namzu schedule service install autodev
 namzu schedule add nightly-deps \
   --prompt "Check for outdated dependencies and summarise what changed." \
   --when "0 3 * * *" --permissions read-only
@@ -300,7 +302,11 @@ not every way. A job whose rules allow `bash` without asking, or that uses
 to; give such a job `execution: sandbox`, or keep `bash` on `ask`.
 
 A folder may not be `/`, your home directory itself, a folder that contains
-`NAMZU_HOME`, or anything inside `NAMZU_HOME`.
+`NAMZU_HOME`, or anything inside `NAMZU_HOME`. The same two rules hold for the
+default Namzu home (`~/.namzu`) and for the home of every installed scheduler
+service, which sits inside it (`~/.namzu/services/<name>`): a job's folder cannot
+be next to your keys or another service's jobs. A no-project job's own scratch
+folder, beside its home, is the one place inside the Namzu folder a job may run.
 
 ## What a run may do
 

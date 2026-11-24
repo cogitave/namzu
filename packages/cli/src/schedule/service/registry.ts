@@ -31,6 +31,21 @@ export function serviceIndexPath(osHome: string = homedir()): string {
 	return join(resolve(osHome, '.namzu'), 'schedule', 'services.json')
 }
 
+/** The default Namzu home of the person whose home directory is `osHome`: `~/.namzu`. */
+export function defaultNamzuHome(osHome: string = homedir()): string {
+	return resolve(osHome, '.namzu')
+}
+
+/** Where the homes of named scheduler services live: `<default home>/services`. */
+export function servicesRoot(osHome: string = homedir()): string {
+	return join(defaultNamzuHome(osHome), 'services')
+}
+
+/** The home of the service `name`: `<default home>/services/<name>`. */
+export function serviceHomePath(name: string, osHome: string = homedir()): string {
+	return join(servicesRoot(osHome), name)
+}
+
 function wellFormed(entry: unknown): entry is ServiceIndexEntry {
 	if (typeof entry !== 'object' || entry === null) return false
 	const e = entry as Record<string, unknown>
@@ -132,7 +147,7 @@ export function findService(name: string, osHome?: string): ServiceIndexEntry | 
 export function nameClash(name: string, home: string, osHome?: string): string | undefined {
 	const existing = findService(name, osHome)
 	if (!existing || resolve(existing.home) === resolve(home)) return undefined
-	return `the service name ${name} already serves ${existing.home}, not ${home}; uninstall that one (namzu schedule service uninstall ${name}) or pick another --name`
+	return `the service name ${name} already serves ${existing.home}, not ${home}; uninstall that one (namzu schedule service uninstall ${name}) or pick another name`
 }
 
 /**
