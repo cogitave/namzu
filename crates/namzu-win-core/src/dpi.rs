@@ -8,7 +8,7 @@
 use crate::protocol::Rect;
 
 /// A point in virtual-desktop physical pixels.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Point {
     pub x: i32,
     pub y: i32,

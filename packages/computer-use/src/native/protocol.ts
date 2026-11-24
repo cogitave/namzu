@@ -32,6 +32,18 @@ export type NativeOp =
 	| 'resolve'
 	| 'seq'
 	| 'wait_change'
+	| 'act'
+	| 'input'
+	| 'capture'
+	| 'foreground.get'
+	| 'foreground.set'
+	| 'lease.begin'
+	| 'lease.end'
+	| 'monitor.start'
+	| 'monitor.stop'
+	| 'monitor.poll'
+	| 'presence.act'
+	| 'presence.hide'
 	| 'cancel'
 	| 'quit'
 
@@ -66,8 +78,134 @@ export type NativeRequest =
 			readonly timeoutMs?: number
 			readonly kinds?: readonly A11yChangeKind[]
 	  }
+	| NativeActRequest
+	| NativeInputRequest
+	| NativeCaptureRequest
+	| { readonly op: 'foreground.get'; readonly windowId?: string; readonly processId?: number }
+	| { readonly op: 'foreground.set'; readonly windowId: string }
+	| NativeLeaseBeginRequest
+	| {
+			readonly op: 'lease.end'
+			readonly restore: boolean
+			readonly keepCursor?: boolean
+			readonly release?: boolean
+	  }
+	| NativeMonitorStartRequest
+	| { readonly op: 'monitor.stop' }
+	| { readonly op: 'monitor.poll'; readonly since?: number }
+	| NativePresenceActRequest
+	| { readonly op: 'presence.hide' }
 	| { readonly op: 'cancel'; readonly target: number }
 	| { readonly op: 'quit' }
+
+/** What `act` does to a control, through the pattern it offers. */
+export type NativeActKind =
+	| 'invoke'
+	| 'setValue'
+	| 'toggle'
+	| 'expand'
+	| 'collapse'
+	| 'select'
+	| 'scrollIntoView'
+	| 'scroll'
+	| 'focus'
+
+/** One of `ref` and `fingerprint` names the control. */
+export interface NativeActRequest {
+	readonly op: 'act'
+	readonly windowId: string
+	readonly ref?: string
+	readonly fingerprint?: A11yFingerprint
+	readonly action: NativeActKind
+	/** For `setValue`. */
+	readonly text?: string
+	/** For `scroll`: steps right and down are positive. */
+	readonly dx?: number
+	readonly dy?: number
+	readonly timeoutMs?: number
+}
+
+export type NativeMouseButton = 'left' | 'right' | 'middle'
+export type NativeScrollDirection = 'up' | 'down' | 'left' | 'right'
+
+/** Points are virtual-desktop physical pixels. */
+export type NativeInputRequest = { readonly op: 'input' } & (
+	| {
+			readonly kind: 'click'
+			readonly x: number
+			readonly y: number
+			readonly button?: NativeMouseButton
+			readonly count?: 1 | 2 | 3
+	  }
+	| { readonly kind: 'move'; readonly x: number; readonly y: number }
+	| {
+			readonly kind: 'drag'
+			readonly x: number
+			readonly y: number
+			readonly toX: number
+			readonly toY: number
+			readonly button?: NativeMouseButton
+	  }
+	| {
+			readonly kind: 'scroll'
+			readonly x: number
+			readonly y: number
+			readonly direction: NativeScrollDirection
+			readonly amount?: number
+	  }
+	| { readonly kind: 'type'; readonly text: string }
+	| { readonly kind: 'key'; readonly keys: string }
+)
+
+export type NativeCaptureTarget =
+	| { readonly kind: 'window'; readonly windowId: string }
+	| { readonly kind: 'display'; readonly id?: string }
+	| {
+			readonly kind: 'region'
+			readonly x: number
+			readonly y: number
+			readonly width: number
+			readonly height: number
+	  }
+
+export interface NativeCaptureRequest {
+	readonly op: 'capture'
+	readonly target: NativeCaptureTarget
+	/** A directory the caller made; the picture is written into it. */
+	readonly into?: string
+	/** Return a small picture in the reply instead. */
+	readonly inline?: boolean
+	readonly cursor?: boolean
+	readonly timeoutMs?: number
+}
+
+export type NativeMonitorHook = 'foreground' | 'input'
+
+/** What to watch; default both. */
+export interface NativeMonitorStartRequest {
+	readonly op: 'monitor.start'
+	readonly hooks?: readonly NativeMonitorHook[]
+}
+
+export type NativePresenceKind = 'click' | 'type' | 'move'
+
+export interface NativePresenceActRequest {
+	readonly op: 'presence.act'
+	readonly windowId: string
+	readonly kind: NativePresenceKind
+	/** Where the action lands, in virtual-desktop pixels; absent for typing. */
+	readonly at?: { readonly x: number; readonly y: number }
+}
+
+export interface NativeLeaseBeginRequest {
+	readonly op: 'lease.begin'
+	readonly windowId?: string
+	readonly raise?: boolean
+	readonly idleMs?: number
+	readonly ttlMs?: number
+	readonly leasePath?: string
+	readonly token?: string
+}
 
 /** One request as a line, without the trailing newline. */
 export function encodeRequest(id: number, request: NativeRequest): string {
@@ -126,6 +264,136 @@ export type NativeWaitResult =
 	  }
 	| { readonly changed: false; readonly timedOut: true; readonly settledMs: number }
 
+export interface NativeActState {
+	readonly value?: string
+	readonly toggle?: 'on' | 'off' | 'mixed'
+	readonly expand?: 'expanded' | 'collapsed' | 'partial' | 'leaf'
+	readonly selected?: boolean
+	readonly focused?: boolean
+}
+
+export interface NativeActReply {
+	/** The pattern call went through. */
+	readonly done: boolean
+	readonly via: 'pattern'
+	/** Whether the read-back shows the effect; absent when there is nothing to read. */
+	readonly verified?: boolean
+	readonly after?: NativeActState
+	/** The control's place in the read that found it, and that read's revision. */
+	readonly index: number
+	readonly revision: number
+}
+
+export interface NativeInputReply {
+	readonly delivered: number
+	readonly via: 'sendinput'
+	readonly cursor?: { readonly x: number; readonly y: number }
+}
+
+export interface NativeCaptureReply {
+	readonly path?: string
+	readonly dataBase64?: string
+	readonly bytes: number
+	readonly width: number
+	readonly height: number
+	readonly scale: number
+	readonly via: 'wgc' | 'printwindow' | 'bitblt'
+	readonly sha256: string
+	readonly bounds: A11yRect
+	readonly display?: string
+}
+
+export interface NativeForegroundWindow {
+	readonly windowId: string
+	readonly processId: number
+	readonly exe: string
+	readonly elevated: boolean
+	/** The integrity level as a RID (0x2000 medium, 0x3000 high); -1 when unreadable. */
+	readonly integrity: number
+}
+
+export interface NativeForegroundState {
+	readonly foreground: NativeForegroundWindow | null
+	readonly cursor: { readonly x: number; readonly y: number }
+	readonly desktop: string
+	readonly selfElevated: boolean
+	readonly selfIntegrity: number
+	readonly inputTick: number
+	readonly userIdleMs: number
+	readonly target?: {
+		readonly exe: string
+		readonly elevated: boolean
+		readonly integrity: number
+	}
+}
+
+export type NativeRaiseHow = 'already' | 'plain' | 'unlock' | 'attach' | 'switch' | 'refused'
+
+export interface NativeForegroundSetReply {
+	readonly raised: boolean
+	readonly changed: boolean
+	readonly how: NativeRaiseHow
+	readonly blockedBy?: 'windows' | 'elevated'
+}
+
+export interface NativeLeaseBeginReply extends NativeForegroundState {
+	readonly refused: boolean
+	readonly raised?: boolean
+	readonly raiseHow?: NativeRaiseHow
+}
+
+export interface NativeLeaseEndReply {
+	readonly restoredForeground: boolean
+	readonly restoredCursor: boolean
+	readonly restoreNote?: string
+	readonly inputMoved: boolean
+	readonly frontElevated: boolean
+	readonly released: boolean
+	/** A person's input events between begin and end; absent when the monitor was not running throughout. */
+	readonly inputsDuring?: number
+}
+
+export interface NativeMonitorStartReply {
+	/** Raw Input is registered: a person's use of keyboard and mouse is seen. */
+	readonly input: boolean
+	/** Foreground changes are hooked. */
+	readonly foreground: boolean
+}
+
+/**
+ * One thing that happened. Input carries the device class and a time only,
+ * never a key, a character or a position.
+ */
+export interface NativeMonitorEvent {
+	readonly seq: number
+	readonly kind: 'input' | 'foreground'
+	/** ms since the monitor started. */
+	readonly tMs: number
+	readonly device?: 'keyboard' | 'mouse'
+	/** The system synthesised the input (SendInput, from this helper or another program). */
+	readonly injected?: boolean
+	/** For a foreground change: the window that came to the front. */
+	readonly windowId?: string
+}
+
+export interface NativeMonitorPollReply {
+	readonly events: readonly NativeMonitorEvent[]
+	readonly seq: number
+	/** Events a person's devices produced since the monitor started. */
+	readonly inputs: number
+	readonly injectedInputs: number
+	readonly foregroundChanges: number
+	/** ms since a person's last input, when there was one. */
+	readonly lastInputAgoMs?: number
+	/** `since` was older than the oldest event kept. */
+	readonly dropped: boolean
+}
+
+export interface NativePresenceActReply {
+	readonly cursorWindow: number
+	readonly frameWindow: number
+}
+
 export interface NativeReplyBodies {
 	readonly hello: NativeHello
 	readonly windows: { readonly windows: readonly A11yWindow[] }
@@ -135,6 +403,18 @@ export interface NativeReplyBodies {
 	readonly resolve: NativeResolution
 	readonly seq: { readonly seq: number }
 	readonly wait_change: NativeWaitResult
+	readonly act: NativeActReply
+	readonly input: NativeInputReply
+	readonly capture: NativeCaptureReply
+	readonly 'foreground.get': NativeForegroundState
+	readonly 'foreground.set': NativeForegroundSetReply
+	readonly 'lease.begin': NativeLeaseBeginReply
+	readonly 'lease.end': NativeLeaseEndReply
+	readonly 'monitor.start': NativeMonitorStartReply
+	readonly 'monitor.stop': Record<string, never>
+	readonly 'monitor.poll': NativeMonitorPollReply
+	readonly 'presence.act': NativePresenceActReply
+	readonly 'presence.hide': Record<string, never>
 	readonly cancel: Record<string, never>
 	readonly quit: Record<string, never>
 }
@@ -378,6 +658,196 @@ function waitResult(o: Obj): NativeWaitResult {
 	return { changed: false, timedOut: true, settledMs: int(o, 'settledMs', 'wait_change') }
 }
 
+function point(v: unknown, path: string): { x: number; y: number } {
+	const o = obj(v, path)
+	return {
+		x: int(o, 'x', path, Number.MIN_SAFE_INTEGER),
+		y: int(o, 'y', path, Number.MIN_SAFE_INTEGER),
+	}
+}
+
+const RAISE_HOW: readonly NativeRaiseHow[] = [
+	'already',
+	'plain',
+	'unlock',
+	'attach',
+	'switch',
+	'refused',
+]
+
+function actState(v: unknown, path: string): NativeActState {
+	const o = obj(v, path)
+	const out: { -readonly [K in keyof NativeActState]: NativeActState[K] } = {}
+	const value = optStr(o, 'value', path)
+	if (value !== undefined) out.value = value
+	if (o.toggle !== undefined)
+		out.toggle = oneOf<'on' | 'off' | 'mixed'>(o.toggle, ['on', 'off', 'mixed'], `${path}.toggle`)
+	if (o.expand !== undefined) {
+		out.expand = oneOf<'expanded' | 'collapsed' | 'partial' | 'leaf'>(
+			o.expand,
+			['expanded', 'collapsed', 'partial', 'leaf'],
+			`${path}.expand`,
+		)
+	}
+	const selected = optBool(o, 'selected', path)
+	if (selected !== undefined) out.selected = selected
+	const focused = optBool(o, 'focused', path)
+	if (focused !== undefined) out.focused = focused
+	return out
+}
+
+function actReply(o: Obj): NativeActReply {
+	const out: { -readonly [K in keyof NativeActReply]: NativeActReply[K] } = {
+		done: bool(o, 'done', 'act'),
+		via: oneOf<'pattern'>(o.via, ['pattern'], 'act.via'),
+		index: int(o, 'index', 'act'),
+		revision: int(o, 'revision', 'act'),
+	}
+	const verified = optBool(o, 'verified', 'act')
+	if (verified !== undefined) out.verified = verified
+	if (o.after !== undefined) out.after = actState(o.after, 'act.after')
+	return out
+}
+
+function inputReply(o: Obj): NativeInputReply {
+	const out: { -readonly [K in keyof NativeInputReply]: NativeInputReply[K] } = {
+		delivered: int(o, 'delivered', 'input'),
+		via: oneOf<'sendinput'>(o.via, ['sendinput'], 'input.via'),
+	}
+	if (o.cursor !== undefined) out.cursor = point(o.cursor, 'input.cursor')
+	return out
+}
+
+function captureReply(o: Obj): NativeCaptureReply {
+	const out: { -readonly [K in keyof NativeCaptureReply]: NativeCaptureReply[K] } = {
+		bytes: int(o, 'bytes', 'capture'),
+		width: int(o, 'width', 'capture'),
+		height: int(o, 'height', 'capture'),
+		scale: num(o, 'scale', 'capture'),
+		via: oneOf<'wgc' | 'printwindow' | 'bitblt'>(
+			o.via,
+			['wgc', 'printwindow', 'bitblt'],
+			'capture.via',
+		),
+		sha256: str(o, 'sha256', 'capture'),
+		bounds: rect(o, 'bounds', 'capture'),
+	}
+	const path = optStr(o, 'path', 'capture')
+	if (path !== undefined) out.path = path
+	const data = optStr(o, 'dataBase64', 'capture')
+	if (data !== undefined) out.dataBase64 = data
+	const display = optStr(o, 'display', 'capture')
+	if (display !== undefined) out.display = display
+	return out
+}
+
+function foregroundState(o: Obj, path: string): NativeForegroundState {
+	let foreground: NativeForegroundWindow | null = null
+	if (o.foreground === undefined) bad(`${path}.foreground`, 'a window or null')
+	if (o.foreground !== null) {
+		const f = obj(o.foreground, `${path}.foreground`)
+		const p = `${path}.foreground`
+		foreground = {
+			windowId: str(f, 'windowId', p),
+			processId: int(f, 'processId', p),
+			exe: str(f, 'exe', p),
+			elevated: bool(f, 'elevated', p),
+			integrity: int(f, 'integrity', p, -1),
+		}
+	}
+	const out: { -readonly [K in keyof NativeForegroundState]: NativeForegroundState[K] } = {
+		foreground,
+		cursor: point(o.cursor, `${path}.cursor`),
+		desktop: str(o, 'desktop', path),
+		selfElevated: bool(o, 'selfElevated', path),
+		selfIntegrity: int(o, 'selfIntegrity', path, -1),
+		inputTick: int(o, 'inputTick', path),
+		userIdleMs: int(o, 'userIdleMs', path),
+	}
+	if (o.target !== undefined) {
+		const t = obj(o.target, `${path}.target`)
+		out.target = {
+			exe: str(t, 'exe', `${path}.target`),
+			elevated: bool(t, 'elevated', `${path}.target`),
+			integrity: int(t, 'integrity', `${path}.target`, -1),
+		}
+	}
+	return out
+}
+
+function foregroundSet(o: Obj): NativeForegroundSetReply {
+	const out: { -readonly [K in keyof NativeForegroundSetReply]: NativeForegroundSetReply[K] } = {
+		raised: bool(o, 'raised', 'foreground.set'),
+		changed: bool(o, 'changed', 'foreground.set'),
+		how: oneOf(o.how, RAISE_HOW, 'foreground.set.how'),
+	}
+	if (o.blockedBy !== undefined)
+		out.blockedBy = oneOf<'windows' | 'elevated'>(
+			o.blockedBy,
+			['windows', 'elevated'],
+			'foreground.set.blockedBy',
+		)
+	return out
+}
+
+function leaseBegin(o: Obj): NativeLeaseBeginReply {
+	const out: { -readonly [K in keyof NativeLeaseBeginReply]: NativeLeaseBeginReply[K] } = {
+		...foregroundState(o, 'lease.begin'),
+		refused: bool(o, 'refused', 'lease.begin'),
+	}
+	const raised = optBool(o, 'raised', 'lease.begin')
+	if (raised !== undefined) out.raised = raised
+	if (o.raiseHow !== undefined) out.raiseHow = oneOf(o.raiseHow, RAISE_HOW, 'lease.begin.raiseHow')
+	return out
+}
+
+function leaseEnd(o: Obj): NativeLeaseEndReply {
+	const out: { -readonly [K in keyof NativeLeaseEndReply]: NativeLeaseEndReply[K] } = {
+		restoredForeground: bool(o, 'restoredForeground', 'lease.end'),
+		restoredCursor: bool(o, 'restoredCursor', 'lease.end'),
+		inputMoved: bool(o, 'inputMoved', 'lease.end'),
+		frontElevated: bool(o, 'frontElevated', 'lease.end'),
+		released: bool(o, 'released', 'lease.end'),
+	}
+	const note = optStr(o, 'restoreNote', 'lease.end')
+	if (note !== undefined) out.restoreNote = note
+	const during = optInt(o, 'inputsDuring', 'lease.end')
+	if (during !== undefined) out.inputsDuring = during
+	return out
+}
+
+function monitorEvent(v: unknown, path: string): NativeMonitorEvent {
+	const o = obj(v, path)
+	const out: { -readonly [K in keyof NativeMonitorEvent]: NativeMonitorEvent[K] } = {
+		seq: int(o, 'seq', path),
+		kind: oneOf<'input' | 'foreground'>(o.kind, ['input', 'foreground'], `${path}.kind`),
+		tMs: int(o, 'tMs', path),
+	}
+	if (o.device !== undefined)
+		out.device = oneOf<'keyboard' | 'mouse'>(o.device, ['keyboard', 'mouse'], `${path}.device`)
+	const injected = optBool(o, 'injected', path)
+	if (injected !== undefined) out.injected = injected
+	const windowId = optStr(o, 'windowId', path)
+	if (windowId !== undefined) out.windowId = windowId
+	return out
+}
+
+function monitorPoll(o: Obj): NativeMonitorPollReply {
+	const out: { -readonly [K in keyof NativeMonitorPollReply]: NativeMonitorPollReply[K] } = {
+		events: arr(o, 'events', 'monitor.poll').map((e, i) =>
+			monitorEvent(e, `monitor.poll.events[${i}]`),
+		),
+		seq: int(o, 'seq', 'monitor.poll'),
+		inputs: int(o, 'inputs', 'monitor.poll'),
+		injectedInputs: int(o, 'injectedInputs', 'monitor.poll'),
+		foregroundChanges: int(o, 'foregroundChanges', 'monitor.poll'),
+		dropped: bool(o, 'dropped', 'monitor.poll'),
+	}
+	const ago = optInt(o, 'lastInputAgoMs', 'monitor.poll')
+	if (ago !== undefined) out.lastInputAgoMs = ago
+	return out
+}
+
 function body(op: NativeOp, o: Obj): NativeReplyBodies[NativeOp] {
 	switch (op) {
 		case 'hello':
@@ -398,6 +868,34 @@ function body(op: NativeOp, o: Obj): NativeReplyBodies[NativeOp] {
 			return { seq: int(o, 'seq', 'seq') }
 		case 'wait_change':
 			return waitResult(o)
+		case 'act':
+			return actReply(o)
+		case 'input':
+			return inputReply(o)
+		case 'capture':
+			return captureReply(o)
+		case 'foreground.get':
+			return foregroundState(o, 'foreground.get')
+		case 'foreground.set':
+			return foregroundSet(o)
+		case 'lease.begin':
+			return leaseBegin(o)
+		case 'lease.end':
+			return leaseEnd(o)
+		case 'monitor.start':
+			return {
+				input: bool(o, 'input', 'monitor.start'),
+				foreground: bool(o, 'foreground', 'monitor.start'),
+			}
+		case 'monitor.poll':
+			return monitorPoll(o)
+		case 'presence.act':
+			return {
+				cursorWindow: int(o, 'cursorWindow', 'presence.act'),
+				frameWindow: int(o, 'frameWindow', 'presence.act'),
+			}
+		case 'monitor.stop':
+		case 'presence.hide':
 		case 'cancel':
 		case 'quit':
 			return {}
