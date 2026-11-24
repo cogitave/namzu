@@ -297,6 +297,13 @@ describe('the built-in skills', () => {
 		expect(body).toMatch(/at most 2 more\s+researchers/)
 		expect(body).toMatch(/about 8 `web_search` calls and 10 `web_fetch` calls/)
 		expect(body).toMatch(/`present_file`/)
+		// lessons from real runs: wait by name, a short report still fans out,
+		// a search result is not a fetch, the file is always written
+		expect(body).toMatch(/`task_id` set to its name/)
+		expect(body).toMatch(/"short" report is not that\s+case/)
+		expect(body).toMatch(/only seen in a search result/)
+		expect(body).toMatch(/only offers to write the file is not finished/)
+		expect(body).toMatch(/load it first if it is not in your tool list/)
 	})
 
 	it('declares the invocation and gating the design gives each', async () => {
