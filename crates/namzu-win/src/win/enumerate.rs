@@ -88,7 +88,7 @@ pub fn has_chromium(h: HWND) -> bool {
     scan.found
 }
 
-fn process_name(pid: u32) -> String {
+pub fn process_name(pid: u32) -> String {
     unsafe {
         let Ok(process) = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) else {
             return String::new();
@@ -165,7 +165,7 @@ pub fn listable(h: HWND, include_owned: bool) -> bool {
     }
 }
 
-fn frame_rect(h: HWND, iconic: bool) -> Rect {
+pub fn frame_rect(h: HWND, iconic: bool) -> Rect {
     unsafe {
         let mut r = RECT::default();
         if iconic {
@@ -192,7 +192,7 @@ fn frame_rect(h: HWND, iconic: bool) -> Rect {
     }
 }
 
-fn rect_of(r: RECT) -> Rect {
+pub fn rect_of(r: RECT) -> Rect {
     Rect {
         x: r.left,
         y: r.top,
@@ -250,15 +250,15 @@ pub fn is_listed(h: HWND) -> bool {
     is_window(h) && listable(h, true)
 }
 
-/// The monitors, in the order the system lists them.
-pub fn displays() -> Vec<Display> {
+/// The monitors with their handles, in the order the system lists them.
+pub fn monitors() -> Vec<(HMONITOR, Display)> {
     unsafe extern "system" fn each(
         mon: HMONITOR,
         _dc: HDC,
         _rc: *mut RECT,
         lparam: LPARAM,
     ) -> BOOL {
-        let found = unsafe { &mut *(lparam.0 as *mut Vec<Display>) };
+        let found = unsafe { &mut *(lparam.0 as *mut Vec<(HMONITOR, Display)>) };
         let mut info = MONITORINFOEXW::default();
         info.monitorInfo.cbSize = std::mem::size_of::<MONITORINFOEXW>() as u32;
         let ok =
@@ -273,25 +273,33 @@ pub fn displays() -> Vec<Display> {
             .iter()
             .position(|c| *c == 0)
             .unwrap_or(info.szDevice.len());
-        found.push(Display {
-            id: String::from_utf16_lossy(&info.szDevice[..name_len]),
-            bounds: rect_of(info.monitorInfo.rcMonitor),
-            work_area: rect_of(info.monitorInfo.rcWork),
-            scale: dpi::scale_from_dpi(if dx == 0 { 96 } else { dx }),
-            primary: info.monitorInfo.dwFlags & 1 != 0,
-        });
+        found.push((
+            mon,
+            Display {
+                id: String::from_utf16_lossy(&info.szDevice[..name_len]),
+                bounds: rect_of(info.monitorInfo.rcMonitor),
+                work_area: rect_of(info.monitorInfo.rcWork),
+                scale: dpi::scale_from_dpi(if dx == 0 { 96 } else { dx }),
+                primary: info.monitorInfo.dwFlags & 1 != 0,
+            },
+        ));
         true.into()
     }
-    let mut found: Vec<Display> = Vec::new();
+    let mut found: Vec<(HMONITOR, Display)> = Vec::new();
     unsafe {
         let _ = EnumDisplayMonitors(
             None,
             None,
             Some(each),
-            LPARAM(&mut found as *mut Vec<Display> as isize),
+            LPARAM(&mut found as *mut Vec<(HMONITOR, Display)> as isize),
         );
     }
     found
+}
+
+/// The monitors, in the order the system lists them.
+pub fn displays() -> Vec<Display> {
+    monitors().into_iter().map(|(_, d)| d).collect()
 }
 
 /// The top-level window of `h`, or `h` when it has none (it is gone).

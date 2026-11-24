@@ -9,7 +9,7 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { A11yError, createWindowsA11yHost } from '../a11y/index.js'
-import { NativeA11yBackend } from '../native/a11y.js'
+import { NativeA11yBackend, actFailureCode } from '../native/a11y.js'
 import { type NativeChannel, NativeWinProcess } from '../native/process.js'
 
 function vectors(name: string): Record<string, any> {
@@ -479,6 +479,82 @@ describe('the native accessibility backend', () => {
 		const waited = await client.waitForChange({ windowId: '0x10a2c' })
 		expect(waited).toMatchObject({ changed: true })
 		if (waited.changed) expect(waited.firstEventMs).toBeLessThan(0)
+	})
+})
+
+describe('acting on a control through the native backend', () => {
+	it('names the window as the helper does and passes the control and the action on', async () => {
+		const { client, helpers } = backend()
+		const done = await client.act({
+			windowId: '0x10a2c',
+			ref: 'r3.5',
+			action: 'setValue',
+			text: 'héllo',
+			timeoutMs: 3_000,
+		})
+		expect(helpers[0]?.requests.at(-1)).toEqual({
+			id: 2,
+			op: 'act',
+			windowId: 'w:0000000000010a2c',
+			ref: 'r3.5',
+			action: 'setValue',
+			text: 'héllo',
+			timeoutMs: 3_000,
+		})
+		expect(done).toEqual({
+			done: true,
+			via: 'pattern',
+			verified: true,
+			after: { value: 'hello', focused: true },
+			index: 5,
+			revision: 3,
+		})
+	})
+
+	it('acts by fingerprint, with the process of a window it has listed', async () => {
+		const { client, helpers } = backend()
+		await client.ready()
+		;(helpers[0] as FakeHelper).answers.windows = 'two windows'
+		await client.listWindows()
+		const fingerprint = await client.identity({ windowId: '0x10a2c', index: 3 })
+		await client.act({ windowId: '0x10a2c', fingerprint, action: 'invoke' })
+		expect(helpers[0]?.requests.at(-1)).toMatchObject({
+			op: 'act',
+			windowId: 'w:0000000000010a2c:4120',
+			action: 'invoke',
+			fingerprint,
+		})
+	})
+
+	it('refuses an id it did not hand out, before asking', async () => {
+		const { client, helpers } = backend()
+		await expect(
+			client.act({ windowId: 'nope', ref: 'r1.0', action: 'invoke' }),
+		).rejects.toMatchObject({
+			code: 'bad_window_id',
+		})
+		expect(helpers).toHaveLength(0)
+	})
+
+	it('carries a refusal as an error with the helper code, and names the two a ref can fail with', async () => {
+		const { client, helpers } = backend()
+		await client.ready()
+		const helper = helpers[0] as FakeHelper
+		helper.raw.act = { ok: false, code: 'disabled', message: 'the control is turned off' }
+		const refused = await client
+			.act({ windowId: '0x10a2c', ref: 'r1.0', action: 'invoke' })
+			.catch((e: unknown) => e)
+		expect(refused).toBeInstanceOf(A11yError)
+		expect(refused).toMatchObject({ code: 'disabled', message: 'the control is turned off' })
+		expect(actFailureCode(refused)).toBeUndefined()
+		for (const [code, typed] of [
+			['not_found', 'STALE_REF'],
+			['stale_snapshot', 'STALE_REF'],
+			['ambiguous', 'AMBIGUOUS_TARGET'],
+		] as const) {
+			expect(actFailureCode(new A11yError(code, 'x'))).toBe(typed)
+		}
+		expect(actFailureCode(new Error('x'))).toBeUndefined()
 	})
 })
 

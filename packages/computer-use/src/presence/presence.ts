@@ -16,8 +16,9 @@ export interface PresenceMark {
 /**
  * The visible sign that an agent is operating a window: its own cursor and a
  * border around the window. It never takes input, never changes the
- * foreground window and is not captured by screenshots; a failure to show it
- * never fails an action.
+ * foreground window; a failure to show it never fails an action. The
+ * PowerShell overlay keeps itself out of screenshots; the native helper's
+ * does not, so a screenshot shows where the agent pointed.
  */
 export interface Presence {
 	/** Shows (or refreshes) the cursor and border for one action. Does not wait. */

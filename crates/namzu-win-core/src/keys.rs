@@ -106,6 +106,20 @@ pub fn named_key(name: &str) -> Option<u16> {
 }
 
 /// The `VK_*` code of a letter or digit, which is its uppercase ASCII value.
+/// True for a key that `SendInput` must flag as extended (the keys of the
+/// gray block beside the main keys, the right-hand modifiers and the Windows keys).
+pub fn is_extended(vk: u16) -> bool {
+    matches!(
+        vk,
+        0x21..=0x28 // page up .. down arrows
+            | 0x2D | 0x2E // insert, delete
+            | 0x5B | 0x5C | 0x5D // windows keys, menu
+            | 0x6F // numpad divide
+            | 0x90 // num lock
+            | 0xA3 | 0xA5 // right control, right alt
+    )
+}
+
 pub fn vk_for_char(c: char) -> Option<u16> {
     match c {
         'a'..='z' => Some(c.to_ascii_uppercase() as u16),
@@ -189,6 +203,16 @@ mod tests {
             parse_combo("ctrl+wibble"),
             Err(KeyError::UnknownKey("wibble".into()))
         );
+    }
+
+    #[test]
+    fn extended_keys() {
+        for vk in [0x25, 0x2E, 0x24, 0x5B, 0xA3] {
+            assert!(is_extended(vk), "{vk:#x}");
+        }
+        for vk in [0x0D, 0x20, 0x41, 0x70, 0xA2] {
+            assert!(!is_extended(vk), "{vk:#x}");
+        }
     }
 
     #[test]
