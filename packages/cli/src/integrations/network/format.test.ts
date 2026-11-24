@@ -104,15 +104,15 @@ describe('namzu peers list', () => {
 			[
 				'Namzu sessions (4):',
 				'  [idle]  ·  calm-heron  ·  this terminal',
-				'      in namzu · auto mode',
+				'      in namzu  ·  auto mode',
 				'      role: orchestrator',
 				'  [running]  ·  quiet-otter',
-				'      in namzu · auto mode',
+				'      in namzu  ·  auto mode',
 				'      role: you will build the parser',
 				'  [idle]  ·  brisk-marten  ·  desk-linux',
-				'      in api-server · auto mode',
+				'      in api-server  ·  auto mode',
 				'  [idle]  ·  swift-finch  ·  desk-linux',
-				'      in api-server · prompt mode',
+				'      in api-server  ·  prompt mode',
 				'',
 				'Machines (2):',
 				'  [online]  ·  studio-air  ·  this machine',
@@ -325,7 +325,7 @@ describe('the /peers screen', () => {
 			).toHaveLength(2)
 			expect(lines).toContain('  [running]  ·  brisk-marten  ·  desk-linux')
 			expect(lines).toContain('  [idle]  ·  calm-heron  ·  this terminal')
-			expect(lines).toContain('      in api-server · bypass mode')
+			expect(lines).toContain('      in api-server  ·  bypass mode')
 			const cut = lines.find((l) => l.includes('role: you own')) as string
 			expect(cut).toMatch(/^ {6}role: you own the long /)
 			if (columns === 80) expect(cut).toMatch(/…$/)

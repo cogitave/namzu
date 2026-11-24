@@ -98,11 +98,11 @@ it('renders the listing', () => {
 		),
 	).toBe(
 		[
-			'Namzu sessions (1):',
+			'Namzu sessions in this project (1):',
 			'  [idle]  ·  (unnamed session)  ·  started 7m ago',
-			'      in proj · auto mode',
+			'      in proj  ·  auto mode',
 			'',
-			'((unnamed session) has no name of its own: /rename <name> in that terminal gives it one others can message)',
+			'Sessions shown as (unnamed session) have no name of their own: /rename <name> in that terminal gives one others can message.',
 		].join('\n'),
 	)
 })
@@ -660,4 +660,11 @@ it('trusts a network on allow, lists trusted networks, renames and removes one',
 	const off = harness({}, false)
 	expect(await run(off, ['untrust', 'Home'])).toBe(EXIT_UNAVAILABLE)
 	off.done()
+})
+
+it('prints a help entry that starts with its list label', async () => {
+	const { peersCommand } = await import('./peers.js')
+	const help = String(peersCommand.help)
+	expect(help).toMatch(/^list {4}Every live Namzu session here, one counted list/m)
+	expect(help).not.toMatch(/^\s+\[state\]/m)
 })

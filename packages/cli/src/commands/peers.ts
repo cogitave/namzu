@@ -69,10 +69,9 @@ Usage:
   namzu peers cancel
   namzu peers log [-n <count>] [--json]
 
-        "[state]  ·  name  ·  started 7m ago", the folder, permission mode and role on a
-        [state]  ·  name  ·  started 7m ago, the folder, permission mode and role on a
-        second line. When your Namzu network is running, every machine's sessions are in
-        the same list with their machine last.
+list    Every live Namzu session here, one counted list: "[state]  ·  name  ·  started 7m ago",
+        with the folder, permission mode and role on a second line. When your Namzu network is
+        running, every machine's sessions are in the same list, with the machine name last.
 send    Queue a message in one terminal's inbox. Give the text as words, or with
         --file <path> (use - for standard input) to keep line breaks. A session on
         another machine is named by its name, or machine/name.
@@ -374,6 +373,7 @@ export function renderListing(
 		{
 			now: options.now ?? Date.now(),
 			columns: options.columns,
+			scope: 'in this project',
 			emptyText: 'No Namzu sessions are running in this project.',
 		},
 	)

@@ -45,23 +45,23 @@ Remember what trust is not: the network's fingerprint is not a secret, and a mac
 ```
 Namzu sessions (4):
   [idle]  ·  calm-heron  ·  this terminal  ·  started 7m ago
-      in namzu · auto mode
+      in namzu  ·  auto mode
       role: orchestrator
   [running]  ·  (unnamed session)  ·  started 23s ago
-      in namzu · auto mode
+      in namzu  ·  auto mode
   [offline]  ·  swift-finch  ·  desk-linux
-      in api-server · prompt mode
+      in api-server  ·  prompt mode
   [offline]  ·  brisk-marten  ·  desk-linux
-      in api-server · auto mode
+      in api-server  ·  auto mode
 
-((unnamed session) has no name of its own: /rename <name> in that terminal gives it one others can message)
+Sessions shown as (unnamed session) have no name of their own: /rename <name> in that terminal gives one others can message.
 
 Machines (2):
   [online]  ·  studio-air  ·  this machine
   [offline]  ·  desk-linux  ·  last seen 5m ago
 ```
 
-The first line of a session is `[state]  ·  name  ·  where or when`, fields apart by two spaces, a dot and two spaces. The **state** is `idle`, `running`, `awaiting-approval`, or `offline` when its machine did not answer. The **name** is its conversation's title; a session with no name of its own reads `(unnamed session)` (a title that is only the folder's name counts as none), with a `[ref]` added only when two rows read the same. The last field is `this terminal` for the one you are in, `started 7m ago` (the single largest unit: `23s`, `7m`, `7h`, `3d`) for a session of this machine, and the machine's name for a session on another machine, which carries no start time because the network does not send one. The order is this terminal, then this machine's sessions by start time, then the other machines by name. The second line, indented, holds Namzu's own extras: the **project folder**'s name (never the full path), the **permission mode** (`ask`, `auto`, `accept edits`, `plan`, `bypass`), `not accepting messages` when that is so, and `role: <text>` when one is set. A role longer than the line is cut with an ellipsis at the terminal's width; `namzu peers list` in a pipe, and `--json`, give it whole. `Machines (N)` follows only when there is more than one machine, a machine is offline, or a machine has a role. With nothing running the list says `No Namzu sessions are running.` (`... in this project.` for a shell list with the network off, which shows this project's terminals only). The name is the address: `namzu peers send swift-finch ...`, or `desk-linux/swift-finch` when two machines have a session of that name. The model sees the same list through `list_sessions` (each local row now also carries `started_at`) and replies to a name the same way with `send_session_message`. `namzu peers list --json` keeps every field and adds `folder`, `named` and `startedAt` to its rows.
+The first line of a session is `[state]  ·  name  ·  where or when`, fields apart by two spaces, a dot and two spaces. The **state** is `idle`, `running`, `awaiting-approval`, or `offline` when its machine did not answer. The **name** is its conversation's title; a session with no name of its own reads `(unnamed session)` (a title that is only the folder's name counts as none), with a `[ref]` added only when two rows read the same. The last field is `this terminal` for the one you are in, `started 7m ago` (the single largest unit: `23s`, `7m`, `7h`, `3d`) for a session of this machine, and the machine's name for a session on another machine, which carries no start time because the network does not send one. The order is this terminal, then this machine's sessions by start time, then the other machines by name. The second line, indented, holds Namzu's own extras: the **project folder**'s name (never the full path), the **permission mode** (`ask`, `auto`, `accept edits`, `plan`, `bypass`), `not accepting messages` when that is so, and `role: <text>` when one is set. A role longer than the line is cut with an ellipsis at the terminal's width; `namzu peers list` in a pipe, and `--json`, give it whole. `Machines (N)` follows only when there is more than one machine, a machine is offline, or a machine has a role. With nothing running the list says `No Namzu sessions are running.` (`... in this project.` for a list with the network off, which shows this project's terminals only and heads its count `Namzu sessions in this project (N):`). The name is the address: `namzu peers send swift-finch ...`, or `desk-linux/swift-finch` when two machines have a session of that name. The model sees the same list through `list_sessions` (each local row now also carries `started_at`) and replies to a name the same way with `send_session_message`. `namzu peers list --json` keeps every field and adds `folder`, `named` and `startedAt` to its rows.
 
 The screen shows what waits for you: **Join requests** first, then **Held** messages under the list, each with an Allow and a Deny row (Enter applies it). Under 60 columns a session keeps its state and name on one line, with where or when, the folder and mode, then the role, on lines of their own. A machine that stops answering stays in the list, `offline`, for a day, then shows with no sessions.
 

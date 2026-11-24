@@ -42,6 +42,8 @@ export interface SessionListOptions {
 	readonly machines?: readonly MachineRow[]
 	/** What an empty list says; by default every session on every machine is meant. */
 	readonly emptyText?: string
+	/** What the list is limited to, said in the header (for example `in this project`); leave out for every machine. */
+	readonly scope?: string
 }
 
 export const UNNAMED = '(unnamed session)'
@@ -176,7 +178,7 @@ export function sessionListLines(
 	if (rows.length === 0) {
 		lines.push(options.emptyText ?? 'No Namzu sessions are running.')
 	} else {
-		lines.push(`Namzu sessions (${rows.length}):`)
+		lines.push(`Namzu sessions${options.scope ? ` ${options.scope}` : ''} (${rows.length}):`)
 		const sorted = sortSessions(rows)
 		const shown = (row: SessionRow) => (row.named ? row.name : UNNAMED)
 		const counts = new Map<string, number>()
@@ -199,7 +201,7 @@ export function sessionListLines(
 				lines.push(`  [${row.state}]${SEP}${name}`)
 				if (where.length > 0) lines.push(`      ${where.join(SEP)}`)
 			} else lines.push(`  ${[`[${row.state}]`, name, ...where].join(SEP)}`)
-			if (extras.length > 0) lines.push(`      ${extras.join(' · ')}`)
+			if (extras.length > 0) lines.push(`      ${extras.join(SEP)}`)
 			if (row.role) {
 				const prefix = '      role: '
 				const text = row.role.replace(/\s+/g, ' ').trim()
@@ -211,7 +213,7 @@ export function sessionListLines(
 		if (sorted.some((row) => !row.named)) {
 			lines.push('')
 			lines.push(
-				`(${UNNAMED} has no name of its own: /rename <name> in that terminal gives it one others can message)`,
+				`Sessions shown as ${UNNAMED} have no name of their own: /rename <name> in that terminal gives one others can message.`,
 			)
 		}
 	}
