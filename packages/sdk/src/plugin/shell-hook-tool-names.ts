@@ -30,6 +30,7 @@ export const SHELL_HOOK_WRITTEN_TOOL_NAMES: Readonly<Record<string, string>> = O
 	search_tools: 'ToolSearch',
 	skill: 'Skill',
 	task_create: 'TaskCreate',
+	task_get: 'TaskGet',
 	task_list: 'TaskList',
 	task_update: 'TaskUpdate',
 	web_fetch: 'WebFetch',
