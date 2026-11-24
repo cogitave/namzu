@@ -41,6 +41,11 @@ import {
 
 export const SAVE_SKILL_TOOL_NAME = 'save_skill'
 
+/** The transcript line of a saved skill; the desktop reads its name and place back out of it. */
+export function savedSkillLabel(name: string, displayPath: string): string {
+	return `Saved skill "${name}" to ${displayPath}`
+}
+
 /** The built-in skill that interviews the operator and drafts a skill. */
 export const SKILL_CREATOR_SKILL = 'skill-creator'
 
@@ -395,10 +400,23 @@ export function buildSaveSkillTool(host: SaveSkillHost): ToolDefinition {
 			presentation: 'activity',
 		}),
 		// The operator's No on the tool's own screen is not a failure.
-		presentResult: (_input, result) =>
-			!result.success && (result.data as { cancelled?: unknown } | undefined)?.cancelled === true
-				? { kind: 'generic', label: 'Cancelled — nothing was saved', outcome: 'cancelled' }
-				: undefined,
+		presentResult: (_input, result) => {
+			const data = result.data as
+				| { cancelled?: unknown; name?: unknown; displayPath?: unknown }
+				| undefined
+			if (!result.success && data?.cancelled === true)
+				return { kind: 'generic', label: 'Cancelled — nothing was saved', outcome: 'cancelled' }
+			// The desktop draws this one as a "saved" card; its label is the card's source.
+			return result.success &&
+				typeof data?.name === 'string' &&
+				typeof data.displayPath === 'string'
+				? {
+						kind: 'generic',
+						label: savedSkillLabel(data.name, data.displayPath),
+						presentation: 'activity',
+					}
+				: undefined
+		},
 		async execute(raw, context) {
 			const input = raw as Input
 			let draft: SkillDraft
@@ -473,9 +491,14 @@ export function buildSaveSkillTool(host: SaveSkillHost): ToolDefinition {
 				success: true,
 				output: [
 					`Saved skill "${draft.name}" to ${target.displayPath}.${notes.length > 0 ? ` It ${notes.join('; ')}.` : ''}`,
-					`It is offered to the model from the next turn; the operator can activate it now with /skills ${draft.name}.`,
+					'It is usable from the next message.',
 				].join(' '),
-				data: { name: draft.name, path: target.path, scope: answer },
+				data: {
+					name: draft.name,
+					path: target.path,
+					displayPath: target.displayPath,
+					scope: answer,
+				},
 			}
 		},
 	})

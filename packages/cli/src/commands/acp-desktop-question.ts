@@ -1,4 +1,10 @@
 import { randomUUID } from 'node:crypto'
+import {
+	SKILL_SAVE_OPTIONS,
+	SKILL_SAVE_QUESTION_ID,
+	skillSaveCardPayload,
+} from '../skills/save-card.js'
+import type { SaveSkillAnswer, SaveSkillHost } from '../skills/save.js'
 import type { QuestionAnswer, QuestionFn, UserQuestion } from '../tui/agent.js'
 import { screenQuestionApp } from '../tui/computer-use-screen-approval.js'
 
@@ -34,6 +40,13 @@ export interface QuestionRelay {
 	 * answer to one that closed, or to another conversation's, changes nothing.
 	 */
 	answer(sessionId: string, requestId: string, answer: unknown): boolean
+	/**
+	 * The `save_skill` confirmation of one conversation, drawn as the skill-save card. It is not a
+	 * permission request and no permission mode answers it: only the person's own pick of a place
+	 * saves, and every other outcome (cancel, an answer that does not read, the turn stopping, a
+	 * closed stream) is a cancel.
+	 */
+	skillSaveConfirm(sessionId: string, cwd: () => string): SaveSkillHost['confirm']
 }
 
 const ids = (value: unknown): string[] | undefined => {
@@ -99,6 +112,16 @@ export function readQuestionAnswer(value: unknown): QuestionAnswer | undefined {
 	}
 }
 
+/** The place the person picked on the skill-save card; anything else is no pick. */
+export function pickedSkillTarget(answer: QuestionAnswer): SaveSkillAnswer {
+	if (answer.kind !== 'answer') return 'cancel'
+	const entry = answer.answers?.find((item) => item.questionId === SKILL_SAVE_QUESTION_ID)
+	const picked = entry ? entry.selectedOptionIds : answer.answers ? [] : answer.selectedOptionIds
+	return picked.length === 1 && (picked[0] === 'user' || picked[0] === 'project')
+		? picked[0]
+		: 'cancel'
+}
+
 /**
  * A lone question is answered at the top level (`selectedOptionIds`, `freeText`); the card names
  * its one question in a list, so the entry is lifted out of it.
@@ -157,6 +180,50 @@ export function createQuestionRelay(notify: Notify): QuestionRelay {
 					turnSignal.addEventListener('abort', onTurn, { once: true })
 					signal?.addEventListener('abort', onCaller, { once: true })
 					say(QUESTION_NOTIFICATION, { sessionId, requestId, question })
+				})
+		},
+		skillSaveConfirm(sessionId, cwd) {
+			return (request, signal) =>
+				new Promise<SaveSkillAnswer>((resolve) => {
+					if (signal?.aborted) return resolve('cancel')
+					const requestId = randomUUID()
+					let done = false
+					const finish = (answer: SaveSkillAnswer, tell: boolean) => {
+						if (done) return
+						done = true
+						open.delete(requestId)
+						signal?.removeEventListener('abort', onAbort)
+						if (tell) say(QUESTION_CLOSED_NOTIFICATION, { sessionId, requestId })
+						resolve(answer)
+					}
+					const onAbort = () => finish('cancel', true)
+					open.set(requestId, {
+						sessionId,
+						single: false,
+						settle: (answer) => finish(pickedSkillTarget(answer), false),
+					})
+					signal?.addEventListener('abort', onAbort, { once: true })
+					say(QUESTION_NOTIFICATION, {
+						sessionId,
+						requestId,
+						question: {
+							questions: [
+								{
+									id: SKILL_SAVE_QUESTION_ID,
+									header: 'Save skill',
+									question: `Save the skill "${request.draft.name}"?`,
+									options: [
+										{ id: SKILL_SAVE_OPTIONS[0], label: 'Save to my skills' },
+										{ id: SKILL_SAVE_OPTIONS[1], label: 'Save to this project' },
+										{ id: SKILL_SAVE_OPTIONS[2], label: 'Cancel' },
+									],
+									multiSelect: false,
+									allowFreeText: false,
+								},
+							],
+						},
+						skillSave: skillSaveCardPayload(request, cwd()),
+					})
 				})
 		},
 		answer(sessionId, requestId, answer) {

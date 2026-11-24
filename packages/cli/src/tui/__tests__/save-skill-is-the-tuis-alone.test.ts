@@ -1,7 +1,8 @@
 /**
- * `save_skill` is the interactive TUI's alone, and its question is its own:
+ * `save_skill` is for the places a person confirms in (the interactive TUI and the desktop host),
+ * and its question is its own:
  *
- * - only the App hands it to a session (`extraTools`), so `exec`, `drain`, a
+ * - only the App and the desktop host hand it to a session (`extraTools`), so `exec`, `drain`, a
  *   scheduled run and every sub-agent never have it;
  * - the permission gate does not ask about it in `prompt` or `auto`, because
  *   the tool's own screen asks in every mode — `auto` included; `plan` and
@@ -171,16 +172,21 @@ describe('save_skill belongs to the TUI alone', () => {
 			.filter((file) => /buildSaveSkillTool\(/.test(readFileSync(file, 'utf8')))
 			.map((file) => relative(SRC, file).replaceAll('\\', '/'))
 			.sort()
-		expect(builders).toEqual(['skills/save.ts', 'tui/App.tsx'])
+		// The terminal's App, and the desktop host, which draws the same confirmation as a card.
+		expect(builders).toEqual(['commands/acp.ts', 'skills/save.ts', 'tui/App.tsx'])
 		for (const surface of [
 			'commands/exec.ts',
 			'commands/exec-json.ts',
 			'commands/drain.ts',
-			'commands/acp.ts',
 			'schedule/fire/fire.ts',
 		]) {
 			expect(readFileSync(join(SRC, surface), 'utf8')).not.toMatch(/save_skill|buildSaveSkillTool/)
 		}
+		// The desktop host offers it only to a conversation with an app to confirm in (the question
+		// relay exists only when the app said how to reach it), never to a Pal's.
+		expect(readFileSync(join(SRC, 'commands/acp.ts'), 'utf8')).toMatch(
+			/questionRelay && !palEnvironment\s*\?\s*\{\s*extraTools: \[\s*buildSaveSkillTool/,
+		)
 	})
 
 	it('a session without it (exec, drain, a scheduled run) and every sub-agent lack it', async () => {

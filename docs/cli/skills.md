@@ -144,7 +144,7 @@ The CLI ships six, in `packages/cli/skills/`:
 
 | Skill | Offered to | Needs | What it covers |
 | --- | --- | --- | --- |
-| `skill-creator` | model and operator | — | Interviewing the operator (purpose, trigger phrases, steps, constraints, an example), drafting a `SKILL.md` with a description that says when to use it, and saving it only through `save_skill`. A second mode turns the work just done in the conversation into a skill: generalise the task, replace this run's specifics with placeholders, strip secrets and personal data, never copy tool or page output. Without `save_skill` (a headless run) it shows the draft and tells the operator to run `/skills new` in the TUI. |
+| `skill-creator` | model and operator | — | Interviewing the operator (purpose, trigger phrases, steps, constraints, an example), drafting a `SKILL.md` with a description that says when to use it, and saving it only through `save_skill`. A second mode turns the work just done in the conversation into a skill: generalise the task, replace this run's specifics with placeholders, strip secrets and personal data, never copy tool or page output. Without `save_skill` (a headless run) it shows the full draft and says plainly that saving is not available in this place; it never tells the person to open a terminal. A question about whether it can make skills is answered directly, without exploring the file system, and the draft may be tried on a sample request before it is saved. |
 | `browser-automation` | model only | `browser` | The procedure for the `browser` and `browser_act` tools: snapshot first, act by ref, copy `origin` from the snapshot header, verify with a snapshot, let a sign-in page or CAPTCHA pause the turn for the person and retry the step once it continues, never type credentials, never pick the profile, never route around a declined call, paginate, prefer read-only paths, report what changed. Hidden until the browser tools exist in the session. |
 | `schedule-task` | model and operator | `schedule` | Proposing a scheduled job with the `schedule` tool: choosing presets or rules, `unmatched` park or deny, budgets of one run, `when` and `tz`, a browser grant (`permissions.browser`, the profile signed in with `namzu browser login`, sites at `read`/`ask`/`act`), leaving the defaults unset, and wording a prompt for a run nobody watches. Offered in the TUI, where the `schedule` tool is. |
 | `document` | model and operator | — | Writing a document (a kickoff document, a report, a brief, a plan, notes) as one Markdown file: settle who reads it and what they do next (asking only when one answer would change the whole document), pick a specific title and a file name from it, put the file in the project (its `docs` or `documents` folder when it has one) or the conversation's work folder, and write it in one `write` call as a title, an italic date line, a short opening, `##` sections, lists, tables and task lists where they help. It reads the file back once to check headings, table rows and unmarked gaps, never invents a fact, figure or date (a gap is written as a bracketed open question), never replaces an existing file the person did not name, and ends its reply with one sentence that links the document by its title, then short lists of assumptions and open questions. Word, PDF, slides and spreadsheet files are not made yet: it says so and writes the Markdown file instead. In Desktop the file opens as a page beside the conversation ([Documents as pages](desktop.md#documents-as-pages)). |
@@ -210,15 +210,52 @@ metadata:
   namzu-created: "2026-09-23T12:00:00.000Z"
 ```
 
-**Only the TUI has it.** The App registers `save_skill` for its own session;
-`namzu exec`, `drain`, a scheduled run, ACP and every
-sub-agent build their tools without it. **Its screen is its own question, not
+**Only the places a person confirms in have it**: the TUI's App registers
+`save_skill` for its own session, and the Desktop host (`namzu acp --desktop`, for a
+conversation that is not a Pal's) registers it with its confirmation drawn as a card
+(see [Skills in Desktop](#skills-in-desktop)). `namzu exec`, `drain`, a scheduled
+run, a plain ACP client and every sub-agent build their tools without it. The tool
+rides every request (it is not behind `search_tools`), and the environment facts tell
+the model what it can do with skills: that they are made with `skill-creator` and saved
+through a confirmation, that a `SKILL.md` is never written by hand into a skills
+folder, and, where the tool is missing, that saving is not available here. **Its screen is its own question, not
 the permission gate's**: in `prompt`, `accept-edits`, `bypass` and `auto` the gate does
 not ask about it, and the screen asks every time, `bypass` and `auto` included. `plan` and
 `strict` refuse it, and a `save_skill` rule in `[permissions]` (`ask` or
 `deny`) still applies (`packages/cli/src/tui/agent.ts` `reviewExemptionFor`).
 A session that can save a skill also carries the `skill` tool, so the saved
 skill is loadable on the next turn.
+
+## Skills in Desktop
+
+The Desktop app makes the same flow a card instead of a screen:
+
+1. **Ways in.** *Settings, Skills, New skill* opens a new conversation with the
+   `skills new` request in its message box, ready to send. The composer's `/` menu has
+   `skills new [what it should do]`, which puts the same request back in the box. The
+   engine also lists a `skills` command in its ACP `initialize` answer
+   (`HostCommandRegistry`, `new [what the skill should do]`).
+2. **The question.** When the model calls `save_skill`, the host sends a question
+   notification (`namzu/session/question`) carrying a `skillSave` payload: name,
+   description, the whole file (invisible characters shown as `<U+XXXX>`), both targets
+   with what each would replace or lose to, the warnings and the suggested target. The
+   question has three options, `user`, `project` and `cancel`, answered with
+   `namzu/session/answer-question`. It is not a permission request: no permission mode
+   and no "allow for this conversation" answers it, and anything but a pick of exactly
+   one place (cancel, an answer that does not read, the turn stopping, a closed stream)
+   saves nothing.
+3. **The card.** *Save the skill "name"?* shows the whole file in a box that
+   scrolls (never a cut of it), both places (the suggested one marked), a warning line for each skill the
+   file would replace and for each tripwire the host raised, and the buttons
+   *Save to my skills*, *Save to this project* and *Cancel* (Esc). Cancel holds the focus when the card opens, so saving takes a click.
+4. **After saving.** The result of a finished `save_skill` call (`Saved skill "name" to <path>`; the same line from any other tool draws nothing) is drawn, outside the folded work, as
+   a saved card: *usable from your next message*, with *Open Skills in Settings*; any
+   open Skills list reads the installed skills again at once and lists the new skill
+   with its on/off switch.
+
+Code: `packages/cli/src/skills/save-card.ts` (payload and the `skills` command),
+`packages/cli/src/commands/acp-desktop-question.ts` (`skillSaveConfirm`),
+`packages/desktop/src/renderer/composer-skill-save.tsx`, `skill-saved-card.tsx`.
 
 ## Learning from a task
 
@@ -419,6 +456,7 @@ returns the same statuses and counts as structured data.
 - `packages/cli/src/skills/audit.ts` — model-loader validation and manifest cost
 - `packages/cli/src/skills/directory.ts` — the directory the model is told for each skill
 - `packages/cli/src/skills/save.ts` — `save_skill`: validation, targets, atomic write
+- `packages/cli/src/skills/save-card.ts` — the Desktop card's payload and the `skills` host command
 - `packages/cli/src/tui/SaveSkillOverlay.tsx` — the confirmation screen
 - `packages/cli/src/tui/skills/learning.ts` — when a turn is proposed as a skill
 - `packages/cli/src/tui/skills/suggestion-ledger.ts` — the unused-proposal count

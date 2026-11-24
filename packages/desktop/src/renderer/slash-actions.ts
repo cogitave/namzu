@@ -30,6 +30,7 @@ export type SlashId =
 	| 'new'
 	| 'archive'
 	| 'release-notes'
+	| 'skills-new'
 
 export interface SlashDefinition extends SlashEntry {
 	readonly id: SlashId
@@ -77,6 +78,19 @@ export const SLASH_DEFINITIONS: readonly SlashDefinition[] = [
 	def('archive', 'Archive this conversation', true),
 	// Spelled as keywords: "/release notes". The id stays a code name, not a spelling.
 	{ ...def('release-notes', 'See what changed in this version', false), name: 'release notes' },
+	// Spelled as keywords too: "/skills new". Nothing is saved without a card the person answers.
+	{
+		...def(
+			'skills-new',
+			'Create a skill: Namzu interviews you, then saves it after you confirm',
+			false,
+			{
+				argHint: '[what the skill should do]',
+				aliases: ['skill', 'skills'],
+			},
+		),
+		name: 'skills new',
+	},
 ]
 
 /**
