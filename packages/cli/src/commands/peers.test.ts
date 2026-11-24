@@ -78,7 +78,7 @@ it('renders receipts in plain words with distinct exit codes', () => {
 })
 
 it('renders the listing', () => {
-	expect(renderListing([])).toBe('No Namzu sessions are running in this project.')
+	expect(renderListing([])).toBe('No Namzu sessions are running.')
 	expect(
 		renderListing(
 			[
@@ -98,7 +98,7 @@ it('renders the listing', () => {
 		),
 	).toBe(
 		[
-			'Namzu sessions in this project (1):',
+			'Namzu sessions (1):',
 			'  [idle]  ·  (unnamed session)  ·  started 7m ago',
 			'      in proj  ·  auto mode',
 			'',
@@ -370,7 +370,7 @@ const run = (h: ReturnType<typeof harness>, args: string[]) => {
 	return executePeers(parsed, h.deps, h.io)
 }
 
-it('lists every machine when the network runs, and only this folder when it does not', async () => {
+it('lists every machine when the network runs, and every folder of this computer when it does not', async () => {
 	const on = harness()
 	expect(await run(on, ['list'])).toBe(EXIT_OK)
 	expect(on.out[0]?.text).toContain('Namzu sessions (1):')
@@ -379,7 +379,7 @@ it('lists every machine when the network runs, and only this folder when it does
 	on.done()
 	const off = harness({}, false)
 	expect(await run(off, ['list'])).toBe(EXIT_OK)
-	expect(off.out[0]?.text).toBe('No Namzu sessions are running in this project.')
+	expect(off.out[0]?.text).toBe('No Namzu sessions are running.')
 	expect(off.out[0]?.value).not.toHaveProperty('machines')
 	off.done()
 })
@@ -390,7 +390,7 @@ it('tells a machine that was removed why its list has no machines', async () => 
 		summary: async () => summary({ state: 'removed', removed: true, members: 0 }),
 	})
 	expect(await run(removed, ['list'])).toBe(EXIT_OK)
-	expect(removed.out[0]?.text).toContain('No Namzu sessions are running in this project.')
+	expect(removed.out[0]?.text).toContain('No Namzu sessions are running.')
 	expect(removed.out[0]?.text).toContain('This machine was removed from your Namzu network')
 	expect(removed.out[0]?.value).toMatchObject({ network: { state: 'removed', removed: true } })
 	removed.done()
@@ -568,7 +568,7 @@ it('sends to a session on another machine, and a message held there exits 4', as
 	for (const h of [queued, held, refused, unknown]) h.done()
 })
 
-it('sends from a command line to a terminal in the same folder first, and to the network when it is not one', async () => {
+it('sends from a command line to a terminal on this computer first, and to the network when it is not one', async () => {
 	const h = harness({ send: async () => ({ status: 'queued', id: 'm1' }) })
 	const parsed = parsePeersArgs(['send', 'swift-finch', 'hello'])
 	if ('error' in parsed) throw new Error('parse')
@@ -578,7 +578,7 @@ it('sends from a command line to a terminal in the same folder first, and to the
 	// Without a running network the old words stay.
 	const off = harness({}, false)
 	expect(await run(off, ['send', 'swift-finch', 'hello'])).toBe(EXIT_FAIL)
-	expect(off.out[0]?.text).toContain('No matching terminal in this project')
+	expect(off.out[0]?.text).toContain('No matching terminal on this computer')
 	h.done()
 	off.done()
 })

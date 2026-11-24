@@ -38,7 +38,7 @@ import type { NetworkControl, NetworkSummary } from '../integrations/network/typ
 import {
 	type PeerListing,
 	type PeerSendReceipt,
-	listProjectTerminals,
+	listLocalTerminals,
 	localStartTimes,
 	sendToTerminal,
 } from '../integrations/peers/send-once.js'
@@ -373,8 +373,6 @@ export function renderListing(
 		{
 			now: options.now ?? Date.now(),
 			columns: options.columns,
-			scope: 'in this project',
-			emptyText: 'No Namzu sessions are running in this project.',
 		},
 	)
 }
@@ -482,7 +480,7 @@ export async function executePeers(
 	const settings = networkSettings(deps.config)
 	switch (parsed.verb) {
 		case 'list': {
-			const peers = await listProjectTerminals(base).catch(() => [] as PeerListing[])
+			const peers = await listLocalTerminals(base).catch(() => [] as PeerListing[])
 			let view: RosterView | undefined
 			if (deps.leaderUp()) {
 				try {
@@ -658,7 +656,7 @@ export async function executePeers(
 				status: 'refused',
 				reason: deps.leaderUp()
 					? `No session called "${parsed.target}" on your machines. \`namzu peers list\` shows the names.`
-					: 'No matching terminal in this project. Run namzu peers list.',
+					: 'No matching terminal on this computer. Run namzu peers list.',
 			}
 			io.print({ ...receipt, mode }, renderReceipt(receipt))
 			return receiptExitCode(receipt)

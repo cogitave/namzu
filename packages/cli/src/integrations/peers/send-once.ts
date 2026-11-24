@@ -20,13 +20,14 @@ import {
 	udsPeerAddress,
 	writePeerRecord,
 } from '@namzu/sdk'
+import { tildeFolder } from '../network/session-list.js'
 import { resolvePeerRuntime } from './runtime.js'
 
 /**
  * One message from a command line to a live terminal, without opening a TUI.
  *
  * The sender is a short-lived `cli` record in the same registry a terminal
- * writes: same project folder, same runtime directory, and the permission mode
+ * writes: same runtime directory, and the permission mode
  * it declares. The receiver checks all three exactly as it does for a terminal,
  * and shows the mail as coming from a command line, never as the operator.
  */
@@ -64,13 +65,10 @@ export interface PeerCommandOptions {
 	readonly env?: NodeJS.ProcessEnv
 }
 
-/** The listed sessions: live terminals in this project, never their tokens or addresses. */
-export async function listProjectTerminals(options: PeerCommandOptions): Promise<PeerListing[]> {
+/** The listed sessions: every live terminal of this user on this computer, any folder, never their tokens or addresses. */
+export async function listLocalTerminals(options: PeerCommandOptions): Promise<PeerListing[]> {
 	const runtime = resolvePeerRuntime(options.home, options.env ?? process.env)
-	const cwd = realpathSync(options.cwd)
-	const records = readPeerRecords(runtime.sessionsDir).filter(
-		(peer) => peer.cwd === cwd && peer.kind === 'tui',
-	)
+	const records = readPeerRecords(runtime.sessionsDir).filter((peer) => peer.kind === 'tui')
 	const live = await Promise.all(
 		records.map(async (peer) => ((await isPeerRecordLive(peer)) ? peer : undefined)),
 	)
@@ -84,7 +82,7 @@ export async function listProjectTerminals(options: PeerCommandOptions): Promise
 			state: peer.state,
 			mode: peer.permissionMode,
 			acceptsMessages: peer.acceptsMessages,
-			folder: basename(cwd),
+			folder: tildeFolder(peer.cwd),
 			named: peer.title !== undefined && peer.title !== basename(peer.cwd),
 			startedAt: peer.startedAt,
 			...(peer.role ? { role: peer.role } : {}),
@@ -130,7 +128,6 @@ export async function sendToTerminal(
 	const cwd = realpathSync(options.cwd)
 	const candidates = readPeerRecords(runtime.sessionsDir).filter(
 		(peer) =>
-			peer.cwd === cwd &&
 			peer.kind === 'tui' &&
 			(peer.sessionId === options.target ||
 				peer.ref === options.target ||
@@ -139,8 +136,8 @@ export async function sendToTerminal(
 	if (candidates.length !== 1 || !candidates[0])
 		return refused(
 			candidates.length
-				? 'The target matches more than one terminal; use its ref.'
-				: 'No matching terminal in this project. Run namzu peers list.',
+				? `The target matches more than one terminal; use its ref. It matches: ${candidates.map((peer) => `${peer.ref} (${peer.cwd})`).join(', ')}.`
+				: 'No matching terminal on this computer. Run namzu peers list.',
 		)
 	const peer = candidates[0]
 	if (!peer.acceptsMessages)

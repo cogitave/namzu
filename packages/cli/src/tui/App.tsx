@@ -14613,7 +14613,6 @@ function AppBody({
 										formatSessionList(rowsFromLocalList(localList), {
 											now: Date.now(),
 											columns: (terminal.columns ?? 80) - SCREEN_MARGIN - 4,
-											scope: 'in this project',
 										}),
 										...(peers.enabled && peers.pending === 0
 											? []

@@ -15,6 +15,7 @@ import {
 	ageWord,
 	formatSessionList,
 	rowsFromLocalList,
+	tildeFolder,
 } from './session-list.js'
 import type { NetworkSummary } from './types.js'
 
@@ -640,6 +641,13 @@ describe('the session list', () => {
 		).toContain('  [online]  ·  solo  ·  this machine  ·  role: orchestrator')
 	})
 
+	it('shows a folder under home with a ~', () => {
+		expect(tildeFolder('/home/me/work/proj', '/home/me')).toBe('~/work/proj')
+		expect(tildeFolder('/home/me', '/home/me')).toBe('~')
+		expect(tildeFolder('/home/meal/x', '/home/me')).toBe('/home/meal/x')
+		expect(tildeFolder('/srv/proj', '/home/me')).toBe('/srv/proj')
+	})
+
 	it('builds rows from what list_sessions reports, treating the folder name as no name', () => {
 		const rows = rowsFromLocalList([
 			{ ref: 'aaaaaa', title: 'proj', cwd: '/work/proj', state: 'idle', started_at: 5, self: true },
@@ -651,7 +659,7 @@ describe('the session list', () => {
 				permission_mode: 'auto',
 			},
 		])
-		expect(rows[0]).toMatchObject({ named: false, folder: 'proj', startedAt: 5, self: true })
+		expect(rows[0]).toMatchObject({ named: false, folder: '/work/proj', startedAt: 5, self: true })
 		expect(rows[1]).toMatchObject({ named: true, mode: 'auto', state: 'running' })
 	})
 })

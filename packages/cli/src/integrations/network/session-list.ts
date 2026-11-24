@@ -1,3 +1,4 @@
+import { homedir } from 'node:os'
 import { basename } from 'node:path'
 import { type RosterView, permissionModeWord } from '@namzu/sdk'
 
@@ -236,17 +237,25 @@ const text = (value: unknown): string | undefined =>
  * Rows from what `list_sessions` reports (a live-session record's fields, or a network roster row's). A name
  * equal to the folder's own name is the default title, so it counts as no name.
  */
+/** A folder as a person writes it: under home it starts with `~`, anywhere else it is the full path. */
+export function tildeFolder(path: string, home: string = homedir()): string {
+	if (home && (path === home || path.startsWith(`${home}/`) || path.startsWith(`${home}\\`)))
+		return `~${path.slice(home.length)}`
+	return path
+}
+
 export function rowsFromLocalList(list: readonly Record<string, unknown>[]): SessionRow[] {
 	return list.map((entry) => {
 		const cwd = text(entry.cwd)
-		const folder = text(entry.folder) ?? (cwd ? basename(cwd) : undefined)
+		const folder = text(entry.folder) ?? (cwd ? tildeFolder(cwd) : undefined)
+		const own = cwd ? basename(cwd) : folder
 		const name = text(entry.title) ?? text(entry.name) ?? String(entry.ref ?? '')
 		const mode = text(entry.permission_mode)
 		const role = text(entry.role)
 		return {
 			ref: String(entry.ref ?? ''),
 			name,
-			named: name !== folder && name !== entry.ref,
+			named: name !== own && name !== entry.ref,
 			...(folder ? { folder } : {}),
 			state: text(entry.state) ?? 'idle',
 			...(typeof entry.started_at === 'number' ? { startedAt: entry.started_at } : {}),

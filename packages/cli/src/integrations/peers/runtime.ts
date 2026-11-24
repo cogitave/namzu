@@ -483,14 +483,10 @@ export async function openLivePeers(options: LivePeersOptions) {
 		const person = sender?.kind === 'person'
 		// The person's own message names the conversation it meant, so it is checked by what it
 		// is addressed to, not by the folder: a terminal in another folder can be the right one.
-		if (
-			!sender ||
-			(sender.kind !== 'tui' && sender.kind !== 'cli' && !person) ||
-			(!person && sender.cwd !== cwd)
-		)
+		if (!sender || (sender.kind !== 'tui' && sender.kind !== 'cli' && !person))
 			return {
 				status: 'refused',
-				reason: 'Only live terminals in the same project may send here.',
+				reason: 'Only live Namzu terminals of this user on this computer may send here.',
 			}
 		if (person) {
 			// A person's message comes from outside every Namzu session. A command a model ran through its
@@ -651,9 +647,8 @@ export async function openLivePeers(options: LivePeersOptions) {
 		}
 		// A failed ping is an unavailable observation, not permission to delete
 		// another running process's endpoint (or a replaced registry record).
-		const records = readPeerRecords(runtime.sessionsDir).filter(
-			(peer) => peer.cwd === cwd && peer.kind === 'tui',
-		)
+		// Every live terminal of this user on this computer, whatever its folder.
+		const records = readPeerRecords(runtime.sessionsDir).filter((peer) => peer.kind === 'tui')
 		const live = await Promise.all(
 			records.map(async (peer) => ((await isPeerRecordLive(peer)) ? peer : undefined)),
 		)
@@ -683,14 +678,13 @@ export async function openLivePeers(options: LivePeersOptions) {
 		if (!enabled) return { status: 'refused', reason: 'Peer messaging is off.' }
 		const candidates = readPeerRecords(runtime.sessionsDir).filter(
 			(peer) =>
-				peer.cwd === cwd &&
 				peer.kind === 'tui' &&
 				(peer.sessionId === target ||
 					peer.ref === target ||
 					peer.title === target ||
 					peer.address === target),
 		)
-		// A name that is not a terminal in this project may be a session on another machine of this person's
+		// A name that is not a terminal on this computer may be a session on another machine of this person's
 		// network (`machine/name` always is).
 		const net = options.network?.()
 		if (net && (candidates.length === 0 || target.includes('/'))) {
@@ -713,8 +707,8 @@ export async function openLivePeers(options: LivePeersOptions) {
 			return {
 				status: 'refused',
 				reason: candidates.length
-					? 'Target is ambiguous; use its exact live session id.'
-					: 'No matching terminal in this project. Use list_sessions.',
+					? `Target is ambiguous; use its exact live session id or ref. It matches: ${candidates.map((peer) => `${peer.ref} (${peer.cwd})`).join(', ')}.`
+					: 'No matching terminal on this computer. Use list_sessions.',
 			}
 		const peer = candidates[0]
 		if (!peer) return { status: 'refused', reason: 'No matching terminal.' }
@@ -919,7 +913,7 @@ export function buildPeerTools(current: () => LivePeers | null) {
 		defineTool({
 			name: 'list_sessions',
 			description:
-				'List live terminals for peer messaging: the ones in this project and, when your Namzu network is on, the sessions on your other machines (machine, name, folder, state, permission mode, role). These are independent processes, not child tasks or archived conversations. Tokens are never returned.',
+				'List live terminals for peer messaging: the ones on this computer, in any folder, and, when your Namzu network is on, the sessions on your other machines (machine, name, folder, state, permission mode, role). These are independent processes, not child tasks or archived conversations. Tokens are never returned.',
 			inputSchema: mcpJsonSchemaToZod({
 				type: 'object',
 				properties: {},

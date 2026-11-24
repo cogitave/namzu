@@ -40,7 +40,7 @@ choice.
 
 ## From a command line
 
-`namzu peers` reaches a live terminal without opening one, for a script or a second shell in the same folder:
+`namzu peers` reaches a live terminal without opening one, for a script or a second shell:
 
 ```sh
 namzu peers list [--json]
@@ -49,7 +49,7 @@ namzu peers send <ref|id|title|machine/name> <message...> [--json] [--mode <mode
 
 The other verbs (`status`, `on`, `off`, `allow`, `deny`, `remove`, `rename`, `role`, `add`, `join`, `log`) manage [your Namzu network](namzu-network.md#from-a-command-line). A bare `namzu peers` is `namzu peers list`.
 
-`list` prints the live terminals in this project: reference, title, state and permission mode. When your Namzu network is running it prints every machine's sessions instead (name, project folder, state, mode, role). `send` takes the message as words, or from `--file` (`-` reads standard input) to keep line breaks and any language intact; words and `--file` do not mix. Flags may stand anywhere, and `--` ends them.
+`list` prints every live terminal of this user on this computer, in any folder, as the counted `Namzu sessions (N):` list (state, name, start time, then folder and permission mode). A terminal is reachable by its name or ref from any folder; a name two folders share is refused with the candidates. When your Namzu network is running it prints every machine's sessions instead (name, project folder, state, mode, role). `send` takes the message as words, or from `--file` (`-` reads standard input) to keep line breaks and any language intact; words and `--file` do not mix. Flags may stand anywhere, and `--` ends them.
 
 The command is a short-lived sender with its own identity: it writes a `cli` record in the same registry, listens only for the receiver's check, and removes the record when it exits. The receiver applies the same rules as for a terminal: same canonical project, same account and runtime directory, same permission mode. `--mode` states the mode this command acts under; without it, the mode a new terminal would plan to start in here: `permissions.defaultMode`, else `auto` unless `permissions.disableAutoMode` is set, else `prompt`. So a plain send reaches a terminal that started in its default. A terminal that started in `prompt` because auto could not be used there (its classifier cannot reach a model) is reached with `--mode prompt`. A different mode is not refused: the receiving terminal **holds** the message for its person (see [A different mode is held](#a-different-mode-is-held)). The mail reaches the model as from a command-line sender, not a terminal, and never as operator text or approval. A command-line sender takes no messages and is not listed.
 
@@ -123,8 +123,7 @@ Automatic goal rounds retain their separate goal-driver continuation policy.
 The transcript attributes peer text to the other terminal. Durable history uses
 `runtime-context/peer-message`; peer text is never an operator message or
 approval. The receiving terminal retains its own rules, mode, budgets and
-credentials. Automatic acceptance requires a verified live TUI sender in the
-same project and the same permission mode (a terminal, or a command-line sender from `namzu peers send`), and a receiver that is not in bypass. Anything else
+credentials. Automatic acceptance requires a verified live TUI sender of this user on this computer (any folder) and the same permission mode (a terminal, or a command-line sender from `namzu peers send`), and a receiver that is not in bypass. Anything else
 is held, not treated as consent (below). The receiver checks its current mode again before an idle wake consumes mail and
 before busy-turn delivery. If the mode changes after acceptance, incompatible
 pending mail is discarded with a local notice, not replayed under the new mode;
