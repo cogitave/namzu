@@ -24,7 +24,10 @@ name in `~/.agents/skills`, `~/.namzu/skills` or the project shadows it.
   failing case and checked before it is reported.
 - `document` — writing a document as one well-structured Markdown file in the
   project, with a short list of assumptions and open questions in the reply.
-  Word, PDF, slides and spreadsheets are not offered yet.
+  It routes a PDF to `pdf`; Word, slides and spreadsheets are not made.
+- `pdf` — read, extract from, merge, split or make a PDF with the tools the
+  machine has: probe first, never install, read every result back, and say
+  plainly what is missing.
 
 Each is a single `SKILL.md`. A built-in that bundles files (`scripts/`,
 `references/`) must not depend on them under the sandbox: the installed
