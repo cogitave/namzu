@@ -52,11 +52,16 @@ describe('teams gate', () => {
 		expect(teamsEnabled(input)).toBe(false)
 	})
 
-	it('has limits of 5 teammates and 30 idle minutes unless set', () => {
-		expect(teamsLimits(undefined)).toEqual({ maxTeammates: 5, idleExitMinutes: 30 })
-		expect(teamsLimits({ maxTeammates: 3, idleExitMinutes: 10 })).toEqual({
+	it('has limits of 5 teammates, 30 idle minutes and a 20 second shutdown wait unless set', () => {
+		expect(teamsLimits(undefined)).toEqual({
+			maxTeammates: 5,
+			idleExitMinutes: 30,
+			shutdownGraceSeconds: 20,
+		})
+		expect(teamsLimits({ maxTeammates: 3, idleExitMinutes: 10, shutdownGraceSeconds: 5 })).toEqual({
 			maxTeammates: 3,
 			idleExitMinutes: 10,
+			shutdownGraceSeconds: 5,
 		})
 	})
 })

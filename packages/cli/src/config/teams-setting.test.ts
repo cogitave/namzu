@@ -56,7 +56,12 @@ describe('teams settings', () => {
 	})
 
 	it('have a row each in Settings, off and 5 and 30 by default', () => {
-		for (const key of ['teams.enabled', 'teams.maxTeammates', 'teams.idleExitMinutes']) {
+		for (const key of [
+			'teams.enabled',
+			'teams.maxTeammates',
+			'teams.idleExitMinutes',
+			'teams.shutdownGraceSeconds',
+		]) {
 			const row = findSetting(key)
 			expect(row, key).toBeDefined()
 			expect(row?.keywords, key).toContain('teams')
@@ -64,5 +69,6 @@ describe('teams settings', () => {
 		expect(findSetting('teams.enabled')?.default).toBe(false)
 		expect(findSetting('teams.maxTeammates')?.default).toBe(5)
 		expect(findSetting('teams.idleExitMinutes')?.default).toBe(30)
+		expect(findSetting('teams.shutdownGraceSeconds')?.default).toBe(20)
 	})
 })

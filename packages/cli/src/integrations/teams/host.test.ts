@@ -11,7 +11,11 @@ describe('the teams host a session builds', () => {
 		config = { enabled: true }
 		expect(host.enabled()).toMatchObject({ enabled: true })
 		config = { enabled: true, maxTeammates: 3, idleExitMinutes: 2 }
-		expect(host.limits()).toEqual({ maxTeammates: 3, idleExitMinutes: 2 })
+		expect(host.limits()).toEqual({
+			maxTeammates: 3,
+			idleExitMinutes: 2,
+			shutdownGraceSeconds: 20,
+		})
 	})
 
 	it('NAMZU_TEAMS=0 stops it whatever the setting says', () => {

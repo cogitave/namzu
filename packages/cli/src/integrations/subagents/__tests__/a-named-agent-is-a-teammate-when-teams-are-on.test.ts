@@ -79,6 +79,18 @@ function script(requests: ChatCompletionParams[]): (params: ChatCompletionParams
 			return { text: 'sent' }
 		}
 		const lastText = String(last?.content ?? '')
+		if (lastText.includes('shutdown request') && lastText.includes('wrap up approve'))
+			return { toolCalls: [{ id: 'bye', name: 'shutdown_response', args: { approve: true } }] }
+		if (lastText.includes('shutdown request') && lastText.includes('wrap up refuse'))
+			return {
+				toolCalls: [
+					{
+						id: 'no',
+						name: 'shutdown_response',
+						args: { approve: false, reason: 'one file is half written' },
+					},
+				],
+			}
 		if (lastText.includes('the answer is 42')) {
 			return {
 				toolCalls: [
@@ -131,7 +143,11 @@ async function setup(options: { enabled: boolean; maxTeammates?: number; hold?: 
 				hold.enabled
 					? { enabled: true, source: 'setting' }
 					: { enabled: false, reason: 'disabled', text: 'off' },
-			limits: () => ({ maxTeammates: options.maxTeammates ?? 5, idleExitMinutes: 30 }),
+			limits: () => ({
+				maxTeammates: options.maxTeammates ?? 5,
+				idleExitMinutes: 30,
+				shutdownGraceSeconds: 20,
+			}),
 			store,
 			taskStoreFor: () => tasks,
 			// No timer is needed here: nothing in this test waits for time to pass.
@@ -413,6 +429,54 @@ it('with teams on, an unnamed call is still a plain sub-agent', async () => {
 		expect(result.success).toBe(true)
 		expect(result.output).not.toContain('Teammate')
 		expect(t.store.listTeams()).toEqual([])
+	} finally {
+		await t.close()
+	}
+})
+
+it('the lead asks a teammate to shut down: it approves, leaves the team and its name is free', async () => {
+	const t = await setup({ enabled: true })
+	try {
+		const first = t.nextCompletion()
+		await t.runtime.agentTool.execute(spawnCall('bob', 'Work B'), t.context)
+		await first
+		const second = t.nextCompletion()
+		const asked = await t.runtime.sendMessageTool.execute(
+			{ task_id: 'bob', message: 'wrap up approve', shutdown: true },
+			t.context,
+		)
+		expect(asked.success).toBe(true)
+		expect(asked.output).toContain('Shutdown requested')
+		await second
+		expect(t.messages.at(-1)).toMatchObject({ agentId: 'bob', description: 'shutdown approved' })
+		expect(t.store.readTeam(t.team)?.members).toEqual([])
+		// What bob read says it is a request from another session, and how to answer.
+		const handed = t.requests
+			.map((r) => JSON.stringify(r.messages))
+			.find((text) => text.includes('wrap up approve'))
+		expect(handed).toContain('shutdown_response')
+		expect(handed).toContain('not the person')
+		const again = await t.runtime.agentTool.execute(spawnCall('bob', 'Work B'), t.context)
+		expect(again.success).toBe(true)
+	} finally {
+		await t.close()
+	}
+})
+
+it('a teammate that refuses a shutdown stays in the team, and the lead gets its reason', async () => {
+	const t = await setup({ enabled: true })
+	try {
+		const first = t.nextCompletion()
+		await t.runtime.agentTool.execute(spawnCall('bob', 'Work B'), t.context)
+		await first
+		const second = t.nextCompletion()
+		await t.runtime.sendMessageTool.execute(
+			{ task_id: 'bob', message: 'wrap up refuse', shutdown: true },
+			t.context,
+		)
+		await second
+		expect(t.messages.at(-1)?.text).toContain('one file is half written')
+		expect(t.store.readTeam(t.team)?.members.map((m) => m.name)).toEqual(['bob'])
 	} finally {
 		await t.close()
 	}

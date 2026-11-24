@@ -1941,7 +1941,7 @@ export async function createSubagentRuntime(
 	// reaches only the main conversation.
 	const teammateOpts: SubagentRuntimeOptions = {
 		...opts,
-		childExtraTools: () => [toolset('team:message', [teammateMessageTool])],
+		childExtraTools: () => [toolset('team:message', [teammateMessageTool, teammateShutdownTool])],
 	}
 	const registerSpecialist = (input: {
 		readonly fileAgent: AgentFileDefinition | undefined
@@ -2826,6 +2826,11 @@ export async function createSubagentRuntime(
 					maxLength: 16000,
 					description: 'Correction or additional context for this task.',
 				},
+				shutdown: {
+					type: 'boolean',
+					description:
+						'Teammates only: ask this teammate to shut down. The message is the reason. It finishes its current step and approves or refuses; if it does not answer within teams.shutdownGraceSeconds it is stopped.',
+				},
 			},
 			required: ['task_id', 'message'],
 			additionalProperties: false,
@@ -2837,9 +2842,10 @@ export async function createSubagentRuntime(
 		concurrencySafe: false,
 		async execute(input, context) {
 			context.abortSignal.throwIfAborted()
-			const { task_id, message } = input as {
+			const { task_id, message, shutdown } = input as {
 				task_id: string
 				message: string
+				shutdown?: boolean
 			}
 			if (!message.trim())
 				return {
@@ -2879,6 +2885,24 @@ export async function createSubagentRuntime(
 				const target = teammateOwner.teammate
 				await teamTurnFor(context)
 				try {
+					if (shutdown === true) {
+						const asked = await teamRunner.requestShutdown({
+							leadSessionId: target.lead,
+							name: target.name,
+							reason: message,
+						})
+						return {
+							success: true,
+							output: asked.immediate
+								? `Teammate ${target.name} was not running and has left the team.`
+								: `Shutdown requested of teammate ${target.name}. It finishes its current step and approves or refuses; it is stopped if it has not answered in ${asked.graceSeconds} seconds. Its answer reaches you as a message.`,
+							data: {
+								task_id: teammateOwner.publicTaskId,
+								status: 'shutdown_requested',
+								teammate: target.name,
+							},
+						}
+					}
 					await teamRunner.send({
 						leadSessionId: target.lead,
 						from: 'lead',
@@ -3488,6 +3512,34 @@ export async function createSubagentRuntime(
 		})
 	}
 
+	/** Hand a teammate's message to whatever shows the lead's conversation. */
+	const showLead = (
+		found: { viewId: string; owned: OwnedConversation } | undefined,
+		from: string,
+		team: string,
+		summary: string,
+		text: string,
+	): void => {
+		const target = found?.owned.teammate
+		if (!found || !target) return
+		const shown = activity.getSnapshot().find((entry) => entry.viewId === found.viewId)
+		for (const listener of [...childMessageListeners]) {
+			try {
+				listener({
+					parentSessionId: target.lead,
+					viewId: found.viewId,
+					agentId: from,
+					description: summary,
+					...(shown?.taskId ? { taskId: shown.taskId } : {}),
+					text,
+					teammate: { team, name: from },
+				})
+			} catch {
+				// One listener failing must not hide the message from the rest.
+			}
+		}
+	}
+
 	const teamEngine: TeammateEngine = {
 		async launch(spec: TeammateStartSpec & { readonly leadSessionId: string }) {
 			const pending = launching.get(spec.member.name)
@@ -3523,6 +3575,9 @@ export async function createSubagentRuntime(
 		abort(team: string, name: string) {
 			const found = findTeammate(team, name)
 			if (found) stopChild(found.viewId)
+		},
+		tellLead(team: string, from: string, summary: string, text: string) {
+			showLead(findTeammate(team, from), from, team, summary, text)
 		},
 		isRunning(team: string, name: string) {
 			const found = findTeammate(team, name)
@@ -3650,27 +3705,70 @@ export async function createSubagentRuntime(
 				return refuse(error instanceof Error ? error.message : String(error))
 			}
 			if (toLead) {
-				for (const listener of [...childMessageListeners]) {
-					try {
-						listener({
-							parentSessionId: self.lead,
-							viewId: shown.viewId,
-							// The sender as the lead reads it: the teammate's own name.
-							agentId: self.name,
-							description: summary ?? `teammate ${self.name}`,
-							...(shown.taskId ? { taskId: shown.taskId } : {}),
-							text: message,
-							teammate: { team: self.team, name: self.name },
-						})
-					} catch {
-						// One listener failing must not hide the message from the rest.
-					}
-				}
+				showLead(
+					{ viewId: shown.viewId, owned },
+					self.name,
+					self.team,
+					summary ?? `teammate ${self.name}`,
+					message,
+				)
 				return { success: true, output: 'Sent to the lead; it reads it with its next turn.' }
 			}
 			return {
 				success: true,
 				output: `Sent to ${to}. It reads it at its next step, resuming first if it was idle.`,
+			}
+		},
+	})
+
+	/** A teammate's answer to the lead's shutdown request: approve and stop after this step, or refuse with a reason. */
+	const teammateShutdownTool = defineTool({
+		name: 'shutdown_response',
+		description:
+			'Answer a shutdown request from the lead. approve: true means you will stop after your current step (finish the call you are on first, do not start new work). approve: false keeps you working and needs a reason, for example work that would be lost. Use it only when a shutdown request is waiting; if you do not answer in time you are stopped anyway.',
+		inputSchema: mcpJsonSchemaToZod({
+			type: 'object',
+			properties: {
+				approve: { type: 'boolean', description: 'True to shut down, false to refuse.' },
+				reason: {
+					type: 'string',
+					maxLength: 2000,
+					description: 'Required when refusing; optional when approving (what is left undone).',
+				},
+			},
+			required: ['approve'],
+			additionalProperties: false,
+		}),
+		category: 'custom',
+		permissions: [],
+		readOnly: true,
+		destructive: false,
+		concurrencySafe: true,
+		async execute(args, context) {
+			context.abortSignal.throwIfAborted()
+			const { approve, reason } = args as { approve: boolean; reason?: string }
+			const refuse = (error: string): ToolResult => ({ success: false, output: '', error })
+			const shown = activity
+				.getSnapshot()
+				.find((entry) => entry.sessionId === String(context.sessionId))
+			const self = shown ? conversations.get(shown.viewId)?.teammate : undefined
+			if (!self || closed || !teamRunner || shown?.stoppedBy !== undefined)
+				return refuse('Not sent. You are not a teammate of a running team, or you were stopped.')
+			try {
+				teamRunner.respondShutdown({
+					team: self.team,
+					name: self.name,
+					approve,
+					...(reason ? { reason } : {}),
+				})
+			} catch (error) {
+				return refuse(error instanceof Error ? error.message : String(error))
+			}
+			return {
+				success: true,
+				output: approve
+					? 'Approved. Stop after your current step: start nothing new and end your turn.'
+					: 'Refused. The lead has your reason; carry on with your work.',
 			}
 		},
 	})

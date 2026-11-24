@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 import {
+	CHAIN_LIMIT,
 	IDLE_POLL_MS,
 	SEND_LIMIT,
 	TeamError,
@@ -61,6 +62,7 @@ function fakeEngine() {
 	const launched: string[] = []
 	const delivered: { name: string; text: string }[] = []
 	const aborted: string[] = []
+	const told: { from: string; summary: string; text: string }[] = []
 	const running = new Set<string>()
 	let failLaunch: Error | undefined
 	let waiter: ((entry: { name: string; text: string }) => void) | undefined
@@ -81,12 +83,16 @@ function fakeEngine() {
 			running.delete(name)
 		},
 		isRunning: (_team, name) => running.has(name),
+		tellLead: (_team, from, summary, text) => {
+			told.push({ from, summary, text })
+		},
 	}
 	return {
 		engine,
 		launched,
 		delivered,
 		aborted,
+		told,
 		running,
 		failNextLaunch(error: Error) {
 			failLaunch = error
@@ -105,7 +111,9 @@ function fakeEngine() {
 	}
 }
 
-function setup(options: { maxTeammates?: number; idleExitMinutes?: number } = {}) {
+function setup(
+	options: { maxTeammates?: number; idleExitMinutes?: number; shutdownGraceSeconds?: number } = {},
+) {
 	const root = mkdtempSync(join(tmpdir(), 'namzu-team-runner-'))
 	roots.push(root)
 	const store = new TeamStore({ rootDir: join(root, 'teams') })
@@ -118,6 +126,7 @@ function setup(options: { maxTeammates?: number; idleExitMinutes?: number } = {}
 			limits: () => ({
 				maxTeammates: options.maxTeammates ?? 5,
 				idleExitMinutes: options.idleExitMinutes ?? 30,
+				shutdownGraceSeconds: options.shutdownGraceSeconds ?? 20,
 			}),
 			store,
 			taskStoreFor: () => tasks,
@@ -473,3 +482,163 @@ async function flush(): Promise<void> {
 async function untilDeliveries(fake: ReturnType<typeof fakeEngine>, count: number): Promise<void> {
 	while (fake.delivered.length < count) await fake.nextDelivery()
 }
+
+describe('a shutdown request', () => {
+	it('is mail from the lead, resumes nothing it need not, and the teammate can approve it', async () => {
+		const t = setup()
+		await t.spawn('alice')
+		const asked = await t.runner.requestShutdown({
+			leadSessionId: LEAD,
+			name: 'alice',
+			reason: 'done for today',
+		})
+		expect(asked).toMatchObject({ team: t.team, graceSeconds: 20, immediate: false })
+		const mail = t.fake.delivered.at(-1)?.text ?? ''
+		expect(mail).toContain('shutdown request')
+		expect(mail).toContain('not the person')
+		expect(mail).toContain('done for today')
+		expect(t.mailTo('alice')[0]).toMatchObject({ from: 'lead', kind: 'shutdown_request' })
+		t.runner.respondShutdown({ team: t.team, name: 'alice', approve: true })
+		expect(t.fake.told.at(-1)?.summary).toBe('shutdown approved')
+		expect(t.mailTo('lead').at(-1)).toMatchObject({ from: 'alice', kind: 'shutdown_response' })
+		// The member leaves when its turn ends, and its name is free again.
+		t.runner.turnEnded(t.team, 'alice', { state: 'completed' })
+		expect(t.runner.stateOf(t.team, 'alice')).toBeUndefined()
+		expect(t.store.readTeam(t.team)?.members).toEqual([])
+		expect(t.clock.armed()).toBe(0)
+		await expect(t.spawn('alice')).resolves.toBeDefined()
+	})
+
+	it('stops a teammate that does not answer within the grace and frees its name', async () => {
+		const t = setup({ shutdownGraceSeconds: 20 })
+		await t.spawn('alice')
+		await t.runner.requestShutdown({ leadSessionId: LEAD, name: 'alice' })
+		await t.clock.advance(19_000)
+		expect(t.fake.aborted).toEqual([])
+		await t.clock.advance(1_000)
+		expect(t.fake.aborted).toEqual(['alice'])
+		expect(t.runner.stateOf(t.team, 'alice')).toBeUndefined()
+		expect(t.store.readTeam(t.team)?.members).toEqual([])
+		expect(t.fake.told.at(-1)?.summary).toBe('shutdown forced')
+	})
+
+	it('a refusal keeps the teammate working, with its reason to the lead, and no forced stop', async () => {
+		const t = setup()
+		await t.spawn('alice')
+		await t.runner.requestShutdown({ leadSessionId: LEAD, name: 'alice' })
+		expect(() => t.runner.respondShutdown({ team: t.team, name: 'alice', approve: false })).toThrow(
+			/why/,
+		)
+		t.runner.respondShutdown({
+			team: t.team,
+			name: 'alice',
+			approve: false,
+			reason: 'half-way through a migration',
+		})
+		expect(t.fake.told.at(-1)?.text).toContain('half-way through a migration')
+		await t.clock.advance(60_000)
+		expect(t.fake.aborted).toEqual([])
+		expect(t.runner.stateOf(t.team, 'alice')).toBe('busy')
+		// With nothing waiting, a later answer is refused.
+		expect(() => t.runner.respondShutdown({ team: t.team, name: 'alice', approve: true })).toThrow(
+			TeamError,
+		)
+	})
+
+	it('wakes an idle teammate to read it, and one that ended idle just leaves', async () => {
+		const t = setup({ idleExitMinutes: 1 })
+		await t.spawn('alice')
+		await t.spawn('bob')
+		t.runner.turnEnded(t.team, 'alice', { state: 'completed' })
+		await flush()
+		await t.runner.requestShutdown({ leadSessionId: LEAD, name: 'alice' })
+		expect(t.runner.stateOf(t.team, 'alice')).toBe('busy')
+		t.runner.turnEnded(t.team, 'bob', { state: 'completed' })
+		await flush()
+		await t.clock.advance(2 * 60_000)
+		await flush()
+		expect(t.runner.stateOf(t.team, 'bob')).toBe('inactive')
+		const asked = await t.runner.requestShutdown({ leadSessionId: LEAD, name: 'bob' })
+		expect(asked.immediate).toBe(true)
+		expect(t.runner.stateOf(t.team, 'bob')).toBeUndefined()
+	})
+
+	it('asking twice does not hand over a second request or restart the grace', async () => {
+		const t = setup()
+		await t.spawn('alice')
+		await t.runner.requestShutdown({ leadSessionId: LEAD, name: 'alice' })
+		const before = t.fake.delivered.length
+		await t.runner.requestShutdown({ leadSessionId: LEAD, name: 'alice' })
+		expect(t.fake.delivered).toHaveLength(before)
+		expect(t.clock.armed()).toBe(1)
+	})
+
+	it('refuses for a name that is not a teammate', async () => {
+		const t = setup()
+		await t.spawn('alice')
+		await expect(
+			t.runner.requestShutdown({ leadSessionId: LEAD, name: 'nobody' }),
+		).rejects.toMatchObject({ code: 'unknown_recipient' })
+	})
+
+	it('ending the lead leaves no grace timer armed', async () => {
+		const t = setup()
+		await t.spawn('alice')
+		await t.runner.requestShutdown({ leadSessionId: LEAD, name: 'alice' })
+		t.runner.end(LEAD)
+		expect(t.clock.armed()).toBe(0)
+	})
+})
+
+describe('teammates answering each other', () => {
+	it('stops a loop after the limit, tells the lead once, and starts again with new work', async () => {
+		const t = setup()
+		await t.spawn('alice')
+		await t.spawn('bob')
+		const bounce = async (from: string, to: string) =>
+			t.runner.send({ leadSessionId: LEAD, from, to, text: 'your turn' })
+		for (let i = 0; i < CHAIN_LIMIT; i++) {
+			await t.clock.advance(10_000)
+			await bounce(i % 2 === 0 ? 'alice' : 'bob', i % 2 === 0 ? 'bob' : 'alice')
+		}
+		await t.clock.advance(10_000)
+		await expect(bounce('alice', 'bob')).rejects.toMatchObject({ code: 'loop' })
+		await expect(bounce('bob', 'alice')).rejects.toMatchObject({ code: 'loop' })
+		expect(t.fake.told.filter((n) => n.summary.includes('loop'))).toHaveLength(1)
+		expect(t.mailTo('lead').filter((m) => m.text.includes('in a row'))).toHaveLength(1)
+		// The lead stepping in starts the count again.
+		await t.runner.send({ leadSessionId: LEAD, from: 'lead', to: 'alice', text: 'go on' })
+		await expect(bounce('alice', 'bob')).resolves.toBeDefined()
+	})
+
+	it('a claimed task counts as new work', async () => {
+		const t = setup()
+		await t.spawn('alice')
+		await t.spawn('bob')
+		for (let i = 0; i < CHAIN_LIMIT; i++) {
+			await t.clock.advance(10_000)
+			await t.runner.send({ leadSessionId: LEAD, from: 'alice', to: 'bob', text: 'x' })
+		}
+		await t.tasks.create(taskParams('next'))
+		t.runner.turnEnded(t.team, 'bob', { state: 'completed' })
+		await flush()
+		await flush()
+		await t.clock.advance(10_000)
+		await expect(
+			t.runner.send({ leadSessionId: LEAD, from: 'alice', to: 'bob', text: 'y' }),
+		).resolves.toBeDefined()
+	})
+
+	it('mail to the lead is never counted', async () => {
+		const t = setup()
+		await t.spawn('alice')
+		await t.spawn('bob')
+		for (let i = 0; i < CHAIN_LIMIT + 3; i++) {
+			await t.clock.advance(10_000)
+			await t.runner.send({ leadSessionId: LEAD, from: 'alice', to: 'lead', text: 'fyi' })
+		}
+		await expect(
+			t.runner.send({ leadSessionId: LEAD, from: 'alice', to: 'bob', text: 'hi' }),
+		).resolves.toBeDefined()
+	})
+})

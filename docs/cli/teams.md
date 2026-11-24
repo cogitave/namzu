@@ -40,6 +40,14 @@ A teammate whose last turn failed waits for mail instead of taking another task,
 
 Mail is always labelled to the receiver as coming from another session in the team, never from the person: it cannot approve anything for the receiver or grant permission, and what it says is not proof of anything. A teammate's message to the lead reaches the lead's conversation as "Teammate <name> (another session in your team, not the person)". Teams are not resumable: a lead that is resumed does not restart its teammates.
 
+### Messages, idle notices and shutdown
+
+The lead sends to a teammate by name with `send_message`; a teammate sends to the lead (`lead`) and to other teammates by name. Every message is written to the receiver's mailbox file (the record, and the source for a member that is not running) and handed to the receiver at once; a message to an idle teammate wakes it, and one to a teammate that ended after the idle limit resumes it from its saved conversation. A receiver always reads it as coming from another session in the team, never from the person, and it cannot grant a permission. When a teammate goes idle the lead gets one notice per turn: who, why (available, interrupted or failed), and a short result.
+
+Two teammates cannot answer each other without end. After 12 messages between teammates in a row, with no task change, claim or message to or from the lead in between, the next one is refused, the sender is told why, and the lead gets one notice so it can step in. Any of those events starts the count again.
+
+The lead asks a teammate to shut down by calling `send_message` with `shutdown: true` (the message is the reason). The teammate finishes the call it is on, then answers with `shutdown_response`: approve, and it stops when its turn ends, or refuse with a reason, and it carries on while the lead is told why. If it has not answered within `teams.shutdownGraceSeconds` it is stopped. Either way the member leaves the team and its name can be used again; its tasks stay. Only the lead asks. A teammate that had already ended after the idle limit just leaves.
+
 ## The task list
 
 With teammates on, the lead's task tools work from the team's list, `<NAMZU_HOME>/tasks/team-<id>/`, and so do all the teammates' tools, each under its own name (`lead` for the lead). `task_update` to `in_progress` claims, one member's task is not closed by another, and `task_get` reads one in full. The list stays after the team ends. See [Teams (SDK)](../sdk/teams.md#the-shared-task-list).
@@ -51,5 +59,6 @@ With teammates on, the lead's task tools work from the team's list, `<NAMZU_HOME
 | `teams.enabled` | `false` | true or false | Whether a named `Agent` call starts a teammate. |
 | `teams.maxTeammates` | `5` | 1 to 16 | Most teammates alive at once in one conversation. |
 | `teams.idleExitMinutes` | `30` | 1 to 1440 | Minutes a teammate with nothing to do waits before it ends. |
+| `teams.shutdownGraceSeconds` | `20` | 1 to 600 | Seconds a teammate has to answer a shutdown request before it is stopped. |
 
 The files a team keeps are described in [Teams (SDK)](../sdk/teams.md).
