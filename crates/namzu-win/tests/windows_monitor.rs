@@ -163,27 +163,11 @@ fn overlay_window(value: u64) -> HWND {
     HWND(value as usize as *mut std::ffi::c_void)
 }
 
-static STEP: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
-fn step(n: u32) {
-    STEP.store(n, std::sync::atomic::Ordering::SeqCst);
-}
-
 #[test]
 fn the_monitor_sees_input_without_its_content_and_the_overlay_is_plain_to_capture() {
     unsafe {
         let _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
     }
-    // DIAGNOSTIC (temporary): say where a hang is, then end the process.
-    std::thread::spawn(|| {
-        std::thread::sleep(std::time::Duration::from_secs(90));
-        use std::io::Write;
-        let _ = writeln!(
-            std::io::stderr(),
-            "WATCHDOG step={}",
-            STEP.load(std::sync::atomic::Ordering::SeqCst)
-        );
-        std::process::exit(3);
-    });
     let a = TestWindow::new(40);
     let b = TestWindow::new(480);
     let mut h = Helper::start();
@@ -216,7 +200,6 @@ fn the_monitor_sees_input_without_its_content_and_the_overlay_is_plain_to_captur
     };
     assert_eq!(end.inputs_during, None);
 
-    step(1);
     // --- the monitor starts and says what it watches ------------------------------
     let ReplyBody::MonitorStart(started) = h
         .call(Request::MonitorStart(MonitorStartRequest::default()))
@@ -242,7 +225,6 @@ fn the_monitor_sees_input_without_its_content_and_the_overlay_is_plain_to_captur
     else {
         panic!("lease.begin")
     };
-    step(10);
     let (x, y) = a.center();
     h.call(Request::Input(InputRequest::Click {
         x,
@@ -266,10 +248,15 @@ fn the_monitor_sees_input_without_its_content_and_the_overlay_is_plain_to_captur
             .all(|e| e.injected == Some(true)),
         "{mouse:?}"
     );
-    step(2);
     let typed = "qzxjk";
     h.call(Request::Input(InputRequest::Type { text: typed.into() }))
         .expect("type");
+    // Characters typed as Unicode units are system packets that raw input does
+    // not report as keyboard events; a key press with a virtual key is.
+    h.call(Request::Input(InputRequest::Key {
+        keys: "shift".into(),
+    }))
+    .expect("key");
     let keys = poll_until(&mut h, Some(base), |p| {
         p.events
             .iter()
@@ -294,7 +281,6 @@ fn the_monitor_sees_input_without_its_content_and_the_overlay_is_plain_to_captur
     };
     assert_eq!(end.inputs_during, Some(0));
 
-    step(3);
     // --- foreground changes arrive --------------------------------------------------
     let mark = poll(&mut h, None).seq;
     let want_b = b.id();
@@ -314,7 +300,6 @@ fn the_monitor_sees_input_without_its_content_and_the_overlay_is_plain_to_captur
     });
     assert!(seen_b.foreground_changes > 0);
     let mark = seen_b.seq;
-    step(4);
     let want_a = a.id();
     h.call(Request::ForegroundSet(ForegroundSetRequest {
         window_id: want_a.clone(),
@@ -326,7 +311,6 @@ fn the_monitor_sees_input_without_its_content_and_the_overlay_is_plain_to_captur
             .any(|e| e.kind == Kind::Foreground && e.window_id.as_deref() == Some(want_a.as_str()))
     });
 
-    step(5);
     // --- stopping ----------------------------------------------------------------------
     h.call(Request::MonitorStop).expect("monitor.stop");
     let gone = h
@@ -344,7 +328,6 @@ fn the_monitor_sees_input_without_its_content_and_the_overlay_is_plain_to_captur
     assert!(restarted.foreground && !restarted.input, "{restarted:?}");
     h.call(Request::MonitorStop).expect("monitor.stop");
 
-    step(6);
     // --- the presence overlay ----------------------------------------------------------
     let (cx, cy) = a.center();
     let ReplyBody::PresenceAct(shown) = h
