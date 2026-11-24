@@ -308,15 +308,17 @@ describe('generate_image', () => {
 		expect(stopped.error).toContain('turn stopped')
 	})
 
-	it('never overwrites an image: a second call under the same id leaves the first', async () => {
+	it('never overwrites an image: a second call under the same id gets a new name', async () => {
 		const { base } = await fakeImages()
 		const { home, cwd, tool } = await setup({ base })
 		const first = await tool.execute({ prompt: 'one' }, context(cwd))
 		expect(first.success).toBe(true)
 		const again = await tool.execute({ prompt: 'two' }, context(cwd))
-		expect(again.success).toBe(false)
-		expect(again.output).toMatch(/already exists; the earlier image was left as it was/)
-		expect(await readdir(generatedImagesDirectory(home, 'sess/1'))).toEqual(['call_1.png'])
+		expect(again.success).toBe(true)
+		expect((await readdir(generatedImagesDirectory(home, 'sess/1'))).sort()).toEqual([
+			'call_1-2.png',
+			'call_1.png',
+		])
 	})
 
 	it('refuses a session folder that is a link', async () => {

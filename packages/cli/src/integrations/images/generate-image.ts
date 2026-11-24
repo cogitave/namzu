@@ -207,29 +207,32 @@ export async function saveGeneratedImage(
 	const info = await lstat(directory)
 	if (info.isSymbolicLink() || !info.isDirectory())
 		throw new Error(`${directory} is a link or not a folder, so no image was saved there.`)
-	const file = join(
-		directory,
-		`${sanitizeSegment(callId)}.${mediaType === 'image/gif' ? 'gif' : 'png'}`,
-	)
-	let handle: Awaited<ReturnType<typeof open>>
-	try {
-		// `wx` fails on an existing name; NOFOLLOW refuses a link planted at the name.
-		handle = await open(
-			file,
-			constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | (constants.O_NOFOLLOW ?? 0),
-			0o600,
-		)
-	} catch (error) {
-		if ((error as NodeJS.ErrnoException).code === 'EEXIST')
-			throw new Error(`${file} already exists; the earlier image was left as it was.`)
-		throw error
+	const stem = sanitizeSegment(callId)
+	const extension = mediaType === 'image/gif' ? 'gif' : 'png'
+	// A provider can reuse call ids, or two ids can sanitise to one name. The image is
+	// already paid for, so a taken name moves on to `-2`, `-3`, ...; nothing is replaced.
+	for (let attempt = 1; attempt <= 1000; attempt++) {
+		const file = join(directory, `${attempt === 1 ? stem : `${stem}-${attempt}`}.${extension}`)
+		let handle: Awaited<ReturnType<typeof open>>
+		try {
+			// `wx` fails on an existing name; NOFOLLOW refuses a link planted at the name.
+			handle = await open(
+				file,
+				constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | (constants.O_NOFOLLOW ?? 0),
+				0o600,
+			)
+		} catch (error) {
+			if ((error as NodeJS.ErrnoException).code === 'EEXIST') continue
+			throw error
+		}
+		try {
+			await handle.writeFile(bytes)
+		} finally {
+			await handle.close()
+		}
+		return file
 	}
-	try {
-		await handle.writeFile(bytes)
-	} finally {
-		await handle.close()
-	}
-	return file
+	throw new Error(`${directory} already holds too many images for this call; none was replaced.`)
 }
 
 function resetText(resetsAt: number | undefined, now: number): string {

@@ -11830,6 +11830,8 @@ function AppBody({
 				return
 			}
 			if (prompt.kind === 'notice' && prompt.generation !== conversationGenRef.current) return
+			// Rows held for a turn that never reached its done event belong to no turn now.
+			turnOutputRowsRef.current = []
 			setContextHidden(false)
 			const { text: promptText } = prompt
 			if (prompt.kind === 'human') {

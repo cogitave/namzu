@@ -35,9 +35,9 @@ With neither selector a new image is made (`images/generations`); with one, an e
 
 ## Where the files go
 
-`<Namzu home>/generated_images/<session id>/<call id>.png` (or `.gif` if the service returned one), with the ids reduced to letters, digits, `_` and `-`. An existing file is never overwritten, a folder that is a link is refused, and an image larger than 32 MiB is not kept. While the tool is offered, that session's folder is one of the folders the session's file tools may read, so the model can `view_image`, `read` or `present_file` it and copy it elsewhere. The model is told the saved path, to copy the file instead of moving it, and that the image is already shown to the person.
+`<Namzu home>/generated_images/<session id>/<call id>.png` (or `.gif` if the service returned one), with the ids reduced to letters, digits, `_` and `-`. An existing file is never overwritten, a folder that is a link is refused, and an image larger than 32 MiB is not kept. While the tool is offered, that session's folder is one of the folders the session's file tools may read, so the model can `view_image`, `read` or `present_file` it and copy it elsewhere. Limits: the kernel has no read-only folders, so that folder is a general extra folder and the session's write tools may also write there while the tool is offered; and a session that runs its file tools inside a sandbox sees only what the sandbox mounts, so it may not reach this host folder. The model is told the saved path, to copy the file instead of moving it, and that the image is already shown to the person.
 
-A model that reads images also receives the picture, fitted to the same bound as `view_image`; a text-only model gets the text. What is stored in the conversation is the path and the prompt in the tool's result and its `shared` fact, with `generatedImage.prompt` marking it.
+A model that reads images also receives the picture, fitted to the same bound as `view_image`; a text-only model gets the text. The tool's result and its `shared` fact carry the path and the prompt, with `generatedImage.prompt` marking it. A model that reads images also leaves that fitted copy (one bounded PNG) in the saved conversation, as `view_image` does; the full-size file is never stored there.
 
 ## What the person sees
 
@@ -46,7 +46,7 @@ A model that reads images also receives the picture, fitted to the same bound as
 
 ## Permissions
 
-It is asked about like `web_search`: a network tool that sends the prompt, and any referenced image, to OpenAI. It is never on the auto mode's safe list. Hooks see its name and arguments.
+It is asked about like `web_fetch`, once per call unless a rule or a remembered answer allows it (it is not in the read-only allowance that lets `web_search` run unasked): a network tool that sends the prompt, and any referenced image, to OpenAI. It is never on the auto mode's safe list. Hooks see its name and arguments.
 
 ## The setting
 

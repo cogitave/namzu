@@ -601,6 +601,7 @@ export async function runFire(
 		...(hookSwitch(config) ? { hooksSwitch: hookSwitch(config) } : {}),
 		...(policy.network && config.web ? { web: config.web } : {}),
 		...(config.smallModel ? { smallModel: config.smallModel } : {}),
+		...(config.imageGeneration ? { imageGeneration: config.imageGeneration } : {}),
 		...(config.compaction ? { compaction: config.compaction } : {}),
 		...(config.memory ? { memory: config.memory } : {}),
 		// An unattended run has nobody to ask: with the setting on, the model can hand
