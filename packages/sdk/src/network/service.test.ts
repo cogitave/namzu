@@ -1198,6 +1198,9 @@ describe('one machine asks once, however many terminals it has', () => {
 		await leader.until((e) => e.type === 'join-request')
 		expect(first.svc.cancelJoin()).toBe(true)
 		await leader.until((e) => e.type === 'join-settled')
+		// The asking machine clears its own record in its join flow, which says so with
+		// `join-ended`; the other machine settling first says nothing about that file.
+		await first.until((e) => e.type === 'join-ended' && e.result === 'cancelled')
 		expect(leader.svc.pendingJoins()).toEqual([])
 		expect(existsSync(attemptFile(first.home))).toBe(false)
 	})
