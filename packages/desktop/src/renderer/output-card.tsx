@@ -6,6 +6,7 @@ import {
 	ExternalLink,
 	FileText,
 	FolderOpen,
+	Image as PictureIcon,
 	TriangleAlert,
 } from 'lucide-react'
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
@@ -209,7 +210,7 @@ function outsideFolder(card: OutputCard, projectPath: string | undefined): boole
 	return !slashes(card.path).startsWith(`${root}/`)
 }
 
-/** One compact row: a document icon, the title, one state word, a chevron. */
+/** One compact row: a document icon (a picture icon for a generated image), the title, one state word, a chevron. */
 export function OutputCardView({ card, ctx }: { card: OutputCard; ctx: OutputCardsContextValue }) {
 	const [opened, setOpened] = useState(false)
 	const outside = outsideFolder(card, ctx.projectPath)
@@ -230,7 +231,7 @@ export function OutputCardView({ card, ctx }: { card: OutputCard; ctx: OutputCar
 	const body = (
 		<>
 			<span className="output-card-icon" aria-hidden="true">
-				{failed ? <TriangleAlert /> : <FileText />}
+				{failed ? <TriangleAlert /> : card.generated ? <PictureIcon /> : <FileText />}
 			</span>
 			<span className="output-card-name">{card.name}</span>
 			<span className="output-card-state">{word}</span>
@@ -239,7 +240,13 @@ export function OutputCardView({ card, ctx }: { card: OutputCard; ctx: OutputCar
 	)
 	const title = card.reason ? `${card.kindLine}. ${card.reason}` : card.kindLine
 	return (
-		<div className="output-card" data-output-card={card.path} data-state={card.state} title={title}>
+		<div
+			className="output-card"
+			data-output-card={card.path}
+			data-state={card.state}
+			data-generated={card.generated ? '' : undefined}
+			title={title}
+		>
 			{card.canOpen ? (
 				<button
 					type="button"

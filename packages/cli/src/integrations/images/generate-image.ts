@@ -282,6 +282,12 @@ export function createGenerateImageTool(options: GenerateImageToolOptions): Tool
 			label: `Generate image: ${oneLine(String((raw as { prompt?: unknown }).prompt ?? ''), 80)}`,
 			presentation: 'activity',
 		}),
+		// Never the default terminal view: a picture is not a command's output, and a host that
+		// counts terminal views as commands would count this call as one.
+		presentResult: (_raw, result) =>
+			result.success
+				? { kind: 'generic', label: 'Generated image', presentation: 'activity' }
+				: undefined,
 		async execute(raw, context): Promise<ToolResult> {
 			const input = raw as unknown as GenerateImageInput
 			const paths = input.referenced_image_paths ?? []

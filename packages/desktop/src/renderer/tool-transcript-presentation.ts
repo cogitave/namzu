@@ -25,6 +25,7 @@ export type ActionKind =
 	| 'web'
 	| 'lookup'
 	| 'skill'
+	| 'image'
 	| 'other'
 
 export interface ActionFile {
@@ -685,6 +686,23 @@ function writeLead(
 				: 'Wrote'
 }
 
+/** The tool that makes a picture. Its result is a file shared with the person, never a command. */
+const IMAGE_TOOL = 'generate_image'
+
+function imageLabel(state: ToolTranscriptState): string {
+	const labels: Record<ToolTranscriptState, string> = {
+		waiting: 'Waiting to generate an image',
+		running: 'Generating an image',
+		completed: 'Generated an image',
+		failed: 'Couldn’t generate an image',
+		cancelled: 'Cancelled the image',
+		interrupted: 'Interrupted the image',
+		skipped: 'Skipped the image',
+		declined: 'Declined the image',
+	}
+	return labels[state]
+}
+
 const PAL_MESSAGE_TOOL = 'send_pal_message'
 const SKILL_TOOL = 'skill'
 
@@ -895,6 +913,12 @@ export function toolTranscriptPresentation(
 		reason = typed.reason
 		reasonDetail = typed.reasonDetail
 		detailView = undefined
+	} else if (tool.title === IMAGE_TOOL) {
+		// A picture the agent made: its card carries the picture, so a finished row has nothing to
+		// open; a failed one keeps the tool's own words.
+		kind = 'image'
+		label = imageLabel(state)
+		if (state === 'completed') detailView = undefined
 	} else if (explored?.kind === 'read') {
 		// A conversation saved before tools reported fields: the call's own label is all there is.
 		kind = 'read'

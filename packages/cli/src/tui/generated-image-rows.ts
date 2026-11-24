@@ -1,3 +1,4 @@
+import { homePath } from './person-terms.js'
 import { tokenColor } from './theme.js'
 import type { ToolRow } from './tool-end-rows.js'
 
@@ -23,6 +24,7 @@ function field(lines: readonly string[], name: string): string | undefined {
 export function generatedImageRows(
 	output: string | undefined,
 	isError: boolean,
+	home?: string,
 ): readonly ToolRow[] | undefined {
 	if (output === undefined) return undefined
 	const lines = output.split('\n')
@@ -71,7 +73,8 @@ export function generatedImageRows(
 			: []),
 		{
 			role: 'tool',
-			content: `  └ Saved to ${saved}`,
+			// The home folder as `~`, like every other path row, so the line is short enough to stay whole.
+			content: `  └ Saved to ${homePath(saved, home)}`,
 			glyph: ' ',
 			glyphColor: tokenColor('text.muted'),
 		},

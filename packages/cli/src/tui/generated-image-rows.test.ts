@@ -54,3 +54,16 @@ describe('generate_image rows', () => {
 		expect(generatedImageRows(undefined, false)).toBeUndefined()
 	})
 })
+
+describe('generate_image saved path', () => {
+	it('writes the home folder as ~ on one line', () => {
+		const rows = generatedImageRows(OUTPUT, false, '/home/me')
+		expect(rows?.[2]?.content).toBe('  └ Saved to ~/.namzu/generated_images/s1/call_1.png')
+		expect(rows?.[2]?.content).not.toContain('\n')
+	})
+
+	it('leaves a path outside the home folder whole', () => {
+		const rows = generatedImageRows(OUTPUT, false, '/home/other')
+		expect(rows?.[2]?.content).toBe('  └ Saved to /home/me/.namzu/generated_images/s1/call_1.png')
+	})
+})

@@ -2,6 +2,7 @@
 
 ## 2026-11-24
 
+- **Update** [Image generation](cli/image-generation.md): the terminal row shows the saved path on one line with `~` for home, a resumed conversation draws the image rows after the answer like the live one, and the Desktop activity line says `Generated an image` with a picture icon on the card. `.changeset/cli-image-generation.md`, `.changeset/desktop-generated-image-card.md`.
 - **Creation** [Image generation](cli/image-generation.md): `generate_image` creates and edits images with the subscription plan whichever model leads the conversation; offered while a subscription sign-in is connected, the plan is not Free and `imageGeneration.enabled` is not `false`; saved under `<Namzu home>/generated_images/<session>/`; a terminal row after the answer and a Desktop image card. `.changeset/openai-image-requests.md`, `.changeset/sdk-inspect-image-bytes-export.md`, `.changeset/cli-image-generation.md`, `.changeset/desktop-generated-image-card.md`.
 
 ## 2026-11-23

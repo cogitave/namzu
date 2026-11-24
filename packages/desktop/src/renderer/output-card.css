@@ -245,16 +245,25 @@ div.output-card-main {
 	}
 }
 
-/* The picture of a generated image: the card is as wide as it was, the picture fits it whole. */
+/* The picture of a generated image: the card is wider than a file row so the picture has room, and
+   never wider than its column; the picture fits it whole. */
+.output-card[data-generated] {
+	width: min(100%, 30rem);
+}
 .output-card-picture {
 	flex: 1 1 100%;
 	display: block;
 	width: 100%;
-	max-height: 18rem;
+	max-height: 22rem;
 	object-fit: contain;
 	background: var(--muted);
 	border-top: 1px solid var(--border);
 }
 .output-card-picture + .output-card-caption {
 	padding: 6px 12px;
+	text-align: left;
+	white-space: normal;
+	display: -webkit-box;
+	-webkit-line-clamp: 2;
+	-webkit-box-orient: vertical;
 }

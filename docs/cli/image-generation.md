@@ -41,8 +41,8 @@ A model that reads images also receives the picture, fitted to the same bound as
 
 ## What the person sees
 
-- **Terminal:** a `Generated image` heading, the prompt, and `Saved to <path>`, after the answer text. A failure reads `Image generation failed` with the reason; a spent quota says when it resets. A resumed conversation draws the same rows from the saved result.
-- **Desktop:** an image card under the reply with the picture, the prompt, and Open, Show in folder, Copy (as a picture) and Save a copy ([Desktop](desktop.md#a-file-the-agent-hands-over)).
+- **Terminal:** a `Generated image` heading, the prompt, and `Saved to <path>` on one line (the home folder written as `~`), after the answer text. A failure reads `Image generation failed` with the reason; a spent quota says when it resets. A resumed conversation draws the same rows from the saved result, after the answer as live.
+- **Desktop:** the turn's activity line says `Generated an image` (never a command); an image card under the reply, with a picture icon, the picture, the prompt, and Open, Show in folder, Copy (as a picture) and Save a copy ([Desktop](desktop.md#a-file-the-agent-hands-over)).
 
 ## Permissions
 

@@ -5,6 +5,7 @@ import { ComputerFrameThumb } from './computer-frame-thumb.js'
 import {
 	ChevronRightIcon,
 	FileTextIcon,
+	ImageIcon,
 	PencilIcon,
 	SearchIcon,
 	TerminalIcon,
@@ -24,11 +25,13 @@ export function actionIcon(kind: ActionKind) {
 		? TerminalIcon
 		: kind === 'edit'
 			? PencilIcon
-			: kind === 'read' || kind === 'skill'
-				? FileTextIcon
-				: kind === 'search' || kind === 'web' || kind === 'lookup'
-					? SearchIcon
-					: WrenchIcon
+			: kind === 'image'
+				? ImageIcon
+				: kind === 'read' || kind === 'skill'
+					? FileTextIcon
+					: kind === 'search' || kind === 'web' || kind === 'lookup'
+						? SearchIcon
+						: WrenchIcon
 }
 
 /** Hover or keyboard focus on a row shows the text; the row itself is the focus stop. */

@@ -155,3 +155,19 @@ describe('the card’s measured shape', () => {
 		expect(actions).toMatch(/right:/)
 	})
 })
+
+describe('a generated image card', () => {
+	it('uses the picture icon and marks itself so the card can be wider than a file row', () => {
+		const picture = html(
+			createElement(OutputCardView, {
+				card: card({ name: 'fox.png', generated: { prompt: 'a red fox' } }),
+				ctx,
+			}),
+		)
+		const file = html(createElement(OutputCardView, { card: card(), ctx }))
+		expect(picture).toContain('data-generated')
+		expect(picture).toContain('lucide-image')
+		expect(file).not.toContain('data-generated')
+		expect(file).not.toContain('lucide-image')
+	})
+})
