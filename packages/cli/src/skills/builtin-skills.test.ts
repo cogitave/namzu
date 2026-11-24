@@ -64,12 +64,13 @@ function topLevelCommandExists(name: string): boolean {
 }
 
 describe('the built-in skills', () => {
-	it('ships the fifteen built-in skills, and not the retired verify-change', () => {
+	it('ships the sixteen built-in skills, and not the retired verify-change', () => {
 		expect(builtinSkillDirs()).toEqual([
 			'batch',
 			'browser-automation',
 			'commit',
 			'debug',
+			'deep-research',
 			'document',
 			'fewer-permission-prompts',
 			'pr',
@@ -239,6 +240,10 @@ describe('the built-in skills', () => {
 			'save_skill',
 			'skill',
 			'bash',
+			'web_search',
+			'web_fetch',
+			'wait_for_task',
+			'present_file',
 		])
 		const problems: string[] = []
 		for (const dir of builtinSkillDirs()) {
@@ -264,11 +269,34 @@ describe('the built-in skills', () => {
 				SKILL_LISTING_DESCRIPTION_MAX_CHARS,
 			)
 			if (!isInvocableBy(skill, 'model')) continue
+			// Offered only where Agent and both web tools exist; where the manifest is
+			// over budget it is named, not described, and stays loadable.
+			if (dir === 'deep-research') continue
 			offered++
 			spent += manifestEntryChars({ ...skill, dirPath: installedPath })
 		}
 		expect(offered).toBe(6)
 		expect(spent).toBeLessThanOrEqual(budget)
+	})
+
+	it('deep-research is gated on Agent and the web tools and keeps its sourcing rules', async () => {
+		const { skill } = await loadSkill(join(SKILLS, 'deep-research'), 'full')
+		expect(skill.metadata.invocation).toBe('both')
+		expect(skill.metadata.metadata?.['namzu-requires-tools']).toBe('Agent, web_search, web_fetch')
+		const body = skill.body ?? ''
+		// no invented URLs, and a snippet is not a source
+		expect(body).toMatch(/never write or complete a URL from memory/i)
+		expect(body).toMatch(/a search snippet is not a\s+source/i)
+		// every claim is tied to a page fetched in this run
+		expect(body).toMatch(/\[n\]/)
+		expect(body).toMatch(/from this run/)
+		expect(body).toMatch(/No URL appears that\s+no researcher returned/)
+		// the budget: researcher caps, one gap round, a search and fetch budget
+		expect(body).toMatch(/never more than 9/i)
+		expect(body).toMatch(/Never more than 4 at once/)
+		expect(body).toMatch(/at most 2 more\s+researchers/)
+		expect(body).toMatch(/about 8 `web_search` calls and 10 `web_fetch` calls/)
+		expect(body).toMatch(/`present_file`/)
 	})
 
 	it('declares the invocation and gating the design gives each', async () => {

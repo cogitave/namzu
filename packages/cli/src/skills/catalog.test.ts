@@ -113,6 +113,23 @@ describe('the session skill catalog', () => {
 		expect(renderSkillsSection(next.manifest)).not.toContain('## Loaded Skills')
 	})
 
+	it('offers a skill that needs Agent and the web tools only when all three exist', async () => {
+		skillAt(
+			project(),
+			'research',
+			'researches the web',
+			'metadata:\n  namzu-requires-tools: "Agent, web_search, web_fetch"\n',
+		)
+		const cat = await catalog()
+		const names = async (toolNames: string[]) =>
+			(await cat.forTurn({ toolNames, contextWindowTokens: 200_000 })).manifest?.map(
+				(s) => s.metadata.name,
+			)
+		expect(await names(['Agent', 'web_fetch'])).toBeUndefined()
+		expect(await names(['web_search', 'web_fetch'])).toBeUndefined()
+		expect(await names(['Agent', 'web_search', 'web_fetch'])).toEqual(['research'])
+	})
+
 	it('hides a skill whose required tools the session lacks, from the manifest and the tool', async () => {
 		skillAt(
 			project(),
