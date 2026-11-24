@@ -17,11 +17,12 @@ pub const PROTOCOL: &str = "namzu-win/1";
 pub const MAX_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
 
 /// Every `op` a request may carry, in the order the design lists them.
-pub const OPS: [&str; 9] = [
+pub const OPS: [&str; 10] = [
     "hello",
     "windows",
     "displays",
     "snapshot",
+    "identity",
     "resolve",
     "seq",
     "wait_change",
@@ -322,6 +323,17 @@ impl SnapshotRequest {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct IdentityRequest {
+    pub window_id: String,
+    /// Position in the window's latest snapshot.
+    pub index: u32,
+    /// Refuse (`stale_snapshot`) when the window was read again since this revision.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub revision: Option<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ResolveRequest {
     pub window_id: String,
     pub fingerprint: Fingerprint,
@@ -385,6 +397,7 @@ pub enum Request {
     Windows(WindowsRequest),
     Displays,
     Snapshot(SnapshotRequest),
+    Identity(IdentityRequest),
     Resolve(ResolveRequest),
     Seq(SeqRequest),
     WaitChange(WaitChangeRequest),
@@ -399,6 +412,7 @@ pub enum Op {
     Windows,
     Displays,
     Snapshot,
+    Identity,
     Resolve,
     Seq,
     WaitChange,
@@ -413,6 +427,7 @@ impl Op {
             Op::Windows => "windows",
             Op::Displays => "displays",
             Op::Snapshot => "snapshot",
+            Op::Identity => "identity",
             Op::Resolve => "resolve",
             Op::Seq => "seq",
             Op::WaitChange => "wait_change",
@@ -427,6 +442,7 @@ impl Op {
             "windows" => Op::Windows,
             "displays" => Op::Displays,
             "snapshot" => Op::Snapshot,
+            "identity" => Op::Identity,
             "resolve" => Op::Resolve,
             "seq" => Op::Seq,
             "wait_change" => Op::WaitChange,
@@ -444,6 +460,7 @@ impl Request {
             Request::Windows(_) => Op::Windows,
             Request::Displays => Op::Displays,
             Request::Snapshot(_) => Op::Snapshot,
+            Request::Identity(_) => Op::Identity,
             Request::Resolve(_) => Op::Resolve,
             Request::Seq(_) => Op::Seq,
             Request::WaitChange(_) => Op::WaitChange,
@@ -493,6 +510,11 @@ pub struct Snapshot {
     pub skeleton: bool,
     /// How long the platform call took, ms.
     pub read_ms: f64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct IdentityReply {
+    pub fingerprint: Fingerprint,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -723,6 +745,7 @@ pub enum ReplyBody {
     Windows(WindowsReply),
     Displays(DisplaysReply),
     Snapshot(Snapshot),
+    Identity(IdentityReply),
     Resolve(Resolution),
     Seq(SeqReply),
     WaitChange(WaitResult),
@@ -824,6 +847,7 @@ pub fn encode_reply(id: u64, reply: &Result<ReplyBody, WireError>) -> String {
                 ReplyBody::Windows(b) => serde_json::to_value(b),
                 ReplyBody::Displays(b) => serde_json::to_value(b),
                 ReplyBody::Snapshot(b) => serde_json::to_value(b),
+                ReplyBody::Identity(b) => serde_json::to_value(b),
                 ReplyBody::Resolve(b) => serde_json::to_value(b),
                 ReplyBody::Seq(b) => serde_json::to_value(b),
                 ReplyBody::WaitChange(b) => serde_json::to_value(b),
@@ -865,6 +889,7 @@ pub fn decode_reply(
         Op::Windows => serde_json::from_value(payload).map(ReplyBody::Windows),
         Op::Displays => serde_json::from_value(payload).map(ReplyBody::Displays),
         Op::Snapshot => serde_json::from_value(payload).map(ReplyBody::Snapshot),
+        Op::Identity => serde_json::from_value(payload).map(ReplyBody::Identity),
         Op::Resolve => serde_json::from_value(payload).map(ReplyBody::Resolve),
         Op::Seq => serde_json::from_value(payload).map(ReplyBody::Seq),
         Op::WaitChange => serde_json::from_value(payload).map(ReplyBody::WaitChange),

@@ -28,6 +28,7 @@ export type NativeOp =
 	| 'windows'
 	| 'displays'
 	| 'snapshot'
+	| 'identity'
 	| 'resolve'
 	| 'seq'
 	| 'wait_change'
@@ -48,6 +49,12 @@ export type NativeRequest =
 			readonly skeleton?: boolean
 			readonly allowChromium?: boolean
 			readonly timeoutMs?: number
+	  }
+	| {
+			readonly op: 'identity'
+			readonly windowId: string
+			readonly index: number
+			readonly revision?: number
 	  }
 	| { readonly op: 'resolve'; readonly windowId: string; readonly fingerprint: A11yFingerprint }
 	| { readonly op: 'seq'; readonly windowId?: string }
@@ -124,6 +131,7 @@ export interface NativeReplyBodies {
 	readonly windows: { readonly windows: readonly A11yWindow[] }
 	readonly displays: { readonly displays: readonly A11yDisplay[] }
 	readonly snapshot: NativeSnapshot
+	readonly identity: { readonly fingerprint: A11yFingerprint }
 	readonly resolve: NativeResolution
 	readonly seq: { readonly seq: number }
 	readonly wait_change: NativeWaitResult
@@ -325,6 +333,19 @@ function snapshot(o: Obj): NativeSnapshot {
 	}
 }
 
+function fingerprint(v: unknown, path: string): A11yFingerprint {
+	const o = obj(v, path)
+	return {
+		runtimeId: str(o, 'runtimeId', path),
+		automationId: str(o, 'automationId', path),
+		role: str(o, 'role', path),
+		nameHash: str(o, 'nameHash', path),
+		parentPath: str(o, 'parentPath', path),
+		ordinal: int(o, 'ordinal', path),
+		processStart: int(o, 'processStart', path),
+	}
+}
+
 function resolution(o: Obj): NativeResolution {
 	if (bool(o, 'found', 'resolve')) {
 		return {
@@ -369,6 +390,8 @@ function body(op: NativeOp, o: Obj): NativeReplyBodies[NativeOp] {
 			}
 		case 'snapshot':
 			return snapshot(o)
+		case 'identity':
+			return { fingerprint: fingerprint(o.fingerprint, 'identity.fingerprint') }
 		case 'resolve':
 			return resolution(o)
 		case 'seq':

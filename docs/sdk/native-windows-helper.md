@@ -1,7 +1,7 @@
 ---
 type: Reference
 title: The native Windows helper
-description: namzu-win, the compiled helper that replaces the PowerShell scripts behind Windows computer use; its namzu-win/1 line protocol, refs, element fingerprints, key names, DPI math, conformance vectors and the CI jobs that build it.
+description: namzu-win, the compiled helper that replaces the PowerShell scripts behind Windows computer use; its namzu-win/1 line protocol, the read side (windows, displays, snapshot, identity, resolve, seq, wait_change), refs, element fingerprints, key names, DPI math, the TypeScript backend, conformance vectors and the CI jobs that build and test it.
 resource: crates/namzu-win-core/src/protocol.rs
 tags: [sdk, computer-use, windows, rust, protocol]
 status: draft
@@ -24,24 +24,29 @@ which parts do not yet.
 | Step | State |
 |---|---|
 | Cargo workspace, the protocol codec, refs, fingerprints, key names, DPI math, the conformance vectors, CI on Linux and Windows | built |
-| The Windows read side: windows, displays, snapshot, resolve, seq, wait_change | not yet; the helper answers `unsupported` |
+| The Windows read side: windows, displays, snapshot, identity, resolve, seq, wait_change | built; written without a compiler for Windows on the machine it was written on, so the first Windows CI run is its first build |
+| `NativeWinProcess` and `NativeA11yBackend` in `@namzu/computer-use`, chosen by `NAMZU_WIN_HELPER` | built, opt-in |
 | Acting and input, capture, foreground lease | not yet |
 | Monitor and presence overlay | not yet |
-| Delivery (pinned download, bundling, signing) | not yet; CI uploads unsigned builds |
-| TypeScript backends that spawn it | not yet; `packages/computer-use/src/native/` has the codec only |
+| Delivery (pinned download, bundling, signing) | not yet; CI uploads unsigned builds, and a person points `NAMZU_WIN_HELPER` at one |
+| An embedded manifest (per-monitor DPI, `asInvoker`) and version resource | not yet; the helper sets per-monitor v2 awareness itself when it starts |
 
-Nothing in a released package starts the helper yet, so no behaviour changes
-for a user.
+With `NAMZU_WIN_HELPER` unset nothing starts the helper, so no behaviour
+changes for a user. Set to the path of `namzu-win.exe` on Windows (or under
+WSL), `createWindowsA11yHost` returns the native backend instead of the
+PowerShell host, and no PowerShell is started for the accessibility reads.
 
 ## Layout
 
 | Path | What it is |
 |---|---|
 | `Cargo.toml`, `rust-toolchain.toml` | The Rust workspace at the repository root (the pnpm workspace does not see it). `rust-toolchain.toml` says `stable` with `rustfmt` and `clippy`; `rust-version` in `Cargo.toml` is the oldest compiler the code is written for. |
-| `crates/namzu-win-core` | Pure Rust that builds and tests on every platform: the codec, the ref table, fingerprints, key names, DPI math. |
-| `crates/namzu-win` | The executable. Its loop and dispatch are platform independent; the Windows calls arrive behind it in later steps. |
+| `crates/namzu-win-core` | Pure Rust that builds and tests on every platform: the codec, the ref table, fingerprints, key names, DPI math, window ids, the walk that turns controls into a snapshot (`tree`) and the wait logic (`events`). |
+| `crates/namzu-win` | The executable. Its loop, the `Backend` and `Responder` that let a slow op answer later, and the executor with its watchdog (`exec`) are platform independent. `src/win/` holds the Windows calls and compiles only on Windows. |
 | `conformance/namzu-win/*.json` | The vectors both the Rust and the TypeScript side are held to. |
 | `packages/computer-use/src/native/protocol.ts` | The TypeScript codec: `encodeRequest`, `decodeReply`, `formatRef`, `parseRef`, `nameHash`. |
+| `packages/computer-use/src/native/process.ts` | `NativeWinProcess`: starts the executable (no shell, no window), greets it, matches replies to requests by id, cancels at the helper on a timeout or an abort, starts it again (up to three times) when it ends. |
+| `packages/computer-use/src/native/a11y.ts` | `NativeA11yBackend`: the `AccessibilityBackend` interface answered by the helper. |
 
 ## The protocol: `namzu-win/1`
 
@@ -71,6 +76,7 @@ the same shapes as the accessibility interfaces in
 | `windows` | `includeOwned?` | `windows`: id, process id and name, title, bounds, minimized, focused, z. |
 | `displays` | | `displays`: id, bounds, work area, `scale`, primary. |
 | `snapshot` | `windowId`, `maxNodes?` (400), `maxDepth?` (12), `skeleton?`, `allowChromium?`, `timeoutMs?` (8000) | `revision`, `nodes` (each with its `ref`), `total`, `truncated`, `skeleton`, `readMs`. |
+| `identity` | `windowId`, `index`, `revision?` | `fingerprint` of control `index` of the window's latest read. `stale_snapshot` when `revision` is not the latest. |
 | `resolve` | `windowId`, `fingerprint` | `found: true` with `index`, `via` (`runtimeId`, `automationId` or `name`) and `revision`, or `found: false` with `code` (`not_found` or `ambiguous`) and `candidates?`. |
 | `seq` | `windowId?` | `seq`. With a window it also starts watching it. |
 | `wait_change` | `windowId`, `since?`, `quietMs?` (120), `timeoutMs?` (2000, at most 10000), `kinds?` (`structure`, `property`, `location`) | `changed: true` with `settled`, `firstEventMs`, `settledMs`, `events`, `newWindows`; or `changed: false`, `timedOut: true`, `settledMs`. |
@@ -82,9 +88,59 @@ The failure codes are `bad_request`, `unknown_op`, `protocol_mismatch`,
 `background_unavailable`, `elevated_target`, `timeout`, `unsupported`,
 `cancelled` and `internal`. A reader keeps a code it does not know as text.
 
-Until an op has its implementation the helper answers it with `unsupported`
-and a message naming the op, and `hello` reports `caps` as an empty list, so a
-caller can tell a build apart from a finished one.
+A window id is `w:<handle as 16 hex digits>:<process id>`, as `windows` lists it.
+The process id is there because a handle can be reused by another window after
+the first closed; an id whose process no longer owns the handle is `not_found`.
+A caller that only knows the handle may write `w:<handle>`, and the helper then
+skips that check. The TypeScript backend hands its callers the `0x<handle>` form
+the adapter has always used and translates both ways.
+
+A build without the Windows calls (any other platform) answers the ops beyond
+`hello`, `cancel` and `quit` with `unsupported` and a message naming the op, and
+`hello` reports `caps` as an empty list, so a caller can tell a build apart from
+a finished one. The Windows build reports `windows`, `displays`, `snapshot`,
+`identity`, `resolve`, `seq`, `wait_change`, `uia` and `hooks`, its OS build
+number and `dpiAwareness: "perMonitorV2"`.
+
+## The Windows read side
+
+Replies are the shapes the PowerShell accessibility host gave, so a caller
+swaps the process and nothing else.
+
+- `windows` lists the visible, un-cloaked, non-tool top-level windows, without
+  an owner unless asked, front to back, with the visible frame as `bounds` (the
+  normal position for a minimized window). It makes no accessibility call.
+- `displays` lists the monitors with their work area and `scale` from the
+  monitor's effective dpi. The `id` is the device name.
+- `snapshot` asks UI Automation for the window's controls with one cache request
+  that carries every property the reply lists, then reads them from the cache.
+  Which controls (the ones a person sees), how many (`maxNodes`, `maxDepth`),
+  what `childCount` means and how a `skeleton` differs are decided by
+  `namzu-win-core`'s `tree` module, tested against an in-memory tree on every
+  platform. A Chromium, Electron or Firefox window is refused with
+  `chromium_not_activated` unless `allowChromium` is set, because reading one
+  switches its accessibility on for the rest of the session. A password's value
+  is never read.
+- `identity` and `resolve` use the fingerprints below. `resolve` reads the
+  window again, so its answer names an index in what is now the latest read.
+- `seq` returns the number of the last change seen. Given a window it first
+  starts watching it: UI Automation structure and property handlers on the
+  window (not for a Chromium window) and a window-event hook scoped to its
+  process. At most 32 windows are watched; the least recently used is let go.
+- `wait_change` settles from events, never from sleeping: after at least one
+  change that concerns the window and then `quietMs` without another, or at
+  `timeoutMs`. Callbacks only record an event and return; one scheduler thread
+  settles waits, waking when an event arrives or the earliest wait is due. A
+  `since` marker counts changes made before the wait began. A new top-level
+  window of the same program counts, and is reported in `newWindows`.
+  The counting is `namzu-win-core`'s `events` module, driven by a clock that is a
+  number, so it is tested without waiting.
+
+UI Automation calls run one at a time on a single thread in the multithreaded
+apartment. A call that does not return by its deadline is answered `timeout`, the
+thread stuck in it is left to end by itself, and a new thread takes over the
+queue, so one program that hangs does not hang the next question. `cancel`
+answers a waiting op `cancelled` at once.
 
 ## Refs
 
@@ -161,13 +217,16 @@ reader that fails after it is told what changed by the diff.
 cargo fmt --all --check
 cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo test --workspace --locked
-pnpm --filter @namzu/computer-use test -- native-protocol
+pnpm --filter @namzu/computer-use test -- native
 ```
 
 CI runs the first three in the `Rust (Linux)` job, and builds
 `x86_64-pc-windows-msvc` and `aarch64-pc-windows-msvc` in the
 `Windows helper` job on a Windows runner, running the x64 build's own tests
-there. The executables are uploaded as run artifacts with a SHA-256, unsigned.
+there: the stdio test, and `tests/windows_uia.rs`, which starts the helper as a
+program, creates a window of its own with a button, and checks the helper lists
+it, reads its controls, names and finds the button again, sees a change the test
+makes, and cancels a wait. The executables are uploaded as run artifacts with a SHA-256, unsigned.
 Nothing in CI or in this repository runs the helper on a person's machine.
 The release build sets `NAMZU_WIN_BUILD_HASH`, which `hello` reports as
 `buildHash`; a local build reports `dev`.

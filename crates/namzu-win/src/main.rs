@@ -6,8 +6,13 @@ use std::process::ExitCode;
 
 fn main() -> ExitCode {
     let stdin = BufReader::new(io::stdin().lock());
-    let stdout = io::stdout().lock();
-    match namzu_win::run(stdin, stdout, namzu_win::BuildInfo::current()) {
+    let stdout = io::stdout();
+    match namzu_win::run(
+        stdin,
+        stdout,
+        namzu_win::BuildInfo::current(),
+        namzu_win::native_backend(),
+    ) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
             eprintln!("namzu-win: {e}");
