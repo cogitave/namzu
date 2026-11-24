@@ -1,5 +1,20 @@
 # Changelog
 
+## 4.7.0
+
+### Minor Changes
+
+- dd59c26: The subscription route (`CodexProvider`) now reads each model's context window and compaction limit from the account's model list, the way the backend defines them. `listModels()` rows carry `contextWindow` (`context_window`, else `max_context_window`, times `effective_context_window_percent` with 95 when the row omits it, so a row with no percent now reports 95% of its window) and `autoCompactTokenLimit` (`auto_compact_token_limit` held to 90% of the window, or 90% when the row sends none; the runtime then holds the trigger to 90% of the usable window, so it sits at most 85.5% into the resolved window). The new `resolveContextWindow(model, signal)` and `resolveAutoCompactLimit(model, signal)` report them to the runtime; counts sent as numeric strings are read. A listing that fails or hangs is skipped and never fails a turn. A subscription model that used to compact against a 128,000-token guess now compacts against its real window; to keep the old figure, set `compaction.contextWindowTokens` to `128000`. Other compatible hosts are unchanged.
+
+### Patch Changes
+
+- f50c78b: The subscription (Codex) route now sends a per-conversation `prompt_cache_key` and `session_id` header when the caller provides `cacheKey`, and keeps only the opening system messages in `instructions`. A system message later in the list (a step's changing guidance) is sent in place as a developer message instead of being joined into the front of the request, so consecutive requests share their opening bytes and the prompt cache is read again. No exported name changes.
+
+  If the subscription backend answers HTTP 400 naming the `developer` role, `input[...]`, `session_id` or `prompt_cache_key`, the request is resent once in the previous shape (all system text in `instructions`, no `session_id` header) and later requests in the process keep that shape. No other error is retried. Nothing for a caller to do.
+
+- f50c78b: A hosted web search that ran several queries reports how many (`searches`), so a host can say `Did 4 searches` instead of `Did 1 search`.
+- dd59c26: The subscription route's model list now reads a window or an effective percentage that the backend sends as a numeric string, and callers that ask for the window while the list is loading share one request instead of each waiting out their own.
+
 ## 4.6.0
 
 ### Minor Changes

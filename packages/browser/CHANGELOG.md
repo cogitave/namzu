@@ -1,5 +1,13 @@
 # @namzu/browser
 
+## 3.2.0
+
+### Minor Changes
+
+- 2842ccd: New: drive an app's own browser tabs instead of launching a browser. `PlaywrightBrowserHost` takes a `provider` option; `createPaneProvider(channel)` returns one that connects Playwright to the tabs a `PaneChannel` offers (`createPaneTransport` is the piece in the middle), and `host.capabilities.engine` is then `pane`. Without the option nothing changes: the local and Windows browsers open exactly as before. The new exports are `PaneProvider`, `createPaneProvider`, `createPaneTransport`, `refuseOutsideThePane`, `PaneChannel` and its helper types, and the `BrowserContextProvider` interface. `PaneChannel.onClose` is required, so a relay reports a lost link.
+- 2842ccd: The agent's tab in the Browser pane is no longer closed when the engine's browser is disposed: it lets go and the tab stays for you, so a page you signed in on survives a delegated run, a profile switch or a release. A delegated run under another profile, or a switched profile, uses the engine's own browser, so its cookies stay apart from the pane's. An empty site rule set is now sent when the open request is made, replacing stricter rules an earlier engine left. `signInNotice` takes an optional fifth argument, the place the person signs in (default "the browser window"), and the pane path passes "the Browser pane".
+- 2842ccd: New: `PlaywrightBrowserHost` takes a `preferredProvider`, a provider tried before the host's own browser. If it cannot be opened (a desktop app with no window to show a tab in, a tab another tool holds), the next result carries one line saying so and the host opens its own browser exactly as it did before; nothing changes for a host that is not given one. `host.where` (`pane`, `own` or `unknown`) and `host.prefersPane` say where the browser runs, and with a preferred provider the host no longer reports its own browser as unavailable before the first call, so a computer with no browser installed can still use a provider's.
+
 ## 3.1.0
 
 ### Minor Changes
