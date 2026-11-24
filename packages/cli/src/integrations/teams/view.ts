@@ -32,6 +32,8 @@ export interface TeamViewSource {
 	team(): string | undefined
 	/** The members now, oldest first. A member that left the team is not listed. */
 	members(): readonly TeamMemberView[]
+	/** The name of the teammate behind this agent view when it approved a shutdown and left the team. */
+	left?(viewId: string): string | undefined
 	/** Every task on the team's list. */
 	tasks(): Promise<readonly TeamTaskView[]>
 	/** Hear a change of members, asks or tasks; one call, no detail. */

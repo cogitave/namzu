@@ -31,6 +31,8 @@ interface Ask<T> {
 	readonly value: T
 	readonly resolve: (decision: PermissionDecision) => void
 	readonly background: boolean
+	/** A teammate's question: it stays open when the lead's turn ends. */
+	readonly outlivesTurn: boolean
 	readonly detach: () => void
 }
 
@@ -93,7 +95,7 @@ export class AskQueue<T> {
 	 */
 	enqueue(
 		value: T,
-		options: { background?: boolean; signal?: AbortSignal } = {},
+		options: { background?: boolean; outlivesTurn?: boolean; signal?: AbortSignal } = {},
 	): Promise<PermissionDecision> {
 		const signal = options.signal
 		if (signal?.aborted) return Promise.resolve(CLOSED_QUESTION)
@@ -103,6 +105,7 @@ export class AskQueue<T> {
 				value,
 				resolve,
 				background: options.background === true,
+				outlivesTurn: options.outlivesTurn === true,
 				detach: () => signal?.removeEventListener('abort', onAbort),
 			}
 			signal?.addEventListener('abort', onAbort, { once: true })
@@ -182,11 +185,11 @@ export class AskQueue<T> {
 	/**
 	 * Answer every question of the person's own conversation the same way and leave the ones other
 	 * agents asked open. A turn that ends or is stopped takes back its own questions; a teammate
-	 * or background agent that asked while it was running is still waiting on the person.
+	 * that asked while it was running is still waiting on the person; a sub-agent's question goes with the turn.
 	 */
 	closeOwn(decision: PermissionDecision): void {
 		const own = [...(this.#shown ? [this.#shown] : []), ...this.#waiting].filter(
-			(ask) => !ask.background,
+			(ask) => !ask.outlivesTurn,
 		)
 		if (own.length === this.open) {
 			this.closeAll(decision)

@@ -10,6 +10,7 @@ import {
 	IDLE_POLL_MS,
 	SEND_LIMIT,
 	TeamError,
+	type TeamHookPoints,
 	type TeamMailLabel,
 	TeamRunner,
 	type TeammateEngine,
@@ -122,7 +123,12 @@ function fakeEngine() {
 }
 
 function setup(
-	options: { maxTeammates?: number; idleExitMinutes?: number; shutdownGraceSeconds?: number } = {},
+	options: {
+		maxTeammates?: number
+		idleExitMinutes?: number
+		shutdownGraceSeconds?: number
+		hooks?: TeamHookPoints
+	} = {},
 ) {
 	const root = mkdtempSync(join(tmpdir(), 'namzu-team-runner-'))
 	roots.push(root)
@@ -145,12 +151,34 @@ function setup(
 			clearTimer: clock.clearTimer,
 		},
 		fake.engine,
+		options.hooks,
 	)
 	const spawn = (name: string) =>
 		runner.spawn({ leadSessionId: LEAD, name, prompt: `do ${name}'s work`, cwd: root })
 	const mailTo = (name: string) => store.readMail(teamNameFor(LEAD), name)
 	return { root, store, tasks, clock, fake, runner, spawn, mailTo, team: teamNameFor(LEAD) }
 }
+
+describe('the teammate_idle hook', () => {
+	it('keeps the member busy to the lead while the hook decides, and idle once it lets go', async () => {
+		let answer: (text: string | undefined) => void = () => {}
+		const hooks: TeamHookPoints = {
+			start: async () => {},
+			stop: async () => {},
+			idle: () =>
+				new Promise<string | undefined>((resolve) => {
+					answer = resolve
+				}),
+		}
+		const t = setup({ hooks })
+		await t.spawn('alice')
+		t.runner.turnEnded(t.team, 'alice', { state: 'completed' })
+		expect(t.runner.snapshot(t.team)[0]).toMatchObject({ name: 'alice', state: 'busy' })
+		answer(undefined)
+		await flush()
+		expect(t.runner.snapshot(t.team)[0]).toMatchObject({ name: 'alice', state: 'idle' })
+	})
+})
 
 describe('team name', () => {
 	it('uses the end of the session id, which is the random part of a time-ordered id', () => {

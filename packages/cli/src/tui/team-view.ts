@@ -176,6 +176,7 @@ export function teamChecklistItems(tasks: readonly TeamTaskView[]): readonly Che
 		id: task.id,
 		subject: task.subject,
 		status: task.status,
+		team: true,
 		...(task.blockedBy.length > 0
 			? { blockedBy: task.blockedBy.map((id) => String(numbers.get(id) ?? id)) }
 			: {}),

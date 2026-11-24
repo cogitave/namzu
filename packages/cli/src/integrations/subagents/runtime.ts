@@ -3670,7 +3670,7 @@ export async function createSubagentRuntime(
 			}
 		}
 	}
-	const hookedLists = new Set<string>()
+	const hookedLists = new Map<string, () => void>()
 	/** The team the newest teammate of this conversation belongs to. */
 	const activeTeam = (): string | undefined => {
 		let team: string | undefined
@@ -3717,13 +3717,22 @@ export async function createSubagentRuntime(
 					}
 					return rows
 				},
+				left: (viewId) => {
+					const target = conversations.get(viewId)?.teammate
+					if (!target || !teamRunner) return undefined
+					return teamRunner.snapshot(target.team).some((entry) => entry.name === target.name)
+						? undefined
+						: target.name
+				},
 				tasks: async () => {
 					const team = activeTeam()
 					if (team === undefined || !opts.teams) return []
 					const store = opts.teams.taskStoreFor(team)
 					if (!hookedLists.has(team) && typeof store.on === 'function') {
-						hookedLists.add(team)
-						store.on(() => notifyTeam())
+						hookedLists.set(
+							team,
+							store.on(() => notifyTeam()),
+						)
 					}
 					const list = await store.list()
 					return list.map(
@@ -3785,7 +3794,7 @@ export async function createSubagentRuntime(
 					target.team,
 					target.name,
 					'a plan waiting for your approval',
-					`${target.name} sent a plan and is waiting for your answer:\n\n${planText}`,
+					`${target.name} sent a plan. The person is being asked to approve it. You cannot approve it; do not message ${target.name} about it until the answer arrives:\n\n${planText}`,
 				)
 			let decision: Awaited<ReturnType<ResumeHandler>>
 			try {
@@ -4064,6 +4073,8 @@ export async function createSubagentRuntime(
 		closed = true
 		closePromise = (async () => {
 			teamRunner?.close()
+			for (const off of hookedLists.values()) off()
+			hookedLists.clear()
 			lifetime.abort()
 			labeler.stop()
 			await Promise.all([...parents.keys()].map(releaseTurn))

@@ -220,6 +220,17 @@ describe('teammate events', () => {
 		})
 	})
 
+	it('teammate_idle: an exit-0 hook that prints additionalContext still lets the member go idle', () => {
+		expect(
+			shellHookVerdict('teammate_idle', entry, {
+				...ok,
+				stdout: JSON.stringify({
+					hookSpecificOutput: { hookEventName: 'TeammateIdle', additionalContext: 'fyi' },
+				}),
+			}),
+		).toEqual({ action: 'continue' })
+	})
+
 	it('teammate_start and teammate_stop are observational: a 2 refuses nothing', () => {
 		for (const event of ['teammate_start', 'teammate_stop'] as const) {
 			expect(shellHookVerdict(event, entry, { ...ok, exitCode: 2, stderr: 'x' })).toEqual({

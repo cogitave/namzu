@@ -103,4 +103,17 @@ describe('the checklist on a terminal', () => {
 		expect(current).toMatchObject({ strikethrough: false, bold: true })
 		expect(pending).toMatchObject({ strikethrough: false, bold: false })
 	})
+
+	it('a plain item with blockers draws exactly as before: no owner, no waits-on suffix', () => {
+		const item = {
+			id: '01a20ee0-9fdb-7121-8275-6463e3214503',
+			subject: 'Write docs',
+			status: 'pending' as const,
+			blockedBy: ['01a20ee0-9fdb-7121-8275-6463e3214504'],
+		}
+		expect(checklistLine(item)).toBe('□ Write docs')
+		expect(checklistLine({ ...item, team: true, blockedBy: ['1'] })).toBe(
+			'□ Write docs · waits on #1',
+		)
+	})
 })

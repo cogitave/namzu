@@ -32,6 +32,8 @@ export interface ChecklistItem {
 	readonly blockedBy?: readonly string[]
 	/** The teammate that holds it, on a team's list. */
 	readonly owner?: string
+	/** True on a team's list, the only list that shows owner and blockers beside the subject. */
+	readonly team?: boolean
 	/** What the working row says while this step is in progress; the subject when absent. */
 	readonly activeForm?: string
 }
@@ -57,6 +59,7 @@ export function checklistProgress(items: readonly ChecklistItem[]): string {
 
 /** What follows a task's subject on a team's list: who holds it and what it waits on; empty on a plain list. */
 export function checklistSuffix(item: ChecklistItem): string {
+	if (item.team !== true) return ''
 	const parts: string[] = []
 	if (item.owner !== undefined) parts.push(oneLine(item.owner))
 	if (item.blockedBy !== undefined && item.blockedBy.length > 0 && item.status !== 'completed')

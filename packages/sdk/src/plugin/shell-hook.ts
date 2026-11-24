@@ -1846,8 +1846,28 @@ export function shellHookVerdict(
 				...(reading.notice ? { notice: reading.notice } : {}),
 			}
 		}
+		case 'teammate_idle': {
+			// Only a refusal (exit 2 or a block) keeps the member working; informational
+			// context from an exit-0 hook lets it go idle.
+			if (reading.halt) {
+				return {
+					action: 'continue',
+					halt: reading.halt,
+					...(reading.notice ? { notice: reading.notice } : {}),
+				}
+			}
+			return reading.block !== undefined
+				? {
+						action: 'skip',
+						reason: reading.block,
+						...(reading.notice ? { notice: reading.notice } : {}),
+					}
+				: {
+						action: 'continue',
+						...(reading.notice ? { notice: reading.notice } : {}),
+					}
+		}
 		case 'turn_end':
-		case 'teammate_idle':
 		case 'subagent_stop': {
 			// A stop request outranks keeping the turn going.
 			if (reading.halt) {

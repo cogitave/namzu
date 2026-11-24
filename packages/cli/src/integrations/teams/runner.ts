@@ -497,9 +497,7 @@ export class TeamRunner {
 	private async askIdleHook(tracked: Tracked, outcome: TurnOutcome): Promise<void> {
 		const hooks = this.hooks
 		if (!hooks) return
-		tracked.state = 'idle'
-		tracked.idleSince = this.now()
-		this.changed()
+		// The member stays `busy` while the hook decides: the lead's screen says idle only once it is.
 		// Mail that arrives while the hook runs is held, not handed over: the next look picks it up.
 		tracked.waking = true
 		let feedback: string | undefined

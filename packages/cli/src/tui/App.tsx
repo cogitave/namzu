@@ -2908,14 +2908,17 @@ function AppBody({
 			teamSnapRef.current = next
 			setTeamSnap(next)
 		}
-		const refresh = () => {
+		const refreshMembers = () => {
 			take({ members: source.members(), tasks: teamSnapRef.current.tasks })
+		}
+		const refresh = () => {
+			refreshMembers()
 			void source.tasks().then(
 				(tasks) => take({ members: teamSnapRef.current.members, tasks }),
 				() => {},
 			)
 		}
-		refreshTeamRef.current = refresh
+		refreshTeamRef.current = refreshMembers
 		refresh()
 		const off = source.subscribe(refresh)
 		return () => {
@@ -5023,6 +5026,8 @@ function AppBody({
 	}
 	useEffect(() => {
 		void receiptTick
+		// A teammate leaving its idle hook moves the team, not the agents: look again then.
+		void teamSnap
 		const current = session?.subagents?.getSnapshot() ?? []
 		const retryIn = writeLaunchReceipts(subagents, activeTools, false)
 		const batches = new Map<string, SubagentActivity[]>()
@@ -5079,6 +5084,12 @@ function AppBody({
 				reportedAgentsRef.current.add(agent.viewId)
 				continue
 			}
+			// A teammate in its idle hook is not idle yet; look again when its state moves.
+			const memberNow =
+				agent.status === 'completed'
+					? session?.team?.members().find((m) => m.viewId === agent.viewId)
+					: undefined
+			if (memberNow && memberNow.state !== 'idle' && memberNow.state !== 'stopped') continue
 			reportedAgentsRef.current.add(agent.viewId)
 			const previousFailure = reportedFailuresRef.current.get(agent.viewId)
 			if (agent.status === 'failed')
@@ -5097,6 +5108,12 @@ function AppBody({
 					pushRow(done)
 				continue
 			}
+			const leftName =
+				agent.status === 'completed' ? session?.team?.left?.(agent.viewId) : undefined
+			if (leftName !== undefined) {
+				for (const done of teammateIdleRows(agent, `${leftName} left the team`)) pushRow(done)
+				continue
+			}
 			for (const done of agentCompletionRows(agent, previousFailure, agentCallsOn)) pushRow(done)
 		}
 		if (retryIn === undefined) return
@@ -5111,6 +5128,7 @@ function AppBody({
 		writeLaunchReceipts,
 		claimReceipt,
 		agentCallsOn,
+		teamSnap,
 	])
 
 	/**
@@ -10722,8 +10740,12 @@ function AppBody({
 			// Another agent's request waits behind every question of the person's
 			// own conversation; it never takes the screen from the one already up.
 			const background = reviewSource(req, scopeRef.current?.sessionId) !== undefined
+			// Only a teammate's question outlives the lead's turn; a sub-agent's is taken back with it.
+			const outlivesTurn =
+				background && reviewSessionRef.current?.teammateAsking?.(req) !== undefined
 			const answered = asks.enqueue(pending, {
 				background,
+				...(outlivesTurn ? { outlivesTurn } : {}),
 				...(req.signal ? { signal: req.signal } : {}),
 			})
 			if (asks.shown === pending) announceApproval()

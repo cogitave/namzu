@@ -152,7 +152,7 @@ describe('the questions waiting on the person', () => {
 	it("closes the questions of its own conversation and leaves another agent's open", async () => {
 		const { asks, shown } = queue()
 		const own = asks.enqueue('own-a')
-		const teammate = asks.enqueue('mate', { background: true })
+		const teammate = asks.enqueue('mate', { background: true, outlivesTurn: true })
 		const own2 = asks.enqueue('own-b')
 		let teammateSettled = false
 		void teammate.then(() => {
@@ -168,6 +168,15 @@ describe('the questions waiting on the person', () => {
 		expect(shown.at(-1)).toBe('mate')
 		asks.answer(yes)
 		expect(await teammate).toEqual(yes)
+	})
+
+	it("takes back a sub-agent's question with the turn", async () => {
+		const { asks } = queue()
+		const own = asks.enqueue('own')
+		const sub = asks.enqueue('sub', { background: true })
+		asks.closeOwn(no)
+		expect(await Promise.all([own, sub])).toEqual([no, no])
+		expect(asks.open).toBe(0)
 	})
 
 	it('closes everything when no question belongs to another agent', async () => {
