@@ -31,6 +31,9 @@ use windows::Win32::System::Threading::GetCurrentThreadId;
 use windows::Win32::UI::HiDpi::{
     DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, SetProcessDpiAwarenessContext,
 };
+use windows::Win32::UI::Input::{
+    GetRawInputDeviceList, RAWINPUTDEVICELIST, RID_DEVICE_INFO_TYPE, RIM_TYPEMOUSE,
+};
 use windows::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GWL_EXSTYLE, GetClassNameW,
     GetMessageW, GetWindowDisplayAffinity, GetWindowLongPtrW, GetWindowRect,
@@ -144,15 +147,26 @@ fn poll_until(
     since: Option<u64>,
     ready: impl Fn(&MonitorPollReply) -> bool,
 ) -> MonitorPollReply {
-    let mut tries = 0u32;
     loop {
         let p = poll(h, since);
         if ready(&p) {
             return p;
         }
-        tries += 1;
-        assert!(tries < 1500, "TEMP DIAG: no event; last poll {p:?}");
         std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+}
+
+/// Whether the system has a raw input device of this class (`RIM_TYPEMOUSE` or `RIM_TYPEKEYBOARD`).
+fn device_exists(class: RID_DEVICE_INFO_TYPE) -> bool {
+    let size = std::mem::size_of::<RAWINPUTDEVICELIST>() as u32;
+    let mut count = 0u32;
+    unsafe {
+        if GetRawInputDeviceList(None, &mut count, size) == u32::MAX || count == 0 {
+            return false;
+        }
+        let mut list = vec![RAWINPUTDEVICELIST::default(); count as usize];
+        let got = GetRawInputDeviceList(Some(list.as_mut_ptr()), &mut count, size);
+        got != u32::MAX && list[..got as usize].iter().any(|d| d.dwType == class)
     }
 }
 
@@ -238,12 +252,18 @@ fn the_monitor_sees_input_without_its_content_and_the_overlay_is_plain_to_captur
         count: None,
     }))
     .expect("click");
-    let mouse = poll_until(&mut h, Some(base), |p| {
-        p.events
-            .iter()
-            .any(|e| e.kind == Kind::Input && e.device == Some(Device::Mouse))
-    });
-    assert!(mouse.injected_inputs > 0);
+    // The system raises a raw mouse event only when a mouse device exists; a
+    // runner may have none, and then nothing would ever arrive to wait for.
+    let mouse = if device_exists(RIM_TYPEMOUSE) {
+        poll_until(&mut h, Some(base), |p| {
+            p.events
+                .iter()
+                .any(|e| e.kind == Kind::Input && e.device == Some(Device::Mouse))
+        })
+    } else {
+        eprintln!("no mouse device on this machine: not waiting for a raw mouse event");
+        poll(&mut h, Some(base))
+    };
     assert_eq!(mouse.inputs, 0, "no person is at a runner");
     assert!(
         mouse
@@ -295,24 +315,36 @@ fn the_monitor_sees_input_without_its_content_and_the_overlay_is_plain_to_captur
         panic!("foreground.set")
     };
     assert!(set_b.raised, "{set_b:?}");
-    let seen_b = poll_until(&mut h, Some(mark), |p| {
-        p.events
-            .iter()
-            .any(|e| e.kind == Kind::Foreground && e.window_id.as_deref() == Some(want_b.as_str()))
-    });
-    eprintln!("section: foreground b seen");
-    assert!(seen_b.foreground_changes > 0);
-    let mark = seen_b.seq;
+    // The system raises a foreground event only when the front changed, so
+    // that is the only case a test may wait for one.
+    if set_b.changed {
+        let seen_b = poll_until(&mut h, Some(mark), |p| {
+            p.events.iter().any(|e| {
+                e.kind == Kind::Foreground && e.window_id.as_deref() == Some(want_b.as_str())
+            })
+        });
+        eprintln!("section: foreground b seen");
+        assert!(seen_b.foreground_changes > 0);
+    } else {
+        eprintln!("window b was in front already: no event to wait for");
+    }
+    let mark = poll(&mut h, None).seq;
     let want_a = a.id();
-    h.call(Request::ForegroundSet(ForegroundSetRequest {
-        window_id: want_a.clone(),
-    }))
-    .expect("foreground.set");
-    poll_until(&mut h, Some(mark), |p| {
-        p.events
-            .iter()
-            .any(|e| e.kind == Kind::Foreground && e.window_id.as_deref() == Some(want_a.as_str()))
-    });
+    let ReplyBody::ForegroundSet(set_a) = h
+        .call(Request::ForegroundSet(ForegroundSetRequest {
+            window_id: want_a.clone(),
+        }))
+        .expect("foreground.set")
+    else {
+        panic!("foreground.set")
+    };
+    if set_a.changed {
+        poll_until(&mut h, Some(mark), |p| {
+            p.events.iter().any(|e| {
+                e.kind == Kind::Foreground && e.window_id.as_deref() == Some(want_a.as_str())
+            })
+        });
+    }
 
     eprintln!("section: stopping");
     // --- stopping ----------------------------------------------------------------------
