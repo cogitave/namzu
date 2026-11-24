@@ -52,20 +52,30 @@ You may run several Namzu homes on one computer: the terminal, a scheduled servi
 
 ## What the list shows
 
-`/peers`, or `namzu peers list` from a shell, draws every machine and its live sessions (in the terminal, inside the "Waiting for you" picker when something needs an answer, otherwise as the command's one result row):
+`/peers`, or `namzu peers list` from a shell, draws one counted list of live Namzu sessions (in the terminal, inside the "Waiting for you" picker when something needs an answer, otherwise as the command's one result row):
 
 ```
-studio-air · this machine · online
-  calm-heron · namzu · idle · auto · role: orchestrator
-  quiet-otter · namzu · running · auto · role: you will build the parser
-desk-linux · last seen 5 min ago
-  swift-finch · api-server · offline · prompt
-  brisk-marten · api-server · offline · auto
+Namzu sessions (4):
+  [idle]  ·  calm-heron  ·  this terminal  ·  started 7m ago
+      in namzu  ·  auto mode
+      role: orchestrator
+  [running]  ·  (unnamed session)  ·  started 23s ago
+      in namzu  ·  auto mode
+  [offline]  ·  swift-finch  ·  desk-linux
+      in api-server  ·  prompt mode
+  [offline]  ·  brisk-marten  ·  desk-linux
+      in api-server  ·  auto mode
+
+Sessions shown as (unnamed session) have no name of their own: /rename <name> in that terminal gives one others can message.
+
+Machines (2):
+  [online]  ·  studio-air  ·  this machine
+  [offline]  ·  desk-linux  ·  last seen 5m ago
 ```
 
-Each machine is a heading line: its name, "this machine" where it applies, its state (`online`, or `last seen 5 min ago` when it did not answer) and its role, if it has one. Its sessions follow, indented, one line each, apart by ` · `: the session's **name** (its conversation's title, else a readable name made from its id; `(this terminal)` marks the one you are in), the **project folder**'s name (never the full path), its **state** (`idle`, `running`, `awaiting-approval`, or `offline` when its machine did not answer), its **permission mode** (`ask`, `auto`, `accept edits`, `plan`, `bypass`) and `role: <text>` when one is set. A role longer than the line is cut with an ellipsis at the terminal's width; `namzu peers list` in a pipe, and `--json`, give it whole. A short `[ref]` is added only when two rows share a name. The name is the address: `namzu peers send swift-finch ...`, or `desk-linux/swift-finch` when two machines have a session of that name. The model sees the same list through `list_sessions` and replies to a name the same way with `send_session_message`.
+The first line of a session is `[state]  ·  name  ·  where or when`, fields apart by two spaces, a dot and two spaces. The **state** is `idle`, `running`, `awaiting-approval`, or `offline` when its machine did not answer. The **name** is its conversation's title; a session with no name of its own reads `(unnamed session)` (a title that is only the folder's name counts as none), with a `[ref]` added only when two rows read the same. The last field is `this terminal` for the one you are in, `started 7m ago` (the single largest unit: `23s`, `7m`, `7h`, `3d`) for a session of this machine, and the machine's name for a session on another machine, which carries no start time because the network does not send one. The order is this terminal, then this machine's sessions newest first, then the other machines by name. The second line, indented, holds Namzu's own extras: the **folder** (for a session on this machine the full path, written `~/…` under home; for a session on another machine only the folder's name), the **permission mode** (`ask`, `auto`, `accept edits`, `plan`, `bypass`), `not accepting messages` when that is so, and `role: <text>` when one is set. A role longer than the line is cut with an ellipsis at the terminal's width; `namzu peers list` in a pipe, and `--json`, give it whole. `Machines (N)` follows only when there is more than one machine, a machine is offline, or a machine has a role. With nothing running the list says `No Namzu sessions are running.` (with the network off the list still shows every live Namzu session of this user on this computer, in any folder, under the same `Namzu sessions (N):` header). The name is the address, whatever the folder (a name two folders share is refused and the candidates are listed with their folders; use the `[ref]`): `namzu peers send swift-finch ...`, or `desk-linux/swift-finch` when two machines have a session of that name. The model sees the same list through `list_sessions` (each local row now also carries `started_at`) and replies to a name the same way with `send_session_message`. `namzu peers list --json` keeps every field and adds `folder`, `named` and `startedAt` to its rows.
 
-The screen shows what waits for you: **Join requests** first, then **Held** messages under the list, each with an Allow and a Deny row (Enter applies it). Under 60 columns a session keeps its name and state on one line, with the folder and mode, then the role, on lines of their own. A machine that stops answering stays in the list, `offline`, for a day, then shows with no sessions.
+The screen shows what waits for you: **Join requests** first, then **Held** messages under the list, each with an Allow and a Deny row (Enter applies it). Under 60 columns a session keeps its state and name on one line, with where or when, the folder and mode, then the role, on lines of their own. A machine that stops answering stays in the list, `offline`, for a day, then shows with no sessions.
 
 A machine is called by its host name until you rename it with `namzu peers rename <new name>` (or the `network.machineName` setting).
 

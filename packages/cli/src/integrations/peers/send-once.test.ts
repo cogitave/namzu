@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, realpathSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { PeerClient, readPeerRecords, udsPeerAddress, writePeerRecord } from '@namzu/sdk'
@@ -11,7 +11,7 @@ import {
 	peerMailMessage,
 	resolvePeerRuntime,
 } from './runtime.js'
-import { listProjectTerminals, sendToTerminal } from './send-once.js'
+import { listLocalTerminals, sendToTerminal } from './send-once.js'
 
 const roots: string[] = []
 const opened: LivePeers[] = []
@@ -92,10 +92,12 @@ it('is held by the receiver for the person when the declared mode differs', asyn
 	expect(f.receiver.held()).toHaveLength(1)
 })
 
-it('does not see a terminal in another project', async () => {
+it('lists a terminal of another folder and delivers to it, held by the same rules', async () => {
 	const f = await fixture()
 	const other = join(f.root, 'other')
 	mkdirSync(other)
+	const listed = await listLocalTerminals({ ...f.common, cwd: other })
+	expect(listed.map((row) => row.ref)).toEqual([f.receiver.ref])
 	const receipt = await sendToTerminal({
 		...f.common,
 		cwd: other,
@@ -103,50 +105,42 @@ it('does not see a terminal in another project', async () => {
 		message: 'hi',
 		mode: 'auto',
 	})
-	expect(receipt.status).toBe('refused')
-	expect(await listProjectTerminals({ ...f.common, cwd: other })).toEqual([])
-})
-
-it('refuses, at the receiver, a command-line record from another project', async () => {
-	const f = await fixture()
-	const other = join(f.root, 'other')
-	mkdirSync(other)
-	const foreign = await openLivePeers({
+	expect(receipt.status).toBe('queued')
+	const held = await sendToTerminal({
 		...f.common,
 		cwd: other,
-		mode: () => 'auto',
-		owner: () => 0,
-		state: () => 'idle' as const,
-		ready: () => true,
-		available: () => {},
-		report: () => {},
+		target: f.receiver.ref,
+		message: 'hi again',
+		mode: 'bypass',
 	})
-	opened.push(foreign)
-	const runtime = resolvePeerRuntime(f.home, {})
-	const records = readPeerRecords(runtime.sessionsDir)
-	const receiver = records.find((record) => record.sessionId === f.receiver.id)!
-	const live = records.find((record) => record.sessionId === foreign.id)!
-	// Same live endpoint, registered as a command-line sender in a project the receiver is not in.
-	writePeerRecord(runtime.sessionsDir, { ...live, kind: 'cli' })
-	expect(
-		await new PeerClient().deliver(receiver, {
-			id: 'cli-elsewhere',
-			text: 'outside project',
-			from: {
-				sessionId: live.sessionId,
-				ref: live.ref,
-				name: 'command line',
-				address: live.address,
-				mode: live.permissionMode,
-				kind: 'cli',
-			},
-		}),
-	).toMatchObject({
-		kind: 'responded',
-		status: 'refused',
-		reason: 'Only live terminals in the same project may send here.',
-	})
-	expect(f.receiver.pending).toBe(0)
+	expect(held.status).toBe('held')
+})
+
+it('refuses a name two folders share and lists both', async () => {
+	const f = await fixture()
+	const open = async (dir: string) => {
+		const cwd = join(f.root, dir, 'same')
+		mkdirSync(cwd, { recursive: true })
+		opened.push(
+			await openLivePeers({
+				...f.common,
+				cwd,
+				mode: () => 'auto',
+				owner: () => 0,
+				state: () => 'idle' as const,
+				ready: () => true,
+				available: () => {},
+				report: () => {},
+			}),
+		)
+		return realpathSync(cwd)
+	}
+	const a = await open('a')
+	const b = await open('b')
+	const receipt = await sendToTerminal({ ...f.common, target: 'same', message: 'hi', mode: 'auto' })
+	expect(receipt.status).toBe('refused')
+	expect(receipt.status === 'refused' && receipt.reason).toContain(a)
+	expect(receipt.status === 'refused' && receipt.reason).toContain(b)
 })
 
 it('removes its record when a signal ends the send', async () => {
@@ -178,7 +172,7 @@ it('removes its record when a signal ends the send', async () => {
 
 it('lists live terminals without tokens or addresses', async () => {
 	const f = await fixture()
-	const peers = await listProjectTerminals(f.common)
+	const peers = await listLocalTerminals(f.common)
 	expect(peers).toHaveLength(1)
 	expect(peers[0]).toMatchObject({
 		ref: f.receiver.ref,
@@ -186,6 +180,9 @@ it('lists live terminals without tokens or addresses', async () => {
 		state: 'idle',
 		acceptsMessages: true,
 	})
+	// `folder` stays the folder's own name; `path` is the full path.
+	expect(peers[0]?.folder).not.toContain('/')
+	expect(peers[0]?.path.endsWith(`/${peers[0]?.folder}`)).toBe(true)
 	expect(JSON.stringify(peers)).not.toMatch(/token|uds:/)
 })
 
