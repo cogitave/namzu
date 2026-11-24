@@ -1,31 +1,53 @@
 //! The Windows backend: the calls behind `windows`, `displays`, `snapshot`,
-//! `identity`, `resolve`, `seq` and `wait_change`.
+//! `identity`, `resolve`, `seq`, `wait_change`, `act`, `input`, `capture`,
+//! `foreground.get`, `foreground.set`, `lease.begin` and `lease.end`.
 //!
 //! Three kinds of thread cooperate. The reader (the loop in `lib.rs`) answers
-//! the cheap ops inline. One worker thread, in the multithreaded apartment,
-//! runs every UI Automation call one after the other; a call that never
-//! returns is answered `timeout` and the worker replaced (see `exec`). Two
-//! more threads only listen: the hook thread (system window events) and the
-//! wait scheduler. Events flow into the hub, which settles the waits.
+//! the cheap ops inline. Two worker threads, in the multithreaded apartment,
+//! run the slow calls one after the other: one for UI Automation (reading,
+//! acting), one for the screen (capture, input, foreground), so a picture or
+//! a long text never waits behind a window that is slow to answer. A call
+//! that never returns is answered `timeout` and its worker replaced (see
+//! `exec`). Two more threads only listen: the hook thread (system window
+//! events) and the wait scheduler. Events flow into the hub, which settles
+//! the waits.
 
+mod act;
+mod capture;
 mod enumerate;
+mod foreground;
 mod hooks;
 mod hub;
+mod proc;
+mod sendinput;
 mod uia;
 
 use crate::BuildInfo;
 use crate::backend::{Backend, Responder, SharedResponder};
 use crate::exec::{Abandon, SerialExecutor, Task};
+use namzu_win_core::act::{ActReply, ActRequest, ActTarget, ActVia, Facts, Refusal};
+use namzu_win_core::bytes::{base64, sha256_hex};
+use namzu_win_core::capture::{
+    CaptureReply, CaptureRequest, CaptureTarget, Delivery, INLINE_LIMIT,
+};
+use namzu_win_core::dpi;
 use namzu_win_core::events::WaitSpec;
-use namzu_win_core::fingerprint::{self, Candidate};
+use namzu_win_core::fingerprint::{self, Candidate, Match};
+use namzu_win_core::foreground::{
+    BlockedBy, ForegroundGetRequest, ForegroundSetReply, ForegroundSetRequest, Lease,
+    LeaseBeginReply, LeaseBeginRequest, LeaseEndReply, LeaseEndRequest, LeaseError, RaiseHow,
+    Restore, RestoreFacts, Win, lease_file_has_token,
+};
+use namzu_win_core::input::{self, InputReply, InputRequest, InputVia};
 use namzu_win_core::protocol::{
-    DisplaysReply, ErrorCode, IdentityReply, IdentityRequest, ReplyBody, Request, ResolveRequest,
-    SeqReply, Snapshot, SnapshotRequest, WindowsReply, WireError,
+    Action, DisplaysReply, ErrorCode, ExpandState, IdentityReply, IdentityRequest, Rect, ReplyBody,
+    Request, ResolveRequest, SeqReply, Snapshot, SnapshotRequest, WindowsReply, WireError,
 };
 use namzu_win_core::refs::{self, RefTable};
 use namzu_win_core::tree;
 use namzu_win_core::window_id;
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 use windows::Win32::Foundation::HWND;
@@ -36,6 +58,7 @@ use windows::Win32::UI::HiDpi::{
 };
 
 use enumerate::{class_of, has_chromium, hwnd_from, hwnd_value, is_window, pid_of, process_start};
+use foreground::OwnTicks;
 use hooks::Hooks;
 use hub::Hub;
 use uia::{El, Subscription, Uia};
@@ -46,13 +69,14 @@ const MAX_WATCHED: usize = 32;
 const MAX_READS: usize = 6;
 const DEFAULT_TASK_MS: u64 = 8_000;
 
+/// One control of a read: the live element a ref names, and what `act` needs
+/// to decide before it calls the element.
 struct Entry {
-    #[expect(
-        dead_code,
-        reason = "kept so the act side can use the element a ref names without reading the window again"
-    )]
     element: El,
     identity: fingerprint::Identity,
+    actions: Vec<Action>,
+    enabled: bool,
+    expand: Option<ExpandState>,
 }
 
 struct Watched {
@@ -72,6 +96,13 @@ struct Ui {
 
 struct Inner {
     exec: SerialExecutor,
+    /// The screen's worker: capture, input, foreground and the lease.
+    io: SerialExecutor,
+    /// The lease a burst of input holds, if any.
+    lease: Mutex<Option<Lease>>,
+    /// The helper's own sending, so its input is not taken for a person's.
+    own: Mutex<Option<OwnTicks>>,
+    captures: AtomicU64,
     ui: Mutex<Ui>,
     uia: Mutex<Option<Arc<Uia>>>,
     hub: Arc<Hub>,
@@ -177,6 +208,10 @@ impl WinBackend {
         WinBackend {
             inner: Arc::new(Inner {
                 exec: SerialExecutor::new(uia::init_thread),
+                io: SerialExecutor::new(uia::init_thread),
+                lease: Mutex::new(None),
+                own: Mutex::new(None),
+                captures: AtomicU64::new(0),
                 ui: Mutex::new(Ui::default()),
                 uia: Mutex::new(None),
                 hub,
@@ -319,7 +354,14 @@ impl Inner {
             .iter()
             .cloned()
             .zip(walked.identities.iter().cloned())
-            .map(|(element, identity)| Entry { element, identity })
+            .zip(walked.nodes.iter())
+            .map(|((element, identity), node)| Entry {
+                element,
+                identity,
+                actions: node.actions.clone(),
+                enabled: node.enabled,
+                expand: node.expand,
+            })
             .collect();
         let revision = {
             let mut ui = locked(&self.ui);
@@ -402,9 +444,508 @@ impl Inner {
     }
 }
 
-/// Runs `work` on the worker thread and answers with its result; a task that
-/// is overdue or cancelled is answered `timeout` or `cancelled` instead.
+/// The control an `act` names, with what is known about it.
+struct Found {
+    element: El,
+    actions: Vec<Action>,
+    enabled: bool,
+    expand: Option<ExpandState>,
+    /// Its place in the read that found it, and that read's revision.
+    index: u32,
+    revision: u64,
+}
+
+/// How long an input may take: a long text takes longer than a click.
+fn input_timeout_ms(r: &InputRequest) -> u64 {
+    match r {
+        InputRequest::Type { text } => 10_000 + 20 * text.chars().count() as u64,
+        _ => 8_000,
+    }
+}
+
+fn refusal(r: Refusal) -> WireError {
+    let code = match r {
+        Refusal::BadArgs(_) => ErrorCode::BadRequest,
+        Refusal::NoPattern(_) => ErrorCode::BackgroundUnavailable,
+        Refusal::Disabled(_) => ErrorCode::Disabled,
+    };
+    err(code, r.message())
+}
+
+/// A failure of a pattern call, in the protocol's terms.
+fn act_error(e: &windows::core::Error) -> WireError {
+    const NOT_SUPPORTED: i32 = 0x8004_0204_u32 as i32;
+    const NOT_ENABLED: i32 = 0x8004_0200_u32 as i32;
+    const INVALID_OPERATION: i32 = 0x8013_1509_u32 as i32;
+    match e.code().0 {
+        NOT_SUPPORTED => err(
+            ErrorCode::BackgroundUnavailable,
+            "the control does not support this",
+        ),
+        NOT_ENABLED => err(ErrorCode::Disabled, "the control is turned off"),
+        INVALID_OPERATION => err(
+            ErrorCode::BackgroundUnavailable,
+            "the control refused the call in its present state",
+        ),
+        _ => uia_error(e),
+    }
+}
+
+fn ref_error(e: &refs::RefError) -> WireError {
+    match e {
+        refs::RefError::Malformed => err(ErrorCode::BadRequest, e.to_string()),
+        refs::RefError::UnknownWindow => {
+            err(ErrorCode::NotFound, "take a snapshot of the window first")
+        }
+        refs::RefError::Stale { .. } | refs::RefError::FromTheFuture { .. } => {
+            err(ErrorCode::StaleSnapshot, e.to_string())
+        }
+        refs::RefError::OutOfRange { .. } => err(ErrorCode::NotFound, e.to_string()),
+    }
+}
+
+/// The monitors as the DPI math knows them.
+fn monitors() -> Vec<dpi::Monitor> {
+    enumerate::displays()
+        .into_iter()
+        .map(|d| dpi::Monitor {
+            id: d.id,
+            bounds: d.bounds,
+            dpi: (d.scale * 96.0).round() as u32,
+        })
+        .collect()
+}
+
+impl Inner {
+    fn now(&self) -> f64 {
+        self.hub.now_ms()
+    }
+
+    /// The control an `act` names, the facts about it, and the read that found it.
+    fn control(&self, r: &ActRequest, window: HWND, pid: u32) -> Result<Found, WireError> {
+        let target = r.target().map_err(|m| err(ErrorCode::BadRequest, m))?;
+        let id = window_id::format(hwnd_value(window), pid);
+        match target {
+            ActTarget::Ref(reference) => {
+                let ui = locked(&self.ui);
+                let hit = ui.refs.get(&id, reference).map_err(|e| ref_error(&e))?;
+                let (revision, index) = refs::parse_ref(reference)
+                    .ok_or_else(|| err(ErrorCode::BadRequest, "not a ref"))?;
+                let e = hit.entry;
+                Ok(Found {
+                    element: e.element.clone(),
+                    actions: e.actions.clone(),
+                    enabled: e.enabled,
+                    expand: e.expand,
+                    index,
+                    revision,
+                })
+            }
+            ActTarget::Fingerprint(fp) => {
+                if !fingerprint::same_process_run(fp.process_start, process_start(pid)) {
+                    return Err(err(
+                        ErrorCode::NotFound,
+                        "the program was started again since the control was read",
+                    ));
+                }
+                let (_, revision, walked, _) = self.read(window, pid, 5_000, 64, false)?;
+                let candidates: Vec<Candidate> = walked
+                    .identities
+                    .iter()
+                    .enumerate()
+                    .map(|(i, identity)| Candidate {
+                        index: i as u32,
+                        identity: identity.clone(),
+                    })
+                    .collect();
+                match fingerprint::resolve(fp, &candidates) {
+                    Match::Found { index, .. } => {
+                        let i = index as usize;
+                        let node = &walked.nodes[i];
+                        Ok(Found {
+                            element: walked.handles[i].clone(),
+                            actions: node.actions.clone(),
+                            enabled: node.enabled,
+                            expand: node.expand,
+                            index,
+                            revision,
+                        })
+                    }
+                    Match::NotFound => Err(err(
+                        ErrorCode::NotFound,
+                        "the control is no longer in the window",
+                    )),
+                    Match::Ambiguous { candidates } => Err(err(
+                        ErrorCode::Ambiguous,
+                        format!("{candidates} controls fit"),
+                    )),
+                }
+            }
+        }
+    }
+
+    fn act(&self, r: &ActRequest) -> Result<ReplyBody, WireError> {
+        let (window, pid) = window_of(&r.window_id)?;
+        let Found {
+            element,
+            actions,
+            enabled,
+            expand,
+            index,
+            revision,
+        } = self.control(r, window, pid)?;
+        let facts = Facts {
+            actions: &actions,
+            enabled,
+            expand,
+            read_only: r.action == namzu_win_core::act::ActKind::SetValue
+                && act::read_only(&element),
+        };
+        let plan = namzu_win_core::act::plan(r, &facts).map_err(refusal)?;
+        let before = act::read_state(&element, &actions);
+        act::perform(&element, &plan).map_err(|e| act_error(&e))?;
+        let after = act::read_state(&element, &actions);
+        Ok(ReplyBody::Act(ActReply {
+            done: true,
+            via: ActVia::Pattern,
+            verified: namzu_win_core::act::verify(&plan, &before, &after),
+            after: Some(after),
+            index,
+            revision,
+        }))
+    }
+
+    fn mark_own(&self, ticks: Option<OwnTicks>) {
+        *locked(&self.own) = ticks;
+    }
+
+    fn input(&self, r: &InputRequest) -> Result<ReplyBody, WireError> {
+        // A held lease says whose screen this is: its window must still be in front.
+        if let Some(lease) = locked(&self.lease).as_mut() {
+            lease
+                .admit(self.now(), foreground::front_win())
+                .map_err(|e| match e {
+                    LeaseError::Expired => err(
+                        ErrorCode::LeaseExpired,
+                        "the lease ran out; begin another before sending input",
+                    ),
+                    LeaseError::ForegroundLost => err(
+                        ErrorCode::ForegroundLost,
+                        "the window the lease is for is no longer in front; nothing was sent",
+                    ),
+                })?;
+        }
+        let desktop = input::Desktop::of(&monitors())
+            .ok_or_else(|| err(ErrorCode::NotFound, "no display"))?;
+        let steps = input::plan(r, &desktop).map_err(|m| err(ErrorCode::BadRequest, m))?;
+        let in_lease = locked(&self.lease).is_some();
+        if !in_lease {
+            self.mark_own(Some(OwnTicks {
+                start: foreground::tick(),
+                end: None,
+            }));
+        }
+        let sent = sendinput::send(&steps);
+        if !in_lease {
+            self.mark_own(Some(OwnTicks {
+                start: locked(&self.own).map_or_else(foreground::tick, |o| o.start),
+                end: Some(foreground::tick()),
+            }));
+        }
+        let delivered = sent?;
+        Ok(ReplyBody::Input(InputReply {
+            delivered,
+            via: InputVia::SendInput,
+            cursor: input::cursor_after(r).map(|_| foreground::cursor()),
+        }))
+    }
+
+    fn capture(&self, r: &CaptureRequest) -> Result<ReplyBody, WireError> {
+        let delivery = r.delivery().map_err(|m| err(ErrorCode::BadRequest, m))?;
+        if let Delivery::File(dir) = delivery {
+            if !std::path::Path::new(dir).is_dir() {
+                return Err(err(
+                    ErrorCode::BadRequest,
+                    "`into` is not a directory that exists",
+                ));
+            }
+        }
+        // The first frame of a window comes at once or not at all.
+        let wait = Duration::from_millis(r.timeout_ms().min(3_000));
+        let cursor = r.cursor.unwrap_or(false);
+        let shot = match &r.target {
+            CaptureTarget::Window { window_id } => {
+                let (window, _) = window_of(window_id)?;
+                capture::window(window, cursor, wait)?
+            }
+            CaptureTarget::Display { id } => capture::display(id.as_deref(), cursor, wait)?,
+            CaptureTarget::Region {
+                x,
+                y,
+                width,
+                height,
+            } => capture::region(&Rect {
+                x: *x,
+                y: *y,
+                width: *width,
+                height: *height,
+            })?,
+        };
+        let png = capture::encode_png(&shot)?;
+        let sha256 = sha256_hex(&png);
+        let (path, data_base64) = match delivery {
+            Delivery::File(dir) => {
+                let n = self.captures.fetch_add(1, Ordering::Relaxed) + 1;
+                let file = std::path::Path::new(dir)
+                    .join(format!("capture-{}-{n}.png", std::process::id()));
+                std::fs::write(&file, &png).map_err(|e| {
+                    err(
+                        ErrorCode::Internal,
+                        format!("could not write the picture: {e}"),
+                    )
+                })?;
+                (Some(file.to_string_lossy().into_owned()), None)
+            }
+            Delivery::Inline => {
+                if png.len() > INLINE_LIMIT {
+                    return Err(err(
+                        ErrorCode::BadRequest,
+                        "the picture is too large to come back inline; give `into`",
+                    ));
+                }
+                (None, Some(base64(&png)))
+            }
+        };
+        Ok(ReplyBody::Capture(CaptureReply {
+            path,
+            data_base64,
+            bytes: png.len() as u64,
+            width: shot.width,
+            height: shot.height,
+            scale: shot.scale,
+            via: shot.via,
+            sha256,
+            bounds: shot.bounds,
+            display: shot.display,
+        }))
+    }
+
+    fn foreground_get(&self, r: &ForegroundGetRequest) -> Result<ReplyBody, WireError> {
+        let target_pid = match &r.window_id {
+            Some(id) => Some(window_of(id)?.1),
+            None => None,
+        };
+        let own = *locked(&self.own);
+        Ok(ReplyBody::ForegroundGet(foreground::state(own, target_pid)))
+    }
+
+    fn foreground_set(&self, r: &ForegroundSetRequest) -> Result<ReplyBody, WireError> {
+        let (window, pid) = window_of(&r.window_id)?;
+        let how = foreground::raise(window);
+        let raised = how != RaiseHow::Refused;
+        let blocked_by = (!raised).then(|| {
+            if proc::above(pid, proc::self_integrity()) {
+                BlockedBy::Elevated
+            } else {
+                BlockedBy::Windows
+            }
+        });
+        Ok(ReplyBody::ForegroundSet(ForegroundSetReply {
+            raised,
+            changed: raised && how != RaiseHow::Already,
+            how,
+            blocked_by,
+        }))
+    }
+
+    fn lease_begin(&self, r: &LeaseBeginRequest) -> Result<ReplyBody, WireError> {
+        let file = r
+            .file()
+            .map_err(|m| err(ErrorCode::BadRequest, m))?
+            .map(|(p, t)| (p.to_owned(), t.to_owned()));
+        let target = match &r.window_id {
+            Some(id) => {
+                let (window, pid) = window_of(id)?;
+                Some((
+                    window,
+                    Win {
+                        hwnd: hwnd_value(window),
+                        pid,
+                    },
+                ))
+            }
+            None => None,
+        };
+        if r.raise.unwrap_or(false) && target.is_none() {
+            return Err(err(ErrorCode::BadRequest, "raise needs a windowId"));
+        }
+        {
+            let held = locked(&self.lease);
+            match held.as_ref() {
+                Some(l) if !l.expired(self.now()) => {
+                    return Err(err(ErrorCode::LeaseBusy, "a lease is already held"));
+                }
+                _ => {}
+            }
+        }
+        // One that ran out is ended first: its window and pointer go back.
+        if locked(&self.lease).is_some() {
+            let _ = self.end_lease(true, false, true);
+        }
+        let before = foreground::front_win();
+        let cursor = foreground::cursor();
+        let previous = *locked(&self.own);
+        let pre = foreground::state(previous, target.as_ref().map(|(_, w)| w.pid));
+        if r.idle_ms.is_some_and(|need| pre.user_idle_ms < need) {
+            // A person is still using the machine: move nothing.
+            return Ok(ReplyBody::LeaseBegin(LeaseBeginReply {
+                state: pre,
+                refused: true,
+                raised: None,
+                raise_how: None,
+            }));
+        }
+        self.mark_own(Some(OwnTicks {
+            start: foreground::tick(),
+            end: None,
+        }));
+        let mut raised_win = None;
+        let mut raise_result = None;
+        if r.raise.unwrap_or(false) {
+            if let Some((window, win)) = &target {
+                let how = foreground::raise(*window);
+                let in_front = how != RaiseHow::Refused;
+                if in_front && foreground::front_win() != before {
+                    raised_win = Some(*win);
+                }
+                raise_result = Some((in_front, how));
+            }
+        }
+        // Taken after the raise: the unlock tap is this program's own input.
+        let tick = u64::from(foreground::last_input_tick());
+        *locked(&self.lease) = Some(Lease {
+            target: target.as_ref().map(|(_, w)| *w),
+            ttl_ms: r.ttl_ms(),
+            last_ms: self.now(),
+            before,
+            raised: raised_win,
+            cursor,
+            tick,
+            file,
+        });
+        let own = *locked(&self.own);
+        Ok(ReplyBody::LeaseBegin(LeaseBeginReply {
+            state: foreground::state(own, target.as_ref().map(|(_, w)| w.pid)),
+            refused: false,
+            raised: raise_result.map(|(r, _)| r),
+            raise_how: raise_result.map(|(_, h)| h),
+        }))
+    }
+
+    fn lease_end(&self, r: &LeaseEndRequest) -> Result<ReplyBody, WireError> {
+        self.end_lease(
+            r.restore,
+            r.keep_cursor.unwrap_or(false),
+            r.release.unwrap_or(false),
+        )
+        .map(ReplyBody::LeaseEnd)
+    }
+
+    /// Ends the lease: puts the window and the pointer back when asked, and
+    /// removes the lease file when its token is still the one given at begin.
+    fn end_lease(
+        &self,
+        restore: bool,
+        keep_cursor: bool,
+        release: bool,
+    ) -> Result<LeaseEndReply, WireError> {
+        let lease = locked(&self.lease)
+            .take()
+            .ok_or_else(|| err(ErrorCode::BadRequest, "no lease is held"))?;
+        let start = locked(&self.own).map_or_else(foreground::tick, |o| o.start);
+        self.mark_own(Some(OwnTicks {
+            start,
+            end: Some(foreground::tick()),
+        }));
+        let input_moved = u64::from(foreground::last_input_tick()) != lease.tick;
+        let current = foreground::front_win();
+        let own_level = proc::self_integrity();
+        let front_elevated = current.is_some_and(|c| proc::above(c.pid, own_level));
+        let mut restored_foreground = false;
+        let mut restored_cursor = false;
+        let mut restore_note = None;
+        if restore {
+            let facts = RestoreFacts {
+                before: lease.before,
+                raised: lease.raised,
+                target: lease.target,
+                current,
+                before_alive: lease
+                    .before
+                    .is_some_and(|b| foreground::exists(hwnd_from(b.hwnd))),
+            };
+            match namzu_win_core::foreground::restore_decision(&facts) {
+                Restore::Put(w) => {
+                    restored_foreground = foreground::raise(hwnd_from(w.hwnd)) != RaiseHow::Refused;
+                    if !restored_foreground {
+                        restore_note = Some(
+                            "Windows would not give the front back to the previous window"
+                                .to_owned(),
+                        );
+                    }
+                }
+                Restore::Skip(note) => restore_note = Some(note.to_owned()),
+            }
+            if !keep_cursor && foreground::cursor() != lease.cursor {
+                restored_cursor = foreground::set_cursor(lease.cursor);
+            }
+        }
+        let mut released = false;
+        if release {
+            if let Some((path, token)) = &lease.file {
+                if let Ok(text) = std::fs::read_to_string(path) {
+                    if lease_file_has_token(&text, token) {
+                        released = std::fs::remove_file(path).is_ok();
+                    }
+                }
+            }
+        }
+        Ok(LeaseEndReply {
+            restored_foreground,
+            restored_cursor,
+            restore_note,
+            input_moved,
+            front_elevated,
+            released,
+        })
+    }
+}
+
+/// Runs `work` on the accessibility worker and answers with its result; a task
+/// that is overdue or cancelled is answered `timeout` or `cancelled` instead.
 fn submit(
+    inner: &Arc<Inner>,
+    id: u64,
+    timeout_ms: u64,
+    responder: SharedResponder,
+    work: impl FnOnce(&Inner) -> Result<ReplyBody, WireError> + Send + 'static,
+) {
+    submit_on(&inner.exec, inner, id, timeout_ms, responder, work);
+}
+
+/// The same on the screen's worker (capture, input, foreground, lease).
+fn submit_io(
+    inner: &Arc<Inner>,
+    id: u64,
+    timeout_ms: u64,
+    responder: SharedResponder,
+    work: impl FnOnce(&Inner) -> Result<ReplyBody, WireError> + Send + 'static,
+) {
+    submit_on(&inner.io, inner, id, timeout_ms, responder, work);
+}
+
+fn submit_on(
+    exec: &SerialExecutor,
     inner: &Arc<Inner>,
     id: u64,
     timeout_ms: u64,
@@ -413,7 +954,7 @@ fn submit(
 ) {
     let on_abandon = responder.clone();
     let worker_inner = Arc::clone(inner);
-    inner.exec.submit(Task {
+    exec.submit(Task {
         id,
         timeout: Duration::from_millis(timeout_ms),
         run: Box::new(move || {
@@ -442,8 +983,16 @@ impl Backend for WinBackend {
             "resolve",
             "seq",
             "wait_change",
+            "act",
+            "input",
+            "capture",
+            "foreground",
+            "lease",
             "uia",
             "hooks",
+            "sendinput",
+            "wgc",
+            "printwindow",
         ]
         .iter()
         .map(|c| (*c).to_owned())
@@ -556,6 +1105,72 @@ impl Backend for WinBackend {
                     });
                 }
             }
+            Request::Act(r) => {
+                let timeout = r.timeout_ms();
+                submit(
+                    inner,
+                    id,
+                    timeout,
+                    SharedResponder::new(responder),
+                    move |i| i.act(&r),
+                );
+            }
+            Request::Input(r) => {
+                let timeout = input_timeout_ms(&r);
+                submit_io(
+                    inner,
+                    id,
+                    timeout,
+                    SharedResponder::new(responder),
+                    move |i| i.input(&r),
+                );
+            }
+            Request::Capture(r) => {
+                let timeout = r.timeout_ms();
+                submit_io(
+                    inner,
+                    id,
+                    timeout,
+                    SharedResponder::new(responder),
+                    move |i| i.capture(&r),
+                );
+            }
+            Request::ForegroundGet(r) => {
+                submit_io(
+                    inner,
+                    id,
+                    DEFAULT_TASK_MS,
+                    SharedResponder::new(responder),
+                    move |i| i.foreground_get(&r),
+                );
+            }
+            Request::ForegroundSet(r) => {
+                submit_io(
+                    inner,
+                    id,
+                    DEFAULT_TASK_MS,
+                    SharedResponder::new(responder),
+                    move |i| i.foreground_set(&r),
+                );
+            }
+            Request::LeaseBegin(r) => {
+                submit_io(
+                    inner,
+                    id,
+                    DEFAULT_TASK_MS,
+                    SharedResponder::new(responder),
+                    move |i| i.lease_begin(&r),
+                );
+            }
+            Request::LeaseEnd(r) => {
+                submit_io(
+                    inner,
+                    id,
+                    DEFAULT_TASK_MS,
+                    SharedResponder::new(responder),
+                    move |i| i.lease_end(&r),
+                );
+            }
             // Answered by the loop before they get here.
             Request::Hello(_) | Request::Cancel(_) | Request::Quit => {
                 responder.fail(ErrorCode::Internal, "this op is answered by the loop");
@@ -563,8 +1178,19 @@ impl Backend for WinBackend {
         }
     }
 
+    fn shutdown(&self) {
+        // A lease still held when the caller goes away is ended the way a
+        // burst ends: the window and pointer put back, the lease file removed,
+        // so a crash does not leave the screen locked.
+        let held = locked(&self.inner.lease).is_some();
+        if held {
+            let _ = self.inner.end_lease(true, false, true);
+        }
+    }
+
     fn cancel(&self, target: u64) {
         self.inner.exec.cancel(target);
+        self.inner.io.cancel(target);
         self.inner
             .hub
             .end_wait(target, err(ErrorCode::Cancelled, "cancelled"));

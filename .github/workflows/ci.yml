@@ -627,9 +627,12 @@ jobs:
           NAMZU_WIN_BUILD_HASH: ${{ github.sha }}
 
       # Runs the helper's own tests on the OS it is for: the stdio test against
-      # the real executable, and a read of a window the test creates itself
-      # (list, snapshot, identity, resolve, wait for a change, cancel). x64
-      # only: the arm64 build cannot run on this runner.
+      # the real executable, a read of a window the test creates itself (list,
+      # snapshot, identity, resolve, wait for a change, cancel), and acting on
+      # that window (pattern calls, SendInput clicks, drags, wheel and typing
+      # seen by the window's own procedure, pictures of a window, a display and
+      # a region, the foreground lease). x64 only: the arm64 build cannot run
+      # on this runner.
       - name: Test the Windows helper
         if: matrix.gates
         run: cargo test --workspace --locked --target ${{ matrix.target }}

@@ -6,6 +6,13 @@
 //! interfaces, so the TypeScript side is a codec and not a redesign.
 //! `conformance/namzu-win/` holds the lines both sides must agree on.
 
+use crate::act::{ActReply, ActRequest};
+use crate::capture::{CaptureReply, CaptureRequest};
+use crate::foreground::{
+    ForegroundGetRequest, ForegroundSetReply, ForegroundSetRequest, ForegroundState,
+    LeaseBeginReply, LeaseBeginRequest, LeaseEndReply, LeaseEndRequest,
+};
+use crate::input::{InputReply, InputRequest};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
@@ -17,7 +24,7 @@ pub const PROTOCOL: &str = "namzu-win/1";
 pub const MAX_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
 
 /// Every `op` a request may carry, in the order the design lists them.
-pub const OPS: [&str; 10] = [
+pub const OPS: [&str; 17] = [
     "hello",
     "windows",
     "displays",
@@ -26,6 +33,13 @@ pub const OPS: [&str; 10] = [
     "resolve",
     "seq",
     "wait_change",
+    "act",
+    "input",
+    "capture",
+    "foreground.get",
+    "foreground.set",
+    "lease.begin",
+    "lease.end",
     "cancel",
     "quit",
 ];
@@ -51,10 +65,20 @@ pub enum ErrorCode {
     Unsupported,
     Cancelled,
     Internal,
+    /// The control is there but turned off (or read-only), so nothing was sent to it.
+    Disabled,
+    /// The window a lease is for is no longer the one in front; nothing was sent.
+    ForegroundLost,
+    /// A lease is already held; one at a time.
+    LeaseBusy,
+    /// The lease ran out before this call; nothing was sent.
+    LeaseExpired,
+    /// The system took the input and did not deliver it (another program holds the input desktop).
+    InputBlocked,
 }
 
 impl ErrorCode {
-    pub const ALL: [ErrorCode; 13] = [
+    pub const ALL: [ErrorCode; 18] = [
         ErrorCode::BadRequest,
         ErrorCode::UnknownOp,
         ErrorCode::ProtocolMismatch,
@@ -68,6 +92,11 @@ impl ErrorCode {
         ErrorCode::Unsupported,
         ErrorCode::Cancelled,
         ErrorCode::Internal,
+        ErrorCode::Disabled,
+        ErrorCode::ForegroundLost,
+        ErrorCode::LeaseBusy,
+        ErrorCode::LeaseExpired,
+        ErrorCode::InputBlocked,
     ];
 
     pub fn as_str(self) -> &'static str {
@@ -85,6 +114,11 @@ impl ErrorCode {
             ErrorCode::Unsupported => "unsupported",
             ErrorCode::Cancelled => "cancelled",
             ErrorCode::Internal => "internal",
+            ErrorCode::Disabled => "disabled",
+            ErrorCode::ForegroundLost => "foreground_lost",
+            ErrorCode::LeaseBusy => "lease_busy",
+            ErrorCode::LeaseExpired => "lease_expired",
+            ErrorCode::InputBlocked => "input_blocked",
         }
     }
 
@@ -172,6 +206,14 @@ pub struct Display {
     /// 1.0 is 96 dpi, 1.5 is 144 dpi.
     pub scale: f64,
     pub primary: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum MouseButton {
+    Left,
+    Right,
+    Middle,
 }
 
 /// What a control can be asked to do, by the pattern it offers.
@@ -401,6 +443,17 @@ pub enum Request {
     Resolve(ResolveRequest),
     Seq(SeqRequest),
     WaitChange(WaitChangeRequest),
+    Act(ActRequest),
+    Input(InputRequest),
+    Capture(CaptureRequest),
+    #[serde(rename = "foreground.get")]
+    ForegroundGet(ForegroundGetRequest),
+    #[serde(rename = "foreground.set")]
+    ForegroundSet(ForegroundSetRequest),
+    #[serde(rename = "lease.begin")]
+    LeaseBegin(LeaseBeginRequest),
+    #[serde(rename = "lease.end")]
+    LeaseEnd(LeaseEndRequest),
     Cancel(CancelRequest),
     Quit,
 }
@@ -416,6 +469,13 @@ pub enum Op {
     Resolve,
     Seq,
     WaitChange,
+    Act,
+    Input,
+    Capture,
+    ForegroundGet,
+    ForegroundSet,
+    LeaseBegin,
+    LeaseEnd,
     Cancel,
     Quit,
 }
@@ -431,6 +491,13 @@ impl Op {
             Op::Resolve => "resolve",
             Op::Seq => "seq",
             Op::WaitChange => "wait_change",
+            Op::Act => "act",
+            Op::Input => "input",
+            Op::Capture => "capture",
+            Op::ForegroundGet => "foreground.get",
+            Op::ForegroundSet => "foreground.set",
+            Op::LeaseBegin => "lease.begin",
+            Op::LeaseEnd => "lease.end",
             Op::Cancel => "cancel",
             Op::Quit => "quit",
         }
@@ -446,6 +513,13 @@ impl Op {
             "resolve" => Op::Resolve,
             "seq" => Op::Seq,
             "wait_change" => Op::WaitChange,
+            "act" => Op::Act,
+            "input" => Op::Input,
+            "capture" => Op::Capture,
+            "foreground.get" => Op::ForegroundGet,
+            "foreground.set" => Op::ForegroundSet,
+            "lease.begin" => Op::LeaseBegin,
+            "lease.end" => Op::LeaseEnd,
             "cancel" => Op::Cancel,
             "quit" => Op::Quit,
             _ => return None,
@@ -464,6 +538,13 @@ impl Request {
             Request::Resolve(_) => Op::Resolve,
             Request::Seq(_) => Op::Seq,
             Request::WaitChange(_) => Op::WaitChange,
+            Request::Act(_) => Op::Act,
+            Request::Input(_) => Op::Input,
+            Request::Capture(_) => Op::Capture,
+            Request::ForegroundGet(_) => Op::ForegroundGet,
+            Request::ForegroundSet(_) => Op::ForegroundSet,
+            Request::LeaseBegin(_) => Op::LeaseBegin,
+            Request::LeaseEnd(_) => Op::LeaseEnd,
             Request::Cancel(_) => Op::Cancel,
             Request::Quit => Op::Quit,
         }
@@ -749,6 +830,14 @@ pub enum ReplyBody {
     Resolve(Resolution),
     Seq(SeqReply),
     WaitChange(WaitResult),
+    Act(ActReply),
+    Input(InputReply),
+    Capture(CaptureReply),
+    /// `foreground.get`.
+    ForegroundGet(ForegroundState),
+    ForegroundSet(ForegroundSetReply),
+    LeaseBegin(LeaseBeginReply),
+    LeaseEnd(LeaseEndReply),
     /// `cancel` and `quit`: nothing but `ok`.
     Ack,
 }
@@ -851,6 +940,13 @@ pub fn encode_reply(id: u64, reply: &Result<ReplyBody, WireError>) -> String {
                 ReplyBody::Resolve(b) => serde_json::to_value(b),
                 ReplyBody::Seq(b) => serde_json::to_value(b),
                 ReplyBody::WaitChange(b) => serde_json::to_value(b),
+                ReplyBody::Act(b) => serde_json::to_value(b),
+                ReplyBody::Input(b) => serde_json::to_value(b),
+                ReplyBody::Capture(b) => serde_json::to_value(b),
+                ReplyBody::ForegroundGet(b) => serde_json::to_value(b),
+                ReplyBody::ForegroundSet(b) => serde_json::to_value(b),
+                ReplyBody::LeaseBegin(b) => serde_json::to_value(b),
+                ReplyBody::LeaseEnd(b) => serde_json::to_value(b),
                 ReplyBody::Ack => Ok(Value::Object(Map::new())),
             };
             if let Ok(Value::Object(fields)) = payload {
@@ -893,6 +989,13 @@ pub fn decode_reply(
         Op::Resolve => serde_json::from_value(payload).map(ReplyBody::Resolve),
         Op::Seq => serde_json::from_value(payload).map(ReplyBody::Seq),
         Op::WaitChange => serde_json::from_value(payload).map(ReplyBody::WaitChange),
+        Op::Act => serde_json::from_value(payload).map(ReplyBody::Act),
+        Op::Input => serde_json::from_value(payload).map(ReplyBody::Input),
+        Op::Capture => serde_json::from_value(payload).map(ReplyBody::Capture),
+        Op::ForegroundGet => serde_json::from_value(payload).map(ReplyBody::ForegroundGet),
+        Op::ForegroundSet => serde_json::from_value(payload).map(ReplyBody::ForegroundSet),
+        Op::LeaseBegin => serde_json::from_value(payload).map(ReplyBody::LeaseBegin),
+        Op::LeaseEnd => serde_json::from_value(payload).map(ReplyBody::LeaseEnd),
         Op::Cancel | Op::Quit => Ok(ReplyBody::Ack),
     };
     body.map(|b| (id, Ok(b)))
