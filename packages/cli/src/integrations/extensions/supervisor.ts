@@ -67,7 +67,7 @@ export interface SupervisorOptions {
 	 * it works, and the socket it serves queries on opens a moment after, so a query issued the instant the
 	 * state turned running could find nothing there. False fails the start like a missing hello.
 	 */
-	readonly endpointReady?: () => Promise<boolean>
+	readonly endpointReady?: (signal: AbortSignal) => Promise<boolean>
 }
 
 export class Supervisor {
@@ -91,6 +91,7 @@ export class Supervisor {
 	private stopWaiters: (() => void)[] = []
 	private endpointUp = false
 	private endpointWait: 'none' | 'waiting' = 'none'
+	private endpointAbort: AbortController | undefined
 	private pendingState: RunState = 'collecting'
 
 	constructor(private readonly o: SupervisorOptions) {}
@@ -134,7 +135,7 @@ export class Supervisor {
 		this.indicatorMisses = 0
 		this.lastStatus = undefined
 		this.endpointUp = false
-		this.endpointWait = 'none'
+		this.cancelEndpointWait()
 		this.set('starting')
 		const gen = ++this.generation
 		let child: ChildLike
@@ -171,6 +172,15 @@ export class Supervisor {
 		if (this.beatTimer) clearInterval(this.beatTimer)
 		this.helloTimer = undefined
 		this.beatTimer = undefined
+		// Every path that ends or replaces a start (stop, fail, deny, kill, restart) comes through here, so the
+		// endpoint wait of that start ends with it and can never publish a state afterwards.
+		this.cancelEndpointWait()
+	}
+
+	private cancelEndpointWait(): void {
+		this.endpointAbort?.abort()
+		this.endpointAbort = undefined
+		this.endpointWait = 'none'
 	}
 
 	private strike(why: string): void {
@@ -302,9 +312,14 @@ export class Supervisor {
 		if (this.endpointWait === 'waiting') return
 		this.endpointWait = 'waiting'
 		const gen = this.generation
-		void this.o.endpointReady().then((up) => {
-			if (gen !== this.generation) return
+		const abort = new AbortController()
+		this.endpointAbort = abort
+		void this.o.endpointReady(abort.signal).then((up) => {
+			// A stop, failure or restart since the wait began aborted it; the state check is a second guard.
+			if (abort.signal.aborted || gen !== this.generation) return
+			if (this.endpointAbort === abort) this.endpointAbort = undefined
 			this.endpointWait = 'none'
+			if (this.state !== 'starting' || !this.child) return
 			if (!up) {
 				this.o.audit('failed', 'query endpoint did not open')
 				this.fail('query endpoint did not open', true)

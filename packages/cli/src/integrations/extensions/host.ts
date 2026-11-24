@@ -2101,7 +2101,9 @@ export class ExtensionHost {
 				return child
 			},
 			// A real process opens its socket after it reports; test doubles that replace the spawn have none.
-			...(this.o.spawn ? {} : { endpointReady: () => waitForEndpoint(addr) }),
+			...(this.o.spawn
+				? {}
+				: { endpointReady: (signal: AbortSignal) => waitForEndpoint(addr, undefined, signal) }),
 			requireIndicator: this.o.kind === 'daemon' && m.background?.indicator.kind === 'tray',
 			onChange: (snap) => {
 				this.writeRunState(id, addr, snap)

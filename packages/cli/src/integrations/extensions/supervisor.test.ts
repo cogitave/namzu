@@ -16,7 +16,7 @@ function rig(
 	opts: {
 		granted?: string[]
 		obeysShutdown?: boolean
-		endpointReady?: () => Promise<boolean>
+		endpointReady?: (signal: AbortSignal) => Promise<boolean>
 	} = {},
 ) {
 	const children: FakeChild[] = []
@@ -67,6 +67,39 @@ describe('supervisor', () => {
 		r.last().say({ t: 'status', state: 'collecting', signals: { 'os.foregroundWindow': 'ok' } })
 		expect(r.sup.snapshot().state).toBe('collecting')
 	})
+
+	for (const answer of [false, true]) {
+		it(`a stop during the endpoint wait stays stopped when the wait then answers ${answer}`, async () => {
+			let settle: (up: boolean) => void = () => {}
+			let signal: AbortSignal | undefined
+			const r = rig(manifest(), {
+				endpointReady: (s) => {
+					signal = s
+					return new Promise<boolean>((res) => {
+						settle = res
+					})
+				},
+			})
+			r.sup.start()
+			hello(r.last())
+			r.last().say({ t: 'status', state: 'collecting', signals: { 'os.foregroundWindow': 'ok' } })
+			expect(r.sup.snapshot().state).toBe('starting')
+			const stopped = r.sup.stop()
+			expect(signal?.aborted).toBe(true)
+			r.last().exit(0, null)
+			await stopped
+			expect(r.sup.snapshot().state).toBe('stopped')
+			settle(answer)
+			await Promise.resolve()
+			await Promise.resolve()
+			// Nothing came back: no restart is armed and no running state was ever published.
+			await vi.advanceTimersByTimeAsync(120_000)
+			expect(r.children.length).toBe(1)
+			expect(r.sup.snapshot().state).toBe('stopped')
+			expect(r.snaps.some((s) => s.state === 'collecting')).toBe(false)
+			expect(r.audits).not.toContain('failed:query endpoint did not open')
+		})
+	}
 
 	it('an endpoint that never opens fails the start instead of reporting running', async () => {
 		const r = rig(manifest(), { endpointReady: () => Promise.resolve(false) })

@@ -22,6 +22,20 @@ describe.skipIf(process.platform === 'win32')('waitForEndpoint', () => {
 		}
 	})
 
+	it('resolves false at once when its signal aborts, and for a signal already aborted', async () => {
+		vi.useFakeTimers()
+		try {
+			const addr = join(tmpdir(), 'ext-ready-abort', 'q.sock')
+			const c = new AbortController()
+			const up = waitForEndpoint(addr, 60_000, c.signal)
+			c.abort()
+			await expect(up).resolves.toBe(false)
+			await expect(waitForEndpoint(addr, 60_000, c.signal)).resolves.toBe(false)
+		} finally {
+			vi.useRealTimers()
+		}
+	})
+
 	it('resolves false when nothing ever listens before the deadline', async () => {
 		vi.useFakeTimers()
 		try {
