@@ -4,6 +4,7 @@ import type { ToolDefinition } from '../../types/tool/index.js'
 import { asTaskId } from '../../utils/id.js'
 import { defineTool } from '../defineTool.js'
 import type { TaskToolScope } from './index.js'
+import { taskNumbers } from './number.js'
 import { presentTaskCreateCall, presentTaskCreateResult } from './present.js'
 
 export function buildTaskCreateTool(
@@ -52,10 +53,18 @@ export function buildTaskCreateTool(
 				metadata,
 			})
 
+			const number = (await taskNumbers(taskStore)).get(task.id)
+			const named = number === undefined ? `${task.id}` : `#${number} (id ${task.id})`
 			return {
 				success: true,
-				output: `Task created: ${task.id} — "${subject}"${owner ? ` [owner: ${owner}]` : ''}`,
-				data: { id: task.id, subject: task.subject, status: task.status, owner: task.owner },
+				output: `Task created: ${named} — "${subject}"${owner ? ` [owner: ${owner}]` : ''}`,
+				data: {
+					id: task.id,
+					...(number === undefined ? {} : { number }),
+					subject: task.subject,
+					status: task.status,
+					owner: task.owner,
+				},
 			}
 		},
 	})

@@ -227,6 +227,7 @@ export {
 	buildTaskListTool,
 	buildTaskTools,
 	buildTaskUpdateTool,
+	plainTaskReceipt,
 } from './tools/task/index.js'
 export { buildAdvisoryTools } from './tools/advisory/index.js'
 export {

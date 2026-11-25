@@ -5,6 +5,7 @@ import { type TaskStore, isTerminalTaskStatus } from '../../types/task/index.js'
 import type { ToolDefinition } from '../../types/tool/index.js'
 import { defineTool } from '../defineTool.js'
 import type { TaskToolScope } from './index.js'
+import { taskNumbers } from './number.js'
 import { countTasks, presentTaskListCall, presentTaskListResult } from './present.js'
 
 export function buildTaskListTool(
@@ -36,11 +37,13 @@ export function buildTaskListTool(
 			)
 			const tasks = shared ? all : selectTaskContext(all, scope)
 
+			const numbers = await taskNumbers(taskStore)
 			const summary = tasks.map((task) => {
 				const unresolvedBlockers = task.blockedBy.filter((bid) => !terminalIds.has(bid))
 
 				return {
 					id: task.id,
+					...(numbers.has(task.id) ? { number: numbers.get(task.id) } : {}),
 					subject: task.subject,
 					status: task.status,
 					owner: task.owner ?? null,

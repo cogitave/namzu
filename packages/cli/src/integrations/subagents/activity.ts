@@ -4,6 +4,7 @@ import {
 	type TaskHandle,
 	genericLabel,
 	isTerminalAgentTaskState,
+	plainTaskReceipt,
 } from '@namzu/sdk'
 import { plainChildFailure } from './failure-words.js'
 import { stepTaskOnly } from './workflow-assignment.js'
@@ -1162,7 +1163,17 @@ function projectEvent(record: MutableActivity, event: SessionEvent): void {
 					record.rows[index] = {
 						...row,
 						status: event.isError ? 'failed' : 'completed',
-						...(event.result ? { detail: bounded(event.result, MAX_ROW_CODE_UNITS) } : {}),
+						...(event.result
+							? {
+									detail: bounded(
+										// A task receipt names the task by its number, as the rest of the team's screens do.
+										event.toolName.startsWith('task_')
+											? plainTaskReceipt(event.result)
+											: event.result,
+										MAX_ROW_CODE_UNITS,
+									),
+								}
+							: {}),
 					}
 				}
 			}

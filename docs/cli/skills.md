@@ -193,7 +193,7 @@ the project's own check is run as a command of its own. A person who types
 model that asks the `skill` tool for it by that name loads the same line. A skill
 of that name that a person or project wrote is found first and works as before.
 `/run` used to put a command from the latest answer in the prompt; that command
-is now `/paste` ([Slash commands](slash-commands.md)).
+is now `/cmd` ([Slash commands](slash-commands.md)).
 
 ## Making a skill
 

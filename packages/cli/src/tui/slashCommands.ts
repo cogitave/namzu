@@ -1932,7 +1932,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 		action: () => ({ kind: 'copy' }),
 	},
 	{
-		name: 'paste',
+		name: 'cmd',
 		modelRun: 'confirm',
 		// Finds the shell commands in the latest finished answer and puts the one you
 		// choose in the prompt after `!`: nothing runs until you press Enter.

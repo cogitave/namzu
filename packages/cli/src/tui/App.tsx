@@ -16474,7 +16474,7 @@ function AppBody({
 						if (!target || commands.length === 0) {
 							pushMessage(
 								'system',
-								'No command to run in the latest answer — /paste looks for shell code blocks in the latest answer that finished normally.',
+								'No command to run in the latest answer — /cmd looks for shell code blocks in the latest answer that finished normally.',
 							)
 							return
 						}
