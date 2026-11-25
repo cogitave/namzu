@@ -279,9 +279,72 @@ pub fn verify(plan: &Plan, before: &ActState, after: &ActState) -> Option<bool> 
     }
 }
 
+/// How long to wait between two read-backs of a control that does not yet show
+/// the effect. A pattern call can return a moment before the application
+/// repaints its own state, so the first read-back may still show the old one.
+pub const SETTLE_STEP_MS: u64 = 25;
+
+/// The most a read-back is delayed in all, however long the request's own
+/// timeout is. A control still unchanged after this has not taken the action.
+pub const SETTLE_MAX_MS: u64 = 1_000;
+
+/// Whether to read the control again, and after how many milliseconds. `verdict`
+/// is what `verify` said about the latest read, `waited_ms` what has been
+/// waited so far, `timeout_ms` the request's own limit. Only a read that says
+/// the effect is missing (`Some(false)`) is read again: `Some(true)` is done and
+/// `None` (an invoke, a scroll, a password) has nothing that could settle.
+pub fn settle_pause(verdict: Option<bool>, waited_ms: u64, timeout_ms: u64) -> Option<u64> {
+    if verdict != Some(false) {
+        return None;
+    }
+    let budget = SETTLE_MAX_MS.min(timeout_ms);
+    let left = budget.checked_sub(waited_ms).filter(|l| *l > 0)?;
+    Some(SETTLE_STEP_MS.min(left))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_missing_effect_is_read_again_in_small_steps() {
+        assert_eq!(settle_pause(Some(false), 0, 8_000), Some(SETTLE_STEP_MS));
+        assert_eq!(settle_pause(Some(false), 975, 8_000), Some(SETTLE_STEP_MS));
+    }
+
+    #[test]
+    fn a_shown_effect_or_nothing_to_compare_never_waits() {
+        assert_eq!(settle_pause(Some(true), 0, 8_000), None);
+        assert_eq!(settle_pause(None, 0, 8_000), None);
+    }
+
+    #[test]
+    fn the_wait_stops_at_the_bound_and_never_overshoots_it() {
+        assert_eq!(settle_pause(Some(false), SETTLE_MAX_MS, 8_000), None);
+        assert_eq!(settle_pause(Some(false), SETTLE_MAX_MS + 5, 8_000), None);
+        assert_eq!(
+            settle_pause(Some(false), SETTLE_MAX_MS - 10, 8_000),
+            Some(10)
+        );
+    }
+
+    #[test]
+    fn the_requests_timeout_caps_the_wait() {
+        assert_eq!(settle_pause(Some(false), 0, 0), None);
+        assert_eq!(settle_pause(Some(false), 0, 10), Some(10));
+        assert_eq!(settle_pause(Some(false), 10, 10), None);
+    }
+
+    #[test]
+    fn a_full_loop_spends_no_more_than_the_bound() {
+        let (mut waited, mut reads) = (0, 0);
+        while let Some(p) = settle_pause(Some(false), waited, 8_000) {
+            waited += p;
+            reads += 1;
+        }
+        assert_eq!(waited, SETTLE_MAX_MS);
+        assert_eq!(reads, SETTLE_MAX_MS / SETTLE_STEP_MS);
+    }
 
     fn req(action: ActKind) -> ActRequest {
         ActRequest {

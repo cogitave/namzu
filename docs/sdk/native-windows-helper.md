@@ -191,7 +191,11 @@ what the control says now, and `verified` says whether that shows the effect: a
 toggle changed, an expand reads expanded, a collapse reads collapsed, a selection
 reads selected, a value reads as the text sent. `verified` is absent for an invoke
 or a scroll, which leave nothing to compare, and for a password's value, which
-the helper never reads. `index` and `revision` give the control's place in the
+the helper never reads. A pattern call can return before the application shows
+its new state, so a read-back that shows no effect is repeated every 25 ms for at
+most one second (less when `timeoutMs` is shorter) before `verified` is `false`;
+a read that shows the effect, or has nothing to compare, is never waited on
+(`settle_pause` in `namzu-win-core`). `index` and `revision` give the control's place in the
 read that found it; after a fingerprint, refs of that revision name the window.
 Which pattern an action needs, what a refusal is and what a read-back must show
 are `namzu-win-core`'s `act` module, tested on every platform.
