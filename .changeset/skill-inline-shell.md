@@ -1,6 +1,6 @@
 ---
 "@namzu/sdk": minor
-"@namzu/cli": minor
+"@namzu/cli": major
 ---
 
 A skill or a custom command can now hold shell commands that run while its text loads, a new hook event guards each one, and one setting turns them off.
@@ -10,5 +10,7 @@ What is new: `` !`cmd` `` inline and a fence opened by three backticks and a ban
 The switch: `disableSkillShellExecution: true` in your config, a project's or the managed file turns all of it off (each command becomes a line saying so); once on, no layer turns it off. The new hook event `pre_skill_shell_command` (`PreSkillShellCommand` in the common shape) is asked after permission and before the command starts and can refuse it or stop the load; with no such hook attached nothing changes.
 
 A command that reaches a protected path, a removal the floor stops, a path outside the working folders or an unreadable program fails the load on every route (typed, headless, `skill` tool), whatever the rules or `allowed-tools` say.
+
+Breaking for `@namzu/cli`: a skill or command file whose text already holds `` !`...` `` or a fence opened by three backticks and a bang now runs it when it loads, or fails to load when no rule allows the command, where before the text was sent as written. To keep the old behaviour, set `disableSkillShellExecution: true`.
 
 Nothing is removed. `@namzu/sdk` also adds `findInlineShell`, `substituteEscaped`, `expandInlineShell` and the other pieces a host needs, `createSkillTool({ shell })`, `shellLineEscalation`, and `allow` and `beforeRun` on `ToolDispatchOptions`; a host that passes no `shell` sees no change.
