@@ -87,6 +87,37 @@ export const DEFAULT_MCP_TOTAL_TIMEOUT_FACTOR = 10
  */
 export const MCP_TOOL_DEADLINE_SLACK_MS = 5_000
 
+/**
+ * The most characters of a not-yet-terminated line the stdio transport holds
+ * for a server.
+ *
+ * stdout is framed by newlines, so the tail after the last one is the one
+ * part of the channel that is not dropped as it arrives: a server that
+ * writes one very long line, or simply never stops writing, grows that tail
+ * for as long as it keeps going, in the session's own memory, with nothing
+ * to stop it short of killing the child. The ceiling is what bounds it.
+ *
+ * Generous rather than tight, because a legitimate frame can be large — a
+ * tool result carrying an inline image arrives base64-encoded in a single
+ * JSON line — and a line over the ceiling is refused, never truncated. What
+ * the ceiling buys is that the refusal is bounded: the bytes past it are
+ * dropped and reported instead of accumulated.
+ */
+export const MCP_STDIO_MAX_PENDING_LINE_CHARS = 8 * 1024 * 1024
+
+/**
+ * How many characters of one stderr read the stdio transport puts in the
+ * record it reports it with.
+ *
+ * stderr is logged a read at a time, so a server that floods its error
+ * stream writes one record per read and the operator's terminal is where
+ * that lands. Reading the whole chunk can put tens of kilobytes of a
+ * server's text into a single record; the head says what arrived, and the
+ * full length travels beside it so nothing is claimed to be complete when it
+ * is not.
+ */
+export const MCP_STDIO_STDERR_LOG_CHARS = 500
+
 /** JSON-RPC 2.0 reserved code for parameters the receiver cannot accept. */
 export const JSON_RPC_INVALID_PARAMS = -32602
 

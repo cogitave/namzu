@@ -1,4 +1,8 @@
 import { type ChildProcess, spawn } from 'node:child_process'
+import {
+	MCP_STDIO_MAX_PENDING_LINE_CHARS,
+	MCP_STDIO_STDERR_LOG_CHARS,
+} from '../../constants/mcp/index.js'
 import { SESSION_CHILD_ENV } from '../../process/session-child.js'
 import type {
 	MCPJsonRpcMessage,
@@ -105,6 +109,12 @@ export class StdioTransport implements MCPTransport {
 	/** True between kill and the process's own `close` event. */
 	private exitPending = false
 	private buffer = ''
+	/**
+	 * True once the pending line has been refused for length. Everything up
+	 * to the next newline is then dropped, so one over-long line costs one
+	 * report and no memory rather than one report per read.
+	 */
+	private discardingOverlongLine = false
 	private log: Logger
 
 	constructor(
@@ -122,7 +132,7 @@ export class StdioTransport implements MCPTransport {
 		if (this.process) await this.close()
 		const generation = ++this.generation
 		this.retired = false
-		this.buffer = ''
+		this.resetLineBuffer()
 
 		const child = spawn(this.config.command, this.config.args ?? [], {
 			env: buildChildEnv(this.config),
@@ -141,8 +151,14 @@ export class StdioTransport implements MCPTransport {
 		child.stdout?.once('error', (err) => this.retire(generation, 'error', err))
 
 		child.stderr?.on('data', (chunk: Buffer) => {
+			// One record per read, so the read's text is bounded here: a server
+			// that floods its error stream otherwise puts the whole of it on
+			// the terminal, a read at a time. The length travels beside the
+			// head so the record says how much it is not showing.
+			const text = chunk.toString('utf-8').trim()
 			this.log.warn('MCP server stderr', {
-				'namzu.mcp.stderr': chunk.toString('utf-8').trim(),
+				'namzu.mcp.stderr': text.slice(0, MCP_STDIO_STDERR_LOG_CHARS),
+				'namzu.mcp.stderr_chars': text.length,
 			})
 		})
 
@@ -178,7 +194,7 @@ export class StdioTransport implements MCPTransport {
 		this.exitPending = true
 		const child = this.process
 		this.process = null
-		this.buffer = ''
+		this.resetLineBuffer()
 
 		// Resolve when the child is actually gone, not when the signal was
 		// sent. `kill()` returns as soon as the signal is delivered, so an
@@ -236,6 +252,16 @@ export class StdioTransport implements MCPTransport {
 	}
 
 	/**
+	 * Drop the framing state of a protocol session that ended or is being
+	 * replaced. Keeping either half across generations would let a refused
+	 * line swallow the first bytes of the next one.
+	 */
+	private resetLineBuffer(): void {
+		this.buffer = ''
+		this.discardingOverlongLine = false
+	}
+
+	/**
 	 * Publish one terminal result for the current response channel.
 	 *
 	 * A child may close stdout and keep running. That is just as terminal for
@@ -247,7 +273,7 @@ export class StdioTransport implements MCPTransport {
 		if (generation !== this.generation || this.retired) return
 		this.retired = true
 		this.connected = false
-		this.buffer = ''
+		this.resetLineBuffer()
 		const closeHandlers = this.closeHandlers
 		const errorHandlers = this.errorHandlers
 		this.clearHandlers()
@@ -289,8 +315,22 @@ export class StdioTransport implements MCPTransport {
 	}
 
 	private processBuffer(): void {
+		// An already-refused line is skipped to its terminator before anything
+		// else is read from the buffer. Without this the rest of that line
+		// would be re-buffered, re-measured and re-reported once per read,
+		// turning one bad line into an output flood of the transport's own.
+		if (this.discardingOverlongLine) {
+			const terminator = this.buffer.indexOf('\n')
+			if (terminator === -1) {
+				this.buffer = ''
+				return
+			}
+			this.buffer = this.buffer.slice(terminator + 1)
+			this.discardingOverlongLine = false
+		}
+
 		const lines = this.buffer.split('\n')
-		this.buffer = lines.pop() ?? ''
+		let pending = lines.pop() ?? ''
 
 		for (const line of lines) {
 			const trimmed = line.trim()
@@ -304,5 +344,16 @@ export class StdioTransport implements MCPTransport {
 				})
 			}
 		}
+
+		if (pending.length > MCP_STDIO_MAX_PENDING_LINE_CHARS) {
+			this.discardingOverlongLine = true
+			this.log.warn('StdioTransport: dropping MCP server output past the pending-line ceiling', {
+				'namzu.mcp.line_chars': pending.length,
+				'namzu.mcp.line_ceiling': MCP_STDIO_MAX_PENDING_LINE_CHARS,
+			})
+			pending = ''
+		}
+
+		this.buffer = pending
 	}
 }
