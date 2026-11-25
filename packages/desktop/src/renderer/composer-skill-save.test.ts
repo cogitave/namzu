@@ -68,6 +68,9 @@ describe('the skill-save card', () => {
 		expect(html).toContain('Save to project')
 		expect(html).toContain('>Cancel')
 		expect(html).toContain('./.namzu/skills/release-notes/SKILL.md')
+		// The heading over each path names the place; the buttons say what they do.
+		expect(html).toMatch(/skill-save-target-label">User</)
+		expect(html).toMatch(/skill-save-target-label">Project</)
 		expect(html).toContain('This replaces user skill ~/old (overwrites it).')
 		// The suggested place is named in words, and is the one with the accent.
 		expect(html.match(/Suggested/g)).toHaveLength(1)

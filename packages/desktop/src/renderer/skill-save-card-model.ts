@@ -17,9 +17,18 @@ export const SKILL_SAVE_LABELS: Readonly<Record<SkillSaveChoice, string>> = {
 	cancel: 'Cancel',
 }
 
+/** Where each choice writes, in the words the terminal and the skills list use for it. */
+export const SKILL_SAVE_PLACES: Readonly<Record<'user' | 'project', string>> = {
+	user: 'User',
+	project: 'Project',
+}
+
 export interface SkillSaveTargetView {
 	scope: 'user' | 'project'
+	/** The button that saves here. */
 	label: string
+	/** The heading over the path: where this is, not what the button does. */
+	place: string
 	/** Where the file would be written, as the person would type it. */
 	path: string
 	/** What saving here would replace or lose to, in one sentence each. */
@@ -59,6 +68,7 @@ export function skillSaveView(card: SkillSaveCard): SkillSaveView {
 		targets: card.targets.map((target) => ({
 			scope: target.scope,
 			label: SKILL_SAVE_LABELS[target.scope],
+			place: SKILL_SAVE_PLACES[target.scope],
 			path: target.path,
 			notes: target.shadows.map(shadowNote),
 			suggested: card.suggested === target.scope,

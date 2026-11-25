@@ -284,7 +284,7 @@ The Desktop app makes the same flow a card instead of a screen:
    one place (cancel, an answer that does not read, the turn stopping, a closed stream)
    saves nothing.
 3. **The card.** *Save skill "name"?* shows the whole file in a box that
-   scrolls (never a cut of it), both places (the suggested one marked), a warning line for each skill the
+   scrolls (never a cut of it), both places under the headings *User* and *Project* (the suggested one marked), a warning line for each skill the
    file would replace and for each tripwire the host raised, and the buttons
    *Save skill*, *Save to project* and *Cancel* (Esc). Cancel holds the focus when the card opens, so saving takes a click.
 4. **After saving.** The result of a finished `save_skill` call (`Saved skill "name" to <path>`; the same line from any other tool draws nothing) is drawn, outside the folded work, as

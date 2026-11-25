@@ -112,7 +112,7 @@ export function ComposerSkillSave({
 					{view.targets.map((target) => (
 						<li key={target.scope} data-suggested={target.suggested || undefined}>
 							<span className="skill-save-target-label">
-								{target.label}
+								{target.place}
 								{target.suggested && <span className="question-badge">Suggested</span>}
 							</span>
 							<code className="skill-save-path">{target.path}</code>
