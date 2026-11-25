@@ -236,3 +236,113 @@ describe('skills as commands', () => {
 		expect(expandHeadlessCommand('/skill-creator draft one', { home, cwd }).kind).toBe('unchanged')
 	})
 })
+
+describe('a template that holds shell commands', () => {
+	const command = (template: string, more: Record<string, unknown> = {}) =>
+		({
+			name: 'ship',
+			description: '',
+			template,
+			path: '/x/ship.md',
+			source: 'project',
+			shellOrigin: 'project',
+			...more,
+		}) as never
+
+	it('says so, without running anything, and keeps the commands in the text', () => {
+		const result = expandCommand(command('Log: !`git log $ARGUMENTS`'), '-n 3')
+		expect(result).toEqual({
+			ok: true,
+			prompt: 'Log: !`git log -n 3`',
+			shell: { name: 'ship', origin: 'project' },
+		})
+	})
+
+	it('puts an argument in escaped, so it can never start a command', () => {
+		const result = expandCommand(command('Review $ARGUMENTS after !`echo ok`'), '!`rm -rf ~`')
+		expect(result).toMatchObject({ ok: true, prompt: 'Review \\! `rm -rf ~` after !`echo ok`' })
+	})
+
+	it('takes the origin and the allowed tools of a skill', () => {
+		const result = expandCommand(
+			command('!`ls`', { shellOrigin: 'user', allowedTools: 'Bash(ls)', directory: '/skills/a' }),
+			'',
+		)
+		expect(result).toMatchObject({
+			ok: true,
+			shell: { name: 'ship', origin: 'user', allowedTools: 'Bash(ls)', directory: '/skills/a' },
+		})
+	})
+
+	it('fills the skill’s folder into the text', () => {
+		const result = expandCommand(command('!`${NAMZU_SKILL_DIR}/run.sh`', { directory: '/s/a' }), '')
+		expect(result).toMatchObject({ ok: true, prompt: '!`/s/a/run.sh`' })
+	})
+
+	it('still refuses extra text the template has nowhere to put', () => {
+		const result = expandCommand(command('!`ls`'), 'extra')
+		expect(result.ok).toBe(false)
+	})
+
+	it('does not read a value for commands when the template has none to run', () => {
+		expect(expandCommand(command('Review $ARGUMENTS'), '!`rm -rf ~`')).toEqual({
+			ok: true,
+			prompt: 'Review !`rm -rf ~`',
+		})
+	})
+
+	it('leaves a template with no commands as it always was', () => {
+		expect(expandCommand(command('Use `ls` for $ARGUMENTS'), 'x')).toEqual({
+			ok: true,
+			prompt: 'Use `ls` for x',
+		})
+	})
+
+	it('gives a command file its source as the origin, and a skill its tier', () => {
+		write(cwd, 'sh.md', 'Now: !`date`')
+		write(home, 'usr.md', 'Now: !`date`')
+		const found = discoverUserCommands({ home, cwd })
+		expect(found.find((c) => c.name === 'sh')?.shellOrigin).toBe('project')
+		expect(found.find((c) => c.name === 'usr')?.shellOrigin).toBe('user')
+	})
+
+	it('carries the shell need through a headless expansion', () => {
+		write(cwd, 'sh.md', 'Now: !`date`')
+		const result = expandHeadlessCommand('/sh', { home, cwd })
+		expect(result).toMatchObject({
+			kind: 'expanded',
+			prompt: 'Now: !`date`',
+			shell: { name: 'sh', origin: 'project' },
+		})
+	})
+})
+
+describe('a skill that holds shell commands, as a command', () => {
+	it('carries its tier, its allowed-tools and its folder', () => {
+		const dir = join(cwd, '.namzu', 'skills', 'deploy')
+		mkdirSync(dir, { recursive: true })
+		writeFileSync(
+			join(dir, 'SKILL.md'),
+			'---\nname: deploy\ndescription: Deploy\nallowed-tools: Bash(git status *), Read\n---\nState: !`git status -s`\n',
+		)
+		const cmd = discoverUserCommands({ home, cwd, skillCommands: 'declared' }).find(
+			(c) => c.name === 'deploy',
+		)
+		expect(cmd).toMatchObject({
+			shellOrigin: 'project',
+			allowedTools: 'Bash(git status *), Read',
+			directory: dir,
+		})
+		const expanded = expandCommand(cmd as NonNullable<typeof cmd>, '')
+		expect(expanded).toMatchObject({
+			ok: true,
+			shell: {
+				name: 'deploy',
+				origin: 'project',
+				allowedTools: 'Bash(git status *), Read',
+				directory: dir,
+			},
+		})
+		expect(expanded.ok && expanded.prompt).toContain('State: !`git status -s`')
+	})
+})

@@ -40,11 +40,12 @@
 import { readFileSync, readdirSync, realpathSync } from 'node:fs'
 import { platform } from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
-import { parseFrontmatter } from '@namzu/sdk'
+import { InlineShellError, findInlineShell, parseFrontmatter, substituteEscaped } from '@namzu/sdk'
 import type { SkillsConfig } from '../config/schema.js'
 import { CHECK_HINT } from '../integrations/plugins/check-hint.js'
 import { namzuHomePath } from '../integrations/state/home.js'
-import { type SkillInfo, discoverSkills, loadSkillBody } from '../skills/store.js'
+import type { SkillShellOrigin } from '../skills/skill-shell.js'
+import { type SkillInfo, discoverSkills, loadSkillFile } from '../skills/store.js'
 
 export type UserCommandSource = 'user' | 'project' | 'skill' | 'plugin'
 
@@ -60,6 +61,15 @@ export interface UserCommand {
 	readonly argumentHint?: string
 	/** For a command that is a skill: the `hooks` block it carries, attached when the person runs it. */
 	readonly hooksSource?: string
+	/**
+	 * Whose text this is, for the shell commands it may hold: a command file's own source, and a
+	 * skill's tier (`system`, `user` or `project`). Absent for a command built by hand.
+	 */
+	readonly shellOrigin?: SkillShellOrigin
+	/** For a command that is a skill: its `allowed-tools`, as written. */
+	readonly allowedTools?: string
+	/** For a command that is a skill: its folder. */
+	readonly directory?: string
 	/**
 	 * Why this command cannot be used, when it cannot.
 	 *
@@ -110,7 +120,14 @@ export function parseCommandText(
 ): UserCommand {
 	try {
 		if (!raw.trimStart().startsWith('---')) {
-			return { name, description: '(no description)', template: raw.trim(), path, source }
+			return {
+				name,
+				description: '(no description)',
+				template: raw.trim(),
+				path,
+				source,
+				...shellOriginOf(source),
+			}
 		}
 		const { values, body } = parseFrontmatter(raw, path, { lists: ['argument-hint'] })
 		const description =
@@ -124,6 +141,7 @@ export function parseCommandText(
 			path,
 			source,
 			...(hint ? { argumentHint: displayHint(hint) } : {}),
+			...shellOriginOf(source),
 		}
 	} catch (err) {
 		return {
@@ -135,6 +153,10 @@ export function parseCommandText(
 			problem: err instanceof Error ? err.message : String(err),
 		}
 	}
+}
+
+function shellOriginOf(source: UserCommandSource): { shellOrigin?: SkillShellOrigin } {
+	return source === 'skill' ? {} : { shellOrigin: source }
 }
 
 /** The frontmatter keys a command file reads. Any other is ignored. */
@@ -248,11 +270,17 @@ function skillAsCommand(skill: SkillInfo): UserCommand {
 		source: 'skill' as const,
 		...(skill.argumentHint ? { argumentHint: displayHint(skill.argumentHint) } : {}),
 		...(skill.hooksSource !== undefined ? { hooksSource: skill.hooksSource } : {}),
+		shellOrigin: skill.source,
+		directory: dirname(skill.path),
 	}
 	if (skill.problem) return { ...base, template: '', problem: skill.problem }
 	try {
-		const body = loadSkillBody(skill)
-		return { ...base, template: `Base directory for this skill: ${dirname(skill.path)}\n\n${body}` }
+		const { body, allowedTools } = loadSkillFile(skill)
+		return {
+			...base,
+			...(allowedTools ? { allowedTools } : {}),
+			template: `Base directory for this skill: ${dirname(skill.path)}\n\n${body}`,
+		}
 	} catch (err) {
 		return { ...base, template: '', problem: err instanceof Error ? err.message : String(err) }
 	}
@@ -296,7 +324,13 @@ function samePhysicalDirectory(left: string, right: string): boolean {
 export type HeadlessExpansion =
 	/** Not a command. Send it as written. */
 	| { readonly kind: 'unchanged'; readonly prompt: string }
-	| { readonly kind: 'expanded'; readonly prompt: string; readonly name: string }
+	| {
+			readonly kind: 'expanded'
+			readonly prompt: string
+			readonly name: string
+			/** Set when the text still holds shell commands, which the caller runs before sending it. */
+			readonly shell?: ShellExpansion
+	  }
 	/**
 	 * `fixable` says whether the caller can get what it asked for by sending
 	 * something else.
@@ -375,7 +409,12 @@ export function expandHeadlessCommand(
 
 	const expanded = expandCommand(found, rest.join(' '))
 	return expanded.ok
-		? { kind: 'expanded', prompt: expanded.prompt, name }
+		? {
+				kind: 'expanded',
+				prompt: expanded.prompt,
+				name,
+				...(expanded.shell ? { shell: expanded.shell } : {}),
+			}
 		: // A command whose FILE is the problem is not fixable by sending a
 			// different prompt. Taken from `found.problem` rather than from the
 			// refusal reason, because that is where the fact lives — reading it back
@@ -383,8 +422,20 @@ export function expandHeadlessCommand(
 			{ kind: 'refused', reason: expanded.reason, fixable: found.problem === undefined }
 }
 
+/**
+ * What the loader needs to run the shell commands a template holds: set on an
+ * expansion whose text holds any. The commands have NOT run; `prompt` still has
+ * them in it, with the arguments already put in and escaped.
+ */
+export interface ShellExpansion {
+	readonly name: string
+	readonly origin: SkillShellOrigin
+	readonly allowedTools?: string
+	readonly directory?: string
+}
+
 export type ExpandResult =
-	| { readonly ok: true; readonly prompt: string }
+	| { readonly ok: true; readonly prompt: string; readonly shell?: ShellExpansion }
 	| { readonly ok: false; readonly reason: string }
 
 /**
@@ -411,11 +462,40 @@ export function expandCommand(command: UserCommand, args: string): ExpandResult 
 	if (command.problem) return { ok: false, reason: command.problem }
 
 	const trimmed = args.trim()
+	// A template that holds shell commands has its values escaped, so that what a person
+	// types after the name can never start a command, and then read for them once. A
+	// template without any is filled in exactly as it always was.
+	if (findInlineShell(command.template).length > 0) {
+		const shell: ShellExpansion = {
+			name: command.name,
+			origin: command.shellOrigin ?? 'project',
+			...(command.allowedTools ? { allowedTools: command.allowedTools } : {}),
+			...(command.directory ? { directory: command.directory } : {}),
+		}
+		if (trimmed.length > 0 && !command.template.includes(ARGUMENTS_TOKEN)) {
+			return noExtraText(command, trimmed)
+		}
+		try {
+			const prompt = substituteEscaped(command.template, {
+				[ARGUMENTS_TOKEN]: trimmed,
+				...(command.directory
+					? { '${NAMZU_SKILL_DIR}': command.directory, '${CLAUDE_SKILL_DIR}': command.directory }
+					: {}),
+			})
+			return { ok: true, prompt, shell }
+		} catch (error) {
+			if (error instanceof InlineShellError) return { ok: false, reason: error.message }
+			throw error
+		}
+	}
 	if (command.template.includes(ARGUMENTS_TOKEN)) {
 		return { ok: true, prompt: command.template.split(ARGUMENTS_TOKEN).join(trimmed) }
 	}
 	if (trimmed.length === 0) return { ok: true, prompt: command.template }
+	return noExtraText(command, trimmed)
+}
 
+function noExtraText(command: UserCommand, trimmed: string): ExpandResult {
 	// Which file, not where it lives: a skill's file is always named SKILL.md,
 	// so it is told by its folder.
 	const file = basename(command.path)

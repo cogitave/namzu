@@ -1975,3 +1975,40 @@ describe('a mistyped command', () => {
 		expect(didYouMean('cat', ['cap', 'car'])).toBe('')
 	})
 })
+
+describe('a typed command whose text holds shell commands', () => {
+	const withTemplate = (template: string) =>
+		context({
+			userCommands: [
+				{
+					name: 'ship',
+					description: 'Ship it',
+					template,
+					path: '/p/.namzu/commands/ship.md',
+					source: 'project',
+					shellOrigin: 'project',
+				},
+			],
+		})
+
+	it('asks for them to be run before the text goes on, and has not run them itself', () => {
+		expect(
+			runSlash('/ship now', withTemplate('Branch: !`git branch` for $ARGUMENTS')),
+		).toMatchObject({
+			kind: 'prompt',
+			text: 'Branch: !`git branch` for now',
+			shell: { name: 'ship', origin: 'project' },
+		})
+	})
+
+	it('sets no shell request when the text holds none', () => {
+		const action = runSlash('/ship now', withTemplate('Ship $ARGUMENTS with `make`'))
+		expect(action).toMatchObject({ kind: 'prompt', text: 'Ship now with `make`' })
+		expect(action).not.toHaveProperty('shell')
+	})
+
+	it('keeps an argument from starting a command', () => {
+		const action = runSlash('/ship !`rm -rf ~`', withTemplate('Ship $ARGUMENTS and !`date`'))
+		expect(action).toMatchObject({ kind: 'prompt', text: 'Ship \\! `rm -rf ~` and !`date`' })
+	})
+})

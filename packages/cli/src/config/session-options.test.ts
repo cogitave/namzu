@@ -40,6 +40,7 @@ const FULL = {
 	smallModel: 'small',
 	hooks: { turn_end: [] },
 	disableHooks: true,
+	disableSkillShellExecution: true,
 	compaction: { clearStaleResultsAfterIdle: false },
 	memory: { recall: false },
 	limits: {

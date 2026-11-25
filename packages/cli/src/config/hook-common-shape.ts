@@ -42,6 +42,8 @@ const GUARD_EVENTS: ReadonlySet<ShellHookEvent> = new Set([
 	'elicitation',
 	'elicitation_result',
 	'user_prompt_expansion',
+	// A shell command a skill is about to run.
+	'pre_skill_shell_command',
 	'task_created',
 	'task_completed',
 	// A hook that sends a teammate back to work.

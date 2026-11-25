@@ -14383,6 +14383,8 @@ function AppBody({
 		readonly line: string
 		readonly context?: string
 	} | null>(null)
+	/** A typed command whose shell commands have run, until its line is submitted again. */
+	const shellExpandedRef = useRef<{ readonly line: string; readonly text: string } | null>(null)
 	const handleSubmitRef = useRef<
 		| ((
 				value: string,
@@ -14707,7 +14709,9 @@ function AppBody({
 				const commandName = /^\/([\w-]+)/u.exec(dispatch.trim())?.[1]
 				// The second pass of a line whose expansion hooks have answered is
 				// the same use, not another.
-				const secondPass = expansionAnsweredRef.current?.line === dispatch
+				const secondPass =
+					expansionAnsweredRef.current?.line === dispatch ||
+					shellExpandedRef.current?.line === dispatch
 				if (commandName && !secondPass) tipHistory?.recordUse(commandName.toLowerCase())
 			}
 			if (slash) {
@@ -16027,6 +16031,47 @@ function AppBody({
 						return
 					}
 					case 'prompt': {
+						// The shell commands a skill or a command holds run first, while its text
+						// loads, and the line is submitted again with their output in place; that
+						// second pass finds the text in `shellExpandedRef`. A command that fails, or
+						// is refused, is said and nothing is sent.
+						let promptText = slash.text
+						if (slash.shell && session?.skillShell) {
+							const done = shellExpandedRef.current
+							if (done !== null && done.line === dispatch) {
+								promptText = done.text
+							} else {
+								const shell = slash.shell
+								const skillShell = session.skillShell
+								const generation = conversationGenRef.current
+								void (async () => {
+									let text: string
+									try {
+										text = await skillShell.expand({
+											text: slash.text,
+											name: shell.name,
+											origin: shell.origin,
+											invokedBy: 'user',
+											...(shell.allowedTools ? { allowedTools: shell.allowedTools } : {}),
+											...(shell.directory ? { directory: shell.directory } : {}),
+											signal: appLifetime.signal,
+										})
+									} catch (error) {
+										if (conversationGenRef.current !== generation || appLifetime.signal.aborted)
+											return
+										pushMessage(
+											'system',
+											`/${shell.name} did not load: ${error instanceof Error ? error.message : String(error)}`,
+										)
+										return
+									}
+									if (conversationGenRef.current !== generation) return
+									shellExpandedRef.current = { line: dispatch, text }
+									handleSubmitRef.current?.(value, attachments, mode, meta)
+								})()
+								return
+							}
+						}
 						// `user_prompt_expansion` hooks hear of a command the person typed
 						// before its text goes on. The hooks are awaited, so the line is
 						// submitted again once they have answered; that second pass finds
@@ -16035,13 +16080,14 @@ function AppBody({
 						const answered = expansionAnsweredRef.current
 						if (answered !== null && answered.line === dispatch) {
 							expansionAnsweredRef.current = null
-							outgoing = answered.context ? `${slash.text}\n\n${answered.context}` : slash.text
+							shellExpandedRef.current = null
+							outgoing = answered.context ? `${promptText}\n\n${answered.context}` : promptText
 						} else if (slash.expansion && hooks) {
 							const expansion = slash.expansion
 							const generation = conversationGenRef.current
 							void (async () => {
 								const verdict = await hooks
-									.userPromptExpansion({ expansionType: 'slash_command', ...expansion }, slash.text)
+									.userPromptExpansion({ expansionType: 'slash_command', ...expansion }, promptText)
 									.catch(() => ({}) as { blocked?: string; context?: string })
 								if (conversationGenRef.current !== generation) return
 								if (verdict.blocked !== undefined) {
@@ -16059,7 +16105,8 @@ function AppBody({
 							})()
 							return
 						} else {
-							outgoing = slash.text
+							shellExpandedRef.current = null
+							outgoing = promptText
 						}
 						if (slash.skillHooks) attachSkillHooks(slash.skillHooks)
 						break

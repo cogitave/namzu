@@ -274,3 +274,26 @@ describe('events a skill cannot use', () => {
 		)
 	})
 })
+
+describe('a hook on pre_skill_shell_command in a skill', () => {
+	const text = [
+		'hooks:',
+		'  PreSkillShellCommand:',
+		'    - hooks:',
+		'        - type: command',
+		'          command: ./guard.sh',
+		'  pre_tool_use:',
+		'    - command: ./c.sh',
+	].join('\n')
+
+	it('is read in either spelling, and set aside for a skill, whose own hooks attach after its text loads', () => {
+		const loaded = read(text)
+		expect(Object.keys(loaded.hooks).sort()).toEqual(['pre_skill_shell_command', 'pre_tool_use'])
+		const out = withoutSessionStart(loaded)
+		expect(Object.keys(out.hooks)).toEqual(['pre_tool_use'])
+		expect(out.count).toBe(1)
+		expect(out.problems).toContainEqual(
+			expect.objectContaining({ event: 'pre_skill_shell_command', severity: 'note' }),
+		)
+	})
+})
