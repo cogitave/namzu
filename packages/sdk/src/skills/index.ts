@@ -48,6 +48,7 @@ export {
 	skillShellHookVerdict,
 } from './inline-shell-host.js'
 export type {
+	PreToolUseShellHookOptions,
 	SkillShellHookOptions,
 	ToolSkillShellHostOptions,
 } from './inline-shell-host.js'

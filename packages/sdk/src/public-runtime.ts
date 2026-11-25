@@ -607,6 +607,7 @@ export type {
 	InlineShellMarker,
 	InlineShellOptions,
 	InlineShellOutcome,
+	PreToolUseShellHookOptions,
 	SkillShellHookOptions,
 	ToolSkillShellHostOptions,
 } from './skills/index.js'
