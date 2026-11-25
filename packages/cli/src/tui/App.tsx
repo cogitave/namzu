@@ -16100,7 +16100,11 @@ function AppBody({
 								// Turned aside on the way (queued, blocked): the text is not kept for a later
 								// typing of the same line.
 								shellExpandedSlot.settle(entry)
-								if (!entry.used) expansionAnsweredRef.current = null
+								if (!entry.used) {
+									expansionAnsweredRef.current = null
+									// The line was not sent, so the skill it names is not in use: its hooks go.
+									loaded.hooks?.remove()
+								}
 							})()
 							return
 						}

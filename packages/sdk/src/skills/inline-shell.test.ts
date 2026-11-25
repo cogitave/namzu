@@ -228,8 +228,35 @@ describe.skipIf(process.platform === 'win32')('substituteEscaped inside a comman
 		['a here-document', '!`cat <<EOF\n$ARGUMENTS\nEOF`'],
 		['a parameter expansion', '!`echo ${x:-$ARGUMENTS}`'],
 		['an arithmetic expansion', '!`echo $(( $ARGUMENTS ))`'],
+		['a comment', '!`echo hi # $ARGUMENTS`'],
+		['a comment line in a fence', '```!\n# note $ARGUMENTS\necho hi\n```'],
+		['a dangling backslash', '!`echo \\$ARGUMENTS`'],
+		['a dangling backslash in double quotes', '!`echo "\\$ARGUMENTS"`'],
 	])('refuses a value inside %s', (_name, template) => {
 		expect(() => substituteEscaped(template, { $ARGUMENTS: 'a' }, sh)).toThrow(InlineShellError)
+	})
+
+	it.each([
+		['a comment', '!`echo hi # $ARGUMENTS`', "'\ntouch PWN\n$'}\\\n"],
+		['a dangling backslash', '!`echo \\$ARGUMENTS`', '"\ntouch PWN\n&touch PWNEOF"'],
+		['a dangling backslash in double quotes', '!`echo "\\$ARGUMENTS"`', '$(touch PWN)'],
+	])('never runs a value placed after %s', (_name, template, value) => {
+		const dir = mkdtempSync(join(tmpdir(), 'inline-quote-'))
+		try {
+			let text: string | undefined
+			try {
+				text = substituteEscaped(template, { $ARGUMENTS: value }, sh)
+			} catch (err) {
+				expect(err).toBeInstanceOf(InlineShellError)
+			}
+			if (text !== undefined) {
+				const [command] = commands(text)
+				execFileSync('sh', ['-c', command as string], { cwd: dir, stdio: 'ignore' })
+			}
+			expect(readdirSync(dir)).toEqual([])
+		} finally {
+			rmSync(dir, { recursive: true, force: true })
+		}
 	})
 
 	it('quotes the skill folder like an argument inside a command', () => {

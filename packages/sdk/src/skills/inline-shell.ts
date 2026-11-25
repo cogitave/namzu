@@ -242,7 +242,7 @@ type ShellContext = 'none' | 'single' | 'double' | 'unsafe'
 /**
  * How the shell reads the position at the end of `prefix`, the text of one
  * command up to a value: outside any quote, inside single or double quotes, or
- * somewhere a value cannot be made safe (a here-document, a `${...}`, an
+ * somewhere a value cannot be made safe (a comment, a dangling backslash, a here-document, a `${...}`, an
  * arithmetic or backtick expansion, an ANSI-C string that is not closed).
  *
  * A `$( ... )` starts a fresh reading of its own, so a value inside one is
@@ -280,6 +280,8 @@ function shellContextAt(prefix: string): ShellContext {
 			continue
 		}
 		if (c === '\\') {
+			// A backslash right before the value would escape the first quote the value gets.
+			if (i + 1 >= prefix.length) return 'unsafe'
 			i += 1
 			wordStart = false
 			continue
@@ -343,7 +345,8 @@ function shellContextAt(prefix: string): ShellContext {
 		if (c === '<' && prefix[i + 1] === '<' && prefix[i + 2] !== '<') return 'unsafe'
 		if (c === '#' && wordStart) {
 			const end = prefix.indexOf('\n', i)
-			if (end === -1) return 'none'
+			// A value inside a comment would meet a newline that ends the comment.
+			if (end === -1) return 'unsafe'
 			i = end
 			wordStart = true
 			continue

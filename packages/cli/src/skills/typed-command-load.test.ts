@@ -19,7 +19,7 @@ describe('loading a command the person typed', () => {
 				return 'text'
 			},
 		})
-		expect(loaded).toEqual({ kind: 'loaded', text: 'text' })
+		expect(loaded).toMatchObject({ kind: 'loaded', text: 'text' })
 		expect(steps).toEqual(['expansion', 'attach', 'commands'])
 	})
 
@@ -46,6 +46,17 @@ describe('loading a command the person typed', () => {
 		})
 		expect(loaded).toMatchObject({ kind: 'failed' })
 		expect(remove).toHaveBeenCalledTimes(1)
+	})
+
+	it('hands back the skill’s hooks so a line that is never sent can take them off', async () => {
+		const remove = vi.fn()
+		const handle = { remove }
+		const loaded = await loadTypedCommand({
+			attachHooks: () => handle,
+			expand: async () => 'text',
+		})
+		expect(loaded).toEqual({ kind: 'loaded', text: 'text', hooks: handle })
+		expect(remove).not.toHaveBeenCalled()
 	})
 
 	it('carries what the expansion hooks said beside the prompt', async () => {

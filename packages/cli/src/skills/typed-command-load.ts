@@ -30,6 +30,8 @@ export type TypedCommandLoadResult =
 			readonly text?: string
 			/** What the expansion hooks want the model to read beside the prompt. */
 			readonly context?: string
+			/** The skill's own hooks attached for the load; take them off if the line is never sent. */
+			readonly hooks?: { readonly remove: () => void }
 	  }
 
 export async function loadTypedCommand(load: TypedCommandLoad): Promise<TypedCommandLoadResult> {
@@ -42,8 +44,9 @@ export async function loadTypedCommand(load: TypedCommandLoad): Promise<TypedCom
 		context = verdict.context
 	}
 	let text: string | undefined
+	let attached: { readonly remove: () => void } | undefined
 	if (load.expand) {
-		const attached = load.attachHooks?.()
+		attached = load.attachHooks?.()
 		try {
 			text = await load.expand()
 		} catch (error) {
@@ -55,5 +58,6 @@ export async function loadTypedCommand(load: TypedCommandLoad): Promise<TypedCom
 		kind: 'loaded',
 		...(text !== undefined ? { text } : {}),
 		...(context !== undefined ? { context } : {}),
+		...(attached ? { hooks: attached } : {}),
 	}
 }
