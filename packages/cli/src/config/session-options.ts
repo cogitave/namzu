@@ -34,6 +34,7 @@ export type ConfigSessionOptions = Pick<
 	| 'learningObservations'
 	| 'permissionSettings'
 	| 'mcpServers'
+	| 'disableMcpSkills'
 	| 'plugins'
 	| 'skills'
 	| 'web'
@@ -112,6 +113,7 @@ export const SESSION_KEY_MAP: Readonly<Record<keyof NamzuCliConfig, string>> = {
 	hooks: 'hooks',
 	disableHooks: 'hooksSwitch',
 	hooksManagedOnly: 'hooksSwitch',
+	disableMcpSkills: 'disableMcpSkills',
 	disableSkillShellExecution: 'skillShellDisabled',
 	additionalDirectories: 'additionalDirectories',
 	toolResultScreens: 'toolResultScreens',
@@ -151,6 +153,7 @@ export function sessionOptionsFromConfig(
 		learningObservations: config.learningObservations !== false,
 		...(config.permissionSettings ? { permissionSettings: config.permissionSettings } : {}),
 		...(mcpServers ? { mcpServers } : {}),
+		...(config.disableMcpSkills === true ? { disableMcpSkills: true } : {}),
 		...(config.plugins ? { plugins: config.plugins } : {}),
 		...(config.skills ? { skills: config.skills } : {}),
 		...(config.web ? { web: config.web } : {}),

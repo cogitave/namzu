@@ -58,6 +58,7 @@ import {
 	protocolErrorFromReply,
 } from './errors.js'
 import { HttpSseTransport } from './http-sse.js'
+import { MCP_SKILLS_EXTENSION } from './skills.js'
 import { StdioTransport } from './stdio.js'
 import { MCPSubscriptionResponseError, StreamableHttpTransport } from './streamable-http.js'
 import {
@@ -1146,8 +1147,34 @@ export class MCPClient {
 	 */
 	private clientCapabilities(): MCPClientCapabilities {
 		const base = this.config.capabilities ?? {}
-		if (!this.declaresTasks()) return base
-		return { ...base, extensions: { ...base.extensions, [MCP_TASKS_EXTENSION]: {} } }
+		const tasks = this.declaresTasks()
+		const skills = this.declaresSkills()
+		if (!tasks && !skills) return base
+		return {
+			...base,
+			extensions: {
+				...base.extensions,
+				...(tasks ? { [MCP_TASKS_EXTENSION]: {} } : {}),
+				...(skills ? { [MCP_SKILLS_EXTENSION]: {} } : {}),
+			},
+		}
+	}
+
+	/**
+	 * Does this connection take part in the skills extension?
+	 *
+	 * Only when the host asked for it ({@link MCPClientConfig.skills}, off by
+	 * default), on a 2026-07-28 connection, and when the server advertised
+	 * `io.modelcontextprotocol/skills` in `server/discover`. A legacy
+	 * connection never does: the extension is declared per request, and the
+	 * older handshake has no place to learn the server's side first.
+	 */
+	declaresSkills(): boolean {
+		return (
+			this.config.skills === true &&
+			this.era?.kind === 'modern' &&
+			this.serverCapabilities?.extensions?.[MCP_SKILLS_EXTENSION] !== undefined
+		)
 	}
 
 	/**
@@ -1339,6 +1366,48 @@ export class MCPClient {
 	async listResources(options?: MCPRequestOptions): Promise<MCPResource[]> {
 		this.requireConnected()
 		return await this.listAllPages('resources/list', 'resources', options)
+	}
+
+	/**
+	 * One page of the skills a server offers (`skills/list`).
+	 *
+	 * Resolves `undefined` without sending anything unless
+	 * {@link declaresSkills}. Answers are not cached: a skill listing is
+	 * re-read when the host asks, and a stale one would offer a skill the
+	 * server withdrew. A server that does not know the method rejects with
+	 * `MCPProtocolError` `-32601`; {@link isMethodNotFoundError} says so.
+	 * Entries are returned unchecked: `validateMcpSkillEntry` is the gate.
+	 */
+	async listSkillPage(
+		cursor?: string,
+		options?: MCPRequestOptions,
+	): Promise<{ skills: unknown[]; nextCursor?: string } | undefined> {
+		this.requireConnected()
+		if (!this.declaresSkills()) return undefined
+		const result = (await this.requestWithSessionRecovery(
+			'skills/list',
+			cursor === undefined ? {} : { cursor },
+			options,
+		)) as { skills?: unknown; nextCursor?: unknown } | null
+		return {
+			skills: Array.isArray(result?.skills) ? (result.skills as unknown[]) : [],
+			...(typeof result?.nextCursor === 'string' && result.nextCursor.length > 0
+				? { nextCursor: result.nextCursor }
+				: {}),
+		}
+	}
+
+	/**
+	 * One skill by address (`skills/get`), or `undefined` when the server has
+	 * none there or this connection does not take part in the extension.
+	 */
+	async getSkill(uri: string, options?: MCPRequestOptions): Promise<unknown | undefined> {
+		this.requireConnected()
+		if (!this.declaresSkills()) return undefined
+		const result = (await this.requestWithSessionRecovery('skills/get', { uri }, options)) as {
+			skill?: unknown
+		} | null
+		return result?.skill ?? undefined
 	}
 
 	async readResource(uri: string, options?: MCPRequestOptions): Promise<MCPContentBlock[]> {

@@ -145,6 +145,7 @@ For one run, `namzu exec --mcp-config <file>` (also with `--json`) adds the serv
 | `requireApproval` | both | `true` asks for approval on every tool this server contributes, including prompts and resources. Default `false`. |
 | `readOnlyHintTrusted` | both | `true` lets this server's read-only annotations count as trusted for review exemptions. Default `false`. Set only for a server whose claims the operator trusts. |
 | `alwaysLoad` | both | `true` sends this server's tools to the model in full on every request. Default `false`: the model sees each tool's name and loads the full definition with `search_tools` before it calls one (see below). Set it for a small server whose tools nearly every turn uses. Anything but `true` or `false` fails this server by name. |
+| `skills` | both | `true` offers the skills this server publishes (see [Skills from a server](#skills-from-a-server)). Default `false`: off for every server until you set it. Anything but `true` or `false` fails this server by name. |
 | `instructions` | both | `true` includes this server's initialization instructions as labelled, untrusted request context for the model. Default `false`. They never become operator or system instructions. |
 
 An entry names a command or a URL, never both. One that names both is refused rather than guessed at, because picking either would run something the operator did not mean to run.
@@ -165,6 +166,32 @@ The CLI assigns every server a source id, `mcp:<name>`. A `[permissions.sources]
 ```
 
 Each value is `allow`, `ask` or `deny`. `*` matches any characters in a source id, including `/` for plugin-owned servers such as `plugin:acme/mcp:db`. Source denials run first. A tool-specific denial still wins over a source `ask`; otherwise `ask` runs before tool-name allowances. Source allowances run after tool-name rules. An unreadable source entry is reported as a permission diagnostic. The source id comes from the host's toolset, not from server-authored metadata.
+
+## Skills from a server
+
+A server can publish skills: instructions the model reads when a task matches, the same idea as [a skill in a folder](skills.md), but kept on the server. **This is off for every server.** A server's skills are text the server wrote, so each one is opted in by name:
+
+```json
+{
+  "mcpServers": {
+    "tickets": { "command": "node", "args": ["tickets-server.js"], "skills": true }
+  }
+}
+```
+
+What a server must offer: it must declare the `io.modelcontextprotocol/skills` extension, speak the 2026-07-28 revision, answer `skills/list` (paged with a cursor) with one entry per skill, and serve each `SKILL.md` through `resources/read`. An entry names the `SKILL.md` address (`.../<name>/SKILL.md`, the last folder being the skill's name), its frontmatter (`name` equal to that folder, and a `description`), and a list of its files with each file's size and `sha256:` digest. A server that does not declare the extension, a connection on an older revision, or a server that answers "method not found" simply offers no skills: nothing is asked of it, nothing is reported as wrong. Namzu declares the extension on a request only when the server is opted in and the server declared it.
+
+What you see: each skill is `server:skill` (`tickets:triage`) in the model's list of skills, in the `/` menu (type `/tickets:`) and through the `skill` tool, listed after your own skills under the same size limit and with the same 1,536-character description cap, so a long server list cannot push your skills out. A skill's text is read from the server only when it is used, checked against the size and digest the server listed and against the listed `name` and `description`, and handed to the model labelled as the server's text. A body that no longer matches is refused ("invoke the skill again" when the server changed it after listing, and the list is read again).
+
+What is never taken from a server's skill: `allowed-tools`, `hooks`, `shell`, `model`, `agent`, `effort`, `background`, `paths`, `context` and `invocation` in its frontmatter are ignored, however they are spelled. Only the description and the author's `when_to_use`, `license` and `compatibility` are kept, each flattened to one line with control, hidden and angle-bracket characters removed, and cut to 1,536 characters (200 for `license` and `compatibility`), so a server's text cannot forge an entry in the list of skills. A server's skill cannot pre-approve a tool, attach a hook, choose a model or run as another agent, and its body is never run as commands: it is only read. A tool it names stays under your permission rules.
+
+Names. Two skills on one server with the same name get their directory path (`tickets:team/review`, then `tickets:tickets/team/review`); a directory path is used only when it holds letters, digits, `.`, `_`, `-` and `/`, so every name can be typed in a rule; a name nothing can make unique is dropped. A server never takes a name another skill holds: a skill of yours with the same full name wins and the server's is left out, with a line in the log. A server whose name holds `$`, `:`, a quote, an angle bracket or a control or hidden character gets no skills (its tools still work); rename it. A listing is capped at 100 skills per server, 20 pages, 512 KiB of listing, 512 files and 16 MiB per skill and 1 MiB for `SKILL.md`; entries past a cap, with a bad name or address, a `$` in the address, a file list that does not include `SKILL.md`, or `"dynamic"` file lists (nothing to check a body against) are skipped. One line says how many were not loaded and the reason codes; the log has the rest.
+
+Permissions. The server's own `deny` list refuses a skill by its name (`audit`, `tickets:audit` or its address), as it does a tool. A server with `requireApproval` offers no skills, as it offers no prompts or resources to a mention: there is nothing to ask before the text reaches the model. A rule on the `skill` tool decides a skill by its full name: `Skill(tickets:triage)` or `Skill(tickets:*)` in `permissions.deny`, or `skill = { "tickets:*" = "deny" }` in a table.
+
+Refresh. The list is read when the server connects, again on every reconnect, and when the server sends a prompts or resources `list_changed` notification (a server that announces neither is read at connect and reconnect only). A refresh that fails keeps the previous list.
+
+Switches. Two keys turn the feature off whatever a server says. `disableMcpSkills: true` in your own config file, or in the organisation's managed file, makes no server's skills asked for or offered. A project file cannot set it (it is ignored, with a note), and once it is on no later layer turns it off. Settings lists it as "Turn off tool server skills".
 
 ## `${VAR}` in `env` and `headers` values
 

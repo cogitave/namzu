@@ -1060,6 +1060,10 @@ const CONFIG_READERS: ConfigReaders = {
 		if (typeof v === 'boolean') return v
 		return invalidConfigValue(context, [], 'must be a boolean')
 	},
+	disableMcpSkills: (v, context) => {
+		if (typeof v === 'boolean') return v
+		return invalidConfigValue(context, [], 'must be a boolean')
+	},
 	disableSkillShellExecution: (v, context) => {
 		if (typeof v === 'boolean') return v
 		return invalidConfigValue(context, [], 'must be a boolean')
@@ -2947,6 +2951,9 @@ export const ENV_VARIABLE_NAMES: EnvVariableNames = {
 	disableHooks: 'NAMZU_DISABLE_HOOKS',
 	// Only the organisation-managed file may say it; the environment cannot.
 	hooksManagedOnly: undefined,
+	// A server's skills are instructions it wrote; the file is the only place
+	// to opt in or to switch the feature off.
+	disableMcpSkills: undefined,
 	// Turning the commands inside skills off loosens nothing, but it is a standing decision about
 	// what a skill may do, written in a file where a project's runs are reviewed.
 	disableSkillShellExecution: undefined,
@@ -3483,6 +3490,17 @@ function mergeConfigs(...layers: readonly ConfigLayer[]): {
 				// Once on, no later layer turns it off.
 				continue
 			}
+			if (key === 'disableMcpSkills' && isProjectSource(layer.sourceFor(key))) {
+				// A repository's file does not decide what the person's tool servers may teach.
+				configWarnings.add(
+					`disableMcpSkills in ${describeSource(layer.sourceFor(key))} is ignored: only your own config file or the managed file can set it.`,
+				)
+				continue
+			}
+			if (key === 'disableMcpSkills' && out.disableMcpSkills === true) {
+				// Once on, no later layer turns it off.
+				continue
+			}
 			if (key === 'disableSkillShellExecution' && out.disableSkillShellExecution === true) {
 				// It only tightens: once on, no later layer (the managed one included) turns it off.
 				continue
@@ -3940,6 +3958,7 @@ export function projectLayerHolds(path: string, value: unknown): boolean {
 		case 'updates':
 			return tail === 'auto' || tail === 'check' ? value === false : false
 		case 'disableHooks':
+		case 'disableMcpSkills':
 			return value === false
 		case 'disableSkillShellExecution':
 			// A project may only switch the commands off, never on.
