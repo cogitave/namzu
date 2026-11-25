@@ -6,6 +6,6 @@ New built-in skills: `run` starts the project's app and uses it to see a change 
 
 `verify-change` is replaced by `run`. Typing `/verify-change`, or a model asking the `skill` tool for it, now gets one line saying it was replaced by `/run`; a skill of that name you wrote yourself still takes precedence and works. `run` keeps the old rule that the project's own check is run as a command of its own so the turn's record can read it.
 
-Breaking for anyone who typed `/run`: that command, which put a shell command from the latest answer in the prompt, is now `/paste` (same behaviour). `/run` is the new skill. Type `/paste` where you typed `/run` before.
+Breaking for anyone who typed `/run`: that command, which put a shell command from the latest answer in the prompt, is now `/cmd` (same behaviour). `/run` is the new skill. Type `/cmd` where you typed `/run` before.
 
 Because a command you may have typed or scripted changes meaning, this release is a major bump for `@namzu/cli`.
