@@ -608,6 +608,7 @@ import { createSkillDirectoryResolver } from '../skills/directory.js'
 import { isInsideFolder, restoreSkillHooks } from '../skills/restore-skill-hooks.js'
 import { SAVE_SKILL_TOOL_NAME } from '../skills/save.js'
 import { type AttachedSkillHook, createSkillHooksHost } from '../skills/skill-hooks.js'
+import { recordSkillUse } from '../skills/usage.js'
 import {
 	type SessionSkillShell,
 	createSessionSkillShell,
@@ -5742,7 +5743,7 @@ export async function createAgentSession(
 	// One `skill` tool for file and plugin skills alike, told which directory
 	// the model can open for each: the real one on the host, the mounted one
 	// inside the sandbox, none when the sandbox does not mount it.
-	const skillTool = createSkillTool({
+	const loadSkill = createSkillTool({
 		resolveModelDirectory: createSkillDirectoryResolver({
 			sandboxMounts: () => (sandboxWorkspace === 'working-directory' ? directories : []),
 		}),
@@ -5766,6 +5767,23 @@ export async function createAgentSession(
 			warn: (line) => pluginRuntime?.hookActivity.notify(line),
 		},
 	})
+	// The same tool, counting each first-page load by name for the plugin screen's usage
+	// figures. A conversation that is not kept leaves no trace, and a failed write is dropped.
+	const skillTool: typeof loadSkill = {
+		...loadSkill,
+		async execute(input, context) {
+			const result = await loadSkill.execute(input, context)
+			if (
+				result.success &&
+				!options.ephemeral &&
+				typeof input.name === 'string' &&
+				input.cursor === undefined
+			) {
+				recordSkillUse(input.name, result.output.length)
+			}
+			return result
+		},
+	}
 	const hasSaveSkillTool = (options.extraTools ?? []).some(
 		(tool) => tool.name === SAVE_SKILL_TOOL_NAME,
 	)

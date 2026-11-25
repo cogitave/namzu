@@ -1,6 +1,7 @@
 # Documentation update log
 
 ## 2026-11-26
+- **Update** [Plugins](cli/plugins.md#the-plugin-screen), [Slash commands](cli/slash-commands.md): `/plugin` (and `/plugins`) opens one screen with tabs Installed, Errors and Stats instead of the plugin picker; Space turns a plugin on or off for the conversation, Enter opens a detail view for a tool server, plugin or skill, Errors lists what failed to load with what to do, and Stats shows each skill's listing cost, uses, last use and 7-day tokens from a new per-user record, `skill-usage.json`. `/plugins list` and `/plugins <name>` are unchanged. No Discover, Marketplaces or favorites yet. `.changeset/cli-plugin-screen.md`.
 - **Update** [Skills](cli/skills.md#the-skills-screen), [Slash commands](cli/slash-commands.md), [Hook events](sdk/hooks.md): bare `/skills` opens a screen of every skill (search, sort by listing cost, Space moves a skill through on, name-only, user-only and off) and Esc saves the change for the project as `skills.overrides` in `.namzu/settings.local.json`; it is no longer the "Activate a skill" picker, so activate with `/<name>` or `/skills <name>`. `name-only` lists a skill without its description and `user-only` keeps it from the model and its `skill` tool; both are real in the session's skill listing, not labels. A stronger config layer's `skills` keys now merge with a weaker one's instead of replacing the whole table (`overrides` merges by name). `@namzu/sdk` adds `SkillMetadata.listing`. `.changeset/cli-skills-screen.md`, `.changeset/sdk-skill-listing.md`.
 
 ## 2026-11-25

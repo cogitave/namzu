@@ -273,49 +273,42 @@ function painted(screen: Screen): string {
 	return screen.scrollback().join('\n')
 }
 
+const view = (screen: Screen): string => screen.viewport().join('\n')
+
 it.each([60, 120])(
-	'inspects plugins before an explicit session change at %s columns',
+	'opens /plugin as tabs and changes a plugin only when asked, at %s columns',
 	async (cols) => {
 		const screen = await renderToScreen(<App ctx={ctx} />, { cols, rows: 28 })
 		mounted = screen
 		await waitUntil(screen, () => painted(screen).includes('gpt-test'))
-		screen.press('/plugins')
+		screen.press('/plugin')
 		await screen.waitForRender()
 		screen.press('\r')
+		await waitUntil(screen, () => view(screen).includes('Search installed items'))
+		expect(view(screen)).toContain('Installed')
+		expect(view(screen)).toContain('ledger')
+		expect(plugins.changes).toEqual([])
+		// Enter opens the plugin; nothing changes until an action is chosen.
 		screen.press('\r')
-		await waitUntil(screen, () =>
-			screen.viewport().join('\n').includes('Loaded in this conversation'),
-		)
+		await waitUntil(screen, () => view(screen).includes('Disable for this conversation'))
+		expect(view(screen)).toContain('/w/.namzu/plugins/ledger')
 		expect(plugins.changes).toEqual([])
 		screen.press('\r')
-		await waitUntil(screen, () =>
-			screen.viewport().join('\n').includes('Disable for this conversation'),
-		)
-		expect(plugins.changes).toEqual([])
-		screen.press('2')
-		await waitUntil(screen, () =>
-			screen.viewport().join('\n').includes('Enable for this conversation'),
-		)
+		await waitUntil(screen, () => view(screen).includes('Enable for this conversation'))
 		expect(plugins.changes).toEqual([false])
-		expect(screen.viewport().join('\n')).toContain('0 tools')
 		expect(plugins.startupEnabled).toBe(true)
-		screen.press('3')
-		await waitUntil(screen, () => screen.viewport().join('\n').includes('after restart: disabled'))
-		expect(plugins.startupEnabled).toBe(false)
-		expect(screen.viewport().join('\n')).toContain('after restart: disabled')
-		screen.press('2')
+		screen.press('\x1b[B')
+		await screen.waitForRender()
+		screen.press('\r')
 		await waitUntil(screen, () =>
-			screen.viewport().join('\n').includes('Disable for this conversation'),
+			view(screen).includes('After restart or model switch: disabled'),
 		)
-		expect(plugins.changes).toEqual([false, true])
-		expect(screen.viewport().join('\n')).toContain('1 tool')
 		expect(plugins.startupEnabled).toBe(false)
-		screen.press('3')
-		await waitUntil(screen, () => screen.viewport().join('\n').includes('after restart: enabled'))
-		expect(plugins.startupEnabled).toBe(true)
-		screen.press('1')
-		await waitUntil(screen, () => painted(screen).includes('Registered tools: ledger__audit'))
-		expect(painted(screen)).toContain('/w/.namzu/plugins/ledger')
+		screen.press('\x1b[A')
+		await screen.waitForRender()
+		screen.press('\r')
+		await waitUntil(screen, () => view(screen).includes('Disable for this conversation'))
+		expect(plugins.changes).toEqual([false, true])
 		expect(reviewPrompts).toEqual([])
 	},
 )
@@ -330,18 +323,14 @@ it('keeps the real enabled state when a plugin change fails', async () => {
 	screen.press('/plugins')
 	await screen.waitForRender()
 	screen.press('\r')
-	await waitUntil(screen, () =>
-		screen.viewport().join('\n').includes('Loaded in this conversation'),
-	)
+	await waitUntil(screen, () => view(screen).includes('Search installed items'))
 	screen.press('\r')
-	await waitUntil(screen, () =>
-		screen.viewport().join('\n').includes('Disable for this conversation'),
-	)
+	await waitUntil(screen, () => view(screen).includes('Disable for this conversation'))
 	plugins.fail = true
-	screen.press('2')
-	await waitUntil(screen, () => screen.viewport().join('\n').includes('Could not change plugin'))
+	screen.press('\r')
+	await waitUntil(screen, () => view(screen).includes('Could not change plugin'))
 	expect(plugins.enabled).toBe(true)
-	expect(screen.viewport().join('\n')).toContain('Disable for this conversation')
+	expect(view(screen)).toContain('Disable for this conversation')
 	expect(reviewPrompts).toEqual([])
 })
 

@@ -139,6 +139,7 @@ than read, because reading it would drop the fields this build does not know and
 | Plugin settings | `plugin-settings/<plugin>.json` | command line | `version: 1` | a record of another version is ignored |
 | Window layout | `workspaces.json` | command line | `version` (3; 1 and 2 are migrated) | a layout of another version reads as no layout; the next save replaces it |
 | Memory usage | `memory-usage/<project>.json` | command line | `version` (`VERSION` = 1) | a record of another version is ignored |
+| Skill usage | `skill-usage.json` | command line | `v` (1) | a file of another version, or one that does not parse, reads as empty and is replaced by the next recorded load |
 | Spend ledger | `spend-ledger.json` | command line | `version` (`SPEND_LEDGER_VERSION` = 3) | a derived summary of the session logs; a missing, unreadable or other-version file is rebuilt from the logs, never migrated, and an older command line ignores it |
 | Model cache | `cli/` model cache | command line | `version` (`VERSION` = 1) | a cache of another version is ignored |
 | Catalogue snapshots | `cli/zen-catalogue.json`, `zen-catalogue-failed.json` | command line | none seen | read back by shape; a cache |

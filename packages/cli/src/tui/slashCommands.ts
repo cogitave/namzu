@@ -1598,10 +1598,34 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 		},
 	},
 	{
+		name: 'plugin',
+		modelRun: 'never',
+		immediate: true,
+		description: 'See tool servers, plugins and skills, their errors and use.',
+		help: {
+			usage: ['/plugin', '/plugin list', '/plugin <name>'],
+			details: [
+				'One screen with three tabs: Installed (tool servers, plugins and skills), Errors (what failed to load) and Stats (what each skill costs the listing and how often it ran). ←/→ switch tabs and Esc closes. Space turns the selected plugin on or off for this conversation; Enter opens a row, and a plugin there can also be kept enabled or disabled after restart. Changes wait until the current reply has finished. Plugin loading must first be enabled in configuration. /plugins is the same command.',
+			],
+		},
+		action: (_ctx, args) =>
+			args.length > 1
+				? {
+						kind: 'message',
+						role: 'system',
+						content: 'Usage: /plugin [list|name]',
+					}
+				: {
+						kind: 'plugins',
+						list: args[0] === 'list',
+						...(args[0] && args[0] !== 'list' ? { name: args[0] } : {}),
+					},
+	},
+	{
 		name: 'plugins',
 		modelRun: 'never',
 		immediate: true,
-		description: 'See plugins and turn them on or off.',
+		description: 'Same as /plugin.',
 		help: {
 			usage: ['/plugins', '/plugins list', '/plugins <name>'],
 			details: [
