@@ -274,6 +274,45 @@ describe('the session skill catalog', () => {
 		expect(refused.error).toMatch(/operator-invocable/)
 	})
 
+	it('lists a name-only skill without its description, and still loads it by name', async () => {
+		skillAt(project(), 'terse', 'a long description nobody needs every turn')
+		skillAt(project(), 'plain', 'a plain description')
+		const turn = await (
+			await catalog({ builtin: false, overrides: { terse: 'name-only' } })
+		).forTurn({ toolNames: [], contextWindowTokens: 200_000 })
+
+		const section = renderSkillsSection(turn.manifest) ?? ''
+		expect(section).toContain('<name>terse</name>')
+		expect(section).not.toContain('a long description nobody needs')
+		expect(section).toContain('a plain description')
+		expect((await callSkillTool(turn.registry!, { name: 'terse' })).success).toBe(true)
+	})
+
+	it('keeps a user-only skill out of the listing and refuses the model by name', async () => {
+		skillAt(project(), 'mine', 'only I run this')
+		skillAt(project(), 'shared', 'anyone runs this')
+		const turn = await (
+			await catalog({ builtin: false, overrides: { mine: 'user-only' } })
+		).forTurn({ toolNames: [], contextWindowTokens: 200_000 })
+
+		const section = renderSkillsSection(turn.manifest) ?? ''
+		expect(section).not.toContain('only I run this')
+		expect(section).toContain('<name>shared</name>')
+		const refused = await callSkillTool(turn.registry!, { name: 'mine' })
+		expect(refused.success).toBe(false)
+		expect(refused.error).toMatch(/operator-invocable/)
+	})
+
+	it('treats an off override as the disabled list does, and an on override lifts the list', async () => {
+		skillAt(project(), 'quiet', 'quiet')
+		skillAt(project(), 'back', 'back')
+		skillAt(project(), 'kept', 'kept')
+		const turn = await (
+			await catalog({ builtin: false, disabled: ['back'], overrides: { quiet: 'off', back: 'on' } })
+		).forTurn({ toolNames: [], contextWindowTokens: 200_000 })
+		expect(turn.manifest?.map((s) => s.metadata.name).sort()).toEqual(['back', 'kept'])
+	})
+
 	it('leaves out a file the kernel loader refuses, without taking the others', async () => {
 		// The directory says one name and the frontmatter another.
 		mkdirSync(join(project(), 'dir-name'), { recursive: true })

@@ -1,0 +1,5 @@
+---
+'@namzu/cli': major
+---
+
+Bare `/plugins` no longer opens the plugin picker (Details, Enable or Disable for this conversation, Keep enabled or disabled after restart, chosen with the keys 1 to 3); it, and the new name `/plugin`, open a screen with tabs Installed, Errors and Stats (←/→ switch, Esc closes or goes back). On Installed, Space turns the selected plugin on or off for this conversation and Enter opens a detail view where the same three actions live, now for plugins only; tool servers and skills get detail views too. With no plugin loaded the screen still opens and says why, where `/plugins` used to print that report; `/plugins list` still prints it. `/plugins list` and `/plugins <name>` are unchanged. Skill loads (the model's `skill` tool and a typed `/<name>`) now add to `skill-usage.json` in the Namzu home, which feeds the Stats tab; delete the file to reset the counts. If you scripted the picker's number keys, use `/plugins <name>` to read a plugin and the Enter flow to change it.

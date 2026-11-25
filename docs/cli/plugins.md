@@ -1,7 +1,7 @@
 ---
 type: Reference
 title: Plugins in the CLI
-description: Load trusted Namzu plugins and inspect or change their contributions through the session menu.
+description: Load trusted Namzu plugins and inspect or change them, with their errors and skill use, on the /plugin screen.
 resource: packages/cli/src/integrations/plugins/runtime.ts
 tags: [cli, plugins, tools, skills, hooks]
 ---
@@ -196,17 +196,80 @@ folder cannot be read. See [namzu plugin validate](plugin-validate.md).
 When a plugin is refused at startup, or a command or agent folder or file of
 one is skipped, the message ends with a line pointing at that command.
 
-## Inspect and control the session
+## The plugin screen
 
-- `/plugins` opens a searchable list of discovered plugins. Select one to view
-  details, enable/disable it for this session, or remember its current state.
-- `/plugins list` prints the current roster.
-- `/plugins <name>` prints one plugin's full directory, version, scope and
-  contributions. `/help plugins` explains the command without running it.
+`/plugin` (and `/plugins`, the same command) opens one screen with a tab row,
+`Plugins  Installed  Errors  Stats`. ←/→ switch tabs and Esc closes; inside a
+detail view Esc goes back one step first.
 
-Opening the menu does not discover plugin directories, import code or call a
+```
+ Plugins  Installed  Errors  Stats
+
+ ╭────────────────────────────────────╮
+ │ ⌕ Search installed items…          │
+ ╰────────────────────────────────────╯
+   MCP servers
+ ❯ ✓ tickets       MCP     connected · 12 tools
+
+   Plugins
+   ✓ ledger        Plugin  project · 2 skills
+
+   Skills
+   ✓ release-notes Skill   project · ~20 tok · 3× 2d
+   ✓ review-diff   Skill   project · < 20 tok · never used
+ ↑/↓ to navigate · ←/→ to switch · Space to toggle · / to search · Enter to select · Esc to close
+```
+
+**Installed** lists what this conversation has, in three sections: tool
+servers (connected, connecting or failed), plugins, and skills. A section whose
+search matches nothing is left out; with no plugin loaded the Plugins heading
+stays and says why (loading off, discovery off, or none found). `/` searches
+name, kind and place.
+
+- **Space** turns the selected plugin on or off for this conversation, the same
+  per-conversation change as before. On a skill or a tool server it explains
+  where to change it instead (`/skills`, `/mcp` and your configuration).
+- **Enter** opens a detail view. A tool server shows its status, its command or
+  address (without credentials or query string) and its tool count, with
+  **View tools** to list them. A plugin shows its directory and contributions
+  (what `/plugins <name>` prints) with **Disable/Enable for this conversation**
+  and **Keep enabled/disabled after restart**. A skill shows its file, place,
+  state, listing cost and use. Esc or **Back** returns to the list.
+
+A skill's row reads `<place> · ~N tok · <uses>×  <age>` or `never used`.
+
+**Errors** lists what failed to load, each with what to do: a plugin whose
+startup setting or manifest is bad, a tool server that did not connect, a skill
+whose `SKILL.md` does not parse. When there is nothing it says `No plugin errors`.
+
+**Stats** is the *Skills loaded this session* table: Skill, Source, Context (the
+skill's one-line listing cost, a dash when it is not in the listing), 7d tokens,
+Uses and Last used, least used first. At narrow widths Source goes first, then
+7d tokens. Uses, Last used and 7d tokens come from a small record Namzu keeps in
+`$NAMZU_HOME/skill-usage.json`: each load of a skill (the model's `skill` tool
+or a typed `/<name>`) adds one use and the size of what it loaded, loads of one
+skill within a minute count once, and a load's size is kept for seven days. The
+file counts from the day it was first written, which the screen states; skills
+used earlier show `0` and `never`. 7d tokens is the estimated size added to the
+conversation (4 characters per token), not a billed figure. A conversation that
+is not kept writes nothing. The record is best effort: it is replaced whole
+without a lock, so two conversations loading skills at the same moment can lose
+one of the two uses.
+
+There is no Discover or Marketplaces tab and no favorites: Namzu reads plugins
+only from `.namzu/plugins` and `~/.namzu/plugins` and has no catalog or remote
+source to list, and nothing yet gives a favorite a meaning. Tool servers are not
+grouped by scope because a connected server does not carry where it was
+configured.
+
+Also, `/plugins list` prints the current roster and `/plugins <name>` prints one
+plugin's full directory, version, scope and contributions. `/help plugin`
+explains the command without running it.
+
+Opening the screen does not discover plugin directories, import code or call a
 model. It reads the current session's runtime and saved startup settings. When
-loading or discovery is off, or there are no loaded plugins, the report explains the state and shows full
+loading or discovery is off, or there are no loaded plugins, the Plugins section
+says why; `/plugins list` with no plugin prints the full report with the
 configuration and admitted plugin directory paths.
 
 Tool and skill lists are registered runtime contributions. Hook modules and
@@ -214,16 +277,16 @@ MCP server names are explicitly labelled as manifest declarations; a declaration
 does not establish a live MCP connection. MCP environment values and hook bodies
 are not included in the operator snapshot.
 
-Choose **Disable for this session** to remove a plugin's tools, skills and hooks
-and disconnect its MCP servers. **Enable for this session** registers them again
-using the existing SDK lifecycle. A failed change is reported and the menu reads
+Choose **Disable for this conversation** to remove a plugin's tools, skills and hooks
+and disconnect its MCP servers. **Enable for this conversation** registers them again
+using the existing SDK lifecycle. A failed change is reported and the screen reads
 the runtime's resulting state. Changes require an idle session: the host refuses
 them during sends, compaction or durable resume, and refuses new invocations
 while a change is settling. Closing the session waits before releasing resources.
 
 Session enable/disable changes do not edit configuration or delete plugin files.
 They reset when Namzu restarts or a model/provider switch reconstructs the
-session. The details menu shows both the live state and the startup setting.
+session. The detail view shows both the live state and the startup setting.
 Already recorded conversation history is retained.
 
 ## Remember a plugin's state
@@ -233,7 +296,7 @@ After changing the session state, select **Keep disabled after restart** or
 it does not call a model or repeat plugin activation. A failed save leaves the
 live state unchanged and reports the error. Other already-running sessions keep
 their current state; the setting applies when their plugin runtime next starts.
-Opening plugin details reads the saved setting again, so another session's save
+Opening a plugin's detail view reads the saved setting again, so another session's save
 is visible without changing the current live contributions. A setting damaged
 after startup is shown as blocking the next startup, with its error in Details.
 
@@ -250,8 +313,8 @@ An absent setting uses normal enabled-at-startup behavior. An unreadable or
 invalid setting stops plugin startup rather than silently re-enabling code.
 The error includes the exact record path for repair or removal.
 
-A remembered disabled plugin still has its manifest validated and appears in
-the menu, but its tool and hook modules are not imported, skills are not loaded,
+A remembered disabled plugin still has its manifest validated and appears on
+the screen, but its tool and hook modules are not imported, skills are not loaded,
 and MCP processes are not started. Invalid manifests still stop startup.
 Remembering an enabled state does not override project trust, `plugins.enabled`,
 discovery or allowed scopes. To change installed plugin files or loading

@@ -125,7 +125,7 @@ import {
 import type { PlanApprovalAnswer, PlanApprovalFn, PlanApprovalRequest } from '../plan/approval.js'
 
 import { resolveComposerTriggers, withWorkflowKeywordSwitch } from '../config/composer-triggers.js'
-import type { DecisionConfig } from '../config/schema.js'
+import type { DecisionConfig, SkillOverride } from '../config/schema.js'
 import { hypermodeRefusal } from '../config/session-options.js'
 import { setUserConfigValue } from '../config/user-config.js'
 import { messageTimeNote, previousSentAt } from '../context/message-time.js'
@@ -382,6 +382,7 @@ import {
 	type WakeSnapshot,
 } from '../rounds/wake-ledger.js'
 import { schedulePaths } from '../schedule/paths.js'
+import { localSkillOverrideKeys, saveSkillOverrides } from '../skills/overrides.js'
 import {
 	SKILL_CREATOR_SKILL,
 	type SaveSkillAnswer,
@@ -396,9 +397,9 @@ import {
 	discoverSkills,
 	loadSkillBody,
 	renderSkillRoster,
-	skillTierLabel,
 } from '../skills/store.js'
 import { loadTypedCommand } from '../skills/typed-command-load.js'
+import { readSkillUsage, recordSkillUse } from '../skills/usage.js'
 import { hooksOf } from '../skills/use-hooks.js'
 import { withMcpSkillCommands } from '../user-commands/mcp-skill-commands.js'
 import { type UserCommand, discoverUserCommands } from '../user-commands/store.js'
@@ -463,6 +464,7 @@ import {
 } from './PermissionOverlay.js'
 import { Picker } from './Picker.js'
 import { PlanApprovalOverlay } from './PlanApprovalOverlay.js'
+import { PluginScreen, maxScroll as pluginScreenMaxScroll } from './PluginScreen.js'
 import { QuestionDialog } from './QuestionDialog.js'
 import { ResumePicker } from './ResumePicker.js'
 import { RewindPicker } from './RewindPicker.js'
@@ -472,6 +474,7 @@ import {
 	ScheduleReviewOverlay,
 	type ScheduleReviewRequest,
 } from './ScheduleReviewOverlay.js'
+import { SkillsManager } from './SkillsManager.js'
 import { StatusBar } from './StatusBar.js'
 import { TaskList, type TaskListItem, taskListRows } from './TaskList.js'
 import { TextPrompt } from './TextPrompt.js'
@@ -671,11 +674,17 @@ import {
 	isSpentAllowance,
 } from './plain-interruption.js'
 import {
-	emptyPluginReport,
-	pluginDetails,
-	pluginOption,
-	pluginStartupState,
-} from './plugin-view.js'
+	type PluginScreenState,
+	type ScreenEffect,
+	type ScreenInputs,
+	type ScreenKey,
+	openScreen as openPluginScreen,
+	waiting as pluginScreenWaiting,
+	refreshScreen,
+	step as stepPluginScreen,
+	withNotice,
+} from './plugin-screen.js'
+import { emptyPluginReport, noPluginsReason, pluginDetails, pluginOption } from './plugin-view.js'
 import { PointerRegionsContext } from './pointer/context.js'
 import type { PointerRegions } from './pointer/regions.js'
 import { selectPrimaryProvider } from './provider-selection.js'
@@ -716,6 +725,14 @@ import {
 import { SelfMendingPauseRow } from './self-mending-pause-row.js'
 import { SHELL_LIVE_LINES, type ShellOutput } from './shell-cell.js'
 import { createShellExpansionSlot } from './shell-expansion-slot.js'
+import {
+	type ManagerKey,
+	type ManagerState,
+	closingLine,
+	manage as manageSkills,
+	openManager as openSkillsManager,
+	pendingChanges as pendingSkillChanges,
+} from './skills-manager.js'
 import {
 	SUGGESTIONS_STOPPED_NOTICE,
 	type TurnActivity,
@@ -1168,21 +1185,10 @@ const STOP_ALL_CONFIRM_KEY = 'kill-agents-confirm'
 /** Messages and answers the team writes within this long of each other are folded into one row. */
 const TEAM_ROW_FOLD_MS = 250
 
-type PluginChoiceState = ({ readonly kind: 'plugin' } | { readonly kind: 'plugin-action' }) & {
-	readonly title: string
-	readonly notice?: string
-	readonly owner: AgentSession
-	readonly pluginName?: string
-	readonly busy?: boolean
-	readonly values: readonly string[]
-	readonly options: readonly ChoicePickerOption[]
-}
-
 type ChoicePickerState = {
 	readonly back?: ChoicePickerState
 	readonly request?: object
 } & (
-	| PluginChoiceState
 	| {
 			/**
 			 * `/memory`: the project's stored memories, one memory's actions, and the
@@ -1351,7 +1357,16 @@ type ChoicePickerState = {
 			readonly options: readonly ChoicePickerOption[]
 	  }
 	| {
-			readonly kind: 'skill'
+			/** Bare `/plugin`: the state lives in `pluginScreen`, the keys are read there. */
+			readonly kind: 'plugin-screen'
+			readonly title: string
+			readonly notice?: string
+			readonly values: readonly string[]
+			readonly options: readonly ChoicePickerOption[]
+	  }
+	| {
+			/** Bare `/skills`: the state lives in `skillsManager`, the keys are read there. */
+			readonly kind: 'skills-manager'
 			readonly title: string
 			readonly notice?: string
 			readonly values: readonly string[]
@@ -2701,6 +2716,20 @@ function AppBody({
 	useEffect(() => {
 		copyPickerCommittedRef.current = copyPicker
 	}, [copyPicker])
+	/** Bare `/skills`: the rows and the cursor, read synchronously by the key handler. */
+	const [skillsManager, setSkillsManagerState] = useState<ManagerState | null>(null)
+	const skillsManagerRef = useRef<ManagerState | null>(null)
+	const setSkillsManager = useCallback((next: ManagerState | null) => {
+		skillsManagerRef.current = next
+		setSkillsManagerState(next)
+	}, [])
+	/** Bare `/plugin`: the tabs and the cursor, read synchronously by the key handler. */
+	const [pluginScreen, setPluginScreenState] = useState<PluginScreenState | null>(null)
+	const pluginScreenRef = useRef<PluginScreenState | null>(null)
+	const setPluginScreen = useCallback((next: PluginScreenState | null) => {
+		pluginScreenRef.current = next
+		setPluginScreenState(next)
+	}, [])
 	/** Finite slash-command choice owned synchronously until apply or cancel. */
 	const [providerSetup, setProviderSetup] = useState(false)
 	const [choicePicker, setChoicePickerState] = useState<ChoicePickerState | null>(null)
@@ -5835,6 +5864,7 @@ function AppBody({
 					{ name: info.name, body },
 				])
 				conversationLearning().skillUsed = true
+				recordSkillUse(info.name, body.length)
 				const carried = hooksOf(info)
 				if (carried) attachSkillHooks(carried)
 				pushMessage('system', `Activated skill: ${info.name}`)
@@ -6098,6 +6128,70 @@ function AppBody({
 		[ctx.cwd, clipboard, pushMessage, stableExportSource],
 	)
 
+	/** Everything the plugin screen shows, read from the session and the folder as they are now. */
+	const pluginScreenInputs = (owner: AgentSession | null | undefined): ScreenInputs => ({
+		mcp: owner
+			? (owner.mcpStatus?.() ?? {
+					connected: owner.mcpConnected ?? [],
+					failed: owner.mcpFailed ?? [],
+				})
+			: null,
+		...(ctxRef.current.mcpServers ? { mcpServers: ctxRef.current.mcpServers } : {}),
+		plugins: owner?.plugins?.list() ?? [],
+		pluginsNote: noPluginsReason(ctxRef.current.plugins),
+		skills: discoverSkills({
+			cwd: ctxRef.current.cwd,
+			...(ctxRef.current.skills ? { config: ctxRef.current.skills } : {}),
+		}),
+		usage: readSkillUsage(),
+		now: Date.now(),
+	})
+
+	/** The one thing a key on the plugin screen can ask the session for: turn a plugin on or off, or remember its state. */
+	const runPluginEffect = (screen: PluginScreenState, effect: ScreenEffect): void => {
+		const owner = session
+		if (!owner?.plugins) return
+		if (state !== 'idle' || permission) {
+			setPluginScreen(
+				withNotice(screen, 'Wait for the current reply and permission prompts to finish.'),
+			)
+			return
+		}
+		const pending = pluginScreenWaiting(
+			screen,
+			effect.kind === 'plugin-remember'
+				? 'Saving plugin setting…'
+				: effect.enabled
+					? 'Enabling plugin…'
+					: 'Disabling plugin…',
+		)
+		setPluginScreen(pending)
+		const generation = conversationGenRef.current
+		const change =
+			effect.kind === 'plugin-remember'
+				? owner.plugins.rememberState(effect.name)
+				: owner.plugins.setEnabled(effect.name, effect.enabled)
+		const stillHere = () =>
+			!appLifetime.signal.aborted &&
+			conversationGenRef.current === generation &&
+			pluginScreenRef.current === pending
+		void change.then(
+			() => {
+				if (!stillHere()) return
+				setPluginScreen(withNotice(refreshScreen(pending, pluginScreenInputs(owner)), undefined))
+			},
+			(error: unknown) => {
+				if (!stillHere()) return
+				setPluginScreen(
+					withNotice(
+						refreshScreen(pending, pluginScreenInputs(owner)),
+						explainFailure(error, 'Could not change plugin.'),
+					),
+				)
+			},
+		)
+	}
+
 	// biome-ignore lint/correctness/useExhaustiveDependencies: the list predates linting of .tsx files; changing it changes when this runs, so it is left as written.
 	const applyChoiceSelection = useCallback(
 		(index: number): void => {
@@ -6106,77 +6200,6 @@ function AppBody({
 			const value = picker.values[index]
 			if (index < 0 || index >= picker.values.length) return
 			if (picker.options[index]?.disabledReason) return
-			if (picker.kind === 'plugin' || picker.kind === 'plugin-action') {
-				if (picker.busy || picker.owner !== session) return
-				if (picker.kind === 'plugin') {
-					const child = pluginActionPicker(picker.owner, value as string)
-					setSelectedChoice(0)
-					setChoicePicker(child ? { ...child, back: picker } : null)
-					return
-				}
-				const plugin = picker.owner.plugins?.list().find((item) => item.name === picker.pluginName)
-				if (!plugin || !picker.owner.plugins) return
-				if (value === 'details') {
-					setChoicePicker(null)
-					pushMessage('system', pluginDetails(plugin))
-					return
-				}
-				if (state !== 'idle' || permission) {
-					setChoicePicker({
-						...picker,
-						notice: 'Wait for the current reply and permission prompts to finish.',
-					})
-					return
-				}
-				const enabled = value === 'enable'
-				const remembering = value === 'remember'
-				const pending: ChoicePickerState = {
-					...picker,
-					busy: true,
-					notice: remembering
-						? 'Saving plugin setting…'
-						: enabled
-							? 'Enabling plugin…'
-							: 'Disabling plugin…',
-				}
-				setChoicePicker(pending)
-				const generation = conversationGenRef.current
-				const change = remembering
-					? picker.owner.plugins.rememberState(plugin.name)
-					: picker.owner.plugins.setEnabled(plugin.name, enabled)
-				void change.then(
-					() => {
-						if (
-							appLifetime.signal.aborted ||
-							conversationGenRef.current !== generation ||
-							choicePickerRef.current !== pending
-						)
-							return
-						const updated = pluginActionPicker(picker.owner, plugin.name)
-						setSelectedChoice(0)
-						setChoicePicker(updated ? { ...updated, back: loadedPluginPicker(picker.owner) } : null)
-					},
-					(error: unknown) => {
-						if (
-							appLifetime.signal.aborted ||
-							conversationGenRef.current !== generation ||
-							choicePickerRef.current !== pending
-						)
-							return
-						const updated = pluginActionPicker(picker.owner, plugin.name)
-						setChoicePicker(
-							updated
-								? {
-										...updated,
-										back: loadedPluginPicker(picker.owner),
-										notice: explainFailure(error, 'Could not change plugin.'),
-									}
-								: null,
-						)
-					},
-				)
-				return
-			}
 			if (picker.kind === 'memory') {
 				if (picker.owner !== session) return
 				const manage = picker.owner.storedMemories
@@ -6686,10 +6709,6 @@ function AppBody({
 				recordFeedback(picker.sessionId, picker.messageId, value as 'good' | 'bad')
 				return
 			}
-			if (picker.kind === 'skill') {
-				activateSkill(value as string)
-				return
-			}
 			if (picker.kind === 'credential-logout') {
 				removeStoredCredential(value as SubscriptionProviderId | 'google' | ApiKeyLogoutTarget)
 				return
@@ -6703,6 +6722,8 @@ function AppBody({
 				accountActionsRef.current?.choose(picker, value as string)
 				return
 			}
+			// The skills screen has its own keys and never reaches here.
+			if (picker.kind === 'skills-manager' || picker.kind === 'plugin-screen') return
 			if (picker.kind === 'reasoning-effort' && value === HYPERMODE_VALUE) {
 				applyHypermode(!hypermodeRef.current, picker.selectedSession)
 				return
@@ -6710,7 +6731,6 @@ function AppBody({
 			applyReasoningEffort(value as ReasoningEffort | undefined, picker.selectedSession)
 		},
 		[
-			activateSkill,
 			advanceQueueContinuation,
 			appLifetime.signal,
 			applyHypermode,
@@ -7325,6 +7345,7 @@ function AppBody({
 							toolServers: 'background',
 							...(activeCtx.plugins ? { plugins: activeCtx.plugins } : {}),
 							...(activeCtx.skills ? { skills: activeCtx.skills } : {}),
+							skillsNow: () => ctxRef.current.skills,
 							...(activeCtx.web ? { web: activeCtx.web } : {}),
 							...(activeCtx.smallModel ? { smallModel: activeCtx.smallModel } : {}),
 							...(activeCtx.hooks ? { hooks: activeCtx.hooks } : {}),
@@ -15723,7 +15744,7 @@ function AppBody({
 									? pluginDetails(plugin)
 									: `Plugin "${slash.name}" is not loaded in this conversation. Use /plugins to inspect availability.`,
 							)
-						} else if (plugins.length === 0 || !session) {
+						} else if (slash.list && (plugins.length === 0 || !session)) {
 							pushMessage('system', emptyPluginReport(ctx.plugins, ctx.cwd))
 						} else if (slash.list) {
 							pushMessage(
@@ -15737,11 +15758,12 @@ function AppBody({
 							)
 						} else {
 							setSelectedChoice(0)
-							setChoicePicker(loadedPluginPicker(session))
+							setPluginScreen(openPluginScreen(pluginScreenInputs(session)))
+							setChoicePicker({ kind: 'plugin-screen', title: 'Plugins', values: [], options: [] })
 						}
 						return
 					}
-					case 'skill-picker': {
+					case 'skills-manager': {
 						const skills = discoverSkills({
 							cwd: ctx.cwd,
 							...(ctx.skills ? { config: ctx.skills } : {}),
@@ -15750,19 +15772,20 @@ function AppBody({
 							pushMessage('system', NO_SKILLS_FOUND)
 							return
 						}
-						const activeNames = new Set(activeSkills.map((skill) => skill.name))
 						setSelectedChoice(0)
+						setSkillsManager(
+							openSkillsManager(
+								skills,
+								ctx.skills?.disabled,
+								ctx.skills?.overrides,
+								localSkillOverrideKeys(ctx.cwd),
+							),
+						)
 						setChoicePicker({
-							kind: 'skill',
-							title: 'Activate a skill',
-							values: skills.map((skill) => skill.name),
-							options: skills.map((skill) => ({
-								label: skill.name,
-								description: skill.problem
-									? `Unavailable: ${skill.problem}`
-									: `${skill.description} · ${skillTierLabel(skill.tier)}`,
-								current: activeNames.has(skill.name),
-							})),
+							kind: 'skills-manager',
+							title: 'Skills',
+							values: [],
+							options: [],
 						})
 						return
 					}
@@ -19004,12 +19027,106 @@ function AppBody({
 			// menu, so a provider/session change cannot silently reinterpret Enter.
 			if (choicePickerRef.current) {
 				const picker = choicePickerRef.current
-				if ((picker.kind === 'plugin' || picker.kind === 'plugin-action') && picker.busy) return
 				// Composer publishes a chooser while handling Return. App receives the
 				// same input dispatch (and key repeat can arrive before the commit), so
 				// the synchronous ref is an ownership fence but not yet an actionable
 				// menu. Only the exact object React committed may consume a choice.
 				if (choicePickerCommittedRef.current !== picker) return
+				if (picker.kind === 'plugin-screen') {
+					const screen = pluginScreenRef.current
+					if (!screen) return
+					if (isAction('app:interrupt', input, key)) {
+						setPluginScreen(null)
+						setChoicePicker(null)
+						return
+					}
+					const columns = Math.max(1, (terminal.columns ?? 80) - SCREEN_MARGIN)
+					const outcome = stepPluginScreen(
+						screen,
+						{
+							input,
+							up: key.upArrow,
+							down: key.downArrow,
+							left: key.leftArrow,
+							right: key.rightArrow,
+							pageUp: key.pageUp,
+							pageDown: key.pageDown,
+							home: key.home,
+							end: key.end,
+							escape: key.escape,
+							return: key.return,
+							backspace: key.backspace,
+							delete: key.delete,
+							ctrl: key.ctrl,
+							meta: key.meta,
+						} satisfies ScreenKey,
+						pluginScreenMaxScroll(screen, columns, terminal.rows ?? 24),
+					)
+					if (outcome.close) {
+						setPluginScreen(null)
+						setChoicePicker(null)
+						return
+					}
+					setPluginScreen(outcome.state)
+					if (outcome.effect) runPluginEffect(outcome.state, outcome.effect)
+					return
+				}
+				if (picker.kind === 'skills-manager') {
+					const manager = skillsManagerRef.current
+					if (!manager) return
+					if (isAction('app:interrupt', input, key)) {
+						// Ctrl+C leaves without saving; Esc is what saves.
+						setSkillsManager(null)
+						setChoicePicker(null)
+						return
+					}
+					const step = manageSkills(manager, {
+						input,
+						up: key.upArrow,
+						down: key.downArrow,
+						pageUp: key.pageUp,
+						pageDown: key.pageDown,
+						home: key.home,
+						end: key.end,
+						escape: key.escape,
+						return: key.return,
+						backspace: key.backspace,
+						delete: key.delete,
+						ctrl: key.ctrl,
+						meta: key.meta,
+					} satisfies ManagerKey)
+					if (!step.close) {
+						setSkillsManager(step.state)
+						return
+					}
+					const changes = pendingSkillChanges(step.state)
+					const saved = saveSkillOverrides(ctx.cwd, changes)
+					setSkillsManager(null)
+					setChoicePicker(null)
+					if (saved.ok && saved.changed > 0) {
+						// The next turn and `/skills <name>` read the new states at once.
+						const overrides: Record<string, SkillOverride> = {
+							...(ctxRef.current.skills?.overrides ?? {}),
+						}
+						for (const [name, wanted] of Object.entries(changes)) {
+							if (wanted === null) delete overrides[name]
+							else overrides[name] = wanted
+						}
+						// A name the weaker layers turn off needs an explicit `on` to stay on.
+						const next = {
+							...ctxRef.current,
+							skills: { ...ctxRef.current.skills, overrides },
+						}
+						ctxRef.current = next
+						setCtx(next)
+					}
+					const line = closingLine(
+						saved.ok ? saved.changed : 0,
+						saved.ok ? undefined : saved.message,
+					)
+					pushMessage('system', line.text)
+					return
+				}
 				const searchable = choicePickerSearchable(picker)
 				const options = filterChoiceOptions(picker.options, choiceQueryRef.current)
 				const applyVisibleChoice = (index: number) => {
@@ -20070,38 +20187,54 @@ function AppBody({
 								scheduleReviewPrompt === null &&
 								!childSurfaceOpen &&
 								choicePicker ? (
-								<ChoicePicker
-									busy={'busy' in choicePicker && choicePicker.busy === true}
-									columns={Math.max(1, (terminal.columns ?? 80) - SCREEN_MARGIN)}
-									title={choicePicker.title}
-									notice={choicePicker.notice}
-									{...(choicePicker.kind === 'workflow-runs'
-										? {
-												subtitle: choicePicker.subtitle,
-												hints: workflowRunsHints(workflowPickerCanStop, workflowPickerCanResume),
-											}
-										: {})}
-									{...(choicePicker.kind === 'peers-network' && choicePicker.body
-										? { body: choicePicker.body }
-										: {})}
-									{...(choicePicker.kind === 'account' ? { hints: ACCOUNT_PICKER_HINTS } : {})}
-									options={filterChoiceOptions(choicePicker.options, choiceQuery)}
-									describeSelected={
-										choicePicker.kind === 'user-question' || choicePicker.kind === 'peers-network'
-									}
-									query={choicePickerSearchable(choicePicker) ? choiceQuery : undefined}
-									selected={selectedChoice}
-									windowSize={
-										choicePicker.kind === 'command' || choicePicker.kind === 'theme'
-											? choicePicker.windowSize
-											: undefined
-									}
-									{...(choicePicker.kind === 'theme' && terminal.rows >= 26
-										? {
-												extra: <ThemeSample width={Math.max(10, (terminal.columns ?? 80) - 6)} />,
-											}
-										: {})}
-								/>
+								choicePicker.kind === 'plugin-screen' ? (
+									pluginScreen ? (
+										<PluginScreen
+											state={pluginScreen}
+											columns={Math.max(1, (terminal.columns ?? 80) - SCREEN_MARGIN)}
+										/>
+									) : null
+								) : choicePicker.kind === 'skills-manager' ? (
+									skillsManager ? (
+										<SkillsManager
+											state={skillsManager}
+											columns={Math.max(1, (terminal.columns ?? 80) - SCREEN_MARGIN)}
+										/>
+									) : null
+								) : (
+									<ChoicePicker
+										busy={'busy' in choicePicker && choicePicker.busy === true}
+										columns={Math.max(1, (terminal.columns ?? 80) - SCREEN_MARGIN)}
+										title={choicePicker.title}
+										notice={choicePicker.notice}
+										{...(choicePicker.kind === 'workflow-runs'
+											? {
+													subtitle: choicePicker.subtitle,
+													hints: workflowRunsHints(workflowPickerCanStop, workflowPickerCanResume),
+												}
+											: {})}
+										{...(choicePicker.kind === 'peers-network' && choicePicker.body
+											? { body: choicePicker.body }
+											: {})}
+										{...(choicePicker.kind === 'account' ? { hints: ACCOUNT_PICKER_HINTS } : {})}
+										options={filterChoiceOptions(choicePicker.options, choiceQuery)}
+										describeSelected={
+											choicePicker.kind === 'user-question' || choicePicker.kind === 'peers-network'
+										}
+										query={choicePickerSearchable(choicePicker) ? choiceQuery : undefined}
+										selected={selectedChoice}
+										windowSize={
+											choicePicker.kind === 'command' || choicePicker.kind === 'theme'
+												? choicePicker.windowSize
+												: undefined
+										}
+										{...(choicePicker.kind === 'theme' && terminal.rows >= 26
+											? {
+													extra: <ThemeSample width={Math.max(10, (terminal.columns ?? 80) - 6)} />,
+												}
+											: {})}
+									/>
+								)
 							) : permission === null &&
 								scheduleReviewPrompt === null &&
 								!childSurfaceOpen &&
@@ -20766,15 +20899,9 @@ function withAccountLabel(
 }
 
 function choicePickerSearchable(picker: ChoicePickerState): boolean {
-	return [
-		'command',
-		'skill',
-		'plugin',
-		'review-branch',
-		'review-commit',
-		'account',
-		'model-live',
-	].includes(picker.kind)
+	return ['command', 'plugin', 'review-branch', 'review-commit', 'account', 'model-live'].includes(
+		picker.kind,
+	)
 }
 
 /** The text `/memory show` prints: curated files, then what the store holds. */
@@ -20923,57 +21050,6 @@ function memoryRecordedConfirm(
 			{
 				label: `Delete ${count}`,
 				description: 'Remove every memory a turn recorded on its own.',
-			},
-		],
-	}
-}
-
-function loadedPluginPicker(owner: AgentSession): ChoicePickerState {
-	const plugins = owner.plugins?.list() ?? []
-	return {
-		kind: 'plugin',
-		owner,
-		title: 'Plugins',
-		notice: 'Loaded in this conversation · select to inspect or change state',
-		values: plugins.map((plugin) => plugin.name),
-		options: plugins.map(pluginOption),
-	}
-}
-
-function pluginActionPicker(owner: AgentSession, name: string): ChoicePickerState | null {
-	const plugin = owner.plugins?.list().find((item) => item.name === name)
-	if (!plugin) return null
-	const enabled = plugin.status === 'enabled'
-	return {
-		kind: 'plugin-action',
-		owner,
-		pluginName: name,
-		title: `${plugin.name} · ${plugin.version}`,
-		notice: `${plugin.status} · after restart: ${pluginStartupState(plugin)} · ${plugin.tools.length} tool${plugin.tools.length === 1 ? '' : 's'}`,
-		values: ['details', enabled ? 'disable' : 'enable', 'remember'],
-		options: [
-			{
-				label: 'Details',
-				description: 'Show directory and contributions.',
-				selectedDescription: plugin.description,
-			},
-			{
-				label: enabled ? 'Disable for this conversation' : 'Enable for this conversation',
-				description: enabled
-					? 'Remove its tools, skills and hooks; disconnect its MCP servers.'
-					: 'Load this trusted plugin’s tools, skills, hooks and MCP servers.',
-				selectedDescription:
-					'Resets on restart or model switch. Wait for the current reply to finish first.',
-			},
-			{
-				label: `Keep ${enabled ? 'enabled' : 'disabled'} after restart`,
-				description: 'Remember this state for future conversations and model switches.',
-				selectedDescription:
-					plugin.startupError ??
-					'Applies only to this plugin directory. Other open conversations keep their state.',
-				...(plugin.startupEnabled === enabled
-					? { disabledReason: 'Already the startup setting.' }
-					: {}),
 			},
 		],
 	}

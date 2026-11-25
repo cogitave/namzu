@@ -14,8 +14,10 @@ A skill is a directory holding a `SKILL.md`: YAML frontmatter with a `name`
 and a `description`, then a markdown body of instructions. The model sees
 every usable skill's name and description in its prompt and loads a body with
 the `skill` tool when a task matches the description. The operator can also
-activate one for the whole conversation with `/skills <name>`, or for one
-headless turn with `namzu exec --skills <a,b>`.
+activate one for the whole conversation with `/skills <name>` (or `/<name>`),
+or for one headless turn with `namzu exec --skills <a,b>`. Bare `/skills` opens
+[the skills screen](#the-skills-screen), where each skill is turned on, listed
+by name only, left to you, or turned off for the project.
 
 ## Where skills come from
 
@@ -362,11 +364,11 @@ for a turn whose save you asked for. Alt+W drops the trigger before you send;
 user config (`$NAMZU_HOME/config.yaml`, keeping the rest of the file as it
 was) and says which file; `/skills save on` writes `true`. Either applies to
 the running session at once. It then reads the whole cascade back: when a
-project file, a selected profile or the managed file sets its own `skills`
-block (which replaces the user file's whole block, see [Config](#config)) and
-so resolves to the other value, the message names that file, says what
-`skills.suggest` will be from the next start, and asks you to add `suggest`
-there (`packages/cli/src/tui/skills/suggest-setting.ts`). `/skills save` and `/skills new` keep working
+project file, a selected profile or the managed file sets `skills.suggest`
+itself (the `skills` keys merge one by one, see [Config](#config)) and so
+resolves to the other value, the message names the strongest file with a
+`skills` block, says what `skills.suggest` will be from the next start, and
+asks you to set `suggest` there (`packages/cli/src/tui/skills/suggest-setting.ts`). `/skills save` and `/skills new` keep working
 when proposals are off.
 
 **It stops by itself.** A proposal counts as unused until you type
@@ -521,6 +523,8 @@ operator can still activate it.
 skills:
   builtin: false          # leave the built-in tier out; default true
   disabled: [noisy]       # neither the model nor /skills may use these
+  overrides:              # per skill: on, name-only, user-only or off (the /skills screen writes this)
+    release-notes: name-only
   suggest: false          # no "save it as a skill?" line after a task; default true
   suggestMinToolCalls: 8  # successful tool calls a turn needs first; default 6
 ```
@@ -529,6 +533,7 @@ skills:
 | --- | --- | --- | --- |
 | `skills.builtin` | boolean | `true` | Offer the built-in tier. |
 | `skills.disabled` | list of names | `[]` | Skills neither the model nor `/skills` may use, in any tier. |
+| `skills.overrides` | mapping, name to `on`, `name-only`, `user-only` or `off` | `{}` | A state per skill, which wins over `skills.disabled` for that name ([the skills screen](#the-skills-screen)). `on` lifts a name a weaker layer's `disabled` list turned off. |
 | `skills.suggest` | boolean | `true` | Propose saving a multi-step task as a skill ([Learning from a task](#learning-from-a-task)). `/skills save off` and `on` write it to the user config. |
 | `skills.suggestMinToolCalls` | whole number ≥ 1 | `6` | Successful tool calls a turn needs before it is proposed. |
 
@@ -541,9 +546,69 @@ A separate, top-level key switches the shell commands inside skills off for ever
 `skills.disabled` applies to a name in every tier. A disabled skill stays in
 listings, marked, with the reason. Every key is read from the config files
 (user, project, managed) and profiles, never from the environment
-(`packages/cli/src/config/load.ts`). A later layer replaces the whole `skills`
-mapping of an earlier one, so a project file that sets `skills.disabled`
-also resets `suggest` to its default unless it sets it too.
+(`packages/cli/src/config/load.ts`). A stronger layer's `builtin`, `disabled`,
+`suggest` and `suggestMinToolCalls` replace the weaker layer's, and
+`overrides` merges by skill name, so the project's local file that the skills
+screen writes (which holds only `overrides`) leaves your own `builtin` and
+`disabled` alone.
+
+## The skills screen
+
+Bare `/skills` opens a screen of every skill, one row each:
+
+```
+ Skills
+ 22 skills
+ ╭───────────────────────────────╮
+ │ ⌕ Search skills…              │
+ ╰───────────────────────────────╯
+ ❯ ✓ release-notes   name-only · project · ~20 tokens
+   ✓ review-diff     project · < 20 tokens
+   ◯ db-migrate      project · ~30 tokens
+ Its author made it run only from /name.
+ ↑/↓ to navigate · Space to change · / to search · t to sort · Esc to close
+```
+
+A tick is a skill that is not off; a ring is one that is off, and a row whose
+`SKILL.md` cannot be used reads `locked` and cannot be changed (the line under
+the list says why). The words after the name are the state (only `name-only`
+and `user-only` are spelled out), where the skill lives, and what its one-line
+listing costs the model each turn: the name and description at four characters
+a token, shown as `~N tokens` to the nearest ten and `< 20 tokens` under 20.
+It is an estimate, not the model's count. The line under the rows is dim and says
+something only when the selected skill has a thing worth knowing (it is
+locked, it hides a skill of the same name from a lower folder, or its author set
+it to run only from `/name` or for the model only).
+
+| Key | What it does |
+| --- | --- |
+| Space, Enter | Moves the selected skill on, then `name-only`, then `user-only`, then `off`, then back to `on`. A locked row does not move. |
+| `/` | Puts the keys in the search box: typing matches a name, a description or where the skill lives. Enter keeps the text and gives the keys back; Esc clears it and gives them back. |
+| `t` | Sorts by listing cost, largest first (the subtitle adds ` · sorted by tokens`); again for the default order, where a skill lives and then its name. |
+| Esc | Saves the net change for this project, closes, and leaves one row: `No changes`, `Updated N skills in this project`, or `Couldn't save skill settings: <why>`. |
+| Ctrl+C | Closes without saving. |
+
+What the states mean:
+
+- **on** is the default: the model is told the skill's name and description, and you can run it with `/<name>`.
+- **name-only**: the model is told the skill exists and where it lives, without its description, so it costs a few tokens a turn and the model still loads it by name when a task calls for it.
+- **user-only**: the model is not told of it and its `skill` tool refuses it by name; `/<name>` and `/skills <name>` still run it. It is what a `SKILL.md` with `invocation: operator` already was, set from the screen instead of the file.
+- **off**: neither the model nor you can use it, as if it were in `skills.disabled`; it stays in `/skills list`, marked.
+
+The change is written to `skills.overrides` in `.namzu/settings.local.json`, the project's
+local settings file, this computer's and this project's only. Only the skills you changed
+are written; a skill put back to what the layers below already say (their `disabled` list or
+their `overrides`) has its key removed, so a full round of Space leaves the file as it was. A
+name the local file already sets is always written out, since what lies beneath it is not
+known. A skill set to name-only is listed to the model by name alone, in the per-turn listing
+as well as the system prompt. The next turn and `/skills <name>` use the new
+states at once, without a restart. A folder that is not trusted, a file that is not valid JSON,
+or a file Git tracks is left alone, and the closing row says why. Desktop's Settings switches
+still write `skills.disabled` in your user config; a project's `overrides` entry for a name
+wins over that list, in both directions.
+
+Bare `/skills` used to be a picker titled "Activate a skill". It is now this screen. To
+activate a skill for the conversation, type `/<name>` or `/skills <name>`.
 
 ## Listing
 

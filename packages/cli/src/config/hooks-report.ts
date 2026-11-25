@@ -36,7 +36,7 @@ import { resolveNamzuHome } from '../integrations/state/home.js'
 import { readAgentHooks } from '../integrations/subagents/agent-hooks.js'
 import { discoverAgentDefinitions } from '../integrations/subagents/definitions.js'
 import { isTrusted } from '../integrations/trust/store.js'
-import { discoverSkills } from '../skills/store.js'
+import { discoverSkills, isOffProblem } from '../skills/store.js'
 import { type HooksSwitch, assembleHooks, hookIdentity, hookSwitch } from './hook-layers.js'
 import {
 	type ConfigProvenance,
@@ -622,8 +622,7 @@ export async function describeFolderHooks(
 			}
 			const untrusted = skill.source === 'project' && !trusted
 			const onlyDisabled =
-				skill.disabled === true &&
-				(skill.problem === undefined || skill.problem.startsWith('disabled by skills.disabled'))
+				skill.disabled === true && (skill.problem === undefined || isOffProblem(skill.problem))
 			if (skill.problem !== undefined && !onlyDisabled) {
 				problems.push({
 					severity: 'note',
@@ -646,7 +645,7 @@ export async function describeFolderHooks(
 				rowState = 'off'
 				why = {
 					code: 'skill-disabled',
-					text: `skill ${skill.name} is named in skills.disabled.`,
+					text: `skill ${skill.name} is turned off (skills.disabled or skills.overrides).`,
 				}
 			}
 			for (const [event, list] of Object.entries(read.hooks as HooksConfig)) {

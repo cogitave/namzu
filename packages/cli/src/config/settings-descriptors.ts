@@ -2889,6 +2889,11 @@ export const SETTING_EXCLUSIONS: readonly SettingExclusion[] = [
 export const SETTING_SUBKEY_EXCLUSIONS: readonly SettingExclusion[] = [
 	{ key: 'tui.spacesPrefix', reason: 'A deprecated alias of tui.workspacesPrefix; read only.' },
 	{
+		key: 'skills.overrides',
+		reason:
+			"A per-project state for each skill, written to the project's local settings file by the /skills screen in the terminal; Settings turns a skill on or off through skills.disabled.",
+	},
+	{
 		key: 'plugins.launchDirs',
 		reason:
 			'Set for one run by --plugin-dir; the loader never reads it from a file, so a saved value would do nothing.',

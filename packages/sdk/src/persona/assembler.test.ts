@@ -366,3 +366,20 @@ describe('withSessionContext', () => {
 		expect(prompt).toContain('## Session Context\nOn main.')
 	})
 })
+
+describe('a skill listed by name only', () => {
+	it('keeps its name and location in the manifest and leaves the description out', () => {
+		const listed: Skill = {
+			metadata: { name: 'terse', description: 'a long explanation', listing: 'name-only' },
+			dirPath: '/tmp/terse',
+		}
+		const prompt = assembleSystemPrompt(persona({ identity: { role: 'R', description: 'D' } }), [
+			listed,
+			skill('full'),
+		])
+		expect(prompt).toContain('<name>terse</name>')
+		expect(prompt).toContain('<location>/tmp/terse/SKILL.md</location>')
+		expect(prompt).not.toContain('a long explanation')
+		expect(prompt).toContain('<description>does full</description>')
+	})
+})

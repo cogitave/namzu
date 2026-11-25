@@ -29,6 +29,22 @@ const review = skill('review', 'Review a change before it merges.')
 const deploy = skill('deploy', 'Ship a build to staging.')
 
 describe('the skill listing reminder', () => {
+	it('names a name-only skill without its description', () => {
+		const terse = {
+			metadata: { name: 'terse', description: 'HIDDEN WORDS', listing: 'name-only' },
+			dirPath: '/skills/terse',
+		} as unknown as Skill
+		const [text] = skillListingReminders({
+			messages: [createUserMessage('go')],
+			described: [terse, review],
+			nameOnly: [],
+		})
+		expect(text).toContain('- terse\n')
+		expect(text).not.toContain('HIDDEN WORDS')
+		expect(text).toContain('- review: Review a change before it merges.')
+		expect(text).toContain('listed by name only')
+	})
+
 	it('lists every skill the first time, with how to load one', () => {
 		const [first, ...rest] = skillListingReminders({
 			messages: [createUserMessage('go')],

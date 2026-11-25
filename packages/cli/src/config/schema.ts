@@ -1183,6 +1183,11 @@ export interface ComposerTriggersConfig {
 	readonly builtin?: Readonly<Partial<Record<ComposerTriggerId, ComposerTriggerArming>>>
 }
 
+/** The states `skills.overrides` gives a skill; see {@link SkillsConfig.overrides}. */
+export const SKILL_OVERRIDE_STATES = ['on', 'name-only', 'user-only', 'off'] as const
+
+export type SkillOverride = (typeof SKILL_OVERRIDE_STATES)[number]
+
 /** See `NamzuCliConfig.skills`. */
 export interface SkillsConfig {
 	/**
@@ -1196,6 +1201,15 @@ export interface SkillsConfig {
 	 * tier they come from. They stay in listings, marked disabled.
 	 */
 	readonly disabled?: readonly string[]
+	/**
+	 * A per-skill state, by name. Absent means `on`. `name-only` lists the
+	 * skill to the model without its description; `user-only` keeps it out of
+	 * the model's listing and its `skill` tool and leaves `/<name>` to the
+	 * operator; `off` is the same as naming it in `disabled`. `on` is how a
+	 * layer lifts a name that a weaker layer's `disabled` list turned off. The
+	 * `/skills` screen writes this under the project's local settings file.
+	 */
+	readonly overrides?: Readonly<Record<string, SkillOverride>>
 	/**
 	 * After a turn that took several steps, the interactive terminal prints
 	 * one dim line proposing to save it as a skill (`/skills save`). Nothing

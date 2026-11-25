@@ -89,6 +89,7 @@ describe('what the model may do with each slash command', () => {
 				'logout',
 				'peers',
 				'permissions',
+				'plugin',
 				'plugins',
 				'settings',
 				'setup',

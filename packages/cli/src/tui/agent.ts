@@ -613,6 +613,7 @@ import {
 	createSessionSkillShell,
 	shellBlockFor,
 } from '../skills/skill-shell.js'
+import { recordSkillUse } from '../skills/usage.js'
 import { COMMAND_TOOL_NAME, type CommandToolHost, buildCommandTool } from './command-tool.js'
 import { projectTurnConversation } from './conversation-history.js'
 import { type ModelSwitchOutcome, buildSwitchModelTool } from './model-switch-tool.js'
@@ -2964,6 +2965,12 @@ export interface AgentSessionOptions {
 	 * `skills.disabled`). Absent offers every tier.
 	 */
 	readonly skills?: SkillsConfig
+	/**
+	 * The same config as of now, asked again each turn. The `/skills` screen's
+	 * save changes it while the session runs; without it the session offers
+	 * what the config said when it started.
+	 */
+	readonly skillsNow?: () => SkillsConfig | undefined
 	/**
 	 * Judge the answer a turn is about to settle with, and hand it back with
 	 * feedback when it is not good enough.
@@ -5730,13 +5737,13 @@ export async function createAgentSession(
 	// capability.
 	const skillCatalog = await createSessionSkillCatalog({
 		cwd,
-		...(options.skills ? { config: options.skills } : {}),
+		...(options.skillsNow || options.skills ? { config: options.skillsNow ?? options.skills } : {}),
 		log: cliLogger(),
 	})
 	// One `skill` tool for file and plugin skills alike, told which directory
 	// the model can open for each: the real one on the host, the mounted one
 	// inside the sandbox, none when the sandbox does not mount it.
-	const skillTool = createSkillTool({
+	const loadSkill = createSkillTool({
 		resolveModelDirectory: createSkillDirectoryResolver({
 			sandboxMounts: () => (sandboxWorkspace === 'working-directory' ? directories : []),
 		}),
@@ -5760,6 +5767,23 @@ export async function createAgentSession(
 			warn: (line) => pluginRuntime?.hookActivity.notify(line),
 		},
 	})
+	// The same tool, counting each first-page load by name for the plugin screen's usage
+	// figures. A conversation that is not kept leaves no trace, and a failed write is dropped.
+	const skillTool: typeof loadSkill = {
+		...loadSkill,
+		async execute(input, context) {
+			const result = await loadSkill.execute(input, context)
+			if (
+				result.success &&
+				!options.ephemeral &&
+				typeof input.name === 'string' &&
+				input.cursor === undefined
+			) {
+				recordSkillUse(input.name, result.output.length)
+			}
+			return result
+		},
+	}
 	const hasSaveSkillTool = (options.extraTools ?? []).some(
 		(tool) => tool.name === SAVE_SKILL_TOOL_NAME,
 	)

@@ -32,7 +32,7 @@ import {
 	parseFrontmatter,
 	skillHooksSource,
 } from '@namzu/sdk'
-import type { SkillsConfig } from '../config/schema.js'
+import type { SkillOverride, SkillsConfig } from '../config/schema.js'
 import { namzuHomePath } from '../integrations/state/home.js'
 
 /** Who a skill belongs to: shipped with the CLI, the operator's, or the project's. */
@@ -84,8 +84,15 @@ export interface SkillInfo {
 	 * `skills.disabled` is listed the same way.
 	 */
 	readonly problem?: string
-	/** Named in the config's `skills.disabled`. */
+	/** Turned off: named in the config's `skills.disabled`, or given `off` in `skills.overrides`. */
 	readonly disabled?: boolean
+	/**
+	 * The state `skills.overrides` gives it, when that is `name-only` or
+	 * `user-only`. `user-only` also sets {@link invocation} to `operator`, so
+	 * every reader that already keeps an operator-only skill from the model
+	 * keeps this one from it; `name-only` is for the model's listing alone.
+	 */
+	readonly state?: 'name-only' | 'user-only'
 	/**
 	 * `operator` when the author wrote `invocation: operator` or
 	 * `disable-model-invocation: true`: the model is never offered it.
@@ -370,12 +377,43 @@ export interface SkillRoster {
 	readonly shadowed: readonly (SkillInfo & { readonly shadowedBy: string })[]
 }
 
+/** The problem text a skill that is turned off by `skills.disabled` carries. */
+export const DISABLED_BY_LIST = 'disabled by skills.disabled in the config'
+/** The problem text a skill that is turned off by `skills.overrides` carries. */
+export const DISABLED_BY_OVERRIDE = 'turned off for this project in /skills (skills.overrides)'
+
+/** Whether a problem is only the one a turned-off switch adds. */
+export function isOffProblem(problem: string | undefined): boolean {
+	return problem === DISABLED_BY_LIST || problem === DISABLED_BY_OVERRIDE
+}
+
+/**
+ * What the config says about one skill: its `skills.overrides` entry wins over
+ * the `skills.disabled` list, so an `on` lifts a name a weaker layer turned off.
+ */
+function skillStateFields(
+	override: SkillOverride | undefined,
+	listed: boolean,
+	winner: SkillInfo,
+): Partial<SkillInfo> {
+	if (override === 'off' || (override === undefined && listed)) {
+		return {
+			disabled: true,
+			problem: winner.problem ?? (override === 'off' ? DISABLED_BY_OVERRIDE : DISABLED_BY_LIST),
+		}
+	}
+	if (override === 'user-only') return { state: 'user-only', invocation: 'operator' }
+	if (override === 'name-only') return { state: 'name-only' }
+	return {}
+}
+
 /**
  * Discover every tier and resolve shadowing. A name in `skills.disabled` is
  * kept in the list, marked, with the reason it cannot be used.
  */
 export function discoverSkillRoster(opts: SkillDiscoveryOptions = {}): SkillRoster {
 	const disabled = new Set(opts.config?.disabled ?? [])
+	const overrides = opts.config?.overrides ?? {}
 	const byName = new Map<string, SkillInfo[]>()
 	for (const root of skillRoots(opts)) {
 		for (const skill of readSkillsFrom(root.dir, root.tier)) {
@@ -393,12 +431,11 @@ export function discoverSkillRoster(opts: SkillDiscoveryOptions = {}): SkillRost
 		skills.push({
 			...winner,
 			...(hidden.length > 0 ? { shadows: hidden.map((lower) => lower.path) } : {}),
-			...(disabled.has(name)
-				? {
-						disabled: true,
-						problem: winner.problem ?? 'disabled by skills.disabled in the config',
-					}
-				: {}),
+			...skillStateFields(
+				Object.hasOwn(overrides, name) ? overrides[name] : undefined,
+				disabled.has(name),
+				winner,
+			),
 		})
 	}
 	skills.sort((a, b) => a.name.localeCompare(b.name))

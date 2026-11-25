@@ -273,49 +273,40 @@ function painted(screen: Screen): string {
 	return screen.scrollback().join('\n')
 }
 
+const view = (screen: Screen): string => screen.viewport().join('\n')
+
 it.each([60, 120])(
-	'inspects plugins before an explicit session change at %s columns',
+	'opens /plugin as tabs and changes a plugin only when asked, at %s columns',
 	async (cols) => {
 		const screen = await renderToScreen(<App ctx={ctx} />, { cols, rows: 28 })
 		mounted = screen
 		await waitUntil(screen, () => painted(screen).includes('gpt-test'))
-		screen.press('/plugins')
+		screen.press('/plugin')
 		await screen.waitForRender()
 		screen.press('\r')
+		await waitUntil(screen, () => view(screen).includes('Search installed items'))
+		expect(view(screen)).toContain('Installed')
+		expect(view(screen)).toContain('ledger')
+		expect(plugins.changes).toEqual([])
+		// Enter opens the plugin; nothing changes until an action is chosen.
 		screen.press('\r')
-		await waitUntil(screen, () =>
-			screen.viewport().join('\n').includes('Loaded in this conversation'),
-		)
+		await waitUntil(screen, () => view(screen).includes('Disable for this conversation'))
+		expect(view(screen)).toContain('/w/.namzu/plugins/ledger')
 		expect(plugins.changes).toEqual([])
 		screen.press('\r')
-		await waitUntil(screen, () =>
-			screen.viewport().join('\n').includes('Disable for this conversation'),
-		)
-		expect(plugins.changes).toEqual([])
-		screen.press('2')
-		await waitUntil(screen, () =>
-			screen.viewport().join('\n').includes('Enable for this conversation'),
-		)
+		await waitUntil(screen, () => view(screen).includes('Enable for this conversation'))
 		expect(plugins.changes).toEqual([false])
-		expect(screen.viewport().join('\n')).toContain('0 tools')
 		expect(plugins.startupEnabled).toBe(true)
-		screen.press('3')
-		await waitUntil(screen, () => screen.viewport().join('\n').includes('after restart: disabled'))
+		screen.press('\x1b[B')
+		await screen.waitForRender()
+		screen.press('\r')
+		await waitUntil(screen, () => view(screen).includes('After restart or model switch: disabled'))
 		expect(plugins.startupEnabled).toBe(false)
-		expect(screen.viewport().join('\n')).toContain('after restart: disabled')
-		screen.press('2')
-		await waitUntil(screen, () =>
-			screen.viewport().join('\n').includes('Disable for this conversation'),
-		)
+		screen.press('\x1b[A')
+		await screen.waitForRender()
+		screen.press('\r')
+		await waitUntil(screen, () => view(screen).includes('Disable for this conversation'))
 		expect(plugins.changes).toEqual([false, true])
-		expect(screen.viewport().join('\n')).toContain('1 tool')
-		expect(plugins.startupEnabled).toBe(false)
-		screen.press('3')
-		await waitUntil(screen, () => screen.viewport().join('\n').includes('after restart: enabled'))
-		expect(plugins.startupEnabled).toBe(true)
-		screen.press('1')
-		await waitUntil(screen, () => painted(screen).includes('Registered tools: ledger__audit'))
-		expect(painted(screen)).toContain('/w/.namzu/plugins/ledger')
 		expect(reviewPrompts).toEqual([])
 	},
 )
@@ -330,18 +321,14 @@ it('keeps the real enabled state when a plugin change fails', async () => {
 	screen.press('/plugins')
 	await screen.waitForRender()
 	screen.press('\r')
-	await waitUntil(screen, () =>
-		screen.viewport().join('\n').includes('Loaded in this conversation'),
-	)
+	await waitUntil(screen, () => view(screen).includes('Search installed items'))
 	screen.press('\r')
-	await waitUntil(screen, () =>
-		screen.viewport().join('\n').includes('Disable for this conversation'),
-	)
+	await waitUntil(screen, () => view(screen).includes('Disable for this conversation'))
 	plugins.fail = true
-	screen.press('2')
-	await waitUntil(screen, () => screen.viewport().join('\n').includes('Could not change plugin'))
+	screen.press('\r')
+	await waitUntil(screen, () => view(screen).includes('Could not change plugin'))
 	expect(plugins.enabled).toBe(true)
-	expect(screen.viewport().join('\n')).toContain('Disable for this conversation')
+	expect(view(screen)).toContain('Disable for this conversation')
 	expect(reviewPrompts).toEqual([])
 })
 
@@ -426,7 +413,7 @@ it('opens bare /feedback as a finite chooser for the completed answer', async ()
 	])
 })
 
-it('opens bare /skills and activates the selected discovered skill', async () => {
+it('opens bare /skills as the skills screen and leaves "No changes" when nothing moved', async () => {
 	const screen = await renderToScreen(<App ctx={ctx} />, {
 		cols: 120,
 		rows: 28,
@@ -437,15 +424,41 @@ it('opens bare /skills and activates the selected discovered skill', async () =>
 	screen.press('/skills')
 	await screen.waitForRender()
 	screen.press('\r')
-	await waitUntil(screen, () => painted(screen).includes('Inspect the problem · project'))
+	await waitUntil(screen, () => screen.viewport().join('\n').includes('Search skills'))
 
 	const output = screen.viewport().join('\n')
+	expect(output).toContain('2 skills')
 	expect(output).toContain('analysis')
-	expect(output).toContain('Inspect the problem · project')
+	expect(output).toContain('project')
 	expect(output).toContain('release-check')
-	expect(output).toContain('Verify a release candidate · user')
+	expect(output).toContain('Space to change')
+	expect(output).not.toContain('Activate a skill')
 
-	screen.press('release-check')
+	// A full round of Space leaves nothing to save, so no file is written.
+	for (let i = 0; i < 4; i++) {
+		screen.press(' ')
+		await screen.waitForRender()
+	}
+	screen.press('\x1b')
+	// The lone Esc is held back by the key parser until it is known not to start a
+	// sequence; wait for the repaint it causes. Vitest's own timeout catches a real hang.
+	while (screen.viewport().join('\n').includes('Search skills')) {
+		await screen.waitForRender()
+		await new Promise<void>((resolve) => setImmediate(resolve))
+	}
+	expect(`${painted(screen)}\n${screen.viewport().join('\n')}`).toContain('No changes')
+	expect(skillLoads).toEqual([])
+})
+
+it('activates a named skill with /skills <name>', async () => {
+	const screen = await renderToScreen(<App ctx={ctx} />, {
+		cols: 120,
+		rows: 28,
+	})
+	mounted = screen
+	await waitUntil(screen, () => painted(screen).includes('gpt-test'))
+
+	screen.press('/skills release-check')
 	await screen.waitForRender()
 	screen.press('\r')
 	await waitUntil(screen, () => painted(screen).includes('Activated skill: release-check'))

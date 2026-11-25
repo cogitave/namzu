@@ -104,12 +104,12 @@ describe('a name this host implements itself', () => {
 	})
 
 	it('keeps the LOCAL implementation, not the kernel’s', () => {
-		// Detected by what it does: the local one produces a `skill-picker`
+		// Detected by what it does: the local one produces a `skills-manager`
 		// action, the kernel's would produce a `host-command`.
 		const merged = mergeHostCommands(kernelCommandDescriptors())
 		const skills = merged.find((c) => c.name === 'skills')
 
-		expect(skills?.action({} as never, [])).toMatchObject({ kind: 'skill-picker' })
+		expect(skills?.action({} as never, [])).toMatchObject({ kind: 'skills-manager' })
 	})
 
 	it('still REFUSES a collision nobody decided about', () => {

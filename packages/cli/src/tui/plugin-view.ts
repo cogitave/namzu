@@ -22,8 +22,9 @@ export function pluginSummary(plugin: CliPluginInfo): string {
 	}`
 }
 
-export function pluginDetails(plugin: CliPluginInfo): string {
-	const rows = [
+/** The lines that describe one plugin, without the closing hint `/plugins` adds. */
+export function pluginDetailRows(plugin: CliPluginInfo): readonly string[] {
+	return [
 		`${plugin.name} · ${plugin.version}`,
 		plugin.description,
 		`Status: ${plugin.status} · ${plugin.scope}`,
@@ -37,9 +38,14 @@ export function pluginDetails(plugin: CliPluginInfo): string {
 		`Declared MCP servers: ${plugin.mcpServers.join(', ') || 'none'}`,
 		`Slash commands: ${plugin.commands.map((name) => `/${name}`).join(', ') || 'none'}`,
 		`Agents: ${plugin.agents.join(', ') || 'none'}`,
-		'Use /plugins to remember the current state for future conversations.',
-	]
-	return rows.map(choiceDisplayText).join('\n')
+	].map(choiceDisplayText)
+}
+
+export function pluginDetails(plugin: CliPluginInfo): string {
+	return [
+		...pluginDetailRows(plugin),
+		choiceDisplayText('Use /plugins to remember the current state for future conversations.'),
+	].join('\n')
 }
 
 export function pluginStartupState(plugin: CliPluginInfo): string {
@@ -50,17 +56,22 @@ export function pluginStartupState(plugin: CliPluginInfo): string {
 			: 'disabled'
 }
 
+/** Why no plugin is loaded, in one sentence a person can act on. */
+export function noPluginsReason(config: PluginConfig | undefined): string {
+	const scopes = config?.allowedScopes ?? ['project', 'user']
+	return config?.enabled !== true
+		? 'Plugins are off. Set plugins.enabled: true in your Namzu configuration to load trusted plugins at startup.'
+		: config.autoDiscovery === false
+			? 'Plugin discovery is off (plugins.autoDiscovery: false).'
+			: scopes.length === 0
+				? 'No plugin scopes are allowed (plugins.allowedScopes: []).'
+				: 'No plugins are loaded in this conversation.'
+}
+
 export function emptyPluginReport(config: PluginConfig | undefined, cwd: string): string {
 	const home = resolveNamzuHome()
 	const scopes = config?.allowedScopes ?? ['project', 'user']
-	const reason =
-		config?.enabled !== true
-			? 'Plugins are off. Set plugins.enabled: true in your Namzu configuration to load trusted plugins at startup.'
-			: config.autoDiscovery === false
-				? 'Plugin discovery is off (plugins.autoDiscovery: false).'
-				: scopes.length === 0
-					? 'No plugin scopes are allowed (plugins.allowedScopes: []).'
-					: 'No plugins are loaded in this conversation.'
+	const reason = noPluginsReason(config)
 	return [
 		reason,
 		`Configuration: ${join(home, 'config.yaml')}`,

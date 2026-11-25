@@ -29,7 +29,7 @@ const FIRST =
 	'These skills are available through the skill tool. When the step you are on matches one, load it by name and follow it; load a skill when that step needs it, not all of them at the start of a turn. A skill is guidance, not an extra tool: permissions are unchanged.'
 
 const NAME_ONLY =
-	'An entry with no description is one whose description did not fit; call the skill tool without a name to list them with descriptions.'
+	'An entry with no description is listed by name only, by the operator or because its description did not fit; call the skill tool without a name to list them with descriptions.'
 
 const CHANGED =
 	'These skills are new, or their descriptions changed, since the list you were given:'
@@ -46,6 +46,7 @@ function oneLine(text: string, max: number): string {
 
 /** The listing line for one skill; also the value a later request compares against. */
 export function skillListingLine(skill: Skill): string {
+	if (skill.metadata.listing === 'name-only') return `- ${skill.metadata.name}`
 	const description = oneLine(skill.metadata.description, SKILL_LISTING_DESCRIPTION_MAX_CHARS)
 	return description.length > 0
 		? `- ${skill.metadata.name}: ${description}`

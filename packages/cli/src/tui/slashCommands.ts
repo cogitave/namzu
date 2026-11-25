@@ -218,7 +218,7 @@ export type SlashAction =
 	| { kind: 'import-notes' }
 	| { kind: 'list-skills' }
 	| { kind: 'plugins'; list: boolean; name?: string }
-	| { kind: 'skill-picker' }
+	| { kind: 'skills-manager' }
 	| { kind: 'load-skill'; name: string }
 	/** `/skills new [idea]`: start the skill-creator interview. */
 	| { kind: 'new-skill'; idea: string }
@@ -1566,15 +1566,17 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 				'/skills <name>',
 			],
 			details: [
+				'/skills opens the skills screen: Space changes the selected skill (on, name-only, user-only, off), / searches, t sorts by listing cost, Esc saves the changes for this project and closes. name-only tells the model the skill exists without its description; user-only keeps it from the model while /<name> still runs it; off hides it from both. To activate a skill for this conversation use /<name> or /skills <name>.',
 				'/skills new starts the skill-creator interview; the model drafts a SKILL.md and nothing is saved until you choose where on its confirmation screen.',
 				'/skills save turns what this conversation just did into a skill, generalised and without secrets or tool output, ending on the same confirmation screen.',
 				'/skills save off stops the proposal printed after a multi-step task, in your user config; /skills save on turns it back on.',
 			],
 		},
-		description: 'Choose an available skill; /skills list shows them all, /skills new makes one.',
+		description:
+			'Turn skills on, name-only, user-only or off for this project; /skills <name> activates one, /skills new makes one.',
 		action: (_ctx, args) => {
 			const choice = args.join(' ').trim()
-			if (choice.length === 0) return { kind: 'skill-picker' }
+			if (choice.length === 0) return { kind: 'skills-manager' }
 			if (choice.toLowerCase() === 'list') return { kind: 'list-skills' }
 			if (args[0]?.toLowerCase() === 'new')
 				return { kind: 'new-skill', idea: args.slice(1).join(' ').trim() }
@@ -1596,10 +1598,34 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 		},
 	},
 	{
+		name: 'plugin',
+		modelRun: 'never',
+		immediate: true,
+		description: 'See tool servers, plugins and skills, their errors and use.',
+		help: {
+			usage: ['/plugin', '/plugin list', '/plugin <name>'],
+			details: [
+				'One screen with three tabs: Installed (tool servers, plugins and skills), Errors (what failed to load) and Stats (what each skill costs the listing and how often it ran). ←/→ switch tabs and Esc closes. Space turns the selected plugin on or off for this conversation; Enter opens a row, and a plugin there can also be kept enabled or disabled after restart. Changes wait until the current reply has finished. Plugin loading must first be enabled in configuration. /plugins is the same command.',
+			],
+		},
+		action: (_ctx, args) =>
+			args.length > 1
+				? {
+						kind: 'message',
+						role: 'system',
+						content: 'Usage: /plugin [list|name]',
+					}
+				: {
+						kind: 'plugins',
+						list: args[0] === 'list',
+						...(args[0] && args[0] !== 'list' ? { name: args[0] } : {}),
+					},
+	},
+	{
 		name: 'plugins',
 		modelRun: 'never',
 		immediate: true,
-		description: 'See plugins and turn them on or off.',
+		description: 'Same as /plugin.',
 		help: {
 			usage: ['/plugins', '/plugins list', '/plugins <name>'],
 			details: [

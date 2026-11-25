@@ -1387,7 +1387,7 @@ describe('/feedback', () => {
 
 describe('/skills', () => {
 	it('opens the activation chooser by default', () => {
-		expect(runSlash('/skills', ctx)).toEqual({ kind: 'skill-picker' })
+		expect(runSlash('/skills', ctx)).toEqual({ kind: 'skills-manager' })
 	})
 
 	it('keeps explicit list and direct activation forms', () => {
