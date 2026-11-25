@@ -36,7 +36,10 @@ describe('setSkillSuggestions', () => {
 
 	it('lets the user value stand under a project skills block that does not set suggest', () => {
 		const { cwd, opts } = setup()
-		writeFileSync(join(cwd, 'namzu.config.json'), JSON.stringify({ skills: { disabled: ['noisy'] } }))
+		writeFileSync(
+			join(cwd, 'namzu.config.json'),
+			JSON.stringify({ skills: { disabled: ['noisy'] } }),
+		)
 		const result = setSkillSuggestions(false, opts)
 		expect(result.effective).toBe(false)
 		expect(result.message).not.toContain('stronger config layer')
