@@ -71,6 +71,44 @@ export function wrapExact(text: string, width: number): { text: string; continue
 	return rows
 }
 
+/**
+ * Wrap a line of prose at word boundaries so no word is cut in two. A word
+ * longer than the row (a long path) still breaks, as `wrapExact` breaks it.
+ */
+export function wrapProse(text: string, width: number): { text: string; continued: boolean }[] {
+	const max = Math.max(1, width)
+	const rows: { text: string; continued: boolean }[] = []
+	for (const line of terminalDisplayText(text).split('\n')) {
+		let current = ''
+		let continued = false
+		const push = () => {
+			rows.push({ text: current, continued })
+			current = ''
+			continued = true
+		}
+		for (const word of line.split(' ')) {
+			if (stringWidth(word) > max) {
+				if (current !== '') push()
+				const parts = wrapExact(word, max)
+				for (const [i, part] of parts.entries()) {
+					if (i < parts.length - 1) {
+						current = part.text
+						push()
+					} else current = part.text
+				}
+				continue
+			}
+			const joined = current === '' ? word : `${current} ${word}`
+			if (stringWidth(joined) > max) {
+				push()
+				current = word
+			} else current = joined
+		}
+		rows.push({ text: current, continued })
+	}
+	return rows
+}
+
 function targetLines(target: SkillSaveTarget, cwd: string, suggested: boolean): string[] {
 	const head = `${target.scope === 'user' ? 'User   ' : 'Project'}  ${target.displayPath}${suggested ? '  (suggested)' : ''}`
 	return [head, ...target.collisions.map((c) => `         ${describeCollision(c, cwd)}`)]
@@ -88,7 +126,12 @@ export function SaveSkillOverlay({ request, cwd, columns, rows, onAnswer }: Save
 		...targetLines(request.targets.project, cwd, request.suggested === 'project'),
 		...request.warnings.map((w) => `Warning  ${w}`),
 	]
-	const headerRows = header.flatMap((line) => wrapExact(line, width))
+	// The question and the warnings are prose; the target lines carry paths, which break only when too long.
+	const headerRows = header.flatMap((line) =>
+		line.startsWith('Save skill') || line.startsWith('Warning')
+			? wrapProse(line, width)
+			: wrapExact(line, width),
+	)
 	const body = wrapExact(request.revealed.replace(/\n$/, ''), width - 2)
 	// Border, header, the preview's title, the choices and the hint.
 	const chrome = headerRows.length + 7

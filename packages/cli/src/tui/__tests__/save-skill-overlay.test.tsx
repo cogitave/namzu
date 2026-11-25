@@ -143,3 +143,29 @@ describe('the save-skill screen', () => {
 		expect(existsSync(join(home, '.namzu', 'skills'))).toBe(false)
 	})
 })
+
+describe('wrapProse', () => {
+	it('breaks at word boundaries and never inside a word that fits a row', async () => {
+		const { wrapProse } = await import('../SaveSkillOverlay.js')
+		const text =
+			'Save skill "morning-mail-summary"? PROPOSED BY THE MODEL — a skill is read by every later conversation that loads it.'
+		for (const width of [30, 40, 60, 80, 116]) {
+			const rows = wrapProse(text, width)
+			expect(rows.every((r) => r.text.length <= width)).toBe(true)
+			expect(rows.map((r) => r.text).join(' ')).toBe(text)
+			expect(rows.map((r) => r.continued)).toEqual(rows.map((_, i) => i > 0))
+		}
+	})
+
+	it('still breaks one word that is longer than the row', async () => {
+		const { wrapProse } = await import('../SaveSkillOverlay.js')
+		const rows = wrapProse('see /a/very/long/path/that/does/not/fit now', 12)
+		expect(rows.every((r) => r.text.length <= 12)).toBe(true)
+		expect(
+			rows
+				.map((r) => r.text)
+				.join('')
+				.replace(/ /g, ''),
+		).toBe('see /a/very/long/path/that/does/not/fit now'.replace(/ /g, ''))
+	})
+})

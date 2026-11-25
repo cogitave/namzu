@@ -42,7 +42,10 @@ const audit = (w) => w.page.evaluate(() => ({
 }));
 
 test("the skill-save card, the saved card and the Skills list", { timeout: 300000 }, async () => {
-	const world = await createWorld({ rules: [RULE] });
+	const world = await createWorld({
+		rules: [RULE],
+		files: { ".namzu/skills/release-notes/SKILL.md": "---\nname: release-notes\ndescription: Draft release notes from the merged changes.\n---\n\n# Release notes\n\nList the merged changes.\n" },
+	});
 	let failed = true;
 	try {
 		await launch(world);
@@ -84,6 +87,12 @@ test("the skill-save card, the saved card and the Skills list", { timeout: 30000
 			await w.page.getByRole("button", { name: /Create skill/ }).scrollIntoViewIfNeeded();
 			await shot(w, `settings-skills-${width}`);
 			report[`settings-skills-${width}`] = await audit(w);
+			// The rows name where each skill lives in plain words.
+			const rows = w.page.getByRole("list", { name: /skills/i }).first();
+			await rows.locator("li", { hasText: "morning-mail-summary" }).evaluate((n) => n.scrollIntoView({ block: "center" }));
+			await expect(rows.locator("li", { hasText: "morning-mail-summary" }).getByText("user", { exact: true })).toBeVisible();
+			await expect(rows.locator("li", { hasText: "release-notes" }).getByText("project", { exact: true })).toBeVisible();
+			await shot(w, `settings-skills-rows-${width}`);
 		}
 		console.log("AUDIT " + JSON.stringify(report));
 		assert.deepEqual(world.faults ?? [], []);
