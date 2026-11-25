@@ -365,6 +365,74 @@ bool }`); a missing or unreadable file starts again from zero
 and sub-agents never import the heuristic; a test checks the
 import graph (`packages/cli/src/tui/__tests__/skill-suggestion-is-the-tuis-alone.test.ts`).
 
+## Shell commands inside a skill
+
+A skill, or a custom command file, may hold shell commands that run **while its text loads**, so the model reads what they printed instead of being told to run them. Two spellings:
+
+````markdown
+Branch: !`git branch --show-current`
+
+```!
+git status --short
+git log --oneline -5
+```
+````
+
+- **Inline.** A bang and a backtick span, `` !`command` ``, where the bang starts the text or follows white space. The command may run over several lines.
+- **Fenced.** A line of three backticks and a bang, the command, and a closing line of three backticks. The whole block is **one** command, so a script of several lines is one shell call. A block that is never closed is plain text.
+
+An ordinary backtick span or fence is never read for commands, so a skill can show a command in code font (`` `git status` ``) or show these very spellings inside an ordinary fence. Line endings may be CRLF.
+
+### When they run
+
+Only when the text is **loaded**: a command you type (`/name`), a headless prompt (`namzu exec "/name"`), and the model's own `skill` tool. They never run when a skill is only listed (`/skills list`, the manifest, the audit, mentions). A skill preloaded into an agent through the agent file's `skills` key is a load too, but none of its commands run today: each is replaced by `[shell commands in a skill preloaded into an agent are not run ...]`.
+
+Arguments come first. `$ARGUMENTS` (and the skill's folder as `${NAMZU_SKILL_DIR}` or `${CLAUDE_SKILL_DIR}`) are put into the text, **escaped**, and only then is the text read for commands. A value that would start a command (`` !`rm -rf ~` ``, an opening fence) is broken so it cannot, and a load whose value still managed to add one is refused. So `` !`git log $ARGUMENTS` `` runs with the arguments you typed, and a prompt that merely quotes a command in its arguments runs nothing. A template that holds no command is filled in exactly as before. A template that holds commands and is given arguments it has no `$ARGUMENTS` for is refused, as any command is.
+
+### Permission
+
+Each command goes through the **same shell tool** a model's own call goes through: the same permission rules (including the dangerous-command floor, which nothing overrides), the same sandbox, the same working folder. There is no second executor. A command the rules **deny**, or that they would send to a person, **fails the whole load** with the reason, because a load cannot wait for an answer. To let a skill's commands run without a prompt, give the skill an `allowed-tools` for the shell tool:
+
+```yaml
+allowed-tools: Bash(git status *), Bash(git log *)
+```
+
+A command that reaches a protected path, a removal the floor stops, a path outside the working folders or a program Namzu cannot read goes to a person even for a model's own call, so a load, which has no person, fails on it however it was started (typed, `namzu exec`, or the `skill` tool) and whatever the rules or `allowed-tools` say. Run such a command as a direct call instead.
+
+That grants the listed commands for **that load only**. It answers only what no rule decided: a command a rule denied or sent to review on purpose stays refused. A command the grant does not cover is refused like any other. In the model's own call the commands show as nested calls under the `skill` call.
+
+### What replaces the marker
+
+Only the marker (the span, or the fence with its lines) is replaced; the text around it is kept. The replacement is the command's standard output, trimmed; when it wrote to standard error, a `[stderr]` line and that text follow. A command that **exits non-zero**, runs past its deadline or is interrupted fails the load with its output (`Shell command failed for pattern "<command>": ...`), and nothing is sent.
+
+### Limits
+
+| Limit | Value | When it is exceeded |
+| --- | --- | --- |
+| Commands in one load | 256 | the load fails before any runs |
+| One command's text | 32 768 characters | the load fails before any runs |
+| Output put into the text | 4 000 000 characters in all | the load fails |
+
+Commands run one after another, in order.
+
+### Whose text runs
+
+| Source | Commands run |
+| --- | --- |
+| Your own skills and commands (`~/.namzu`, `~/.agents`) | yes |
+| A project's skills and commands | only once the project's folder is trusted; before that each command is replaced by `[shell commands are not run until this folder is trusted ...]` |
+| A plugin's commands and skills | yes |
+| The skills that ship with Namzu | yes |
+| A skill from a tool server, any other remote source, or one Namzu cannot place | **never**: each command is replaced by `[shell commands are not run in text that comes from a tool server or another remote source ...]` |
+
+### Turning it off
+
+`disableSkillShellExecution: true` (Settings, "Turn off commands inside skills") stops every command in every source above. Each is replaced by `[shell commands are turned off (disableSkillShellExecution), so this command was not run]` and the rest of the text loads. It only tightens: your file, a project's file and the managed file may each set it, and once one says `true` no other layer, the managed one included, undoes it. It is read from files, not from the environment, and read at each load.
+
+### Guarding the commands with a hook
+
+A hook on [`pre_skill_shell_command`](../sdk/hooks.md#shell-commands-inside-a-skill) is asked about each command **after** the permission check allowed it and **before** it starts. It can refuse that one command (the text keeps `[not run: blocked by hook: <reason>]` and you get a warning, `Not run in /<name>: <command> (blocked by hook: <reason>)`), or stop the load with `continue: false`. A hook that gives no answer or cannot start refuses the command; one that runs out of time warns and lets it run. Only command hooks are run for this event.
+
 ## Frontmatter
 
 `name`, `description`, `license`, `compatibility`, `allowed-tools`,
@@ -435,6 +503,12 @@ skills:
 | `skills.disabled` | list of names | `[]` | Skills neither the model nor `/skills` may use, in any tier. |
 | `skills.suggest` | boolean | `true` | Propose saving a multi-step task as a skill ([Learning from a task](#learning-from-a-task)). `/skills save off` and `on` write it to the user config. |
 | `skills.suggestMinToolCalls` | whole number ≥ 1 | `6` | Successful tool calls a turn needs before it is proposed. |
+
+A separate, top-level key switches the shell commands inside skills off for every source:
+
+| Key | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `disableSkillShellExecution` | boolean | `false` | `true` replaces each shell command a skill or custom command holds with a line saying so. Any layer may set it (user, project, managed) and no layer lifts it once one has; see [Shell commands inside a skill](#shell-commands-inside-a-skill). |
 
 `skills.disabled` applies to a name in every tier. A disabled skill stays in
 listings, marked, with the reason. Every key is read from the config files

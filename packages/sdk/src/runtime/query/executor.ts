@@ -2359,7 +2359,19 @@ export class ToolExecutor {
 		}
 		this.admitScratchpad(preparedCall)
 		const nestedEscalation = await this.escalationOrUnfinished(preparedCall)
-		if (nestedEscalation || needsApproval || (gateResult && gateResult.decision !== 'allow')) {
+		// A host-owned pre-approval for this one dispatch (a skill's `allowed-tools`
+		// while its text loads) answers only what no rule decided: a call a rule
+		// denied, or sent to review on purpose, or that the dangerous-command floor
+		// stopped, stays stopped.
+		const runGranted =
+			gateResult?.decision === 'review' &&
+			gateResult.matchedRule === null &&
+			options?.allow?.({ name, input: preparedInput }) === true
+		if (
+			nestedEscalation ||
+			needsApproval ||
+			(gateResult && gateResult.decision !== 'allow' && !runGranted)
+		) {
 			const reason = nestedEscalation
 				? 'Blocked: this nested call reaches a protected path, removal floor, outside-root boundary or another safety escalation. Call it directly so it can be reviewed.'
 				: needsApproval
@@ -2442,6 +2454,16 @@ export class ToolExecutor {
 
 		const nestedCwd = this.preparedBashDirectories.get(preparedCall)
 		if (nestedCwd !== undefined) pinBashWorkingDirectory(childContext, nestedCwd)
+		// The caller's last word, after every rule has allowed the call and before
+		// anything starts: a refusal here is an answer, not a failure of the tool.
+		if (options?.beforeRun) {
+			const refusal = await options.beforeRun({ name, input: preparedInput, toolUseId: nestedId })
+			signal.throwIfAborted()
+			if (refusal !== undefined) {
+				await progress.close()
+				return { success: false, output: '', error: refusal }
+			}
+		}
 		await this.emitEvent({
 			type: 'tool_executing',
 			turnId: this.config.turnId,

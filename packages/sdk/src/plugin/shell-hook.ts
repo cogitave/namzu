@@ -132,6 +132,7 @@ import type {
 	PluginModelSwitchInfo,
 	PluginNotificationInfo,
 	PluginPromptExpansionInfo,
+	PluginSkillShellInfo,
 	PluginTaskInfo,
 	PluginToolBatchCall,
 } from '../types/plugin/index.js'
@@ -189,6 +190,7 @@ export type ShellHookEvent = Extract<
 	| 'directory_added'
 	| 'instructions_loaded'
 	| 'user_prompt_expansion'
+	| 'pre_skill_shell_command'
 	| 'task_created'
 	| 'task_completed'
 	| 'teammate_idle'
@@ -225,6 +227,7 @@ export const SHELL_HOOK_EVENTS: readonly ShellHookEvent[] = [
 	'directory_added',
 	'instructions_loaded',
 	'user_prompt_expansion',
+	'pre_skill_shell_command',
 	'task_created',
 	'task_completed',
 	'teammate_idle',
@@ -761,6 +764,8 @@ export interface ShellHookInput {
 	readonly instructions?: PluginInstructionsInfo
 	/** On `user_prompt_expansion`. Sent as `expansion_type`, `command_name`, `command_args` and `command_source`. */
 	readonly expansion?: PluginPromptExpansionInfo
+	/** On `pre_skill_shell_command`. Sent as `command_name`, `command_source` and `invoked_by`, beside `tool_name`, `tool_input` and `tool_use_id`. */
+	readonly skillShell?: PluginSkillShellInfo
 	/** On `task_created` and `task_completed`. Sent as `task_id`, `task_subject` and `task_description`. */
 	readonly task?: PluginTaskInfo
 	/** On `teammate_idle`, `teammate_start`, `teammate_stop`, and on a task event a teammate caused. Sent as `teammate_name` and `team_name`. */
@@ -883,6 +888,15 @@ export function shellHookPayload(input: ShellHookInput): string {
 					...(input.expansion.commandSource !== undefined
 						? { command_source: input.expansion.commandSource }
 						: {}),
+				}
+			: {}),
+		...(input.skillShell !== undefined
+			? {
+					command_name: input.skillShell.commandName,
+					...(input.skillShell.commandSource !== undefined
+						? { command_source: input.skillShell.commandSource }
+						: {}),
+					invoked_by: input.skillShell.invokedBy,
 				}
 			: {}),
 		...(input.task !== undefined
@@ -1272,6 +1286,7 @@ export const SHELL_HOOK_PASCAL_EVENT_NAMES: Readonly<Partial<Record<ShellHookEve
 	directory_added: 'DirectoryAdded',
 	instructions_loaded: 'InstructionsLoaded',
 	user_prompt_expansion: 'UserPromptExpansion',
+	pre_skill_shell_command: 'PreSkillShellCommand',
 	task_created: 'TaskCreated',
 	task_completed: 'TaskCompleted',
 	teammate_idle: 'TeammateIdle',
@@ -1489,6 +1504,29 @@ function readShellHookJson(
 			reading.elicitation = { action: 'accept', content: specific.content }
 		}
 	}
+	if (event === 'pre_skill_shell_command') {
+		// A skill's command cannot wait for a person, and it is never rewritten:
+		// every way a hook has of saying "not as it stands" is a refusal.
+		const decision = specific.permissionDecision
+		const why = optionalString('permissionDecisionReason', specific)
+		if (decision !== undefined) {
+			if (decision === 'deny') reading.block = why ?? reason ?? 'Blocked by hook'
+			else if (decision === 'ask' || decision === 'defer') {
+				const asked = "the hook asked for approval, which a skill can't wait for"
+				reading.block = why ? `${why} (${asked})` : asked
+			} else if (decision !== 'allow') {
+				return {
+					invalid: '`permissionDecision` must be "allow", "deny", "ask" or "defer"',
+				}
+			}
+		}
+		if (specific.updatedInput !== undefined && reading.block === undefined) {
+			reading.block = "the hook changed the command, which isn't supported here"
+		}
+		if (specific.updatedPermissions !== undefined && reading.block === undefined) {
+			reading.block = "the hook asked to change permissions, which isn't supported here"
+		}
+	}
 	if (event === 'pre_tool_use' || event === 'pre_model_switch') {
 		const decision = specific.permissionDecision
 		const why = optionalString('permissionDecisionReason', specific)
@@ -1571,6 +1609,21 @@ export function shellHookVerdict(
 	// A failure of the hook itself is "carry on" unless the entry asked for
 	// it to count as a refusal, which is exit 2 with the failure as the reason.
 	const failed = (reason: string, shown: string = reason): PluginHookResult => {
+		// A command a skill is about to run: the hook that guards it failing to
+		// start refuses the command (checked below, before this is reached); any
+		// other failure of the hook is a warning and the command runs, unless the
+		// entry asked for a failure to count as a refusal.
+		if (
+			event === 'pre_skill_shell_command' &&
+			entry.onFailure !== 'block' &&
+			entry.type !== 'prompt' &&
+			!isAsyncShellHook(entry)
+		) {
+			return {
+				action: 'continue',
+				notice: `${label}: ${hint !== undefined ? `${reason}; ${hint}` : reason}`,
+			}
+		}
 		if (entry.onFailure !== 'block' || entry.type === 'prompt' || isAsyncShellHook(entry)) {
 			return hint !== undefined
 				? { action: 'continue', notice: `${label}: ${hint}` }
@@ -1598,6 +1651,11 @@ export function shellHookVerdict(
 		)
 	}
 	if (outcome.spawnError !== undefined) {
+		if (event === 'pre_skill_shell_command' && entry.onFailure !== 'block') {
+			// The guard is not in force, and nothing says the command is safe: it is not run.
+			log.warn('hook could not start', { ...attrs, 'namzu.hook.error': outcome.spawnError })
+			return { action: 'skip', reason: `the hook couldn't run (${outcome.spawnError})` }
+		}
 		log.warn('hook could not start', {
 			...attrs,
 			'namzu.hook.error': outcome.spawnError,
@@ -1624,6 +1682,8 @@ export function shellHookVerdict(
 			case 'elicitation':
 			case 'elicitation_result':
 			case 'user_prompt_expansion':
+			// The command is left out of the skill text and the rest of it loads.
+			case 'pre_skill_shell_command':
 			case 'task_created':
 			case 'task_completed':
 			// A teammate that is about to go idle is sent back to work with the hook's words.
@@ -1751,6 +1811,23 @@ export function shellHookVerdict(
 			return reading.context !== undefined
 				? { action: 'annotate', text: reading.context }
 				: { action: 'continue' }
+		}
+		case 'pre_skill_shell_command': {
+			// `continue: false` stops the whole load; a refusal drops this command only.
+			if (reading.halt) {
+				return {
+					action: 'continue',
+					halt: reading.halt,
+					...(reading.notice ? { notice: reading.notice } : {}),
+				}
+			}
+			return reading.block !== undefined
+				? {
+						action: 'skip',
+						reason: reading.block,
+						...(reading.notice ? { notice: reading.notice } : {}),
+					}
+				: { action: 'continue', ...(reading.notice ? { notice: reading.notice } : {}) }
 		}
 		case 'pre_model_switch': {
 			const block = reading.block ?? reading.halt?.reason
@@ -2252,6 +2329,18 @@ export function createShellHook(
 			) {
 				return { action: 'continue' }
 			}
+			// What a skill is about to run is checked by a command only: a model's
+			// opinion or a web request is not a guard a person can read.
+			if (
+				event === 'pre_skill_shell_command' &&
+				entry.type !== undefined &&
+				entry.type !== 'command'
+			) {
+				return {
+					action: 'skip',
+					reason: `${entry.type} hooks don't run on pre_skill_shell_command; use a command hook`,
+				}
+			}
 			if (entry.once === true && !doesTheWork) spent = true
 			options.onRun?.({ event })
 			const transcriptPath = options.transcriptPath?.(String(context.sessionId))
@@ -2288,6 +2377,7 @@ export function createShellHook(
 					: {}),
 				...(context.instructions !== undefined ? { instructions: context.instructions } : {}),
 				...(context.expansion !== undefined ? { expansion: context.expansion } : {}),
+				...(context.skillShell !== undefined ? { skillShell: context.skillShell } : {}),
 				...(context.task !== undefined ? { task: context.task } : {}),
 				...(context.teammateName !== undefined ? { teammateName: context.teammateName } : {}),
 				...(context.teamName !== undefined ? { teamName: context.teamName } : {}),

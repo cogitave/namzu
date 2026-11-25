@@ -946,6 +946,19 @@ export interface NamzuCliConfig {
 	 */
 	readonly disableHooks?: boolean
 	/**
+	 * `true` stops the shell commands a skill or a custom command holds
+	 * (`!`cmd`` and a fenced block opened with three backticks and a bang) from
+	 * running while its text loads: each is replaced by a line saying shell
+	 * commands are turned off, and the rest of the text loads. Applies to user,
+	 * project and plugin skills and commands alike. It only tightens, so any
+	 * layer may set it (the user file, a project's file, the managed file) and
+	 * once one says `true` no later layer, the managed one included, undoes it;
+	 * a managed `true` therefore cannot be lifted from below. Absent or `false`
+	 * leaves the commands to run under the ordinary permission rules. See
+	 * `docs/cli/skills.md`.
+	 */
+	readonly disableSkillShellExecution?: boolean
+	/**
 	 * `true`, in the organisation-managed file only, attaches only the hooks
 	 * that file declares: entries from the user, project and local files are not
 	 * attached. Any other file that sets it is ignored, with a note at launch.

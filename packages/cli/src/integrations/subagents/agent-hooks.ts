@@ -59,6 +59,8 @@ const EVENTS_OF_THE_MAIN_CONVERSATION: ReadonlySet<ShellHookEvent> = new Set<She
 	'directory_added',
 	'instructions_loaded',
 	'user_prompt_expansion',
+	// Fired while a skill's or command's text loads, for the conversation the host runs.
+	'pre_skill_shell_command',
 	// Fired for the lead's team, on the lead's session.
 	'teammate_idle',
 	'teammate_start',

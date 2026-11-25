@@ -24,6 +24,7 @@ export type {
 	SkillDirectoryRequest,
 	SkillDirectoryResolver,
 	SkillToolOptions,
+	SkillToolShellOptions,
 } from './skill.js'
 export {
 	WEB_FETCH_TOOL_NAME,

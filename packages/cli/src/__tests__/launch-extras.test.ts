@@ -130,6 +130,18 @@ it('turns off, with --bare, what the settings can say and what they cannot', asy
 	expect(launched().hooksSwitch).toBeUndefined()
 })
 
+it('carries the switch that turns off commands inside skills to the terminal app', async () => {
+	await runCli({ argv: argv() })
+	expect(launched().skillShellDisabled).toBeUndefined()
+	launchTui.mockClear()
+	writeFileSync(
+		join(process.env.NAMZU_HOME as string, 'config.yaml'),
+		'disableSkillShellExecution: true\n',
+	)
+	await runCli({ argv: argv() })
+	expect(launched().skillShellDisabled).toBe(true)
+})
+
 it('reads one extra settings layer from inline JSON or a file, above the user file', async () => {
 	writeFileSync(
 		join(process.env.NAMZU_HOME as string, 'config.yaml'),

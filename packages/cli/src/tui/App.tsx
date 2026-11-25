@@ -717,6 +717,7 @@ import {
 } from './schedule/source-deliveries.js'
 import { SelfMendingPauseRow } from './self-mending-pause-row.js'
 import { SHELL_LIVE_LINES, type ShellOutput } from './shell-cell.js'
+import { createShellExpansionSlot } from './shell-expansion-slot.js'
 import {
 	SUGGESTIONS_STOPPED_NOTICE,
 	type TurnActivity,
@@ -7334,6 +7335,7 @@ function AppBody({
 							...(activeCtx.smallModel ? { smallModel: activeCtx.smallModel } : {}),
 							...(activeCtx.hooks ? { hooks: activeCtx.hooks } : {}),
 							...(activeCtx.hooksSwitch ? { hooksSwitch: activeCtx.hooksSwitch } : {}),
+							...(activeCtx.skillShellDisabled === true ? { skillShellDisabled: true } : {}),
 							...(activeCtx.compaction ? { compaction: activeCtx.compaction } : {}),
 							...(activeCtx.memory ? { memory: activeCtx.memory } : {}),
 							...(activeCtx.workflow ? { workflow: activeCtx.workflow } : {}),
@@ -14383,6 +14385,8 @@ function AppBody({
 		readonly line: string
 		readonly context?: string
 	} | null>(null)
+	/** A typed command whose shell commands have run, until its line is submitted again. */
+	const shellExpandedSlot = useRef(createShellExpansionSlot()).current
 	const handleSubmitRef = useRef<
 		| ((
 				value: string,
@@ -14707,7 +14711,8 @@ function AppBody({
 				const commandName = /^\/([\w-]+)/u.exec(dispatch.trim())?.[1]
 				// The second pass of a line whose expansion hooks have answered is
 				// the same use, not another.
-				const secondPass = expansionAnsweredRef.current?.line === dispatch
+				const secondPass =
+					expansionAnsweredRef.current?.line === dispatch || shellExpandedSlot.holds(dispatch)
 				if (commandName && !secondPass) tipHistory?.recordUse(commandName.toLowerCase())
 			}
 			if (slash) {
@@ -16027,6 +16032,50 @@ function AppBody({
 						return
 					}
 					case 'prompt': {
+						// The shell commands a skill or a command holds run first, while its text
+						// loads, and the line is submitted again with their output in place; that
+						// second pass finds the text in `shellExpandedSlot`. A command that fails, or
+						// is refused, is said and nothing is sent.
+						let promptText = slash.text
+						if (slash.shell && session?.skillShell) {
+							const done = shellExpandedSlot.take(dispatch)
+							if (done !== undefined) {
+								promptText = done
+							} else {
+								const shell = slash.shell
+								const skillShell = session.skillShell
+								const generation = conversationGenRef.current
+								void (async () => {
+									let text: string
+									try {
+										text = await skillShell.expand({
+											text: slash.text,
+											name: shell.name,
+											origin: shell.origin,
+											invokedBy: 'user',
+											...(shell.allowedTools ? { allowedTools: shell.allowedTools } : {}),
+											...(shell.directory ? { directory: shell.directory } : {}),
+											signal: appLifetime.signal,
+										})
+									} catch (error) {
+										if (conversationGenRef.current !== generation || appLifetime.signal.aborted)
+											return
+										pushMessage(
+											'system',
+											`/${shell.name} did not load: ${error instanceof Error ? error.message : String(error)}`,
+										)
+										return
+									}
+									if (conversationGenRef.current !== generation) return
+									const entry = shellExpandedSlot.put(dispatch, text)
+									handleSubmitRef.current?.(value, attachments, mode, meta)
+									// Turned aside on the way (queued, blocked): the text is not kept for a later
+									// typing of the same line.
+									shellExpandedSlot.settle(entry)
+								})()
+								return
+							}
+						}
 						// `user_prompt_expansion` hooks hear of a command the person typed
 						// before its text goes on. The hooks are awaited, so the line is
 						// submitted again once they have answered; that second pass finds
@@ -16035,16 +16084,18 @@ function AppBody({
 						const answered = expansionAnsweredRef.current
 						if (answered !== null && answered.line === dispatch) {
 							expansionAnsweredRef.current = null
-							outgoing = answered.context ? `${slash.text}\n\n${answered.context}` : slash.text
+							shellExpandedSlot.clear()
+							outgoing = answered.context ? `${promptText}\n\n${answered.context}` : promptText
 						} else if (slash.expansion && hooks) {
 							const expansion = slash.expansion
 							const generation = conversationGenRef.current
 							void (async () => {
 								const verdict = await hooks
-									.userPromptExpansion({ expansionType: 'slash_command', ...expansion }, slash.text)
+									.userPromptExpansion({ expansionType: 'slash_command', ...expansion }, promptText)
 									.catch(() => ({}) as { blocked?: string; context?: string })
 								if (conversationGenRef.current !== generation) return
 								if (verdict.blocked !== undefined) {
+									shellExpandedSlot.clear()
 									pushMessage(
 										'system',
 										`A hook stopped /${expansion.commandName}: ${verdict.blocked}`,
@@ -16059,7 +16110,8 @@ function AppBody({
 							})()
 							return
 						} else {
-							outgoing = slash.text
+							shellExpandedSlot.clear()
+							outgoing = promptText
 						}
 						if (slash.skillHooks) attachSkillHooks(slash.skillHooks)
 						break

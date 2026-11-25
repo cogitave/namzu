@@ -194,6 +194,8 @@ interface ParsedSkill {
 	readonly argumentHint?: string
 	readonly userInvocable?: false
 	readonly hooksSource?: string
+	/** `allowed-tools`, as written (a list is its items joined by spaces). */
+	readonly allowedTools?: string
 	readonly body: string
 }
 
@@ -285,6 +287,9 @@ export function parseSkillMarkdown(raw: string, source = 'SKILL.md'): ParsedSkil
 		...(hint?.trim() ? { argumentHint: hint.trim() } : {}),
 		...(invocable === 'false' ? { userInvocable: false as const } : {}),
 		...(hooksSource !== undefined ? { hooksSource } : {}),
+		...(values['allowed-tools']?.kind === 'scalar' && values['allowed-tools'].value.trim()
+			? { allowedTools: values['allowed-tools'].value.trim() }
+			: {}),
 		body,
 	}
 }
@@ -429,8 +434,17 @@ export function skillTierLabel(tier: SkillTier): string {
 
 /** Read a skill's markdown body (frontmatter stripped). */
 export function loadSkillBody(info: SkillInfo): string {
+	return loadSkillFile(info).body
+}
+
+/** A skill's body and its `allowed-tools`, as written, from one read of its file. */
+export function loadSkillFile(info: SkillInfo): { body: string; allowedTools?: string } {
 	if (info.problem) throw new Error(info.problem)
-	return parseSkillMarkdown(readFileSync(info.path, 'utf8'), info.path).body
+	const parsed = parseSkillMarkdown(readFileSync(info.path, 'utf8'), info.path)
+	return {
+		body: parsed.body,
+		...(parsed.allowedTools ? { allowedTools: parsed.allowedTools } : {}),
+	}
 }
 
 /** Compose the active-skills system block, or null when none are active. */

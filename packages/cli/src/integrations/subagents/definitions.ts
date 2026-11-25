@@ -8,18 +8,22 @@
  * with the same name — and hands the kernel the roots.
  */
 
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 
 import {
 	type AgentFileDefinition,
 	type DiscoveredAgentDefinitions,
 	discoverAgentDefinitions as discoverFromRoots,
+	expandInlineShell,
+	findInlineShell,
+	substituteEscaped,
 } from '@namzu/sdk'
 
 import type { HooksSwitch } from '../../config/hook-layers.js'
 import type { SkillsConfig } from '../../config/schema.js'
 import { PERMISSION_MODE_NAMES } from '../../permissions/mode-names.js'
-import { discoverSkills, loadSkillBody } from '../../skills/store.js'
+import type { SessionSkillShell } from '../../skills/skill-shell.js'
+import { type SkillInfo, discoverSkills, loadSkillFile } from '../../skills/store.js'
 import { namzuHomePath } from '../state/home.js'
 import { type AgentHooksCarrier, type RefusedAgent, vetAgentHooks } from './agent-hooks.js'
 
@@ -73,6 +77,13 @@ export async function discoverAgentDefinitions(opts: {
 		readonly hooksSwitch?: HooksSwitch | undefined
 		readonly projectTrusted: boolean
 	}
+	/**
+	 * Runs the shell commands a preloaded skill holds, as part of loading it into the agent's
+	 * prompt (`invoked_by: other`). Absent, a command in a preloaded skill is not run: it is
+	 * replaced by a line saying so. The listings (mentions, the hooks report, the context
+	 * gatherer) never pass it, so reading the roster never runs a command.
+	 */
+	readonly skillShell?: SessionSkillShell
 }): Promise<LoadedAgentDefinitions> {
 	const fromPlugins = await Promise.all(
 		(opts.pluginAgentDirs ?? []).map(async ({ plugin, dir }) => {
@@ -136,8 +147,12 @@ export async function discoverAgentDefinitions(opts: {
 		}).map((skill) => [skill.name, skill]),
 	)
 	const missingSkills: { path: string; reason: string }[] = []
-	const definitions = found.definitions.map((definition) => {
-		if (definition.skills === undefined) return definition
+	const definitions: AgentFileDefinition[] = []
+	for (const definition of found.definitions) {
+		if (definition.skills === undefined) {
+			definitions.push(definition)
+			continue
+		}
 		const blocks: string[] = []
 		for (const name of definition.skills) {
 			const skill = roster.get(name)
@@ -149,7 +164,7 @@ export async function discoverAgentDefinitions(opts: {
 				continue
 			}
 			try {
-				blocks.push(`### Skill: ${name}\n\n${loadSkillBody(skill)}`)
+				blocks.push(`### Skill: ${name}\n\n${await preloadedBody(skill, opts.skillShell)}`)
 			} catch (error) {
 				missingSkills.push({
 					path: definition.path,
@@ -157,11 +172,48 @@ export async function discoverAgentDefinitions(opts: {
 				})
 			}
 		}
-		if (blocks.length === 0) return definition
-		return {
-			...definition,
-			prompt: `${definition.prompt}\n\nThese skills are loaded for you. Apply their guidance when it fits the task.\n\n${blocks.join('\n\n')}`,
-		}
-	})
+		definitions.push(
+			blocks.length === 0
+				? definition
+				: {
+						...definition,
+						prompt: `${definition.prompt}\n\nThese skills are loaded for you. Apply their guidance when it fits the task.\n\n${blocks.join('\n\n')}`,
+					},
+		)
+	}
 	return { definitions, skipped: found.skipped, missingSkills, refused, carriers }
+}
+
+/**
+ * A preloaded skill's text. A skill that holds shell commands has them run only
+ * when the caller gave an expander for it; otherwise each command is replaced by a
+ * line saying it was not run. There are no arguments at a preload, so `$ARGUMENTS` is empty.
+ */
+async function preloadedBody(
+	skill: SkillInfo,
+	shell: SessionSkillShell | undefined,
+): Promise<string> {
+	const { body, allowedTools } = loadSkillFile(skill)
+	if (findInlineShell(body).length === 0) return body
+	const directory = dirname(skill.path)
+	const text = substituteEscaped(body, {
+		$ARGUMENTS: '',
+		'${NAMZU_SKILL_DIR}': directory,
+		'${CLAUDE_SKILL_DIR}': directory,
+	})
+	if (shell === undefined) {
+		return expandInlineShell(text, {
+			host: { run: async () => ({ kind: 'denied', reason: 'not run at a preload' }) },
+			commandName: skill.name,
+			block: 'preload',
+		})
+	}
+	return shell.expand({
+		text,
+		name: skill.name,
+		origin: skill.source,
+		invokedBy: 'other',
+		...(allowedTools ? { allowedTools } : {}),
+		directory,
+	})
 }
