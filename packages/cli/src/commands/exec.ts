@@ -775,6 +775,7 @@ async function execPrint(
 				invokedBy: 'other',
 				...(expansion.shell.allowedTools ? { allowedTools: expansion.shell.allowedTools } : {}),
 				...(expansion.shell.directory ? { directory: expansion.shell.directory } : {}),
+				mode: modeResult.mode,
 				signal: turnAbort.signal,
 			})
 		} catch (error) {

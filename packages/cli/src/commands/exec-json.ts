@@ -583,6 +583,7 @@ export async function execJson(
 				invokedBy: 'other',
 				...(expansion.shell.allowedTools ? { allowedTools: expansion.shell.allowedTools } : {}),
 				...(expansion.shell.directory ? { directory: expansion.shell.directory } : {}),
+				mode: modeResult.mode,
 			})
 		} catch (error) {
 			await session.close()
@@ -779,6 +780,7 @@ export async function execJson(
 							? { allowedTools: nextExpansion.shell.allowedTools }
 							: {}),
 						...(nextExpansion.shell.directory ? { directory: nextExpansion.shell.directory } : {}),
+						mode: modeResult.mode,
 					})
 				} catch (error) {
 					throw new Error(

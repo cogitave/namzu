@@ -7083,6 +7083,7 @@ export async function createAgentSession(
 							additionalDirectories: [...directories],
 						}
 					: undefined,
+			mode: () => readHookMode?.() ?? options.permissionMode,
 			warn: (line) => pluginRuntime?.hookActivity.notify(line),
 		}),
 		pluginCommandDirs: pluginFiles.commands,

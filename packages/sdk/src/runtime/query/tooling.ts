@@ -94,6 +94,8 @@ export interface ToolingBootstrapConfig {
 	toolPause?: (toolUseId: string) => RequestToolPause
 	/** The turn's skill pre-approvals; see the executor's own field. */
 	skillGrants?: SkillGrantSet
+	/** See `ExecutorConfig.reviewMode`. */
+	reviewMode?: () => string | undefined
 }
 
 export class ToolingBootstrap {
@@ -181,6 +183,7 @@ export class ToolingBootstrap {
 					: {}),
 				...(config.toolPause !== undefined ? { toolPause: config.toolPause } : {}),
 				...(config.skillGrants !== undefined ? { skillGrants: config.skillGrants } : {}),
+				...(config.reviewMode !== undefined ? { reviewMode: config.reviewMode } : {}),
 			},
 			activityStore,
 			emitEvent,

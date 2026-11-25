@@ -26,6 +26,7 @@ import { isAlwaysDestructive } from '../../tools/defineTool.js'
 import { createFileReadTracker } from '../../tools/file-read-tracker.js'
 import { pathOutsideRoots, resolveWithinAnyReal, toolRoots } from '../../tools/paths.js'
 import { resolveRetainedOutput } from '../../tools/retained-output.js'
+import { isTrustedReadOnly } from '../../tools/trusted-read-only.js'
 import type { ToolManager } from '../../toolsets/manager.js'
 import type { ToolSourceRef } from '../../toolsets/types.js'
 import type { ToolResultGuardrailSpec } from '../../types/guardrail/index.js'
@@ -50,6 +51,7 @@ import {
 	PLAN_MODE_REFUSAL_WITH_PLAN_FILE,
 	type PermissionMode,
 	STRICT_MODE_REFUSAL,
+	nestedCallModeRefusal,
 } from '../../types/permission/index.js'
 import type { PluginHookPermission, PluginHookResult } from '../../types/plugin/index.js'
 import type { ChatCompletionResponse } from '../../types/provider/index.js'
@@ -580,6 +582,13 @@ export interface ToolExecutorConfig {
 	 * grants nothing, and its tool says so.
 	 */
 	skillGrants?: SkillGrantSet
+	/**
+	 * The review mode this turn is decided under right now (`plan`, `strict`, …),
+	 * read at each nested call. A call a tool makes from inside itself never goes
+	 * to the review policy, so the mode's refusals are applied to it here. Absent
+	 * or not a mode name: the mode has nothing to say about nested calls.
+	 */
+	reviewMode?: () => string | undefined
 }
 
 /**
@@ -2363,22 +2372,33 @@ export class ToolExecutor {
 		// while its text loads) answers only what no rule decided: a call a rule
 		// denied, or sent to review on purpose, or that the dangerous-command floor
 		// stopped, stays stopped.
+		// The mode the turn is decided under answers a nested call as it answers the same
+		// call made directly: the tool that made this one reads, so the policy never saw it.
+		const modeRefusal = nestedCallModeRefusal(this.config.reviewMode?.(), {
+			readOnly: isTrustedReadOnly(nestedTool, preparedInput, this.toolSource(name)),
+			allowedByRule: gateResult?.decision === 'allow' && gateResult.matchedRule !== null,
+		})
 		const runGranted =
+			modeRefusal === undefined &&
 			gateResult?.decision === 'review' &&
 			gateResult.matchedRule === null &&
 			options?.allow?.({ name, input: preparedInput }) === true
 		if (
 			nestedEscalation ||
 			needsApproval ||
+			modeRefusal !== undefined ||
 			(gateResult && gateResult.decision !== 'allow' && !runGranted)
 		) {
-			const reason = nestedEscalation
-				? 'Blocked: this nested call reaches a protected path, removal floor, outside-root boundary or another safety escalation. Call it directly so it can be reviewed.'
-				: needsApproval
-					? `Blocked: "${name}" requires the person's approval for every call, and an approval cannot be requested from inside another tool. Call it directly.`
-					: gateResult?.decision === 'deny'
-						? `Blocked by the authorization gate: ${gateResult.reason}`
-						: `Blocked by the authorization gate: this nested call requires an explicit allow rule because an operator review cannot be opened from inside another tool. ${gateResult?.reason}`
+			const reason =
+				modeRefusal !== undefined
+					? `Blocked: ${modeRefusal}.`
+					: nestedEscalation
+						? 'Blocked: this nested call reaches a protected path, removal floor, outside-root boundary or another safety escalation. Call it directly so it can be reviewed.'
+						: needsApproval
+							? `Blocked: "${name}" requires the person's approval for every call, and an approval cannot be requested from inside another tool. Call it directly.`
+							: gateResult?.decision === 'deny'
+								? `Blocked by the authorization gate: ${gateResult.reason}`
+								: `Blocked by the authorization gate: this nested call requires an explicit allow rule because an operator review cannot be opened from inside another tool. ${gateResult?.reason}`
 			const output = deniedToolOutput(name, reason)
 			// Same fail-closed durability rule as a direct gate denial: if the
 			// configured session log cannot record the refusal, do not quietly carry

@@ -1,3 +1,7 @@
+import { execFileSync } from 'node:child_process'
+import { mkdtempSync, readdirSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 import {
@@ -93,7 +97,7 @@ describe('substituteEscaped', () => {
 
 	it('runs the template author’s own commands with the value inside', () => {
 		const text = substituteEscaped('!`git log $ARGUMENTS`', { $ARGUMENTS: '-n 3' })
-		expect(commands(text)).toEqual(['git log -n 3'])
+		expect(commands(text)).toEqual(["git log '-n' '3'"])
 	})
 
 	it('keeps a value from starting a command', () => {
@@ -141,6 +145,109 @@ describe('substituteEscaped', () => {
 				expect(error).toBeInstanceOf(InlineShellError)
 			}
 		}
+	})
+})
+
+describe.skipIf(process.platform === 'win32')('substituteEscaped inside a command', () => {
+	const sh = { dialect: 'sh' } as const
+	/** What the shell prints for each argument of `printf '<%s>'` after the value goes in. */
+	function run(template: string, value: string): { out: string; files: string[] } {
+		const dir = mkdtempSync(join(tmpdir(), 'inline-quote-'))
+		try {
+			const [command] = commands(substituteEscaped(template, { $ARGUMENTS: value }, sh))
+			const out = execFileSync('sh', ['-c', command as string], { cwd: dir, encoding: 'utf8' })
+			return { out, files: readdirSync(dir) }
+		} finally {
+			rmSync(dir, { recursive: true, force: true })
+		}
+	}
+
+	it('keeps word splitting: two typed words stay two arguments', () => {
+		expect(run("!`printf '<%s>' $ARGUMENTS`", '-n 5').out).toBe('<-n><5>')
+	})
+
+	it('keeps a typed quote as one argument', () => {
+		expect(run("!`printf '<%s>' $ARGUMENTS`", '"a b" c').out).toBe('<a b><c>')
+	})
+
+	it.each([
+		['a semicolon', 'x; touch RAN #'],
+		['a pipe', 'x | touch RAN'],
+		['an ampersand', 'x & touch RAN'],
+		['a substitution', '$(touch RAN)'],
+		['a redirection', '> RAN'],
+		['a newline', 'x\ntouch RAN'],
+		['a quote', "'; touch RAN; '"],
+		['a double quote', '"; touch RAN; "'],
+	])('does not run %s', (_name, value) => {
+		const { files } = run("!`printf '<%s>' $ARGUMENTS`", value)
+		expect(files).toEqual([])
+	})
+
+	it('keeps a value literal inside double quotes', () => {
+		const { out, files } = run('!`printf \'<%s>\' "$ARGUMENTS"`', '$(touch RAN) "q" $HOME \\')
+		expect(out).toBe('<$(touch RAN) "q" $HOME \\>')
+		expect(files).toEqual([])
+	})
+
+	it('keeps a value literal inside single quotes', () => {
+		const { out, files } = run("!`printf '<%s>' '$ARGUMENTS'`", "it's; touch RAN")
+		expect(out).toBe("<it's; touch RAN>")
+		expect(files).toEqual([])
+	})
+
+	it('quotes by the quotes opened inside a substitution', () => {
+		const { files } = run('!`printf \'<%s>\' "$(echo $ARGUMENTS)"`', 'x; touch RAN')
+		expect(files).toEqual([])
+	})
+
+	it('works inside a fenced command too', () => {
+		const text = substituteEscaped(
+			'```!\necho start\nprintf "<%s>" $ARGUMENTS\n```',
+			{
+				$ARGUMENTS: 'a; touch RAN',
+			},
+			sh,
+		)
+		expect(commands(text)).toEqual(["echo start\nprintf \"<%s>\" 'a;' 'touch' 'RAN'"])
+	})
+
+	it('leaves text outside commands as it was', () => {
+		expect(substituteEscaped('Review $ARGUMENTS; done', { $ARGUMENTS: 'a b; c' }, sh)).toBe(
+			'Review a b; c; done',
+		)
+	})
+
+	it.each([['a backtick', 'a`b']])('refuses %s inside a command', (_name, value) => {
+		expect(() => substituteEscaped('!`echo $ARGUMENTS`', { $ARGUMENTS: value }, sh)).toThrow(
+			InlineShellError,
+		)
+	})
+
+	it.each([
+		['a here-document', '!`cat <<EOF\n$ARGUMENTS\nEOF`'],
+		['a parameter expansion', '!`echo ${x:-$ARGUMENTS}`'],
+		['an arithmetic expansion', '!`echo $(( $ARGUMENTS ))`'],
+	])('refuses a value inside %s', (_name, template) => {
+		expect(() => substituteEscaped(template, { $ARGUMENTS: 'a' }, sh)).toThrow(InlineShellError)
+	})
+
+	it('quotes the skill folder like an argument inside a command', () => {
+		const text = substituteEscaped(
+			'!`ls ${NAMZU_SKILL_DIR}/x`',
+			{ '${NAMZU_SKILL_DIR}': '/a b/c;d' },
+			sh,
+		)
+		expect(commands(text)).toEqual(["ls '/a' 'b/c;d'/x"])
+	})
+
+	it('refuses words the Windows command interpreter would read as syntax', () => {
+		expect(() =>
+			substituteEscaped('!`echo $ARGUMENTS`', { $ARGUMENTS: 'a & b' }, { dialect: 'cmd' }),
+		).toThrow(InlineShellError)
+		expect(
+			commands(substituteEscaped('!`echo $ARGUMENTS`', { $ARGUMENTS: 'a b' }, { dialect: 'cmd' })),
+		).toEqual(['echo a b'])
 	})
 })
 

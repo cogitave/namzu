@@ -1,4 +1,4 @@
-import { mkdtempSync, realpathSync } from 'node:fs'
+import { existsSync, mkdtempSync, realpathSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -135,6 +135,88 @@ describe('permission', () => {
 		await expect(
 			run.expand(request('!`rm -rf /`', { allowedTools: 'Bash' })),
 		).rejects.toMatchObject({ reason: 'permission' })
+	})
+})
+
+describe('the session’s permission mode', () => {
+	const touch = (name: string) => `!\`touch ${name}\``
+	const grant = { allowedTools: 'Bash(touch *)' }
+
+	it.each(['plan', 'strict'])(
+		'refuses a command that changes something in %s mode, though allowed-tools grants it',
+		async (mode) => {
+			const { shell: run } = shell({ gate: () => gateWith() })
+			await expect(run.expand(request(touch('mode-a'), { ...grant, mode }))).rejects.toMatchObject({
+				reason: 'permission',
+				message: expect.stringContaining(`${mode} mode`),
+			})
+			expect(existsSync(join(cwd, 'mode-a'))).toBe(false)
+		},
+	)
+
+	it('names the command and the mode in the line that fails the load', async () => {
+		const { shell: run } = shell()
+		await expect(run.expand(request(touch('mode-b'), { mode: 'plan' }))).rejects.toThrow(
+			/pattern "touch mode-b": plan mode/,
+		)
+	})
+
+	it('refuses in plan mode even when a rule allows every shell command', async () => {
+		const { shell: run } = shell({ gate: () => gateWith(allowBash) })
+		await expect(run.expand(request(touch('mode-c'), { mode: 'plan' }))).rejects.toMatchObject({
+			reason: 'permission',
+		})
+		expect(existsSync(join(cwd, 'mode-c'))).toBe(false)
+	})
+
+	it('runs a command that only reads in plan mode', async () => {
+		const { shell: run } = shell({ gate: () => gateWith(allowBash) })
+		expect(await run.expand(request('!`echo hi`', { mode: 'plan' }))).toBe('hi')
+	})
+
+	it('runs in strict mode what a rule allows by name', async () => {
+		const { shell: run } = shell({ gate: () => gateWith(allowBash) })
+		expect(await run.expand(request('!`echo hi`', { mode: 'strict' }))).toBe('hi')
+	})
+
+	it('reads the session’s mode when the caller names none', async () => {
+		const { shell: run } = shell({ gate: () => gateWith(allowBash), mode: () => 'plan' })
+		await expect(run.expand(request(touch('mode-d')))).rejects.toMatchObject({
+			reason: 'permission',
+		})
+		expect(existsSync(join(cwd, 'mode-d'))).toBe(false)
+	})
+
+	it.each(['prompt', 'accept-edits', 'auto', 'bypass'])(
+		'answers as before in %s mode',
+		async (mode) => {
+			const { shell: run } = shell({ gate: () => gateWith() })
+			expect(await run.expand(request('!`echo hi`', { allowedTools: 'Bash(echo *)', mode }))).toBe(
+				'hi',
+			)
+		},
+	)
+})
+
+describe('the environment a command sees', () => {
+	it('leaves out variables whose names look like credentials, and keeps the others', async () => {
+		vi.stubEnv('FAKE_SERVICE_API_KEY', 'sk-test-123')
+		vi.stubEnv('FAKE_SERVICE_TOKEN', 'sk-test-123')
+		vi.stubEnv('FAKE_PLAIN_SETTING', 'plain')
+		try {
+			const { shell: run } = shell()
+			const text = await run.expand(
+				request('!`echo "[$FAKE_SERVICE_API_KEY][$FAKE_SERVICE_TOKEN][$FAKE_PLAIN_SETTING]"`'),
+			)
+			expect(text).toBe('[][][plain]')
+		} finally {
+			vi.unstubAllEnvs()
+		}
+	})
+
+	it('keeps a variable the host adds on purpose, even one named like a credential', async () => {
+		const { shell: run } = shell({ env: () => ({ FAKE_ADDED_TOKEN: 'given' }) })
+		expect(await run.expand(request('!`echo "[$FAKE_ADDED_TOKEN]"`'))).toBe('[given]')
 	})
 })
 

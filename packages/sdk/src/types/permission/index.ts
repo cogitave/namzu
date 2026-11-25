@@ -28,3 +28,32 @@ export const STRICT_MODE_REFUSAL =
  */
 export const PLAN_MODE_REFUSAL_WITH_PLAN_FILE =
 	'Refused: plan mode is read-only. Explore with the reading tools (read, glob, grep, and shell commands that only read; run git on its own, not after cd), write the plan to the plan file, then call exit_plan_mode so the user can approve it. Change nothing else before then.'
+
+/**
+ * Why a call made from inside another tool (a command a skill holds, run while
+ * it loads) may not run under a mode, or `undefined` when the mode has nothing
+ * to say about it.
+ *
+ * The tool that makes the call is read-only (the `skill` tool), so the mode
+ * never saw the call and the nested one has to be answered here, the way the
+ * mode answers the same call made directly:
+ *
+ * - `plan` runs only calls that read, whatever a rule or a skill's grant says.
+ * - `strict` runs only calls a rule allowed (or that only read). A skill's
+ *   grant is not a rule, so it never lifts this.
+ *
+ * Every other mode answers a call that no rule decided by asking a person or a
+ * classifier, which a load cannot do; that stays the caller's refusal.
+ */
+export function nestedCallModeRefusal(
+	mode: string | undefined,
+	call: { readonly readOnly: boolean; readonly allowedByRule: boolean },
+): string | undefined {
+	if (mode === 'plan' && !call.readOnly) {
+		return 'plan mode only runs commands that read, and this one can change something'
+	}
+	if (mode === 'strict' && !call.readOnly && !call.allowedByRule) {
+		return 'strict mode only runs what a rule allows by name or pattern, and no rule covers this (a skill’s allowed-tools is not a rule)'
+	}
+	return undefined
+}

@@ -8,7 +8,10 @@
  * nest in, this does the same steps in the same order, with the same
  * parts and no second shell:
  *
- * 1. the session's authorization gate decides (the operator's rules and the
+ * 1. the session's permission mode answers as it does for the model's own
+ *    `bash` call: `plan` runs only commands that read, `strict` only those a
+ *    rule allows, and a skill's `allowed-tools` lifts neither;
+ *    then the session's authorization gate decides (the operator's rules and the
  *    dangerous-command floor, exactly as for a model's call). A command the
  *    gate denies, or would send to a person, fails the load with the reason:
  *    a load cannot ask. A skill's `allowed-tools` answers only a command no
@@ -36,6 +39,7 @@ import {
 	expandInlineShell,
 	findInlineShell,
 	getBuiltinTools,
+	nestedCallModeRefusal,
 	parseAllowedTools,
 	shellLineEscalation,
 	skillShellAllow,
@@ -73,6 +77,12 @@ export interface SkillShellRequest {
 	readonly allowedTools?: string
 	/** The skill's folder, for `${NAMZU_SKILL_DIR}` in an `allowed-tools` pattern. */
 	readonly directory?: string
+	/**
+	 * The permission mode the load happens under, as the caller knows it (the
+	 * terminal's live mode, the `--permission-mode` of a headless run). Absent:
+	 * the session's own (`SessionSkillShellDeps.mode`).
+	 */
+	readonly mode?: string
 	readonly signal?: AbortSignal
 }
 
@@ -107,6 +117,13 @@ export interface SessionSkillShellDeps {
 		| undefined
 	/** A line for the person: a refused command, a hook's own message. */
 	readonly warn?: (line: string) => void
+	/** The permission mode the session is in now, for a load whose caller names none. */
+	readonly mode?: () => string | undefined
+	/**
+	 * Variables a host adds on purpose. The shell tool adds the inherited
+	 * environment itself, with credential-shaped names left out; passing
+	 * `process.env` here would hand every one of them back.
+	 */
 	readonly env?: () => Record<string, string | undefined>
 }
 
@@ -153,6 +170,12 @@ export function createSessionSkillShell(deps: SessionSkillShellDeps): SessionSki
 				if (verdict.decision === 'deny') {
 					return { kind: 'denied', reason: verdict.reason }
 				}
+				// The mode answers before any grant can: a skill's `allowed-tools` is not a rule.
+				const modeRefusal = nestedCallModeRefusal(request.mode ?? deps.mode?.(), {
+					readOnly: bash.isReadOnly?.(input as never) === true,
+					allowedByRule: verdict.decision === 'allow' && verdict.matchedRule !== null,
+				})
+				if (modeRefusal !== undefined) return { kind: 'denied', reason: modeRefusal }
 				if (verdict.decision === 'review') {
 					const granted = verdict.matchedRule === null && allow?.({ name: 'bash', input }) === true
 					if (!granted) {
@@ -203,7 +226,7 @@ export function createSessionSkillShell(deps: SessionSkillShellDeps): SessionSki
 					turnId,
 					workingDirectory: deps.cwd(),
 					abortSignal: signal,
-					env: { ...(deps.env?.() ?? process.env) },
+					env: { ...(deps.env?.() ?? {}) } as Record<string, string>,
 					log: () => {},
 					...(sandbox ? { sandbox } : {}),
 				} as unknown as ToolContext

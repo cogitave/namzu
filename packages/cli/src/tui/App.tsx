@@ -16044,6 +16044,8 @@ function AppBody({
 											invokedBy: 'user',
 											...(shell.allowedTools ? { allowedTools: shell.allowedTools } : {}),
 											...(shell.directory ? { directory: shell.directory } : {}),
+											// The mode as it is now: plan and strict refuse here as they do for `bash`.
+											mode: permissionModeRef.current,
 											signal: appLifetime.signal,
 										})
 									} catch (error) {

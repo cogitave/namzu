@@ -14,19 +14,25 @@
  * documentation a skill shows (a command in code font, an example block)
  * never runs. An unterminated shell fence is plain text.
  *
- * This file is pure: no process, no permission, no file. {@link expandInlineShell}
+ * This file reads no permission and no file; the one thing it asks of the process is which
+ * shell reads a command, when a value lands inside one. {@link expandInlineShell}
  * takes the host's way of running one command (permission check, the hook, the
  * shell tool) and decides everything around it: limits, placeholders, how the
  * output replaces the marker, what fails the load.
  *
- * ## Arguments can never start a command
+ * ## A value never becomes a command
  *
  * The order is: substitute `$ARGUMENTS` and the variables, then read the
- * commands. A value a person typed (or a model sent) is therefore text that
- * the reader sees, so {@link substituteEscaped} rewrites the three shapes that
- * would begin a command, and refuses the load if a value managed to add one
- * anyway.
+ * commands. A value a person typed (or a model sent), and any path or name the
+ * host wrote into the text, is therefore text that the reader sees, so
+ * {@link substituteEscaped} does two things. Outside a command it rewrites the
+ * shapes that would begin one. Inside a command it quotes the value for the
+ * shell, one word at a time, so it is read as arguments and never as shell
+ * syntax. It refuses the load if a value managed to add a command anyway.
  */
+
+import { hostCommandShell } from '../tools/command-shell.js'
+import type { ShellDialect } from '../types/tool/index.js'
 
 /** Most commands one expansion may run. */
 export const INLINE_SHELL_MAX_COMMANDS = 256
@@ -230,40 +236,298 @@ export class InlineShellError extends Error {
 	}
 }
 
+/** Where a value sits in the text of a command, as far as the shell reads it. */
+type ShellContext = 'none' | 'single' | 'double' | 'unsafe'
+
+/**
+ * How the shell reads the position at the end of `prefix`, the text of one
+ * command up to a value: outside any quote, inside single or double quotes, or
+ * somewhere a value cannot be made safe (a here-document, a `${...}`, an
+ * arithmetic or backtick expansion, an ANSI-C string that is not closed).
+ *
+ * A `$( ... )` starts a fresh reading of its own, so a value inside one is
+ * quoted for the quotes opened inside it.
+ */
+function shellContextAt(prefix: string): ShellContext {
+	const stack: Array<'double' | 'sub'> = []
+	let single = false
+	let wordStart = true
+	const skipTo = (from: number, close: string, nest?: string): number => {
+		let depth = 0
+		for (let j = from; j < prefix.length; j++) {
+			const ch = prefix[j] as string
+			if (ch === '\\') {
+				j += 1
+				continue
+			}
+			if (nest !== undefined && prefix.startsWith(nest, j)) {
+				depth += 1
+				j += nest.length - 1
+				continue
+			}
+			if (prefix.startsWith(close, j)) {
+				if (depth === 0) return j + close.length - 1
+				depth -= 1
+				j += close.length - 1
+			}
+		}
+		return -1
+	}
+	for (let i = 0; i < prefix.length; i++) {
+		const c = prefix[i] as string
+		if (single) {
+			if (c === "'") single = false
+			continue
+		}
+		if (c === '\\') {
+			i += 1
+			wordStart = false
+			continue
+		}
+		const top = stack[stack.length - 1]
+		if (c === '$') {
+			const next = prefix[i + 1]
+			if (next === '(') {
+				if (prefix[i + 2] === '(') return 'unsafe'
+				stack.push('sub')
+				i += 1
+				wordStart = true
+				continue
+			}
+			if (next === '{') {
+				const end = skipTo(i + 2, '}', '{')
+				if (end === -1) return 'unsafe'
+				i = end
+				wordStart = false
+				continue
+			}
+			if (next === "'") {
+				const end = skipTo(i + 2, "'")
+				if (end === -1) return 'unsafe'
+				i = end
+				wordStart = false
+				continue
+			}
+		}
+		if (c === '`') {
+			const end = skipTo(i + 1, '`')
+			if (end === -1) return 'unsafe'
+			i = end
+			wordStart = false
+			continue
+		}
+		if (top === 'double') {
+			if (c === '"') stack.pop()
+			continue
+		}
+		if (c === "'") {
+			single = true
+			wordStart = false
+			continue
+		}
+		if (c === '"') {
+			stack.push('double')
+			wordStart = false
+			continue
+		}
+		if (c === '(') {
+			stack.push('sub')
+			wordStart = true
+			continue
+		}
+		if (c === ')') {
+			if (top === 'sub') stack.pop()
+			wordStart = true
+			continue
+		}
+		if (c === '<' && prefix[i + 1] === '<' && prefix[i + 2] !== '<') return 'unsafe'
+		if (c === '#' && wordStart) {
+			const end = prefix.indexOf('\n', i)
+			if (end === -1) return 'none'
+			i = end
+			wordStart = true
+			continue
+		}
+		wordStart = /[\s;|&]/.test(c)
+	}
+	if (single) return 'single'
+	return stack[stack.length - 1] === 'double' ? 'double' : 'none'
+}
+
+/** One word as the shell reads it literally. */
+function shellQuoteWord(word: string): string {
+	return `'${word.replaceAll("'", "'\\''")}'`
+}
+
+/**
+ * The words a typed value holds, read as a person typed them: spaces separate,
+ * a quote groups, a backslash keeps the next character. A quote that is never
+ * closed is an ordinary character.
+ */
+function typedWords(value: string): string[] {
+	const words: string[] = []
+	let current = ''
+	let inWord = false
+	for (let i = 0; i < value.length; i++) {
+		const c = value[i] as string
+		if (/\s/.test(c)) {
+			if (inWord) words.push(current)
+			current = ''
+			inWord = false
+			continue
+		}
+		inWord = true
+		if (c === '\\' && i + 1 < value.length) {
+			current += value[i + 1]
+			i += 1
+			continue
+		}
+		if (c === "'" || c === '"') {
+			let j = i + 1
+			let body = ''
+			let closed = false
+			for (; j < value.length; j++) {
+				const d = value[j] as string
+				if (c === '"' && d === '\\' && (value[j + 1] === '"' || value[j + 1] === '\\')) {
+					body += value[j + 1]
+					j += 1
+					continue
+				}
+				if (d === c) {
+					closed = true
+					break
+				}
+				body += d
+			}
+			if (closed) {
+				current += body
+				i = j
+				continue
+			}
+		}
+		current += c
+	}
+	if (inWord) words.push(current)
+	return words
+}
+
+/**
+ * A value as the text of a command holds it, so the shell reads it as data:
+ *
+ * - outside quotes each word of the value becomes one single-quoted word, so a
+ *   value of `-n 5` is still two arguments while `;`, `|`, `&`, `$(`, a
+ *   backtick, a redirection, a newline and `#` are plain characters;
+ * - inside single or double quotes the value is escaped for that quote and
+ *   stays one piece.
+ *
+ * A value with a backtick cannot go into a command at all (the backtick would
+ * end the command where it is read), and neither can one where no quoting
+ * holds (a here-document, `${...}`): the load is refused.
+ */
+function quoteForCommand(value: string, prefix: string, dialect: ShellDialect): string {
+	if (dialect === 'cmd') {
+		// No quoting here is known to hold in the Windows command interpreter, so only words
+		// made of characters it reads literally go in.
+		const words = typedWords(value)
+		if (words.every((word) => /^[\w.\\/:=+,@-]+$/.test(word))) return words.join(' ')
+		throw new InlineShellError(
+			'A value given to this skill or command has characters that cannot be put safely inside a command for the Windows command interpreter, so it was not loaded.',
+			'injection',
+		)
+	}
+	const context = shellContextAt(prefix)
+	if (context === 'unsafe' || value.includes('`')) {
+		throw new InlineShellError(
+			context === 'unsafe'
+				? 'A value given to this skill or command would land inside a here-document or a ${...} or arithmetic expansion of a shell command, where it cannot be quoted, so it was not loaded.'
+				: 'A value given to this skill or command contains a backtick, which cannot be put inside a shell command, so it was not loaded.',
+			'injection',
+		)
+	}
+	if (context === 'single') return value.replaceAll("'", "'\\''")
+	if (context === 'double') return value.replace(/[\\"$]/g, '\\$&')
+	return typedWords(value).map(shellQuoteWord).join(' ')
+}
+
+interface Occurrence {
+	readonly token: string
+	/** Where the value goes in the neutral text. */
+	readonly at: number
+	readonly before: string
+	readonly after: string
+}
+
 /**
  * Put values into a template, each escaped, and prove no value added a
  * command. `values` maps the token written in the text (`$ARGUMENTS`) to its
- * value. Throws {@link InlineShellError} when the substituted text holds more
- * commands than the template does.
+ * value.
+ *
+ * A value outside a command is rewritten so that no shape of it begins one
+ * ({@link escapeInlineShell}). A value inside a command is quoted so the shell
+ * reads it as data ({@link quoteForCommand}), by where it sits: a person's
+ * `-n 5` stays two arguments, and `x; touch f #` stays words of an argument
+ * list. Throws {@link InlineShellError} when a value cannot be made safe, or the
+ * substituted text holds more commands than the template does.
  */
 export function substituteEscaped(
 	template: string,
 	values: Readonly<Record<string, string>>,
+	options: { readonly dialect?: ShellDialect } = {},
 ): string {
 	const normalized = normalizeInlineShellText(template)
 	const tokens = Object.keys(values).filter((token) => token.length > 0)
 	if (tokens.length === 0) return normalized
 	// Longest first, so `$ARGUMENTS_X` is never read as `$ARGUMENTS` plus a tail.
 	tokens.sort((a, b) => b.length - a.length)
-	let out = ''
+	// The template with a word where each value goes: the commands the author wrote.
 	let neutral = ''
+	const pieces: Array<string | Occurrence> = []
+	let text = ''
 	let i = 0
 	while (i < normalized.length) {
 		const token = tokens.find((candidate) => normalized.startsWith(candidate, i))
 		if (token === undefined) {
-			out += normalized[i]
+			text += normalized[i]
 			neutral += normalized[i]
 			i += 1
 			continue
 		}
-		const before = normalized[i - 1] ?? ''
-		const after = normalized[i + token.length] ?? ''
-		out += escapeBetween(values[token] as string, before, after)
-		// The same text with a word where the value goes: the commands the author wrote.
+		if (text !== '') pieces.push(text)
+		text = ''
+		pieces.push({
+			token,
+			at: neutral.length,
+			before: normalized[i - 1] ?? '',
+			after: normalized[i + token.length] ?? '',
+		})
 		neutral += 'x'
 		i += token.length
 	}
-	if (findInlineShell(out).length > findInlineShell(neutral).length) {
+	if (text !== '') pieces.push(text)
+	const markers = findInlineShell(neutral)
+	const commandAt = (at: number): number | undefined => {
+		const marker = markers.find((m) => m.start <= at && at < m.end)
+		if (marker === undefined) return undefined
+		return marker.kind === 'inline' ? marker.start + 2 : neutral.indexOf('\n', marker.start) + 1
+	}
+	let out = ''
+	for (const piece of pieces) {
+		if (typeof piece === 'string') {
+			out += piece
+			continue
+		}
+		const value = values[piece.token] as string
+		const from = commandAt(piece.at)
+		out +=
+			from === undefined
+				? escapeBetween(value, piece.before, piece.after)
+				: quoteForCommand(
+						value,
+						neutral.slice(from, piece.at),
+						options.dialect ?? hostCommandShell().dialect,
+					)
+	}
+	if (findInlineShell(out).length > markers.length) {
 		throw new InlineShellError(
 			'A value given to this skill or command contains text that would start a shell command, so it was not loaded.',
 			'injection',

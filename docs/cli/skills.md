@@ -393,7 +393,13 @@ An ordinary backtick span or fence is never read for commands, so a skill can sh
 
 Only when the text is **loaded**: a command you type (`/name`), a headless prompt (`namzu exec "/name"`), and the model's own `skill` tool. They never run when a skill is only listed (`/skills list`, the manifest, the audit, mentions). A skill preloaded into an agent through the agent file's `skills` key is a load too, but none of its commands run today: each is replaced by `[shell commands in a skill preloaded into an agent are not run ...]`.
 
-Arguments come first. `$ARGUMENTS` (and the skill's folder as `${NAMZU_SKILL_DIR}` or `${CLAUDE_SKILL_DIR}`) are put into the text, **escaped**, and only then is the text read for commands. A value that would start a command (`` !`rm -rf ~` ``, an opening fence) is broken so it cannot, and a load whose value still managed to add one is refused. So `` !`git log $ARGUMENTS` `` runs with the arguments you typed, and a prompt that merely quotes a command in its arguments runs nothing. A template that holds no command is filled in exactly as before. A template that holds commands and is given arguments it has no `$ARGUMENTS` for is refused, as any command is.
+Arguments come first. `$ARGUMENTS` (and the skill's folder as `${NAMZU_SKILL_DIR}` or `${CLAUDE_SKILL_DIR}`, and the folder named in the first line a skill command carries, `Base directory for this skill`) are put into the text, **escaped**, and only then is the text read for commands. These are the only substitutions there are: there are no positional or named forms. Where a value lands decides how it is escaped:
+
+- **Outside a command**, a value that would start a command (`` !`rm -rf ~` ``, an opening fence) is broken so it cannot. A skill folder named like a command is plain text there, and loading the skill runs nothing.
+- **Inside a command**, a value is quoted for the shell, one word at a time, so it is read as arguments and never as shell syntax. `` !`git log $ARGUMENTS` `` with `-n 5` runs `git log '-n' '5'`, still two arguments, while `;`, `|`, `&`, `$(`, backticks, redirections, newlines and `#` in a value are ordinary characters. Quotes you type group words (`"two words"` is one argument). Inside quotes the command's author wrote (`"$ARGUMENTS"`, `'$ARGUMENTS'`) the value is escaped for that quote and stays one piece. The text `namzu exec "/name"` takes from standard input is part of the arguments and is quoted the same way.
+- A value cannot go into a command at all, and the load is refused, when it contains a backtick, or when it would land inside a here-document, a `${...}` or arithmetic expansion, or a backtick or `$'...'` string. Where the shell is the Windows command interpreter, only words made of letters, digits and `. \ / : = + , @ -` go in.
+
+A load whose value still managed to add a command is refused. A prompt that merely quotes a command in its arguments runs nothing. A template that holds no command is filled in exactly as before. A template that holds commands and is given arguments it has no `$ARGUMENTS` for is refused, as any command is.
 
 ### Permission
 
@@ -402,6 +408,10 @@ Each command goes through the **same shell tool** a model's own call goes throug
 ```yaml
 allowed-tools: Bash(git status *), Bash(git log *)
 ```
+
+The session's **permission mode** answers a command first, the way it answers the model's own `bash` call, on every route (a typed `/name` reads the mode the terminal is in now, `namzu exec` the one `--permission-mode` set, the `skill` tool the mode the turn is decided under). In `plan` mode only a command that reads runs; in `strict` mode only a command a rule allows by name or pattern runs. The `skill` tool only reads, and that does not let its commands run where the mode forbids them. A skill's `allowed-tools` never lifts either: it is not a rule. A command refused this way fails the load with a line that names the command and the mode, for example `Shell command permission check failed for pattern "touch x": plan mode only runs commands that read, and this one can change something`. In the other modes a command no rule decided still needs a rule or the skill's `allowed-tools`, as below.
+
+A command sees the environment the model's own `bash` call sees: the inherited variables with the ones whose names look like a credential (`KEY`, `TOKEN`, `SECRET`, `PASSWORD` and the like) left out, on every route. A secret whose name does not look like one is still passed on, as it is for `bash`.
 
 A command that reaches a protected path, a removal the floor stops, a path outside the working folders or a program Namzu cannot read goes to a person even for a model's own call, so a load, which has no person, fails on it however it was started (typed, `namzu exec`, or the `skill` tool) and whatever the rules or `allowed-tools` say. Run such a command as a direct call instead.
 
