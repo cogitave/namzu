@@ -35,7 +35,7 @@ export const SAVE_SKILL_CHOICES: readonly {
 	readonly answer: SaveSkillAnswer
 	readonly label: string
 }[] = [
-	{ answer: 'user', label: 'Save to user' },
+	{ answer: 'user', label: 'Save skill' },
 	{ answer: 'project', label: 'Save to project' },
 	{ answer: 'cancel', label: 'Cancel' },
 ]

@@ -107,7 +107,7 @@ describe('the save-skill screen', () => {
 		expect(frame).toContain(
 			'Warning  The skill contains invisible or direction-changing characters.',
 		)
-		expect(frame).toContain('Save to user')
+		expect(frame).toContain('Save skill')
 		expect(frame).toContain('Save to project')
 		expect(frame).toContain('Cancel')
 	})

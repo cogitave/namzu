@@ -139,7 +139,7 @@ describe('planSkillTargets', () => {
 		])
 		expect(targets.project.path).toBe(join(projectDir(), 'release-notes', 'SKILL.md'))
 		expect(targets.project.collisions).toEqual([
-			expect.objectContaining({ path: user, effect: 'replaces', where: '~/.namzu/skills' }),
+			expect.objectContaining({ path: user, effect: 'replaces', where: 'user' }),
 		])
 	})
 
@@ -232,7 +232,7 @@ describe('the save_skill tool', () => {
 			path: existing,
 			effect: 'replaces',
 		})
-		expect(result.output).toContain('replaces ~/.namzu/skills skill')
+		expect(result.output).toContain('replaces user skill')
 	})
 
 	it('refuses before asking when the draft is invalid or replaces names another skill', async () => {

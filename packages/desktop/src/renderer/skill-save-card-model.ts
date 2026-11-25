@@ -12,8 +12,8 @@ import {
  */
 
 export const SKILL_SAVE_LABELS: Readonly<Record<SkillSaveChoice, string>> = {
-	user: 'Save to my skills',
-	project: 'Save to this project',
+	user: 'Save skill',
+	project: 'Save to project',
 	cancel: 'Cancel',
 }
 
@@ -52,7 +52,7 @@ export function shadowNote(raw: string): string {
 
 export function skillSaveView(card: SkillSaveCard): SkillSaveView {
 	return {
-		title: `Save the skill "${card.name}"?`,
+		title: `Save skill "${card.name}"?`,
 		description: card.description,
 		preview: card.file,
 		lineCount: card.file.split('\n').length,

@@ -2029,7 +2029,13 @@ const DECLARED: readonly SettingDescriptor[] = [
 		{ kind: 'list', itemLabel: 'skill name', placeholder: 'skill-name', source: 'skills' },
 		{
 			group: 'learning-skills',
-			keywords: ['disabled skills', 'turned-off skills', 'installed skills'],
+			keywords: [
+				'disabled skills',
+				'turned-off skills',
+				'installed skills',
+				'New skill',
+				'Save to my skills',
+			],
 			default: [],
 		},
 	),

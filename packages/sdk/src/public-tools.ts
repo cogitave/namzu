@@ -44,6 +44,12 @@ export type { UntrustedEnvelope, WrapUntrustedOptions } from './tools/untrusted-
 
 // ─── Built-in tools ──────────────────────────────────────────────────────
 
+// The one atomic file write the file tools use, for a host that writes a file
+// of its own the same safe way (temporary beside it, flushed, renamed), with an
+// opt-in refusal of symbolic links below a folder it names.
+export { UnsafeWritePathError, atomicWriteFile } from './tools/builtins/atomic-write-file.js'
+export type { AtomicWriteOptions } from './tools/builtins/atomic-write-file.js'
+
 export { getBuiltinTools } from './tools/builtins/index.js'
 // A host compiling operator permissions has a tool name and needs an argument
 // to attach a pattern to. Without one it can only match against the serialised

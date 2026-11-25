@@ -413,22 +413,25 @@ export function discoverSkills(opts: SkillDiscoveryOptions = {}): SkillInfo[] {
 	return [...discoverSkillRoster(opts).skills]
 }
 
-/** How a tier reads in a listing: where the file lives, in the operator's words. */
+/**
+ * How a tier reads in a listing: where the skill lives, as a lowercase word with
+ * a qualifier after a comma. The folder is on the next line of a listing and in
+ * the JSON output, never in this word.
+ */
 export function skillTierLabel(tier: SkillTier): string {
-	const at = (...parts: string[]): string => parts.join(sep)
 	switch (tier) {
 		case 'system':
 			return 'built-in'
 		case 'agents-user':
-			return at('~', '.agents', 'skills')
+			return 'user, shared'
 		case 'user':
-			return at('~', '.namzu', 'skills')
+			return 'user'
 		case 'legacy-project':
-			return at('.', 'skills')
+			return 'project, legacy'
 		case 'agents-project':
-			return at('.agents', 'skills')
+			return 'project, shared'
 		case 'project':
-			return at('.', '.namzu', 'skills')
+			return 'project'
 	}
 }
 
@@ -462,8 +465,7 @@ export function composeSkillsPrompt(
 }
 
 /** What `/skills` says when no tier holds a skill. */
-export const NO_SKILLS_FOUND =
-	'No skills found. Add one at ~/.namzu/skills/<name>/SKILL.md, ~/.agents/skills/<name>/SKILL.md or ./.agents/skills/<name>/SKILL.md.'
+export const NO_SKILLS_FOUND = 'No skills yet. Create skills in .namzu/skills/ or ~/.namzu/skills/.'
 
 /**
  * `/skills list`: every skill with where it came from, what it hides, and why

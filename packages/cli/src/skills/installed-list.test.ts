@@ -35,8 +35,8 @@ describe('the installed skills Settings lists', () => {
 	it('names each skill with its tier in the person’s words, and nothing else', () => {
 		const list = listInstalledSkills({ cwd, includeProject: true, home, systemDir: system })
 		expect(list).toEqual([
-			{ name: 'local', tier: 'project', where: expect.stringContaining('.namzu') },
-			{ name: 'mine', tier: 'user', where: expect.stringContaining('.namzu') },
+			{ name: 'local', tier: 'project', where: 'project' },
+			{ name: 'mine', tier: 'user', where: 'user' },
 			{ name: 'ship', tier: 'system', where: 'built-in' },
 		])
 		for (const item of list) expect(Object.keys(item).sort()).toEqual(['name', 'tier', 'where'])

@@ -479,12 +479,12 @@ export function SkillSwitchesView({
 			{onNewSkill && (
 				<div className="settings-config-actions">
 					<Button variant="outline" size="sm" onClick={onNewSkill}>
-						New skill
+						Create skill
 					</Button>
 				</div>
 			)}
 			{rows.installed.length === 0 && rows.unknown.length === 0 && (
-				<p className="settings-note">No skills are installed.</p>
+				<p className="settings-note">No skills yet</p>
 			)}
 			<ul className="settings-config-items" aria-label={label}>
 				{rows.installed.map((skill) => (

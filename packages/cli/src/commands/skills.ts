@@ -234,7 +234,7 @@ function toListItem(skill: SkillInfo): SkillListItem {
 
 function renderSkillsText(cwd: string, skills: readonly SkillListItem[]): string {
 	if (skills.length === 0) {
-		return `No skills found for ${oneLine(cwd)}.`
+		return 'No skills yet. Create skills in .namzu/skills/ or ~/.namzu/skills/.'
 	}
 
 	const lines = [`Skills available for ${oneLine(cwd)} (${skills.length}):`]

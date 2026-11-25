@@ -13,8 +13,8 @@ skill is ever used, and the body decides whether it works.
 
 You write a skill **only through the `save_skill` tool**. Never write a
 `SKILL.md` with `write`, `edit` or a shell command. `save_skill` shows the
-person the whole file and where it would go (their own skills, or this
-project), and saves nothing until they choose a place. If they cancel, ask
+person the whole file and where it would go (their user skills, or this
+project: `user` or `project`), and saves nothing until they choose a place. If they cancel, ask
 what to change. A saved skill is usable from their next message.
 
 If `save_skill` is not among your tools (a headless `namzu exec` run, a
