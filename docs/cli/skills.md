@@ -214,13 +214,13 @@ model calls `save_skill`, and a screen shows:
   characters shown as `<U+XXXX>`, scrollable with ↑/↓ and PgUp/PgDn;
 - where each choice writes: `~/.namzu/skills/<name>/SKILL.md` (user) or
   `./.namzu/skills/<name>/SKILL.md` (project), and the one the model suggested;
-- `replaces <tier> skill <path>` for every existing skill of that name it would
+- `replaces <place> skill <path>` (the place in words: `user`, `project`, `built-in`) for every existing skill of that name it would
   overwrite or shadow, and `hidden by …` when a higher tier would keep winning;
 - warnings for invisible characters, instructions to ignore instructions,
   mentions of secrets, piping a download into a shell, and shell commands in the
   body (`` !`cmd` `` or a fence opened with a bang) that run every time the skill loads.
 
-Choose **Save to user**, **Save to project** or **Cancel** (←/→ or 1–3, then
+Choose **Save skill** (your user skills), **Save to project** or **Cancel** (←/→ or 1–3, then
 Enter; Esc cancels). Cancel is selected when the screen opens, so a stray
 Enter writes nothing.
 
@@ -269,7 +269,7 @@ path otherwise (another drive on Windows, or a folder above the working folder).
 
 The Desktop app makes the same flow a card instead of a screen:
 
-1. **Ways in.** *Settings, Skills, New skill* opens a new conversation with the
+1. **Ways in.** *Settings, Skills, Create skill* opens a new conversation with the
    `skills new` request in its message box, ready to send. The composer's `/` menu has
    `skills new [what it should do]`, which puts the same request back in the box. The
    engine also lists a `skills` command in its ACP `initialize` answer
@@ -283,10 +283,10 @@ The Desktop app makes the same flow a card instead of a screen:
    and no "allow for this conversation" answers it, and anything but a pick of exactly
    one place (cancel, an answer that does not read, the turn stopping, a closed stream)
    saves nothing.
-3. **The card.** *Save the skill "name"?* shows the whole file in a box that
-   scrolls (never a cut of it), both places (the suggested one marked), a warning line for each skill the
+3. **The card.** *Save skill "name"?* shows the whole file in a box that
+   scrolls (never a cut of it), both places under the headings *User* and *Project* (the suggested one marked), a warning line for each skill the
    file would replace and for each tripwire the host raised, and the buttons
-   *Save to my skills*, *Save to this project* and *Cancel* (Esc). Cancel holds the focus when the card opens, so saving takes a click.
+   *Save skill*, *Save to project* and *Cancel* (Esc). Cancel holds the focus when the card opens, so saving takes a click.
 4. **After saving.** The result of a finished `save_skill` call (`Saved skill "name" to <path>`; the same line from any other tool draws nothing) is drawn, outside the folded work, as
    a saved card: *usable from your next message*, with *Open Skills in Settings*; any
    open Skills list reads the installed skills again at once and lists the new skill
@@ -548,7 +548,14 @@ also resets `suggest` to its default unless it sets it too.
 ## Listing
 
 `/skills list` in the TUI and `namzu skills list [--cwd <path>]` show each skill
-with its source and directory tier, the `SKILL.md` files it shadows, whether
+with where it lives in words: `built-in`, `user`, `user, shared`
+(`~/.agents/skills`), `project`, `project, shared` (`.agents/skills`) and
+`project, legacy` (`./skills`); `namzu skills list` puts the file's path on the line below. With no skill the
+answer is `No skills yet. Create skills in .namzu/skills/ or ~/.namzu/skills/.` The words
+replace the old folder names in the text output only; the JSON output keeps its
+`tier` and `path`. In Settings the list has a *Create skill* button and says *No
+skills yet* when it is empty. The skill is found in a search for *New skill* or
+*Save to my skills*, the old names. A listing also shows the `SKILL.md` files a skill shadows, whether
 it is operator-only or gated, and why one cannot be used. `namzu --format json
 skills list` adds `tier`, `shadows`, `disabled`, `invocation` and
 `requiresTools` to each item. `namzu skills list --json` (for host UIs) prints

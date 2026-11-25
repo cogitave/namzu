@@ -10,28 +10,19 @@
  * the host's own (`SaveSkillHost.confirm`), not the permission gate's, so no
  * permission mode answers it: `auto` still asks.
  *
- * A saved skill is a single `SKILL.md`, written atomically (a temporary
+ * A saved skill is a single `SKILL.md`, written atomically by the SDK's shared file write (a temporary
  * beside it, then `rename`). The session catalog discovers again every turn,
  * so the model is offered it from the next turn on.
  */
 
-import { randomBytes } from 'node:crypto'
-import {
-	closeSync,
-	fsyncSync,
-	lstatSync,
-	mkdirSync,
-	openSync,
-	realpathSync,
-	renameSync,
-	rmSync,
-	writeSync,
-} from 'node:fs'
+import { realpathSync } from 'node:fs'
 import { homedir } from 'node:os'
-import nodePath, { dirname, join, sep } from 'node:path'
+import nodePath, { join } from 'node:path'
 import {
 	type ToolDefinition,
 	type ToolResult,
+	UnsafeWritePathError,
+	atomicWriteFile,
 	defineTool,
 	findInlineShell,
 	mcpJsonSchemaToZod,
@@ -113,7 +104,7 @@ export interface SkillCollision {
 	 * winning, so the saved skill would not be the one used.
 	 */
 	readonly effect: 'replaces' | 'hidden-by'
-	/** The existing file's tier in the operator's words (`built-in`, `~/.namzu/skills`, …). */
+	/** The existing file's tier in the operator's words (`built-in`, `user`, `project`, …). */
 	readonly where: string
 	readonly path: string
 	/** True when it is the very file this save would overwrite. */
@@ -268,59 +259,6 @@ export function displayPath(
 	return path
 }
 
-/** A save that would write somewhere other than the skills folder it names. */
-export class SkillPathError extends Error {
-	override readonly name = 'SkillPathError'
-}
-
-function lstatOrUndefined(path: string): ReturnType<typeof lstatSync> | undefined {
-	try {
-		return lstatSync(path)
-	} catch (error) {
-		if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined
-		throw error
-	}
-}
-
-function isInside(root: string, path: string): boolean {
-	const rel = nodePath.relative(root, path)
-	return rel === '' || (!nodePath.isAbsolute(rel) && rel !== '..' && !rel.startsWith(`..${sep}`))
-}
-
-/**
- * Refuse a write that would go through a symlink. Every component of `file`
- * below `anchor` that exists is looked at with `lstat`; a link anywhere
- * (a folder or the file itself) is refused, and the real path of the deepest
- * existing folder must stay inside the real `anchor`. `anchor` is the folder
- * trusted to be what it says: the working folder for a project skill, the
- * skills folder itself for a user skill (which may be a link the operator
- * made on purpose).
- */
-export function assertNoSymlinkBelow(anchor: string, file: string): void {
-	const rel = nodePath.relative(anchor, file)
-	if (rel === '' || nodePath.isAbsolute(rel) || rel === '..' || rel.startsWith(`..${sep}`)) {
-		throw new SkillPathError(`${file} is not inside ${anchor}.`)
-	}
-	let current = anchor
-	let deepest = anchor
-	for (const part of rel.split(sep)) {
-		current = join(current, part)
-		const stat = lstatOrUndefined(current)
-		if (stat === undefined) break
-		if (stat.isSymbolicLink()) {
-			throw new SkillPathError(
-				`${current} is a symbolic link; a skill is never written through one. Remove the link or save somewhere else.`,
-			)
-		}
-		deepest = current
-	}
-	const realAnchor = realOrSelf(anchor)
-	const realDeepest = realOrSelf(deepest)
-	if (!isInside(realAnchor, realDeepest)) {
-		throw new SkillPathError(`${file} resolves outside ${anchor}; nothing was written.`)
-	}
-}
-
 function realOrSelf(path: string): string {
 	try {
 		return realpathSync(path)
@@ -358,7 +296,7 @@ export function planSkillTargets(
 				const higher = !overwrite && SKILL_TIERS.indexOf(skill.tier) > rank
 				return {
 					effect: higher ? 'hidden-by' : 'replaces',
-					where: skillTierLabel(skill.tier),
+					where: skillTierLabel(skill.tier).replace(/^([^,]+), (.+)$/, '$1 ($2)'),
 					path: skill.path,
 					overwrite,
 				}
@@ -395,33 +333,6 @@ export function skillWarnings(markdown: string): string[] {
 		)
 	}
 	return findings
-}
-
-/**
- * Write `text` to `path` so a reader sees the old file or the new one, never
- * part of either: a temporary beside it, flushed, then renamed over it.
- */
-export function writeFileAtomically(path: string, text: string, anchor?: string): void {
-	if (anchor !== undefined) assertNoSymlinkBelow(anchor, path)
-	mkdirSync(dirname(path), { recursive: true })
-	const temporary = join(
-		dirname(path),
-		`.SKILL.md.${process.pid}.${randomBytes(6).toString('hex')}.tmp`,
-	)
-	try {
-		const fd = openSync(temporary, 'wx', 0o644)
-		try {
-			writeSync(fd, text)
-			fsyncSync(fd)
-		} finally {
-			closeSync(fd)
-		}
-		if (anchor !== undefined) assertNoSymlinkBelow(anchor, path)
-		renameSync(temporary, path)
-	} catch (error) {
-		rmSync(temporary, { force: true })
-		throw error
-	}
 }
 
 const inputSchema = mcpJsonSchemaToZod({
@@ -586,9 +497,11 @@ export function buildSaveSkillTool(host: SaveSkillHost): ToolDefinition {
 			const target = targets[answer]
 			try {
 				const anchor = answer === 'project' ? cwd : userSkillsDir(home)
-				writeFileAtomically(target.path, markdown, anchor)
+				// The shared file write, told to refuse links below the root this save
+				// trusts (the skills folder is outside the working folders on purpose).
+				await atomicWriteFile(target.path, markdown, { mode: 0o644, refuseLinksBelow: anchor })
 			} catch (error) {
-				if (error instanceof SkillPathError) return refuse(`save_skill: ${error.message}`)
+				if (error instanceof UnsafeWritePathError) return refuse(`save_skill: ${error.message}`)
 				return refuse(
 					`save_skill: could not write ${target.path}: ${error instanceof Error ? error.message : String(error)}`,
 				)

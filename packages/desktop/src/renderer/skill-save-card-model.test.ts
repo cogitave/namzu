@@ -38,10 +38,10 @@ const card = (extra: Partial<SkillSaveCard> = {}): SkillSaveCard => ({
 describe('the skill-save card model', () => {
 	it('words the question and the two places, marking the suggested one', () => {
 		const view = skillSaveView(card())
-		expect(view.title).toBe('Save the skill "release-notes"?')
-		expect(view.targets.map((t) => [t.label, t.suggested])).toEqual([
-			['Save to my skills', true],
-			['Save to this project', false],
+		expect(view.title).toBe('Save skill "release-notes"?')
+		expect(view.targets.map((t) => [t.place, t.label, t.suggested])).toEqual([
+			['User', 'Save skill', true],
+			['Project', 'Save to project', false],
 		])
 		expect(view.shadows).toBe(false)
 	})
@@ -63,7 +63,7 @@ describe('the skill-save card model', () => {
 					{
 						scope: 'user',
 						path: '~/x',
-						shadows: ['replaces ~/.namzu/skills skill ~/x (overwrites it)'],
+						shadows: ['replaces user skill ~/x (overwrites it)'],
 					},
 					{
 						scope: 'project',
@@ -74,9 +74,7 @@ describe('the skill-save card model', () => {
 			}),
 		)
 		expect(view.shadows).toBe(true)
-		expect(view.targets[0]?.notes).toEqual([
-			'This replaces ~/.namzu/skills skill ~/x (overwrites it).',
-		])
+		expect(view.targets[0]?.notes).toEqual(['This replaces user skill ~/x (overwrites it).'])
 		expect(view.targets[1]?.notes).toEqual(['Hidden by built-in skill /b, which keeps winning.'])
 		expect(view.warnings).toHaveLength(2)
 		expect(view.warnings[1]).toContain('<U+XXXX>')
@@ -128,10 +126,10 @@ describe('reading the host’s skill-save request', () => {
 			questions: [
 				{
 					id: 'skill-save',
-					question: 'Save the skill "release-notes"?',
+					question: 'Save skill "release-notes"?',
 					options: [
-						{ id: 'user', label: 'Save to my skills' },
-						{ id: 'project', label: 'Save to this project' },
+						{ id: 'user', label: 'Save skill' },
+						{ id: 'project', label: 'Save to project' },
 						{ id: 'cancel', label: 'Cancel' },
 					],
 					multiSelect: false,

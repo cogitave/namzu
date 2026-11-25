@@ -20,7 +20,7 @@ const card = (extra: Partial<SkillSaveCard> = {}): SkillSaveCard => ({
 		{
 			scope: 'user',
 			path: '~/.namzu/skills/release-notes/SKILL.md',
-			shadows: ['replaces ~/.namzu/skills skill ~/old (overwrites it)'],
+			shadows: ['replaces user skill ~/old (overwrites it)'],
 		},
 		{
 			scope: 'project',
@@ -59,16 +59,19 @@ const draw = (skillSave: SkillSaveCard, count = 1) =>
 describe('the skill-save card', () => {
 	it('shows the whole file, both places, the shadow warning and three buttons', () => {
 		const html = draw(card())
-		expect(html).toContain('Save the skill &quot;release-notes&quot;?')
+		expect(html).toContain('Save skill &quot;release-notes&quot;?')
 		expect(html).toContain('line 0')
 		expect(html).toContain('line 29')
 		expect(html).not.toContain('Show all')
 		// Cancel takes the focus on open; no Save button is auto-focused.
-		expect(html).toContain('Save to my skills')
-		expect(html).toContain('Save to this project')
+		expect(html).toContain('Save skill')
+		expect(html).toContain('Save to project')
 		expect(html).toContain('>Cancel')
 		expect(html).toContain('./.namzu/skills/release-notes/SKILL.md')
-		expect(html).toContain('This replaces ~/.namzu/skills skill ~/old (overwrites it).')
+		// The heading over each path names the place; the buttons say what they do.
+		expect(html).toMatch(/skill-save-target-label">User</)
+		expect(html).toMatch(/skill-save-target-label">Project</)
+		expect(html).toContain('This replaces user skill ~/old (overwrites it).')
 		// The suggested place is named in words, and is the one with the accent.
 		expect(html.match(/Suggested/g)).toHaveLength(1)
 		expect(html).toMatch(/data-action="save-project"[^>]*data-tone="accept"/)
@@ -104,7 +107,7 @@ describe('the saved card', () => {
 })
 
 describe('the ways in', () => {
-	it('puts a New skill button on the Skills list, only where it can start one', () => {
+	it('puts a Create skill button on the Skills list, only where it can start one', () => {
 		const rows = { installed: [], unknown: [] }
 		const props = {
 			label: 'Skills',
@@ -112,10 +115,12 @@ describe('the ways in', () => {
 			onSwitch: () => {},
 			onRemoveUnknown: () => {},
 		}
-		expect(renderToStaticMarkup(createElement(SkillSwitchesView, props))).not.toContain('New skill')
+		expect(renderToStaticMarkup(createElement(SkillSwitchesView, props))).not.toContain(
+			'Create skill',
+		)
 		expect(
 			renderToStaticMarkup(createElement(SkillSwitchesView, { ...props, onNewSkill: () => {} })),
-		).toContain('New skill')
+		).toContain('Create skill')
 	})
 
 	it('lists "skills new" in the composer menu, spelled as keywords, wherever a handler is given', () => {

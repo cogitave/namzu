@@ -7,6 +7,7 @@ import { removeTempDir } from '../__fixtures__/temp-dir.js'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import {
+	NO_SKILLS_FOUND,
 	agentsProjectSkillsDirs,
 	composeSkillsPrompt,
 	discoverSkills as discoverAll,
@@ -14,6 +15,7 @@ import {
 	loadSkillBody,
 	parseSkillMarkdown,
 	renderSkillRoster,
+	skillTierLabel,
 	systemSkillsDir,
 } from './store.js'
 
@@ -321,7 +323,7 @@ describe('renderSkillRoster', () => {
 			discoverSkills({ home, cwd, config: { disabled: ['off'] } }),
 			new Set(['dup']),
 		)
-		expect(text).toContain('● dup [./.namzu/skills] — mine')
+		expect(text).toContain('● dup [project] — mine')
 		expect(text).toContain(`shadows ${join(home, '.agents', 'skills', 'dup', 'SKILL.md')}`)
 		expect(text).toContain('operator only: not offered to the model')
 		expect(text).toContain('offered to the model when these tools exist: browser')
@@ -367,6 +369,22 @@ describe('a skill that carries hooks', () => {
 	it('says nothing about hooks for a skill without the key', () => {
 		expect(parseSkillMarkdown('---\nname: a\ndescription: d\n---\nBody.')).not.toHaveProperty(
 			'hooksSource',
+		)
+	})
+})
+
+describe('where a skill lives, in words', () => {
+	it('names every place as a lowercase word with a qualifier after a comma', () => {
+		expect(
+			(
+				['system', 'agents-user', 'user', 'legacy-project', 'agents-project', 'project'] as const
+			).map(skillTierLabel),
+		).toEqual(['built-in', 'user, shared', 'user', 'project, legacy', 'project, shared', 'project'])
+	})
+
+	it('says what to do when there are no skills', () => {
+		expect(NO_SKILLS_FOUND).toBe(
+			'No skills yet. Create skills in .namzu/skills/ or ~/.namzu/skills/.',
 		)
 	})
 })

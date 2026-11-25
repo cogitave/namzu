@@ -215,10 +215,10 @@ export function createQuestionRelay(notify: Notify): QuestionRelay {
 								{
 									id: SKILL_SAVE_QUESTION_ID,
 									header: 'Save skill',
-									question: `Save the skill "${request.draft.name}"?`,
+									question: `Save skill "${request.draft.name}"?`,
 									options: [
-										{ id: SKILL_SAVE_OPTIONS[0], label: 'Save to my skills' },
-										{ id: SKILL_SAVE_OPTIONS[1], label: 'Save to this project' },
+										{ id: SKILL_SAVE_OPTIONS[0], label: 'Save skill' },
+										{ id: SKILL_SAVE_OPTIONS[1], label: 'Save to project' },
 										{ id: SKILL_SAVE_OPTIONS[2], label: 'Cancel' },
 									],
 									multiSelect: false,

@@ -4,7 +4,7 @@ import { type SkillTier, discoverSkillRoster, skillTierLabel } from './store.js'
 export interface InstalledSkill {
 	readonly name: string
 	readonly tier: SkillTier
-	/** The tier in the person's words: `built-in`, `~/.namzu/skills`, `./.namzu/skills` and so on. */
+	/** The tier in the person's words: `built-in`, `user`, `user, shared`, `project` and so on. */
 	readonly where: string
 }
 

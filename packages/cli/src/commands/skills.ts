@@ -234,14 +234,14 @@ function toListItem(skill: SkillInfo): SkillListItem {
 
 function renderSkillsText(cwd: string, skills: readonly SkillListItem[]): string {
 	if (skills.length === 0) {
-		return `No skills found for ${oneLine(cwd)}.`
+		return 'No skills yet. Create skills in .namzu/skills/ or ~/.namzu/skills/.'
 	}
 
 	const lines = [`Skills available for ${oneLine(cwd)} (${skills.length}):`]
 	for (const skill of skills) {
 		const status = skill.disabled ? 'disabled · ' : skill.usable ? '' : 'unavailable · '
 		lines.push(
-			`  ${oneLine(skill.name)} [${skill.source} · ${skillTierLabel(skill.tier)}] — ${status}${oneLine(skill.description)}`,
+			`  ${oneLine(skill.name)} [${skillTierLabel(skill.tier)}] — ${status}${oneLine(skill.description)}`,
 			`    ${oneLine(skill.path)}`,
 		)
 		if (skill.problem) lines.push(`    reason: ${oneLine(skill.problem)}`)

@@ -15760,7 +15760,7 @@ function AppBody({
 								label: skill.name,
 								description: skill.problem
 									? `Unavailable: ${skill.problem}`
-									: `${skill.description} · ${skill.source} (${skillTierLabel(skill.tier)})`,
+									: `${skill.description} · ${skillTierLabel(skill.tier)}`,
 								current: activeNames.has(skill.name),
 							})),
 						})
