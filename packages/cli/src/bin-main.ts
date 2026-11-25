@@ -4,6 +4,7 @@
 
 import { runCli } from './cli.js'
 import { EXIT_INTERNAL_ERROR, EXIT_UNAVAILABLE } from './exit-codes.js'
+import { flushStdio } from './flush-stdio.js'
 import { APPLY_AT_EXIT_FLAG } from './integrations/auto-update/deferred-apply.js'
 import {
 	installWasReplaced,
@@ -33,6 +34,9 @@ async function exitProcess(code: number): Promise<void> {
 	}
 	// A signal may have arrived during the release; its handler owns that exit.
 	if (terminationInProgress() !== null) return
+	// A reader on a pipe still holds what was queued; exiting now would cut it short.
+	await flushStdio()
+	if (terminationInProgress() !== null) return
 	process.exit(code)
 }
 
@@ -60,7 +64,10 @@ export function main(entrypoint: string): Promise<void> {
 		return import('./integrations/auto-update/start-check.js')
 			.then((check) => check.runStartCheck())
 			.then(
-				(code) => process.exit(code),
+				async (code) => {
+					await flushStdio()
+					process.exit(code)
+				},
 				() => process.exit(1),
 			)
 	}
