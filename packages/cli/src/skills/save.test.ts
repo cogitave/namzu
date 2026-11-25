@@ -1,13 +1,15 @@
 import {
 	existsSync,
+	lstatSync,
 	mkdirSync,
 	mkdtempSync,
 	readFileSync,
 	readdirSync,
+	symlinkSync,
 	writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import path, { join } from 'node:path'
 import { loadSkill } from '@namzu/sdk'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -21,7 +23,9 @@ import {
 	SkillDraftError,
 	buildSaveSkillTool,
 	composeSkillMarkdown,
+	displayPath,
 	planSkillTargets,
+	skillWarnings,
 	validateSkillDraft,
 } from './save.js'
 
@@ -258,5 +262,83 @@ describe('the save_skill tool', () => {
 		expect(tool.name).toBe(SAVE_SKILL_TOOL_NAME)
 		expect(tool.pathArgument).toBeUndefined()
 		expect(vi.isMockFunction(tool.execute)).toBe(false)
+	})
+})
+
+describe('a save never writes through a symlink', () => {
+	const linkable = process.platform !== 'win32'
+
+	it.skipIf(!linkable)(
+		'refuses a project skill folder linked to the user skill folder, and leaves the user skill alone',
+		async () => {
+			const userSkill = skillAt(userDir(), draft.name, 'the person’s own')
+			mkdirSync(projectDir(), { recursive: true })
+			symlinkSync(join(userDir(), draft.name), join(projectDir(), draft.name))
+			const before = readFileSync(userSkill, 'utf8')
+			const h = host('project')
+			const result = await run(h.value, draft)
+			expect(result.success).toBe(false)
+			expect(result.error).toMatch(/symbolic link/)
+			expect(readFileSync(userSkill, 'utf8')).toBe(before)
+			expect(h.saved).toEqual([])
+			// The collision is read by real path: the linked file is the user's own.
+			const target = h.requests[0]?.targets.project
+			expect(target?.collisions.some((c) => c.overwrite)).toBe(true)
+		},
+	)
+
+	it.skipIf(!linkable)('refuses a linked .namzu folder in the project', async () => {
+		const elsewhere = mkdtempSync(join(tmpdir(), 'namzu-save-elsewhere-'))
+		try {
+			symlinkSync(elsewhere, join(cwd, '.namzu'))
+			const result = await run(host('project').value, draft)
+			expect(result.success).toBe(false)
+			expect(result.error).toMatch(/symbolic link/)
+			expect(readdirSync(elsewhere)).toEqual([])
+		} finally {
+			removeTempDir(elsewhere)
+		}
+	})
+
+	it.skipIf(!linkable)('refuses a linked SKILL.md and keeps its target', async () => {
+		const outside = join(cwd, 'outside.md')
+		writeFileSync(outside, 'keep me')
+		mkdirSync(join(userDir(), draft.name), { recursive: true })
+		symlinkSync(outside, join(userDir(), draft.name, 'SKILL.md'))
+		const result = await run(host('user').value, draft)
+		expect(result.success).toBe(false)
+		expect(readFileSync(outside, 'utf8')).toBe('keep me')
+		expect(lstatSync(join(userDir(), draft.name, 'SKILL.md')).isSymbolicLink()).toBe(true)
+	})
+
+	it('still writes a plain new skill', async () => {
+		const result = await run(host('project').value, draft)
+		expect(result.success).toBe(true)
+		expect(existsSync(join(projectDir(), draft.name, 'SKILL.md'))).toBe(true)
+	})
+})
+
+describe('skillWarnings', () => {
+	it('warns about load-time shell commands, inline and fenced', () => {
+		const inline = skillWarnings('---\nname: a\n---\nRun !`git status` first.')
+		expect(inline.some((w) => /every time the skill loads/.test(w))).toBe(true)
+		const fenced = skillWarnings('---\nname: a\n---\n```!\nls\n```\n')
+		expect(fenced.some((w) => /every time the skill loads/.test(w))).toBe(true)
+		expect(skillWarnings('---\nname: a\n---\nJust text.')).toEqual([])
+	})
+})
+
+describe('displayPath', () => {
+	it('shows a path on another drive in full, never behind a .\\ prefix', () => {
+		expect(displayPath('D:\\skills\\a\\SKILL.md', 'C:\\proj', 'C:\\Users\\me', path.win32)).toBe(
+			'D:\\skills\\a\\SKILL.md',
+		)
+	})
+	it('shows an outside path in full and an inside one short', () => {
+		expect(displayPath('C:\\other\\x', 'C:\\proj', 'C:\\Users\\me', path.win32)).toBe(
+			'C:\\other\\x',
+		)
+		expect(displayPath('C:\\proj\\a\\b', 'C:\\proj', 'C:\\Users\\me', path.win32)).toBe('.\\a\\b')
+		expect(displayPath('C:\\Users\\me\\s', 'C:\\proj', 'C:\\Users\\me', path.win32)).toBe('~\\s')
 	})
 })
