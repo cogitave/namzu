@@ -30,6 +30,14 @@ describe('the browser window question', () => {
 		expect(screenQuestionApp(question as never)).toBeUndefined()
 	})
 
+	it('reads the browser from the question whatever the product is called', () => {
+		const question = {
+			questionId: 'browser-window-brave-browser',
+			question: 'Let Acme Pilot click and type in Brave in this conversation?',
+		}
+		expect(browserWindowQuestionApp(question)).toBe('Brave')
+	})
+
 	it('reads the person’s pick, and nothing else, as a yes', async () => {
 		const answer = (value: Awaited<ReturnType<QuestionFn>>) => async () => value
 		const run = (value: Awaited<ReturnType<QuestionFn>>) =>

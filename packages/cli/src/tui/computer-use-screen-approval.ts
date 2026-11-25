@@ -72,7 +72,7 @@ export function browserWindowQuestionApp(question: {
 	readonly question: string
 }): string | undefined {
 	if (!question.questionId.startsWith(BROWSER_WINDOW_QUESTION_PREFIX)) return undefined
-	const match = /^Let Namzu click and type in (.+) in this conversation\?$/s.exec(question.question)
+	const match = /^Let .+? click and type in (.+) in this conversation\?$/s.exec(question.question)
 	return match?.[1]
 }
 
