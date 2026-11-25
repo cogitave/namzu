@@ -3,6 +3,7 @@ import type { ClaimableTaskStore } from '../../store/task/file.js'
 import type { ToolDefinition } from '../../types/tool/index.js'
 import { asTaskId } from '../../utils/id.js'
 import { defineTool } from '../defineTool.js'
+import { taskNumbers } from './number.js'
 
 /**
  * Read one task in full: its description, owner and what it waits on. Only for a list several
@@ -25,8 +26,11 @@ export function buildTaskGetTool(taskStore: ClaimableTaskStore): ToolDefinition 
 			const task = await taskStore.get(asTaskId(id))
 			if (!task) return { success: false, output: `Task ${id} not found` }
 			const waiting = await taskStore.unresolvedBlockers(task)
+			const numbers = await taskNumbers(taskStore)
+			const number = numbers.get(task.id)
 			const data = {
 				id: task.id,
+				...(number === undefined ? {} : { number }),
 				subject: task.subject,
 				description: task.description ?? null,
 				status: task.status,
@@ -38,7 +42,7 @@ export function buildTaskGetTool(taskStore: ClaimableTaskStore): ToolDefinition 
 				metadata: task.metadata ?? null,
 			}
 			const lines = [
-				`${task.subject} [${task.status}]${task.owner ? ` owner: ${task.owner}` : ''}`,
+				`${number === undefined ? '' : `#${number} `}${task.subject} [${task.status}]${task.owner ? ` owner: ${task.owner}` : ''}`,
 				...(task.description ? [task.description] : []),
 				...(waiting.length > 0 ? [`Waiting on: ${waiting.join(', ')}`] : []),
 				...(task.blocks.length > 0 ? [`Blocks: ${task.blocks.join(', ')}`] : []),

@@ -1,6 +1,7 @@
 # Documentation update log
 
 ## 2026-11-25
+- **Update** [Task tracking](sdk/task-tracking.md#planning-outcomes-and-dependencies): on a team's shared list the task receipts name a task by its number (`Task #2 (id ...) updated`), `data.number` carries it, the presenter shows `Task #2 completed`, and a teammate's transcript drops the long id. `.changeset/sdk-task-receipt-number.md`.
 - **Update** [Slash commands](cli/slash-commands.md), [Skills](cli/skills.md#built-in-skills): the command that puts a shell command from the latest answer in the prompt is named `/cmd`, not `/paste` (which read like the clipboard). It was never released, so there is no old spelling to keep; `/paste` now answers as an unknown command. `.changeset/cli-run-skills.md`.
 
 ## 2026-11-24
