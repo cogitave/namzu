@@ -1,10 +1,10 @@
 ---
-"@namzu/sdk": major
+"@namzu/sdk": patch
 ---
 
-The hooks that guard a skill's load-time commands now fail closed on a timeout, a skill's own hooks guard its own commands, and a skill that runs as a delegated agent gets no pre-approval where the inline load gets none.
+The hooks that guard a skill's load-time commands now fail closed on a timeout, a skill's own hooks guard its own commands, and a skill that runs as a delegated agent gets no pre-approval where the inline load gets none. These tighten the load-time commands that arrive in this same release; nothing an earlier release did changes.
 
-Breaking: a `pre_skill_shell_command` hook that outlasts the lifecycle manager's own limit for a hook (`hookTimeoutMs`) used to warn and let the command run; it now refuses the command, as a `pre_tool_use` hook that times out refuses the shell tool's own call. `skillShellHookVerdict` returns `{ kind: 'refuse', reason: 'the hook timed out' }` for it. To keep a slow guard working, make it answer within the limit or raise `hookTimeoutMs`; there is no setting that lets a command run after its guard timed out.
+A `pre_skill_shell_command` hook that outlasts the lifecycle manager's limit for a hook (`hookTimeoutMs`) refuses the command, as a `pre_tool_use` hook that times out refuses the shell tool's own call: `skillShellHookVerdict` returns `{ kind: 'refuse', reason: 'the hook timed out' }`. To keep a slow guard working, make it answer within the limit or raise `hookTimeoutMs`.
 
 New: `createPreToolUseShellHook` asks the session's `pre_tool_use` hooks about one shell command, with the fields of the tool's own call, for a host that loads text outside a turn (inside a turn the executor already asks them for the nested call). `SkillHooksPlan.attach` takes an optional `{ prompt }`, so a host learns the delegated prompt when the hooks attach and not when they are read.
 
