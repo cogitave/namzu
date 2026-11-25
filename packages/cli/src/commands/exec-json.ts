@@ -770,6 +770,13 @@ export async function execJson(
 			// same rules, and a command that fails ends the stream in band.
 			let nextContent = nextExpansion.kind === 'expanded' ? nextExpansion.prompt : next.value
 			if (nextExpansion.kind === 'expanded' && nextExpansion.shell && session.skillShell) {
+				// The skill's own hooks guard its own commands, so they attach first, as for the first line.
+				useSkillHooksByName(
+					session.skillHooks,
+					{ cwd, ...(ctx.config.skills ? { skills: ctx.config.skills } : {}) },
+					[nextExpansion.name],
+					(line) => cliLogger().warn(line),
+				)
 				try {
 					nextContent = await session.skillShell.expand({
 						text: nextExpansion.prompt,

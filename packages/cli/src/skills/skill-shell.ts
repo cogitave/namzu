@@ -19,8 +19,11 @@
  *    A command that reaches a protected path, a removal the floor stops or a
  *    path outside the working folders then fails the load too, as the
  *    executor's own review does for a nested call, whatever the rules say;
- * 2. `pre_skill_shell_command` hooks, when one is attached;
- * 3. the shell tool itself, in the sandbox the session runs in.
+ * 2. the `pre_tool_use` hooks that match the shell tool, as for a model's
+ *    own call: a refusal, a request for approval or a rewrite, a timeout or a
+ *    crash fails the load, and so does a stop;
+ * 3. `pre_skill_shell_command` hooks, when one is attached;
+ * 4. the shell tool itself, in the sandbox the session runs in.
  */
 
 import { randomUUID } from 'node:crypto'
@@ -35,6 +38,7 @@ import {
 	type ToolContext,
 	type ToolDefinition,
 	type TurnId,
+	createPreToolUseShellHook,
 	createSkillShellHook,
 	expandInlineShell,
 	findInlineShell,
@@ -156,6 +160,12 @@ export function createSessionSkillShell(deps: SessionSkillShellDeps): SessionSki
 					invokedBy: request.invokedBy,
 				},
 			})
+			// The hooks that guard the shell tool's own calls guard these commands too.
+			const preTool = createPreToolUseShellHook({
+				manager: deps.hooks(),
+				sessionId: deps.sessionId(),
+				signal,
+			})
 			const sandboxPlan = deps.sandbox?.()
 			let sandbox: Sandbox | undefined
 			const turnId = randomUUID() as TurnId
@@ -205,6 +215,16 @@ export function createSessionSkillShell(deps: SessionSkillShellDeps): SessionSki
 						kind: 'denied',
 						reason: `${reach}, which needs the person’s review, and a skill cannot wait for one. Run it as a direct call instead.`,
 					}
+				}
+				if (preTool) {
+					const asked = await preTool(command, `skillshell_${randomUUID()}`)
+					// A refusal fails the load, as a refused call of the shell tool fails it in a
+					// turn; a stop is the hook's own word and is passed on as it is.
+					if (asked.kind === 'refuse') {
+						return { kind: 'denied', reason: `a pre_tool_use hook refused it: ${asked.reason}` }
+					}
+					if (asked.kind === 'stop') return { kind: 'hook', verdict: asked }
+					if (asked.warning) deps.warn?.(asked.warning)
 				}
 				const checked = await beforeRun()
 				if (checked.kind !== 'run') return { kind: 'hook', verdict: checked }

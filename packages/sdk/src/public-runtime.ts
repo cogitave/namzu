@@ -592,6 +592,7 @@ export {
 	substituteEscaped,
 	PRE_SKILL_SHELL_COMMAND_EVENT,
 	SKILL_SHELL_TOOL_NAME,
+	createPreToolUseShellHook,
 	createSkillShellHook,
 	createToolSkillShellHost,
 	skillShellOutcomeOf,

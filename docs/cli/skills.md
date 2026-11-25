@@ -447,7 +447,9 @@ Commands run one after another, in order.
 
 ### Guarding the commands with a hook
 
-A hook on [`pre_skill_shell_command`](../sdk/hooks.md#shell-commands-inside-a-skill) is asked about each command **after** the permission check allowed it and **before** it starts. It can refuse that one command (the text keeps `[not run: blocked by hook: <reason>]` and you get a warning, `Not run in /<name>: <command> (blocked by hook: <reason>)`), or stop the load with `continue: false`. A hook that gives no answer or cannot start refuses the command; one that runs out of time warns and lets it run. Only command hooks are run for this event.
+A hook on [`pre_skill_shell_command`](../sdk/hooks.md#shell-commands-inside-a-skill) is asked about each command **after** the permission check allowed it and **before** it starts. It can refuse that one command (the text keeps `[not run: blocked by hook: <reason>]` and you get a warning, `Not run in /<name>: <command> (blocked by hook: <reason>)`), or stop the load with `continue: false`. A hook that gives no answer, cannot start or runs out of time refuses the command. Only command hooks are run for this event.
+
+The `pre_tool_use` hooks that match the shell tool are asked about each command first, as they are asked about the model's own `bash` call, whether the skill is loaded by the model, typed as `/name`, run as `namzu exec "/name"` or preloaded into a sub-agent; a refusal, a timeout or a stop fails the load. A skill's own `hooks:` (its `pre_skill_shell_command` and `pre_tool_use` entries) are attached before its commands run, so they guard them, and come off again if the load fails; for a skill that runs as a delegated agent (`context: fork`) they apply to the agent's run only, and its `pre_skill_shell_command` entry is set aside with a note. For a typed command, `user_prompt_expansion` hooks are asked before any command runs.
 
 ## Frontmatter
 

@@ -398,6 +398,7 @@ import {
 	renderSkillRoster,
 	skillTierLabel,
 } from '../skills/store.js'
+import { loadTypedCommand } from '../skills/typed-command-load.js'
 import { hooksOf } from '../skills/use-hooks.js'
 import { withMcpSkillCommands } from '../user-commands/mcp-skill-commands.js'
 import { type UserCommand, discoverUserCommands } from '../user-commands/store.js'
@@ -5800,15 +5801,19 @@ function AppBody({
 
 	/** The person ran a skill that carries hooks: they attach for the rest of the conversation. */
 	const attachSkillHooks = useCallback(
-		(skill: { name: string; dirPath: string; hooksSource: string }): void => {
+		(skill: {
+			name: string
+			dirPath: string
+			hooksSource: string
+		}): { readonly remove: () => void } | undefined => {
 			if (!session?.skillHooks) {
 				pushMessage(
 					'system',
 					`Skill ${skill.name} carries hooks, but this session has no hook runtime, so they are not attached.`,
 				)
-				return
+				return undefined
 			}
-			session.skillHooks.use(skill)
+			return session.skillHooks.use(skill)
 		},
 		[session, pushMessage],
 	)
@@ -16021,85 +16026,89 @@ function AppBody({
 						return
 					}
 					case 'prompt': {
-						// The shell commands a skill or a command holds run first, while its text
-						// loads, and the line is submitted again with their output in place; that
-						// second pass finds the text in `shellExpandedSlot`. A command that fails, or
-						// is refused, is said and nothing is sent.
+						// Hooks that hear of the command come first, then the skill's own hooks,
+						// then the shell commands its text holds, so a hook that blocks the
+						// expansion leaves no side effect and the skill's own guards cover its own
+						// commands. The line is then submitted again with their results in place;
+						// that second pass finds them in `expansionAnsweredRef` and
+						// `shellExpandedSlot`. A command that fails, or is refused, is said and
+						// nothing is sent.
 						let promptText = slash.text
-						if (slash.shell && session?.skillShell) {
-							const done = shellExpandedSlot.take(dispatch)
-							if (done !== undefined) {
-								promptText = done
-							} else {
-								const shell = slash.shell
-								const skillShell = session.skillShell
-								const generation = conversationGenRef.current
-								void (async () => {
-									let text: string
-									try {
-										text = await skillShell.expand({
-											text: slash.text,
-											name: shell.name,
-											origin: shell.origin,
-											invokedBy: 'user',
-											...(shell.allowedTools ? { allowedTools: shell.allowedTools } : {}),
-											...(shell.directory ? { directory: shell.directory } : {}),
-											// The mode as it is now: plan and strict refuse here as they do for `bash`.
-											mode: permissionModeRef.current,
-											signal: appLifetime.signal,
-										})
-									} catch (error) {
-										if (conversationGenRef.current !== generation || appLifetime.signal.aborted)
-											return
-										pushMessage(
-											'system',
-											`/${shell.name} did not load: ${error instanceof Error ? error.message : String(error)}`,
-										)
-										return
-									}
-									if (conversationGenRef.current !== generation) return
-									const entry = shellExpandedSlot.put(dispatch, text)
-									handleSubmitRef.current?.(value, attachments, mode, meta)
-									// Turned aside on the way (queued, blocked): the text is not kept for a later
-									// typing of the same line.
-									shellExpandedSlot.settle(entry)
-								})()
-								return
-							}
-						}
-						// `user_prompt_expansion` hooks hear of a command the person typed
-						// before its text goes on. The hooks are awaited, so the line is
-						// submitted again once they have answered; that second pass finds
-						// its answer in `expansionAnsweredRef` and carries on.
-						const hooks = session?.lifecycleHooks
-						const answered = expansionAnsweredRef.current
-						if (answered !== null && answered.line === dispatch) {
-							expansionAnsweredRef.current = null
-							shellExpandedSlot.clear()
-							outgoing = answered.context ? `${promptText}\n\n${answered.context}` : promptText
-						} else if (slash.expansion && hooks) {
+						const lifecycleHooks = session?.lifecycleHooks
+						const skillShell = slash.shell ? session?.skillShell : undefined
+						const expansionHooks = slash.expansion ? lifecycleHooks : undefined
+						const answered =
+							expansionAnsweredRef.current?.line === dispatch ? expansionAnsweredRef.current : null
+						const loadedText = shellExpandedSlot.take(dispatch)
+						if (loadedText === undefined && (skillShell || (expansionHooks && answered === null))) {
+							const shell = slash.shell
 							const expansion = slash.expansion
+							const carried = slash.skillHooks
 							const generation = conversationGenRef.current
 							void (async () => {
-								const verdict = await hooks
-									.userPromptExpansion({ expansionType: 'slash_command', ...expansion }, promptText)
-									.catch(() => ({}) as { blocked?: string; context?: string })
+								const loaded = await loadTypedCommand({
+									...(expansionHooks && expansion
+										? {
+												expansion: () =>
+													expansionHooks.userPromptExpansion(
+														{ expansionType: 'slash_command', ...expansion },
+														slash.text,
+													),
+											}
+										: {}),
+									...(skillShell && shell
+										? {
+												...(carried ? { attachHooks: () => attachSkillHooks(carried) } : {}),
+												expand: () =>
+													skillShell.expand({
+														text: slash.text,
+														name: shell.name,
+														origin: shell.origin,
+														invokedBy: 'user',
+														...(shell.allowedTools ? { allowedTools: shell.allowedTools } : {}),
+														...(shell.directory ? { directory: shell.directory } : {}),
+														// The mode as it is now: plan and strict refuse here as they do for `bash`.
+														mode: permissionModeRef.current,
+														signal: appLifetime.signal,
+													}),
+											}
+										: {}),
+								})
 								if (conversationGenRef.current !== generation) return
-								if (verdict.blocked !== undefined) {
+								if (loaded.kind === 'blocked') {
 									shellExpandedSlot.clear()
 									pushMessage(
 										'system',
-										`A hook stopped /${expansion.commandName}: ${verdict.blocked}`,
+										`A hook stopped /${expansion?.commandName ?? slash.shell?.name ?? ''}: ${loaded.reason}`,
+									)
+									return
+								}
+								if (loaded.kind === 'failed') {
+									if (appLifetime.signal.aborted) return
+									pushMessage(
+										'system',
+										`/${shell?.name ?? ''} did not load: ${loaded.error instanceof Error ? loaded.error.message : String(loaded.error)}`,
 									)
 									return
 								}
 								expansionAnsweredRef.current = {
 									line: dispatch,
-									...(verdict.context !== undefined ? { context: verdict.context } : {}),
+									...(loaded.context !== undefined ? { context: loaded.context } : {}),
 								}
+								const entry = shellExpandedSlot.put(dispatch, loaded.text ?? slash.text)
 								handleSubmitRef.current?.(value, attachments, mode, meta)
+								// Turned aside on the way (queued, blocked): the text is not kept for a later
+								// typing of the same line.
+								shellExpandedSlot.settle(entry)
+								if (!entry.used) expansionAnsweredRef.current = null
 							})()
 							return
+						}
+						if (answered !== null || loadedText !== undefined) {
+							expansionAnsweredRef.current = null
+							shellExpandedSlot.clear()
+							if (loadedText !== undefined) promptText = loadedText
+							outgoing = answered?.context ? `${promptText}\n\n${answered.context}` : promptText
 						} else {
 							shellExpandedSlot.clear()
 							outgoing = promptText

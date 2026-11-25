@@ -319,6 +319,68 @@ describe('the hook', () => {
 	})
 })
 
+describe('the pre_tool_use hooks', () => {
+	const hooked = (answer: (command: string) => PluginHookResult | Promise<PluginHookResult>) => {
+		const asked: { event: string; context: Record<string, unknown> }[] = []
+		return {
+			asked,
+			manager: {
+				listHooks: () => [{ pluginId: 'p' as PluginId, event: 'pre_tool_use' as const }],
+				executeHooks: vi.fn(async (event: string, context: Record<string, unknown>) => {
+					asked.push({ event, context })
+					return [await answer((context.toolInput as { command: string }).command)]
+				}),
+			},
+		}
+	}
+
+	it('are asked about each command as about the shell tool’s own call, before it runs', async () => {
+		const { manager: hooks, asked } = hooked(() => ({ action: 'continue' }))
+		const { shell: run } = shell({ hooks: () => hooks as never })
+		expect(await run.expand(request('!`echo a`'))).toBe('a')
+		expect(asked).toHaveLength(1)
+		expect(asked[0]?.event).toBe('pre_tool_use')
+		expect(asked[0]?.context).toMatchObject({ toolName: 'bash', toolInput: { command: 'echo a' } })
+	})
+
+	it('a deny fails the load and the command does not run', async () => {
+		const marker = join(cwd, 'made-by-denied-command')
+		const { manager: hooks } = hooked(() => ({ action: 'skip', reason: 'no touching here' }))
+		const { shell: run } = shell({ hooks: () => hooks as never })
+		await expect(run.expand(request(`!\`touch ${marker}\``))).rejects.toMatchObject({
+			reason: 'permission',
+			message: expect.stringContaining('no touching here'),
+		})
+		expect(existsSync(marker)).toBe(false)
+	})
+
+	it('a hook that times out refuses the command', async () => {
+		const marker = join(cwd, 'made-after-timeout')
+		const { manager: hooks } = hooked(() => ({ action: 'error', message: 'Hook timeout' }))
+		const { shell: run } = shell({ hooks: () => hooks as never })
+		await expect(run.expand(request(`!\`touch ${marker}\``))).rejects.toMatchObject({
+			reason: 'permission',
+		})
+		expect(existsSync(marker)).toBe(false)
+	})
+
+	it('a request for approval refuses it, because a load cannot wait for a person', async () => {
+		const { manager: hooks } = hooked(() => ({
+			action: 'continue',
+			permission: { decision: 'ask' },
+		}))
+		const { shell: run } = shell({ hooks: () => hooks as never })
+		await expect(run.expand(request('!`echo a`'))).rejects.toMatchObject({ reason: 'permission' })
+	})
+
+	it('are not asked for a command the rules refused', async () => {
+		const { manager: hooks } = hooked(() => ({ action: 'continue' }))
+		const { shell: run } = shell({ hooks: () => hooks as never, gate: () => gateWith() })
+		await expect(run.expand(request('!`ls`'))).rejects.toBeDefined()
+		expect(hooks.executeHooks).not.toHaveBeenCalled()
+	})
+})
+
 describe('what a command reaches past the working folders', () => {
 	it('fails the load for a removal or an outside path even when allowed-tools grants bash', async () => {
 		const { shell: run } = shell({ gate: () => gateWith() })
