@@ -77,6 +77,13 @@ describe('task receipts on a team list', () => {
 		expect(JSON.stringify(view)).not.toMatch(UUID)
 	})
 
+	it('only drops the id tail at the head of the receipt, never inside a subject', async () => {
+		const { run } = team()
+		const created = await run('task_create', { subject: 'Fix parser (id 5)' })
+		expect(created.output).toMatch(/^Task created: #1 \(id [^)]+\) — "Fix parser \(id 5\)"$/)
+		expect(plainTaskReceipt(created.output)).toBe('Task created: #1 — "Fix parser (id 5)"')
+	})
+
 	it('numbers the task in a refusal too', async () => {
 		const { run } = team()
 		const created = await run('task_create', { subject: 'Write it' })

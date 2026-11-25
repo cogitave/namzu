@@ -21,12 +21,12 @@ function byId(a: string, b: string): number {
 }
 
 /** The id the model needs, set apart so a screen can leave it out. */
-const ID_TAIL = / \(id [^)]*\)/g
+const ID_TAIL = /^(Task (?:created: )?#\d+) \(id [^)]*\)/
 
 /**
  * A task tool's receipt as a person reads it: the handle the model needs to call the next tool is
  * dropped where the receipt already names the task by its number.
  */
 export function plainTaskReceipt(output: string): string {
-	return output.replace(ID_TAIL, '')
+	return output.replace(ID_TAIL, '$1')
 }
