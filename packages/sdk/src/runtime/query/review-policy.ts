@@ -50,6 +50,7 @@ import {
 	PLAN_MODE_REFUSAL,
 	PLAN_MODE_REFUSAL_WITH_PLAN_FILE,
 	STRICT_MODE_REFUSAL,
+	nestedCallModeRefusal,
 } from '../../types/permission/index.js'
 import type { AutoReviewClassifier, AutoReviewDecision } from './auto-review/classifier.js'
 import {
@@ -149,7 +150,12 @@ export function isReviewMode(value: unknown): value is ReviewMode {
 	return typeof value === 'string' && (REVIEW_MODES as readonly string[]).includes(value)
 }
 
-export { PLAN_MODE_REFUSAL, PLAN_MODE_REFUSAL_WITH_PLAN_FILE, STRICT_MODE_REFUSAL }
+export {
+	PLAN_MODE_REFUSAL,
+	PLAN_MODE_REFUSAL_WITH_PLAN_FILE,
+	STRICT_MODE_REFUSAL,
+	nestedCallModeRefusal,
+}
 
 /** The tools `accept-edits` approves without asking. Everything else prompts. */
 export const ACCEPT_EDITS_TOOLS: ReadonlySet<string> = new Set(['edit', 'write'])

@@ -624,7 +624,7 @@ A tool server may ask the person for a form's worth of input. `elicitation` runs
 
 ### Commands and tasks
 
-`user_prompt_expansion` runs when a command the person typed (a file command, or a skill) expanded into a prompt, before the prompt goes on: `expansion_type`, `command_name`, `command_args`, `command_source` and `prompt`. Exit `2` or `decision: "block"` stops the command and tells the person why; `additionalContext` is added to the prompt the model reads. The prompt is not sent to the `user_prompt_submit` hooks until this one has answered. Built-in commands that do not expand into a prompt fire nothing.
+`user_prompt_expansion` runs when a command the person typed (a file command, or a skill) expanded into a prompt, before the prompt goes on: `expansion_type`, `command_name`, `command_args`, `command_source` and `prompt`. Exit `2` or `decision: "block"` stops the command and tells the person why; `additionalContext` is added to the prompt the model reads. The prompt is not sent to the `user_prompt_submit` hooks until this one has answered. For a typed command that holds shell commands this hook is asked first, with the text before its commands have run, so a hook that blocks the expansion leaves no side effect. Built-in commands that do not expand into a prompt fire nothing.
 
 ### Shell commands inside a skill
 
@@ -646,11 +646,14 @@ Only a **command** hook is run. A `prompt` or an `http` entry on this event is n
 | prints `continue: false` | the whole load stops; `stopReason` is the reason |
 | prints `systemMessage` | the person sees it beside whatever else happened |
 | gives no answer, or cannot start, or throws | is not run: the guard is not in force, and nothing says the command is safe (fails closed) |
-| runs past its deadline | runs, with a warning that the hook timed out |
+| runs past the lifecycle manager's own limit for a hook (`hookTimeoutMs`) | is not run, as a `pre_tool_use` hook that times out refuses the shell tool's own call (fails closed) |
+| runs past the entry's own deadline (`timeoutMs`) | is a failure of the entry: it runs with a warning, or is refused under `onFailure: block` |
 
 `onFailure: block` on an entry makes every kind of failure of the hook (a timeout, an exit code other than `0` or `2`, an answer that does not read) a refusal too. The deadline is the usual one for a shell hook (ten minutes, or the entry's `timeoutMs`).
 
-A refused command leaves `[not run: blocked by hook: <reason>]` (or `[not run: blocked by hook]` with no reason) in the text, so the model sees that it did not run, and the person gets one warning row, `Not run in /<name>: <command> (blocked by hook: <reason>)`. The reason is shown to at most 500 characters and the command to 80. A refusal does not fail the load. An entry on this event inside a skill or an agent file is set aside with a note: it is fired for the conversation the host runs, and a skill's own hooks attach only after its text has loaded.
+A refused command leaves `[not run: blocked by hook: <reason>]` (or `[not run: blocked by hook]` with no reason) in the text, so the model sees that it did not run, and the person gets one warning row, `Not run in /<name>: <command> (blocked by hook: <reason>)`. The reason is shown to at most 500 characters and the command to 80. A refusal does not fail the load. An entry on this event inside a skill (`hooks:` in its front matter) guards that skill's own commands: its hooks attach before its commands run, and come off again if the load fails. In an agent file, or in a skill that runs as a delegated agent (`context: fork`), it is set aside with a note: the commands run before that agent starts.
+
+**The shell tool's own hooks guard these commands too.** Each command is also sent to the `pre_tool_use` hooks whose matcher covers the shell tool, with the same fields as the tool's own call, before `pre_skill_shell_command` is asked and after the permission check allowed it. Inside a turn the executor asks them for the nested call; outside a turn (a command the person typed, `namzu exec "/name"`, a skill preloaded into a sub-agent) the host asks them itself. A refusal, a request for approval, a rewrite, a hook that gives no answer, times out or crashes, and a stop all fail the load: nothing runs, and the reason is the one the hook gave.
 
 `task_created` and `task_completed` run in the tool step, after `pre_tool_use` allowed `task_create` or a `task_update` with `status: "completed"`. Exit `2` refuses the call and the model reads the reason as the tool's refusal. `task_created` carries no `task_id`, because the task does not exist yet. Their matcher is ignored; a `pre_tool_use` hook on `TaskCreate` or `TaskUpdate` still sees the same calls. When the call is a teammate's they also carry `teammate_name` and `team_name` (the context fields `teammateName` and `teamName`); on the lead's own calls and in a session with no teams both are absent.
 

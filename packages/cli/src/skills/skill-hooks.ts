@@ -99,7 +99,7 @@ export interface SkillHooksHost {
 		readonly name: string
 		readonly dirPath: string
 		readonly hooksSource: string
-	}): void
+	}): SkillHooksHandle
 	/**
 	 * A conversation that used this skill is continued: attach its hooks again,
 	 * through the path a first use takes (the same reading, the same guard rule,
@@ -244,7 +244,7 @@ export function createSkillHooksHost(options: SkillHooksHostOptions): SkillHooks
 			notice,
 			withholdGrants: read.guardLost,
 			...(how.forked || read.count === 0 ? {} : { resumable: true }),
-			attach: () => {
+			attach: (late) => {
 				if (read.count === 0) return inert
 				if (!how.forked) {
 					for (const found of live) {
@@ -256,7 +256,9 @@ export function createSkillHooksHost(options: SkillHooksHostOptions): SkillHooks
 						live.delete(found)
 					}
 				}
-				const scoped = how.forked ? childScope(how.sessionId, how.prompt) : undefined
+				const scoped = how.forked
+					? childScope(how.sessionId, late?.prompt ?? how.prompt)
+					: undefined
 				const rows: Live['rows'] = []
 				const defs: PluginHookDefinition[] = []
 				const own: { entry?: Live } = {}
@@ -341,9 +343,7 @@ export function createSkillHooksHost(options: SkillHooksHostOptions): SkillHooks
 
 	return {
 		prepareHooks,
-		use: (skill) => {
-			prepareHooks(skill, { forked: false }).attach()
-		},
+		use: (skill) => prepareHooks(skill, { forked: false }).attach(),
 		say: (line) => {
 			const cutLine = cut(line)
 			tell(cutLine)

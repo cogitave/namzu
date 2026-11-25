@@ -11,7 +11,11 @@
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { createSkillShellHook, skillShellHookVerdict } from '../../skills/inline-shell-host.js'
+import {
+	createPreToolUseShellHook,
+	createSkillShellHook,
+	skillShellHookVerdict,
+} from '../../skills/inline-shell-host.js'
 import type { PluginId, SessionId } from '../../types/ids/index.js'
 import type { PluginHookContext, PluginHookResult } from '../../types/plugin/index.js'
 import { asSessionId } from '../../utils/id.js'
@@ -324,10 +328,10 @@ describe('what the hooks answered, as one verdict', () => {
 			{ kind: 'refuse', reason: "the hook didn't answer" },
 		],
 		[
-			'a deadline passed warns and runs',
+			'a deadline passed is a refusal',
 			[{ action: 'error', message: 'Hook timeout' }],
 			1,
-			{ kind: 'run', warning: 'a hook timed out, so the command ran without its answer' },
+			{ kind: 'refuse', reason: 'the hook timed out' },
 		],
 	]
 	it.each(table)('%s', (_name, results, attached, expected) => {
@@ -396,7 +400,7 @@ describe('asking the hooks', () => {
 		expect(await ask?.('ls', 'id')).toEqual({ kind: 'refuse', reason: "the hook couldn't run" })
 	})
 
-	it('warns and lets the command run when a hook outlasts the manager’s deadline', async () => {
+	it('refuses the command when a hook outlasts the manager’s deadline, as a pre_tool_use hook that times out refuses the call', async () => {
 		vi.useFakeTimers()
 		const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn(), child: () => log }
 		const manager = new PluginLifecycleManager({
@@ -416,9 +420,75 @@ describe('asking the hooks', () => {
 		})
 		const pending = ask?.('ls', 'id')
 		await vi.advanceTimersByTimeAsync(1_000)
-		expect(await pending).toEqual({
-			kind: 'run',
-			warning: 'a hook timed out, so the command ran without its answer',
+		expect(await pending).toEqual({ kind: 'refuse', reason: 'the hook timed out' })
+	})
+})
+
+describe('asking the pre_tool_use hooks', () => {
+	afterEach(() => vi.useRealTimers())
+
+	it('asks nobody when none is attached for the event', () => {
+		const executeHooks = vi.fn()
+		expect(
+			createPreToolUseShellHook({
+				manager: {
+					executeHooks,
+					listHooks: () => [{ pluginId: 'p' as PluginId, event: 'pre_skill_shell_command' }],
+				} as never,
+				sessionId: SESSION,
+			}),
+		).toBeUndefined()
+		expect(executeHooks).not.toHaveBeenCalled()
+	})
+
+	it('tells the hook the shell tool, the command and the call, as for the tool’s own call', async () => {
+		const executeHooks = vi.fn(async () => [{ action: 'continue' } as PluginHookResult])
+		const ask = createPreToolUseShellHook({
+			manager: {
+				executeHooks,
+				listHooks: () => [{ pluginId: 'p' as PluginId, event: 'pre_tool_use' }],
+			} as never,
+			sessionId: SESSION,
 		})
+		expect(await ask?.('ls -la', 'call_1')).toEqual({ kind: 'run' })
+		expect(executeHooks).toHaveBeenCalledWith(
+			'pre_tool_use',
+			expect.objectContaining({
+				sessionId: SESSION,
+				toolName: 'bash',
+				toolInput: { command: 'ls -la' },
+				toolCallId: 'call_1',
+			}),
+		)
+	})
+
+	it('refuses the command a hook skips', async () => {
+		const ask = createPreToolUseShellHook({
+			manager: {
+				executeHooks: async () => [{ action: 'skip', reason: 'no touching' } as PluginHookResult],
+				listHooks: () => [{ pluginId: 'p' as PluginId, event: 'pre_tool_use' }],
+			} as never,
+			sessionId: SESSION,
+		})
+		expect(await ask?.('touch x', 'call_1')).toEqual({ kind: 'refuse', reason: 'no touching' })
+	})
+
+	it('refuses the command when a hook outlasts the manager’s deadline', async () => {
+		vi.useFakeTimers()
+		const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn(), child: () => log }
+		const manager = new PluginLifecycleManager({
+			pluginRegistry: {} as never,
+			scopeRoots: { project: process.cwd(), user: process.cwd() },
+			log: log as never,
+			hookTimeoutMs: 1_000,
+		})
+		manager.registerHook('p_slow' as PluginId, {
+			event: 'pre_tool_use',
+			handler: () => new Promise<never>(() => undefined),
+		})
+		const ask = createPreToolUseShellHook({ manager, sessionId: SESSION as SessionId })
+		const pending = ask?.('ls', 'id')
+		await vi.advanceTimersByTimeAsync(1_000)
+		expect(await pending).toEqual({ kind: 'refuse', reason: 'the hook timed out' })
 	})
 })

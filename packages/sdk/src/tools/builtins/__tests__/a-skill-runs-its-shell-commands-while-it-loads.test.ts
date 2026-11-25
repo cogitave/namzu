@@ -156,6 +156,53 @@ describe('a skill that holds shell commands', () => {
 		expect(result.success).toBe(true)
 	})
 
+	it('hands an argument a command uses to the shell as words, never as syntax', async () => {
+		const ran: string[] = []
+		const result = await createSkillTool({ shell: {} }).execute(
+			{ name: 'ship', args: 'x; touch RAN #' },
+			contextOf(
+				registry('!`echo $ARGUMENTS`'),
+				dispatchOf(() => 'allow', undefined, ran),
+			),
+		)
+		expect(ran).toEqual(["echo 'x;' 'touch' 'RAN' '#'"])
+		expect(result.success).toBe(true)
+	})
+
+	describe('the skill folder', () => {
+		const body = 'Here: ${NAMZU_SKILL_DIR}\n!`ls ${NAMZU_SKILL_DIR}`'
+		const inFolder = (dirPath: string): SkillRegistryRef => ({
+			...registry(body),
+			async load() {
+				return {
+					skill: { metadata: { name: 'ship', description: 'ship it' }, body, dirPath },
+				}
+			},
+		})
+		const load = async (dirPath: string) => {
+			const ran: string[] = []
+			const result = await createSkillTool({ shell: {} }).execute(
+				{ name: 'ship' },
+				contextOf(
+					inFolder(dirPath),
+					dispatchOf(() => 'allow', undefined, ran),
+				),
+			)
+			return { ran, result }
+		}
+
+		it('is handed to the shell quoted, so a name with a semicolon is not syntax', async () => {
+			const { ran } = await load('/skills/a b;c')
+			expect(ran).toEqual(["ls '/skills/a' 'b;c'"])
+		})
+
+		it('cannot hold a command: a name written like one fails the load and runs nothing', async () => {
+			const { ran, result } = await load('/skills/a !`touch RAN` b')
+			expect(ran).toEqual([])
+			expect(result.success).toBe(false)
+		})
+	})
+
 	describe('permission', () => {
 		it('fails the load when the shell tool is denied, saying why', async () => {
 			const result = await createSkillTool({ shell: {} }).execute(

@@ -13,7 +13,7 @@ import type { SessionId, TenantId, TurnId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import type { PluginHookResult } from '../../../types/plugin/index.js'
 import type { ProjectId, TopicId } from '../../../types/session/ids.js'
-import type { ToolDefinition } from '../../../types/tool/index.js'
+import type { ToolContext, ToolDefinition } from '../../../types/tool/index.js'
 import type { RepairToolCall } from '../../../types/tool/repair.js'
 import { findPendingCheckpoint } from '../checkpoint.js'
 import { drainQuery } from '../index.js'
@@ -283,5 +283,45 @@ describe('configuring an output guardrail does not rewrite the turn outcome', ()
 
 		expect(result.status).toBe('completed')
 		expect(result.result).toBe('all good')
+	})
+})
+
+describe('query() answers a nested call under the mode the approval policy is named for', () => {
+	// The tool that makes a nested call reads, so the review policy never sees the nested
+	// one. Without the mode reaching the executor, a read-only tool would run in plan mode
+	// whatever a command it loads would do.
+	async function nestedRan(policyName: string): Promise<string[]> {
+		const dir = await workdir()
+		const ran: string[] = []
+		const tools = testToolset(
+			{
+				name: 'loader',
+				description: 'reads, then runs a nested call',
+				inputSchema: z.object({}),
+				isReadOnly: () => true,
+				execute: async (_input: unknown, context: ToolContext) => {
+					await context.dispatchTool?.('writer', { id: 1 })
+					return { success: true, output: 'ok' }
+				},
+			} as unknown as ToolDefinition,
+			countingTool('writer', ran),
+		)
+		const provider = new MockLLMProvider({
+			turns: [{ toolCalls: [{ name: 'loader', args: {} }] }, { text: 'done' }],
+		})
+		await drainQuery({
+			...baseParams({ dir, tools, provider }),
+			messages: [createUserMessage('go')],
+			approvalPolicyName: policyName,
+		})
+		return ran
+	}
+
+	it('refuses a changing nested call in plan mode', async () => {
+		expect(await nestedRan('plan')).toEqual([])
+	})
+
+	it('lets it run under a policy that is not plan or strict', async () => {
+		expect(await nestedRan('prompt')).toEqual(['writer:1'])
 	})
 })

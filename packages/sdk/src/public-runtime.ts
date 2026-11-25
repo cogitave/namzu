@@ -592,6 +592,7 @@ export {
 	substituteEscaped,
 	PRE_SKILL_SHELL_COMMAND_EVENT,
 	SKILL_SHELL_TOOL_NAME,
+	createPreToolUseShellHook,
 	createSkillShellHook,
 	createToolSkillShellHost,
 	skillShellOutcomeOf,
@@ -606,6 +607,7 @@ export type {
 	InlineShellMarker,
 	InlineShellOptions,
 	InlineShellOutcome,
+	PreToolUseShellHookOptions,
 	SkillShellHookOptions,
 	ToolSkillShellHostOptions,
 } from './skills/index.js'
@@ -1772,6 +1774,7 @@ export {
 	isReviewMode,
 	modeReviewsAllowedCalls,
 	mustAskPerson,
+	nestedCallModeRefusal,
 } from './runtime/query/review-policy.js'
 // The model that decides, in the `classify` review mode, what a person would
 // otherwise be asked. See `runtime/query/auto-review/`.

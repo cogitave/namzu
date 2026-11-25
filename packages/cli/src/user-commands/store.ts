@@ -261,6 +261,9 @@ export function discoverUserCommands(
 		.sort((a, b) => a.name.localeCompare(b.name))
 }
 
+/** Where the template's first line says the skill's folder goes; never a name a skill author writes. */
+const BASE_DIRECTORY_TOKEN = '${NAMZU_BASE_DIRECTORY}'
+
 /** A skill as a command: its body is the template, its folder is named so relative files resolve. */
 function skillAsCommand(skill: SkillInfo): UserCommand {
 	const base = {
@@ -279,7 +282,9 @@ function skillAsCommand(skill: SkillInfo): UserCommand {
 		return {
 			...base,
 			...(allowedTools ? { allowedTools } : {}),
-			template: `Base directory for this skill: ${dirname(skill.path)}\n\n${body}`,
+			// The folder is written as its variable and put in with the arguments, escaped, when the
+			// text is loaded: a folder named like a command must never be read as one.
+			template: `Base directory for this skill: ${BASE_DIRECTORY_TOKEN}\n\n${body}`,
 		}
 	} catch (err) {
 		return { ...base, template: '', problem: err instanceof Error ? err.message : String(err) }
@@ -479,7 +484,11 @@ export function expandCommand(command: UserCommand, args: string): ExpandResult 
 			const prompt = substituteEscaped(command.template, {
 				[ARGUMENTS_TOKEN]: trimmed,
 				...(command.directory
-					? { '${NAMZU_SKILL_DIR}': command.directory, '${CLAUDE_SKILL_DIR}': command.directory }
+					? {
+							[BASE_DIRECTORY_TOKEN]: command.directory,
+							'${NAMZU_SKILL_DIR}': command.directory,
+							'${CLAUDE_SKILL_DIR}': command.directory,
+						}
 					: {}),
 			})
 			return { ok: true, prompt, shell }
@@ -488,10 +497,15 @@ export function expandCommand(command: UserCommand, args: string): ExpandResult 
 			throw error
 		}
 	}
-	if (command.template.includes(ARGUMENTS_TOKEN)) {
-		return { ok: true, prompt: command.template.split(ARGUMENTS_TOKEN).join(trimmed) }
+	// No command in the text, so a value cannot start one: put the folder in as written.
+	const template =
+		command.directory !== undefined
+			? command.template.split(BASE_DIRECTORY_TOKEN).join(command.directory)
+			: command.template
+	if (template.includes(ARGUMENTS_TOKEN)) {
+		return { ok: true, prompt: template.split(ARGUMENTS_TOKEN).join(trimmed) }
 	}
-	if (trimmed.length === 0) return { ok: true, prompt: command.template }
+	if (trimmed.length === 0) return { ok: true, prompt: template }
 	return noExtraText(command, trimmed)
 }
 

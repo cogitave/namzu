@@ -40,6 +40,7 @@ export type {
 export {
 	PRE_SKILL_SHELL_COMMAND_EVENT,
 	SKILL_SHELL_TOOL_NAME,
+	createPreToolUseShellHook,
 	createSkillShellHook,
 	createToolSkillShellHost,
 	outcomeOf as skillShellOutcomeOf,
@@ -47,6 +48,7 @@ export {
 	skillShellHookVerdict,
 } from './inline-shell-host.js'
 export type {
+	PreToolUseShellHookOptions,
 	SkillShellHookOptions,
 	ToolSkillShellHostOptions,
 } from './inline-shell-host.js'

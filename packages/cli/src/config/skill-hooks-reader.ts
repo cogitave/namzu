@@ -237,16 +237,12 @@ export function readSkillHooks(
 export function withoutSessionStart(read: SkillHooksRead): SkillHooksRead {
 	return withoutEvents(
 		withoutEvents(
-			withoutEvents(
-				read,
-				['session_start'],
-				'cannot run for a skill, which is used after the conversation has started, so it is set aside.',
-			),
-			['worktree_create', 'worktree_remove'],
-			'takes over how a worktree is made or removed for the whole conversation, and a skill is attached only while it is in use, so it is set aside; put it in a config file or a plugin.',
+			read,
+			['session_start'],
+			'cannot run for a skill, which is used after the conversation has started, so it is set aside.',
 		),
-		['pre_skill_shell_command'],
-		'runs while a skill’s text loads, before the skill’s own hooks are attached, so it cannot guard the skill that carries it; put it in a config file or a plugin.',
+		['worktree_create', 'worktree_remove'],
+		'takes over how a worktree is made or removed for the whole conversation, and a skill is attached only while it is in use, so it is set aside; put it in a config file or a plugin.',
 	)
 }
 
@@ -259,6 +255,7 @@ export function withoutConversationEvents(read: SkillHooksRead): SkillHooksRead 
 	return withoutEvents(
 		read,
 		[
+			'pre_skill_shell_command',
 			'file_changed',
 			'cwd_changed',
 			'pre_model_switch',

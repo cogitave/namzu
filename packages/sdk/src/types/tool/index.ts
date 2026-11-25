@@ -189,8 +189,12 @@ export interface SkillHooksPlan {
 	 * belong to one run; a skill whose hooks are switched off).
 	 */
 	readonly resumable?: boolean
-	/** Make the hooks live. Idempotent for a skill already attached to the conversation. */
-	attach(): SkillHooksHandle
+	/**
+	 * Make the hooks live. Idempotent for a skill already attached to the
+	 * conversation. A forked skill's host may be told the delegated prompt here,
+	 * when it was not known to {@link SkillRegistryRef.prepareHooks}.
+	 */
+	attach(late?: { readonly prompt?: string }): SkillHooksHandle
 }
 
 /** What {@link SkillHooksPlan.attach} gives back. */
