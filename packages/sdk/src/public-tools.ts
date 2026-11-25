@@ -135,6 +135,7 @@ export type {
 	SkillDirectoryRequest,
 	SkillDirectoryResolver,
 	SkillToolOptions,
+	SkillToolShellOptions,
 } from './tools/builtins/skill.js'
 // Both declare `category: 'network'`, which is what the authorization
 // presets branch on. NOT in the default builtin set: a turn with no web

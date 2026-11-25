@@ -626,6 +626,23 @@ export type ToolCallSource =
 export interface ToolDispatchOptions {
 	readonly signal?: AbortSignal
 	readonly runtimeToolCallId?: string
+	/**
+	 * A pre-approval that holds for this one dispatch only. It answers a call no
+	 * rule decided (the gate said "review" with no rule matched); it never
+	 * reopens a call a rule denied or sent to review, or the dangerous-command
+	 * floor stopped, and never covers a call the tool declares needs approval.
+	 */
+	readonly allow?: (call: { readonly name: string; readonly input: unknown }) => boolean
+	/**
+	 * Asked after the call is allowed and before it starts. Returns `undefined`
+	 * to let it run, or the reason it is not to run, which comes back as the
+	 * dispatch's failure with nothing started and no tool event written.
+	 */
+	readonly beforeRun?: (call: {
+		readonly name: string
+		readonly input: unknown
+		readonly toolUseId: string
+	}) => Promise<string | undefined>
 }
 
 export interface ToolContext {

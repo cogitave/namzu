@@ -227,6 +227,15 @@ export type PluginHookEvent =
 	 */
 	| 'user_prompt_expansion'
 	/**
+	 * A shell command written inside a skill or a custom command is about to run
+	 * while that text loads (`!`cmd`` or a fenced block opened with three backticks
+	 * and a bang), after the permission check allowed it and before it starts.
+	 * Carries `toolName`, `toolInput` (`command`), `toolCallId` (new for each
+	 * command) and `skillShell`. `skip` refuses that one command, which stays
+	 * out of the text; `continue` with `halt` stops the whole load.
+	 */
+	| 'pre_skill_shell_command'
+	/**
 	 * A task is being created (`task_create`), before it is. Carries `task`.
 	 * `skip` refuses it, and the reason reaches the model.
 	 */
@@ -297,6 +306,7 @@ export function assertPluginHookEvent(event: PluginHookEvent): void {
 		case 'directory_added':
 		case 'instructions_loaded':
 		case 'user_prompt_expansion':
+		case 'pre_skill_shell_command':
 		case 'task_created':
 		case 'task_completed':
 		case 'teammate_idle':
@@ -496,6 +506,22 @@ export interface PluginPromptExpansionInfo {
 	readonly commandSource?: string
 }
 
+/** Who asked for a skill or command to load, on `pre_skill_shell_command`. */
+export type PluginSkillShellInvoker = 'user' | 'model' | 'other'
+
+/** What a `pre_skill_shell_command` hook is shown beside the command itself. */
+export interface PluginSkillShellInfo {
+	/** The skill or command whose text holds the shell command, without the slash. */
+	readonly commandName: string
+	/** Where it came from (`user`, `project`, `plugin`, `skill`, `system`), when known. */
+	readonly commandSource?: string
+	/**
+	 * `user` for a command the person typed, `model` for the skill tool, `other`
+	 * for a preload into a sub-agent or anything not known.
+	 */
+	readonly invokedBy: PluginSkillShellInvoker
+}
+
 /** What a task hook is shown. */
 export interface PluginTaskInfo {
 	/** Absent on `task_created`: the task has no id yet. */
@@ -551,6 +577,8 @@ export interface PluginHookContext {
 	readonly instructions?: PluginInstructionsInfo
 	/** The command that expanded, on `user_prompt_expansion`. */
 	readonly expansion?: PluginPromptExpansionInfo
+	/** The skill or command that holds the shell command, on `pre_skill_shell_command`. */
+	readonly skillShell?: PluginSkillShellInfo
 	/** The task, on `task_created` and `task_completed`. */
 	readonly task?: PluginTaskInfo
 	/**
@@ -781,49 +809,54 @@ export type PluginHookResultFor<E extends PluginHookEvent> = E extends 'user_pro
 	? Extract<PluginHookResult, { action: 'continue' | 'annotate' | 'skip' | 'error' }>
 	: E extends 'user_prompt_expansion'
 		? Extract<PluginHookResult, { action: 'continue' | 'annotate' | 'skip' | 'error' }>
-		: E extends
-					| 'pre_model_switch'
-					| 'elicitation'
-					| 'elicitation_result'
-					| 'task_created'
-					| 'task_completed'
-					| 'teammate_idle'
+		: E extends 'pre_skill_shell_command'
 			? Extract<PluginHookResult, { action: 'continue' | 'skip' | 'error' }>
-			: E extends 'post_model_switch'
-				? Extract<PluginHookResult, { action: 'continue' | 'annotate' | 'error' }>
-				: E extends 'directory_added' | 'instructions_loaded'
-					? Extract<PluginHookResult, { action: 'continue' }>
-					: E extends 'subagent_start'
-						? Extract<PluginHookResult, { action: 'continue' | 'annotate' | 'error' }>
-						: E extends 'pre_tool_use'
-							? Extract<PluginHookResult, { action: 'continue' | 'skip' | 'modify' | 'error' }>
-							: E extends 'post_tool_use'
-								? Extract<PluginHookResult, { action: 'continue' | 'replace' | 'retry' | 'error' }>
-								: E extends 'post_tool_use_failure'
-									? Extract<PluginHookResult, { action: 'continue' | 'error' }>
-									: E extends 'permission_request'
-										? Extract<PluginHookResult, { action: 'continue' | 'skip' }>
-										: E extends 'pre_compact'
-											? Extract<
-													PluginHookResult,
-													{ action: 'continue' | 'annotate' | 'skip' | 'error' }
-												>
-											: E extends 'turn_end' | 'subagent_stop'
-												? Extract<PluginHookResult, { action: 'continue' | 'skip' | 'error' }>
-												: E extends 'session_start'
-													? Extract<PluginHookResult, { action: 'continue' | 'annotate' }>
-													: E extends
-																| 'turn_interrupt'
-																| 'session_end'
-																| 'notification'
-																| 'turn_failure'
-																| 'permission_denied'
-																| 'file_changed'
-																| 'cwd_changed'
-																| 'teammate_start'
-																| 'teammate_stop'
-														? Extract<PluginHookResult, { action: 'continue' }>
-														: Extract<PluginHookResult, { action: 'continue' | 'error' }>
+			: E extends
+						| 'pre_model_switch'
+						| 'elicitation'
+						| 'elicitation_result'
+						| 'task_created'
+						| 'task_completed'
+						| 'teammate_idle'
+				? Extract<PluginHookResult, { action: 'continue' | 'skip' | 'error' }>
+				: E extends 'post_model_switch'
+					? Extract<PluginHookResult, { action: 'continue' | 'annotate' | 'error' }>
+					: E extends 'directory_added' | 'instructions_loaded'
+						? Extract<PluginHookResult, { action: 'continue' }>
+						: E extends 'subagent_start'
+							? Extract<PluginHookResult, { action: 'continue' | 'annotate' | 'error' }>
+							: E extends 'pre_tool_use'
+								? Extract<PluginHookResult, { action: 'continue' | 'skip' | 'modify' | 'error' }>
+								: E extends 'post_tool_use'
+									? Extract<
+											PluginHookResult,
+											{ action: 'continue' | 'replace' | 'retry' | 'error' }
+										>
+									: E extends 'post_tool_use_failure'
+										? Extract<PluginHookResult, { action: 'continue' | 'error' }>
+										: E extends 'permission_request'
+											? Extract<PluginHookResult, { action: 'continue' | 'skip' }>
+											: E extends 'pre_compact'
+												? Extract<
+														PluginHookResult,
+														{ action: 'continue' | 'annotate' | 'skip' | 'error' }
+													>
+												: E extends 'turn_end' | 'subagent_stop'
+													? Extract<PluginHookResult, { action: 'continue' | 'skip' | 'error' }>
+													: E extends 'session_start'
+														? Extract<PluginHookResult, { action: 'continue' | 'annotate' }>
+														: E extends
+																	| 'turn_interrupt'
+																	| 'session_end'
+																	| 'notification'
+																	| 'turn_failure'
+																	| 'permission_denied'
+																	| 'file_changed'
+																	| 'cwd_changed'
+																	| 'teammate_start'
+																	| 'teammate_stop'
+															? Extract<PluginHookResult, { action: 'continue' }>
+															: Extract<PluginHookResult, { action: 'continue' | 'error' }>
 
 /** The event and its handler verdict stay correlated, including in hook arrays. */
 export type PluginHookDefinition<E extends PluginHookEvent = PluginHookEvent> =
