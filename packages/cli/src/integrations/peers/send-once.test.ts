@@ -92,7 +92,7 @@ it('is held by the receiver for the person when the declared mode differs', asyn
 	expect(f.receiver.held()).toHaveLength(1)
 })
 
-it('lists a terminal of another folder and delivers to it, held by the same rules', async () => {
+it('lists a terminal of another folder and reaches it, but its mail is held for the person', async () => {
 	const f = await fixture()
 	const other = join(f.root, 'other')
 	mkdirSync(other)
@@ -105,7 +105,7 @@ it('lists a terminal of another folder and delivers to it, held by the same rule
 		message: 'hi',
 		mode: 'auto',
 	})
-	expect(receipt.status).toBe('queued')
+	expect(receipt.status).toBe('held')
 	const held = await sendToTerminal({
 		...f.common,
 		cwd: other,

@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { access, mkdir, readFile, realpath, writeFile } from 'node:fs/promises'
+import { access, lstat, mkdir, readFile, realpath, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { basename, dirname } from 'node:path'
 import {
@@ -18,6 +18,12 @@ export function systemSecretDeps(harden: (dir: string) => void): ResolveSecretDe
 				() => true,
 				() => false,
 			),
+		fileOwner: (path) =>
+			lstat(path).then(
+				(info) => info.uid,
+				() => undefined,
+			),
+		uid: typeof process.getuid === 'function' ? process.getuid() : undefined,
 		readText: (path) => readFile(path, 'utf8').catch(() => undefined),
 		writeText: async (path, text) => {
 			const dir = dirname(path)
