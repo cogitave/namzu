@@ -1,5 +1,0 @@
----
-"@namzu/cli": minor
----
-
-With teammates on, the team reads more plainly in the terminal. Each teammate has a colour (eight, in the order they join) on its rail row, its rows in the conversation, its tasks and the prompt of its open transcript; its messages are one dim `› Message from @name` line you open with Ctrl+O; a finished teammate reads `Teammate @name finished` with the first line of its answer under it; shutdowns, refusals and plans have their own rows; the task list shows `(@owner)` and `› blocked by #n` under a count heading and a row cap; the rail says `N idle agents`; an open teammate shows `@name` on the prompt and no system prompt. Wording changes: `/team tasks` now reads `#2 □ test it › blocked by #1` (was `· waits on #1`), the rail's idle summary is `N idle agents` (was `N idle teammates`) and the key line is `↑/↓ to select · enter to view · x to stop · esc to collapse`. Anything that read the old words from the screen needs the new ones. Teams-off transcripts do not change.

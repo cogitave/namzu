@@ -1,5 +1,19 @@
 # @namzu/desktop
 
+## 0.8.10
+
+### Patch Changes
+
+- d8a7b95: Desktop draws the question "Let Namzu click and type in this browser in this conversation?" as an approval card with Allow for this conversation and Not now, and lists the new Browser windows setting under Computer use.
+
+  Under Ask, a browser is asked about once: the first action in it shows the browser card (Allow for this conversation or Not now), whose yes also allows the app for the conversation, instead of that card after Desktop's own Allow Namzu to use card. Browsers are named Brave, Chrome, Edge, Firefox.
+
+  A screenshot or list of windows aimed at a browser no longer raises the browser card, and taking a browser back in conversation details now also takes it back in Namzu's engine. Cards still open when a reply is stopped are cleared.
+
+- 567db45: A conversation that generates an image shows an image card (with a picture icon) under the reply: the picture itself (up to 30rem wide), the prompt, and Open, Show in folder, Copy (as a picture) and Save a copy. The turn's activity line reads "Generated an image" rather than "ran a command".
+- 9811dab: Settings, Skills has a New skill button, the message box offers `skills new`, and a skill Namzu drafts in a conversation shows a card with the whole file, the two places it can be saved and what it would replace, with Save to my skills, Save to this project and Cancel. A saved skill leaves a card that says it is usable from your next message and links to the Skills list, which shows it at once.
+- f314853: The Storage view shows the scheduler services' homes (`services/` in the Namzu folder) as their own part, "Scheduler services", instead of counting them under conversations. It is never cleared from there.
+
 ## 0.8.9
 
 ### Patch Changes

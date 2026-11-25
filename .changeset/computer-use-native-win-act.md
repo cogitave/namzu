@@ -1,5 +1,0 @@
----
-"@namzu/computer-use": minor
----
-
-Adds the acting side of the native Windows helper (`namzu-win`) and the display adapter that uses it. `NativeWin32Adapter` (screenshot, zoom region, click, drag, scroll, type, key, cursor position, display geometry) drives `SendInput` and Windows.Graphics.Capture through the helper instead of starting a PowerShell process per action, and `NativeA11yBackend.act` presses, toggles, sets and scrolls a control through its UI Automation pattern, with `actFailureCode` naming the two ways a ref can fail (`STALE_REF`, `AMBIGUOUS_TARGET`). Both are opt-in: setting `NAMZU_WIN_HELPER` to the path of `namzu-win.exe` makes the Windows adapter use the helper where it used the per-action PowerShell path. Nothing sets the variable and nothing delivers the helper yet, so no existing behaviour changes and nothing needs doing on upgrade. With the variable set there is no PowerShell fallback: a helper that does not start is an error that names the helper. Exported types and options are unchanged.
