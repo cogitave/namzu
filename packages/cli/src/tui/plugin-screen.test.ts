@@ -19,6 +19,7 @@ import {
 	statsRows,
 	step,
 	visibleItems,
+	wrappedDetail,
 } from './plugin-screen.js'
 import { choiceDisplayWidth } from './terminal-choice-text.js'
 
@@ -372,5 +373,17 @@ describe('row layout', () => {
 		expect(row.kind.trim()).toBe('Skill')
 		expect(row.meta).toContain('project')
 		expect(row.meta).toContain('never used')
+	})
+})
+
+describe('wrapped detail lines', () => {
+	it('keeps a long path whole across lines, none wider than the width', () => {
+		const path = `/home/someone/projects/demo/packages/cli/skills/${'x'.repeat(60)}/SKILL.md`
+		for (const width of [118, 78, 38]) {
+			const lines = wrappedDetail([`File: ${path}`, 'Place: user'], width)
+			for (const line of lines) expect(choiceDisplayWidth(line)).toBeLessThanOrEqual(width)
+			const file = lines.filter((line) => !line.startsWith('Place'))
+			expect(file.map((line) => line.trim()).join('')).toBe(`File:${path}`)
+		}
 	})
 })

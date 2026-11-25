@@ -847,7 +847,11 @@ export const TITLE = 'Plugins'
 export function wrappedDetail(lines: readonly string[], width: number): readonly string[] {
 	const out: string[] = []
 	for (const line of lines) {
-		const wrapped = wrapChoiceText(line, Math.max(10, width))
+		const room = Math.max(10, width)
+		let wrapped = wrapChoiceText(line, room)
+		// A continuation is indented two columns, so a line that needs one is wrapped two columns
+		// narrower: otherwise a broken path comes out wider than the screen and loses its end.
+		if (wrapped.length > 1) wrapped = wrapChoiceText(line, room - 2)
 		for (const [index, part] of wrapped.entries()) out.push(index === 0 ? part : `  ${part}`)
 	}
 	return out
