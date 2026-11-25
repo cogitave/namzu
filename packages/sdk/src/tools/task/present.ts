@@ -27,7 +27,16 @@ function activity(label: string): ToolCallView {
 	return { kind: 'generic', presentation: 'activity', label }
 }
 
-/** A successful receipt: the call row already said it. */
+/** The number a team's screens call the task by, when its receipt carries one. */
+function numberOf(result: ToolResult): number | undefined {
+	const number = (result.data as { number?: unknown } | undefined)?.number
+	return typeof number === 'number' ? number : undefined
+}
+
+/**
+ * A successful receipt: the call row already said it. A task of a team's list has a number the
+ * rest of the screen uses (`task #2`), so there the receipt says which one.
+ */
 const HIDDEN_RESULT: ToolResultView = {
 	kind: 'generic',
 	label: '',
@@ -57,7 +66,8 @@ export function presentTaskCreateCall(input: {
 
 export function presentTaskCreateResult(_input: unknown, result: ToolResult): ToolResultView {
 	if (!result.success) return failure(result, 'The task was not added')
-	return HIDDEN_RESULT
+	const number = numberOf(result)
+	return number === undefined ? HIDDEN_RESULT : { kind: 'generic', label: `Task #${number} added` }
 }
 
 /** The verb for a `task_update` call, from the status it asks for. */
@@ -104,7 +114,12 @@ export function presentTaskUpdateResult(_input: unknown, result: ToolResult): To
 			}
 		return failure(result, 'The task was not changed')
 	}
-	return HIDDEN_RESULT
+	const number = numberOf(result)
+	if (number === undefined) return HIDDEN_RESULT
+	const status = (result.data as { status?: unknown } | undefined)?.status
+	const said =
+		status === 'in_progress' ? 'started' : typeof status === 'string' ? status : 'updated'
+	return { kind: 'generic', label: `Task #${number} ${said}` }
 }
 
 export function presentTaskListCall(): ToolCallView {

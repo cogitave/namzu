@@ -83,6 +83,17 @@ rollback. Successful task updates remain quiet in the tool presenter; an
 unconfirmed status change remains visible. On mismatch, `data.status` is the
 observed returned status and `data.requestedStatus` records the request.
 
+On a list several sessions share (a team's), a task has a number: its place in
+the list, lowest id first, from 1, the `#2` the team's screens use. The
+receipts of `task_create`, `task_update` and `task_get` name the task as
+`#2 (id <id>)`, so the model keeps the id its next call needs, and
+`data.number` carries the number (as does each row of `task_list`'s
+`data.tasks`). The presenter then shows `Task #2 added`, `started`, `completed`
+and so on instead of a hidden result. `plainTaskReceipt(output)` removes the
+`(id ...)` part for a host that draws the receipt as text, as a teammate's
+transcript does. A list one session uses has no numbers; its receipts and
+quiet presenter are unchanged.
+
 `isTerminalTaskStatus` treats completed and failed as terminal. A failed blocker
 has stopped running, so a dependent task need not wait for a future status
 change. Its failure still needs interpreting; removing the wait does not prove

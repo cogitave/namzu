@@ -1,5 +1,8 @@
 # Documentation update log
 
+## 2026-11-25
+- **Update** [Task tracking](sdk/task-tracking.md#planning-outcomes-and-dependencies): on a team's shared list the task receipts name a task by its number (`Task #2 (id ...) updated`), `data.number` carries it, the presenter shows `Task #2 completed`, and a teammate's transcript drops the long id. `.changeset/sdk-task-receipt-number.md`.
+
 ## 2026-11-24
 - **Update** [Teammates](cli/teams.md#the-team-on-the-terminal): a teammate's earlier cut-short turn no longer hides a later stop. The interrupted mark clears when the teammate starts its next turn and when it is stopped, and the lead's transcript skips the stop row only for a teammate that was interrupted and not stopped. The page says the `Waiting for team lead approval` box shows only while no permission dialog owns the screen. `.changeset/cli-team-boxes.md`.
 - **Update** [Teammates](cli/teams.md#the-team-on-the-terminal): round-two fixes from a real terminal run. A refused plan shows only what the person wrote (the stock text sent to the model is not shown, and the teammate's own transcript says `Plan not approved. Revise it and send it again.` for a declined call); a teammate cut short with Esc writes only `Teammate @name was interrupted` in the lead's transcript (no second `stopped` line); the folded `N idle agents` count leaves out the teammate that is open, since it has its own row; the expanded idle row no longer repeats its first line. `.changeset/cli-team-boxes.md`.

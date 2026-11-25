@@ -977,3 +977,39 @@ describe('the CLI sub-agent activity monitor', () => {
 		expect(monitor.getSnapshot()[0]?.model).toBe('test-child-model')
 	})
 })
+
+describe('a teammate task receipt', () => {
+	it('reads as the task number, never the long id, in the teammate transcript', async () => {
+		const { agentTranscriptRows } = await import('../../../tui/AgentExplorer.js')
+		const monitor = new SubagentActivityMonitor()
+		const tracker = monitor.begin({ agentId: 'worker', description: 'work', prompt: 'do it' })
+		const id = '01a20fa6-1f01-76dd-9177-e656e02647ba'
+		tracker.onEvent({
+			type: 'tool_executing',
+			sessionId,
+			turnId,
+			iteration: 1,
+			toolUseId: 'tool-task',
+			toolName: 'task_update',
+			input: { id, status: 'completed' },
+			isDestructive: false,
+		} as SessionEvent)
+		tracker.onEvent({
+			type: 'tool_completed',
+			sessionId,
+			turnId,
+			iteration: 1,
+			toolUseId: 'tool-task',
+			toolName: 'task_update',
+			isError: false,
+			result: `Task #2 (id ${id}) updated — status: completed`,
+		} as SessionEvent)
+		const snapshot = monitor.getSnapshot()[0]
+		if (!snapshot) throw new Error('no activity')
+		const shown = agentTranscriptRows(snapshot, 100, { name: 'one' })
+			.map((row) => row.text)
+			.join('\n')
+		expect(shown).toContain('Task #2 updated — status: completed')
+		expect(shown).not.toContain(id)
+	})
+})
