@@ -27,6 +27,9 @@ function run(
 	})
 }
 
+// The fixture leaves through bin-main's own exitProcess, so removing the flush there fails the first
+// case. The second case only guards the no-op error listener (a gone reader must not crash the exit);
+// whether the child sees EPIPE depends on timing, so it proves nothing about the flush itself.
 // Real subprocess I/O through a pipe: the default per-test timeout is for in-process work.
 describe('flushStdio before exit', () => {
 	it('delivers every byte written to a pipe and keeps the exit code', async () => {
