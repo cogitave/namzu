@@ -2965,6 +2965,12 @@ export interface AgentSessionOptions {
 	 */
 	readonly skills?: SkillsConfig
 	/**
+	 * The same config as of now, asked again each turn. The `/skills` screen's
+	 * save changes it while the session runs; without it the session offers
+	 * what the config said when it started.
+	 */
+	readonly skillsNow?: () => SkillsConfig | undefined
+	/**
 	 * Judge the answer a turn is about to settle with, and hand it back with
 	 * feedback when it is not good enough.
 	 *
@@ -5730,7 +5736,7 @@ export async function createAgentSession(
 	// capability.
 	const skillCatalog = await createSessionSkillCatalog({
 		cwd,
-		...(options.skills ? { config: options.skills } : {}),
+		...(options.skillsNow || options.skills ? { config: options.skillsNow ?? options.skills } : {}),
 		log: cliLogger(),
 	})
 	// One `skill` tool for file and plugin skills alike, told which directory

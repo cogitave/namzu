@@ -218,7 +218,7 @@ export type SlashAction =
 	| { kind: 'import-notes' }
 	| { kind: 'list-skills' }
 	| { kind: 'plugins'; list: boolean; name?: string }
-	| { kind: 'skill-picker' }
+	| { kind: 'skills-manager' }
 	| { kind: 'load-skill'; name: string }
 	/** `/skills new [idea]`: start the skill-creator interview. */
 	| { kind: 'new-skill'; idea: string }
@@ -1566,15 +1566,17 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 				'/skills <name>',
 			],
 			details: [
+				'/skills opens the skills screen: Space changes the selected skill (on, name-only, user-only, off), / searches, t sorts by listing cost, Esc saves the changes for this project and closes. name-only tells the model the skill exists without its description; user-only keeps it from the model while /<name> still runs it; off hides it from both. To activate a skill for this conversation use /<name> or /skills <name>.',
 				'/skills new starts the skill-creator interview; the model drafts a SKILL.md and nothing is saved until you choose where on its confirmation screen.',
 				'/skills save turns what this conversation just did into a skill, generalised and without secrets or tool output, ending on the same confirmation screen.',
 				'/skills save off stops the proposal printed after a multi-step task, in your user config; /skills save on turns it back on.',
 			],
 		},
-		description: 'Choose an available skill; /skills list shows them all, /skills new makes one.',
+		description:
+			'Turn skills on, name-only, user-only or off for this project; /skills <name> activates one, /skills new makes one.',
 		action: (_ctx, args) => {
 			const choice = args.join(' ').trim()
-			if (choice.length === 0) return { kind: 'skill-picker' }
+			if (choice.length === 0) return { kind: 'skills-manager' }
 			if (choice.toLowerCase() === 'list') return { kind: 'list-skills' }
 			if (args[0]?.toLowerCase() === 'new')
 				return { kind: 'new-skill', idea: args.slice(1).join(' ').trim() }

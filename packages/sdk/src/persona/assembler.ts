@@ -58,9 +58,15 @@ export function renderSkillsSection(skills?: Skill[]): string | null {
 			const lines = [
 				'<skill>',
 				`<name>${s.metadata.name}</name>`,
-				`<description>${skillModelDescription(s.metadata)}</description>`,
+				...(s.metadata.listing === 'name-only'
+					? []
+					: [`<description>${skillModelDescription(s.metadata)}</description>`]),
 				`<location>${s.dirPath}/SKILL.md</location>`,
 			]
+			if (s.metadata.listing === 'name-only') {
+				lines.push('</skill>')
+				return lines.join('\n')
+			}
 			if (s.metadata.compatibility) {
 				lines.push(`<compatibility>${s.metadata.compatibility}</compatibility>`)
 			}

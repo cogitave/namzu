@@ -426,7 +426,7 @@ it('opens bare /feedback as a finite chooser for the completed answer', async ()
 	])
 })
 
-it('opens bare /skills and activates the selected discovered skill', async () => {
+it('opens bare /skills as the skills screen and leaves "No changes" when nothing moved', async () => {
 	const screen = await renderToScreen(<App ctx={ctx} />, {
 		cols: 120,
 		rows: 28,
@@ -437,15 +437,41 @@ it('opens bare /skills and activates the selected discovered skill', async () =>
 	screen.press('/skills')
 	await screen.waitForRender()
 	screen.press('\r')
-	await waitUntil(screen, () => painted(screen).includes('Inspect the problem · project'))
+	await waitUntil(screen, () => screen.viewport().join('\n').includes('Search skills'))
 
 	const output = screen.viewport().join('\n')
+	expect(output).toContain('2 skills')
 	expect(output).toContain('analysis')
-	expect(output).toContain('Inspect the problem · project')
+	expect(output).toContain('project')
 	expect(output).toContain('release-check')
-	expect(output).toContain('Verify a release candidate · user')
+	expect(output).toContain('Space to change')
+	expect(output).not.toContain('Activate a skill')
 
-	screen.press('release-check')
+	// A full round of Space leaves nothing to save, so no file is written.
+	for (let i = 0; i < 4; i++) {
+		screen.press(' ')
+		await screen.waitForRender()
+	}
+	screen.press('\x1b')
+	// The lone Esc is held back by the key parser until it is known not to start a
+	// sequence; wait for the repaint it causes. Vitest's own timeout catches a real hang.
+	while (screen.viewport().join('\n').includes('Search skills')) {
+		await screen.waitForRender()
+		await new Promise<void>((resolve) => setImmediate(resolve))
+	}
+	expect(`${painted(screen)}\n${screen.viewport().join('\n')}`).toContain('No changes')
+	expect(skillLoads).toEqual([])
+})
+
+it('activates a named skill with /skills <name>', async () => {
+	const screen = await renderToScreen(<App ctx={ctx} />, {
+		cols: 120,
+		rows: 28,
+	})
+	mounted = screen
+	await waitUntil(screen, () => painted(screen).includes('gpt-test'))
+
+	screen.press('/skills release-check')
 	await screen.waitForRender()
 	screen.press('\r')
 	await waitUntil(screen, () => painted(screen).includes('Activated skill: release-check'))

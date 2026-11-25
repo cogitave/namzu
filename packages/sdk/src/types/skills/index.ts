@@ -38,6 +38,14 @@ export interface SkillMetadata {
 	 */
 	invocation?: SkillInvocation
 
+	/**
+	 * How much of the skill the prompt's manifest lists. `name-only` lists the
+	 * name and where the skill lives but leaves its description out, so the
+	 * skill costs a few tokens a turn and the model still can load it by name.
+	 * Absent means the whole entry. A host sets this; a `SKILL.md` does not.
+	 */
+	listing?: 'full' | 'name-only'
+
 	metadata?: Record<string, string>
 
 	/**

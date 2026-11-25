@@ -57,7 +57,7 @@ export const SKILL_MANIFEST_MAX_CHARS = 4096
 /** Share of the context window the manifest may take. */
 export const SKILL_MANIFEST_WINDOW_SHARE = 0.02
 /** The kernel's own chars-per-token estimate. */
-const CHARS_PER_TOKEN = 4
+export const CHARS_PER_TOKEN = 4
 
 /** min(2% of the window, 4 KB), in characters. */
 export function skillManifestBudget(contextWindowTokens: number): number {
@@ -72,6 +72,13 @@ export function skillManifestBudget(contextWindowTokens: number): number {
  */
 export function manifestEntryChars(skill: Skill): number {
 	const m = skill.metadata
+	if (m.listing === 'name-only') {
+		return (
+			'<skill>\n<name></name>\n<location>/SKILL.md</location>\n</skill>\n'.length +
+			m.name.length +
+			skill.dirPath.length
+		)
+	}
 	let chars =
 		'<skill>\n<name></name>\n<description></description>\n<location>/SKILL.md</location>\n</skill>\n'
 			.length +
@@ -82,6 +89,22 @@ export function manifestEntryChars(skill: Skill): number {
 	if (m.license) chars += '<license></license>\n'.length + m.license.length
 	if (m.allowedTools) chars += '<allowed_tools></allowed_tools>\n'.length + m.allowedTools.length
 	return chars
+}
+
+/**
+ * A skill as `skills.overrides` says it is offered: `user-only` makes it
+ * operator-invocable only, so the manifest leaves it out and the `skill` tool
+ * refuses it by name; `name-only` lists it without its description.
+ */
+export function withOverride<T extends Skill>(
+	skill: T,
+	state: 'name-only' | 'user-only' | undefined,
+): T {
+	if (state === 'user-only')
+		return { ...skill, metadata: { ...skill.metadata, invocation: 'operator' } }
+	if (state === 'name-only')
+		return { ...skill, metadata: { ...skill.metadata, listing: 'name-only' } }
+	return skill
 }
 
 /** The tools a skill says the session must have; see the module comment. */
@@ -137,7 +160,12 @@ export interface SessionSkillCatalog {
 export interface SessionSkillCatalogOptions {
 	readonly cwd: string
 	readonly home?: string
-	readonly config?: SkillsConfig
+	/**
+	 * The skills config, or a function that answers with it as of now: the
+	 * catalog asks again each turn, so a change made while the session runs (the
+	 * `/skills` screen's save) reaches the next turn.
+	 */
+	readonly config?: SkillsConfig | (() => SkillsConfig | undefined)
 	readonly systemDir?: string
 	readonly log?: Logger
 }
@@ -154,24 +182,29 @@ export interface SessionSkillCatalogOptions {
 export async function createSessionSkillCatalog(
 	options: SessionSkillCatalogOptions,
 ): Promise<SessionSkillCatalog> {
-	const discovery: SkillDiscoveryOptions = {
-		cwd: options.cwd,
-		...(options.home !== undefined ? { home: options.home } : {}),
-		...(options.config ? { config: options.config } : {}),
-		...(options.systemDir !== undefined ? { systemDir: options.systemDir } : {}),
+	const discovery = (): SkillDiscoveryOptions => {
+		const config = typeof options.config === 'function' ? options.config() : options.config
+		return {
+			cwd: options.cwd,
+			...(options.home !== undefined ? { home: options.home } : {}),
+			...(config ? { config } : {}),
+			...(options.systemDir !== undefined ? { systemDir: options.systemDir } : {}),
+		}
 	}
 	const files = new SkillRegistry(options.log)
 	let registered: SkillInfo[] = []
 	/** The path each registered name was read from, to notice a new winner. */
 	const registeredPaths = new Map<string, string>()
 	let order: string[] = []
+	/** The `skills.overrides` state of each registered name that has one. */
+	let states = new Map<string, 'name-only' | 'user-only'>()
 
 	// Re-run every turn: a skill written while the session runs (`save_skill`,
 	// or the operator's editor) reaches the next turn, a new winner in a
 	// higher tier replaces the one it shadows, and a removed file is dropped.
 	// Discovery reads a handful of small files; a turn costs far more.
 	const sync = async (): Promise<void> => {
-		const candidates = discoverSkills(discovery)
+		const candidates = discoverSkills(discovery())
 			.filter((skill) => skill.problem === undefined && skill.disabled !== true)
 			// Highest precedence first: when the budget runs out, the project's own
 			// skills are the last to lose their description.
@@ -207,6 +240,9 @@ export async function createSessionSkillCatalog(
 		}
 		registered = next
 		order = next.map((skill) => skill.name)
+		states = new Map(
+			next.flatMap((skill) => (skill.state ? [[skill.name, skill.state] as const] : [])),
+		)
 	}
 	await sync()
 
@@ -234,7 +270,7 @@ export async function createSessionSkillCatalog(
 				// under "Loaded Skills" — every later request would then carry a
 				// second copy of what the tool result already put in the history.
 				const { body: _body, ...metadataOnly } = loaded.skill
-				fileSkills.push(metadataOnly)
+				fileSkills.push(withOverride(metadataOnly, states.get(name)))
 			}
 			const offered = new Set(fileSkills.map((skill) => skill.metadata.name))
 
@@ -299,9 +335,13 @@ export async function createSessionSkillCatalog(
 			const registry: SkillRegistryRef = {
 				names: () => [...offered, ...(plugins ? plugins.names() : []), ...serverNames],
 				async catalog() {
-					const fileEntries = (await files.catalog()).filter((entry) =>
-						offered.has(entry.registeredName),
-					)
+					const fileEntries = (await files.catalog())
+						.filter((entry) => offered.has(entry.registeredName))
+						.map((entry) =>
+							states.get(entry.registeredName) === 'user-only'
+								? { ...entry, invocation: 'operator' as const }
+								: entry,
+						)
 					const pluginEntries = plugins ? await plugins.catalog() : []
 					// No `directory`: a server's skill is not a folder any tool can open.
 					const serverEntries = serverSkills.map((skill) => ({
@@ -312,7 +352,15 @@ export async function createSessionSkillCatalog(
 					return [...fileEntries, ...pluginEntries, ...serverEntries]
 				},
 				async load(name) {
-					if (offered.has(name)) return files.load(name)
+					if (offered.has(name)) {
+						const loaded = await files.load(name)
+						// The registry reads the file, which knows nothing of the operator's
+						// `skills.overrides`: a `user-only` skill must refuse the model's
+						// `skill` call by name, not only be missing from its listing.
+						return loaded
+							? { ...loaded, skill: withOverride(loaded.skill, states.get(name)) }
+							: loaded
+					}
 					if (plugins?.has(name)) return plugins.load(name)
 					if (serverNames.has(name) && mcpView) {
 						const loaded = await mcpView.load(name)

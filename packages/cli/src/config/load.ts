@@ -140,6 +140,8 @@ import {
 	type HooksConfig,
 	LEGACY_DECISION_POINT_NAMES,
 	type NamzuCliConfig,
+	SKILL_OVERRIDE_STATES,
+	type SkillOverride,
 	type WebConfig,
 } from './schema.js'
 import {
@@ -968,6 +970,7 @@ const COMPOSER_TRIGGERS_KEYS: readonly string[] = ['enabled', 'suggest', 'langua
 const SKILLS_CONFIG_KEYS: readonly string[] = [
 	'builtin',
 	'disabled',
+	'overrides',
 	'suggest',
 	'suggestMinToolCalls',
 ]
@@ -2446,6 +2449,7 @@ const CONFIG_READERS: ConfigReaders = {
 		const raw = v as {
 			builtin?: unknown
 			disabled?: unknown
+			overrides?: unknown
 			suggest?: unknown
 			suggestMinToolCalls?: unknown
 		}
@@ -2474,8 +2478,30 @@ const CONFIG_READERS: ConfigReaders = {
 		) {
 			return invalidConfigValue(context, ['disabled'], 'must be a list of skill names')
 		}
+		let overrides: Record<string, SkillOverride> | undefined
+		if (raw.overrides !== undefined) {
+			if (!isConfigMapping(raw.overrides)) {
+				return invalidConfigValue(
+					context,
+					['overrides'],
+					'must be a mapping from a skill name to a state',
+				)
+			}
+			overrides = {}
+			for (const [name, state] of Object.entries(raw.overrides)) {
+				if (!(SKILL_OVERRIDE_STATES as readonly unknown[]).includes(state)) {
+					return invalidConfigValue(
+						context,
+						['overrides', name],
+						`must be one of ${SKILL_OVERRIDE_STATES.join(', ')}`,
+					)
+				}
+				overrides[name] = state as SkillOverride
+			}
+		}
 		return {
 			...(raw.builtin !== undefined ? { builtin: raw.builtin as boolean } : {}),
+			...(overrides !== undefined ? { overrides } : {}),
 			...(raw.disabled !== undefined
 				? { disabled: (raw.disabled as string[]).map((name) => name.trim()) }
 				: {}),
@@ -3539,6 +3565,20 @@ function mergeConfigs(...layers: readonly ConfigLayer[]): {
 				configWarnings.add(
 					`teams in ${describeSource(layer.sourceFor(key))} is ignored: only your own config file or the managed file can set it.`,
 				)
+				continue
+			}
+			if (key === 'skills' && layer.config.skills !== undefined) {
+				// A stronger layer's keys replace the weaker one's, and the per-skill states
+				// merge by name: the project's local file that `/skills` writes holds only
+				// `overrides`, and must not drop the user's `builtin` or `disabled`.
+				out.skills = {
+					...out.skills,
+					...layer.config.skills,
+					...(out.skills?.overrides || layer.config.skills.overrides
+						? { overrides: { ...out.skills?.overrides, ...layer.config.skills.overrides } }
+						: {}),
+				}
+				provenance[key] = layer.sourceFor(key)
 				continue
 			}
 			if (key === 'teams' && layer.config.teams !== undefined) {

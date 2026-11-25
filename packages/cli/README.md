@@ -143,7 +143,7 @@ These commands cover most sessions:
 | `/branch` | Copy this conversation in place and keep going in the copy. |
 | `/tasks` | Show background commands, monitors and subagents. |
 | `/worktree` | Create a managed Git worktree for a separate checkout. |
-| `/skills` | Activate a skill for this conversation. |
+| `/skills` | Turn skills on, name-only, user-only or off for this project; `/skills <name>` activates one. |
 | `/review` | Review uncommitted work, a branch or a commit. |
 | `/memory` | Show what Namzu remembers for this project. |
 | `/status` | Show the model, permissions, files and latest cost. |

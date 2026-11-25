@@ -125,7 +125,7 @@ import {
 import type { PlanApprovalAnswer, PlanApprovalFn, PlanApprovalRequest } from '../plan/approval.js'
 
 import { resolveComposerTriggers, withWorkflowKeywordSwitch } from '../config/composer-triggers.js'
-import type { DecisionConfig } from '../config/schema.js'
+import type { DecisionConfig, SkillOverride } from '../config/schema.js'
 import { hypermodeRefusal } from '../config/session-options.js'
 import { setUserConfigValue } from '../config/user-config.js'
 import { messageTimeNote, previousSentAt } from '../context/message-time.js'
@@ -382,6 +382,7 @@ import {
 	type WakeSnapshot,
 } from '../rounds/wake-ledger.js'
 import { schedulePaths } from '../schedule/paths.js'
+import { saveSkillOverrides } from '../skills/overrides.js'
 import {
 	SKILL_CREATOR_SKILL,
 	type SaveSkillAnswer,
@@ -396,7 +397,6 @@ import {
 	discoverSkills,
 	loadSkillBody,
 	renderSkillRoster,
-	skillTierLabel,
 } from '../skills/store.js'
 import { loadTypedCommand } from '../skills/typed-command-load.js'
 import { hooksOf } from '../skills/use-hooks.js'
@@ -472,6 +472,7 @@ import {
 	ScheduleReviewOverlay,
 	type ScheduleReviewRequest,
 } from './ScheduleReviewOverlay.js'
+import { SkillsManager } from './SkillsManager.js'
 import { StatusBar } from './StatusBar.js'
 import { TaskList, type TaskListItem, taskListRows } from './TaskList.js'
 import { TextPrompt } from './TextPrompt.js'
@@ -716,6 +717,14 @@ import {
 import { SelfMendingPauseRow } from './self-mending-pause-row.js'
 import { SHELL_LIVE_LINES, type ShellOutput } from './shell-cell.js'
 import { createShellExpansionSlot } from './shell-expansion-slot.js'
+import {
+	type ManagerKey,
+	type ManagerState,
+	closingLine,
+	manage as manageSkills,
+	openManager as openSkillsManager,
+	pendingChanges as pendingSkillChanges,
+} from './skills-manager.js'
 import {
 	SUGGESTIONS_STOPPED_NOTICE,
 	type TurnActivity,
@@ -1351,7 +1360,8 @@ type ChoicePickerState = {
 			readonly options: readonly ChoicePickerOption[]
 	  }
 	| {
-			readonly kind: 'skill'
+			/** Bare `/skills`: the state lives in `skillsManager`, the keys are read there. */
+			readonly kind: 'skills-manager'
 			readonly title: string
 			readonly notice?: string
 			readonly values: readonly string[]
@@ -2701,6 +2711,13 @@ function AppBody({
 	useEffect(() => {
 		copyPickerCommittedRef.current = copyPicker
 	}, [copyPicker])
+	/** Bare `/skills`: the rows and the cursor, read synchronously by the key handler. */
+	const [skillsManager, setSkillsManagerState] = useState<ManagerState | null>(null)
+	const skillsManagerRef = useRef<ManagerState | null>(null)
+	const setSkillsManager = useCallback((next: ManagerState | null) => {
+		skillsManagerRef.current = next
+		setSkillsManagerState(next)
+	}, [])
 	/** Finite slash-command choice owned synchronously until apply or cancel. */
 	const [providerSetup, setProviderSetup] = useState(false)
 	const [choicePicker, setChoicePickerState] = useState<ChoicePickerState | null>(null)
@@ -6686,10 +6703,6 @@ function AppBody({
 				recordFeedback(picker.sessionId, picker.messageId, value as 'good' | 'bad')
 				return
 			}
-			if (picker.kind === 'skill') {
-				activateSkill(value as string)
-				return
-			}
 			if (picker.kind === 'credential-logout') {
 				removeStoredCredential(value as SubscriptionProviderId | 'google' | ApiKeyLogoutTarget)
 				return
@@ -6703,6 +6716,8 @@ function AppBody({
 				accountActionsRef.current?.choose(picker, value as string)
 				return
 			}
+			// The skills screen has its own keys and never reaches here.
+			if (picker.kind === 'skills-manager') return
 			if (picker.kind === 'reasoning-effort' && value === HYPERMODE_VALUE) {
 				applyHypermode(!hypermodeRef.current, picker.selectedSession)
 				return
@@ -6710,7 +6725,6 @@ function AppBody({
 			applyReasoningEffort(value as ReasoningEffort | undefined, picker.selectedSession)
 		},
 		[
-			activateSkill,
 			advanceQueueContinuation,
 			appLifetime.signal,
 			applyHypermode,
@@ -7325,6 +7339,7 @@ function AppBody({
 							toolServers: 'background',
 							...(activeCtx.plugins ? { plugins: activeCtx.plugins } : {}),
 							...(activeCtx.skills ? { skills: activeCtx.skills } : {}),
+							skillsNow: () => ctxRef.current.skills,
 							...(activeCtx.web ? { web: activeCtx.web } : {}),
 							...(activeCtx.smallModel ? { smallModel: activeCtx.smallModel } : {}),
 							...(activeCtx.hooks ? { hooks: activeCtx.hooks } : {}),
@@ -15741,7 +15756,7 @@ function AppBody({
 						}
 						return
 					}
-					case 'skill-picker': {
+					case 'skills-manager': {
 						const skills = discoverSkills({
 							cwd: ctx.cwd,
 							...(ctx.skills ? { config: ctx.skills } : {}),
@@ -15750,19 +15765,13 @@ function AppBody({
 							pushMessage('system', NO_SKILLS_FOUND)
 							return
 						}
-						const activeNames = new Set(activeSkills.map((skill) => skill.name))
 						setSelectedChoice(0)
+						setSkillsManager(openSkillsManager(skills, ctx.skills?.disabled))
 						setChoicePicker({
-							kind: 'skill',
-							title: 'Activate a skill',
-							values: skills.map((skill) => skill.name),
-							options: skills.map((skill) => ({
-								label: skill.name,
-								description: skill.problem
-									? `Unavailable: ${skill.problem}`
-									: `${skill.description} · ${skillTierLabel(skill.tier)}`,
-								current: activeNames.has(skill.name),
-							})),
+							kind: 'skills-manager',
+							title: 'Skills',
+							values: [],
+							options: [],
 						})
 						return
 					}
@@ -19010,6 +19019,62 @@ function AppBody({
 				// the synchronous ref is an ownership fence but not yet an actionable
 				// menu. Only the exact object React committed may consume a choice.
 				if (choicePickerCommittedRef.current !== picker) return
+				if (picker.kind === 'skills-manager') {
+					const manager = skillsManagerRef.current
+					if (!manager) return
+					if (isAction('app:interrupt', input, key)) {
+						// Ctrl+C leaves without saving; Esc is what saves.
+						setSkillsManager(null)
+						setChoicePicker(null)
+						return
+					}
+					const step = manageSkills(manager, {
+						input,
+						up: key.upArrow,
+						down: key.downArrow,
+						pageUp: key.pageUp,
+						pageDown: key.pageDown,
+						home: key.home,
+						end: key.end,
+						escape: key.escape,
+						return: key.return,
+						backspace: key.backspace,
+						delete: key.delete,
+						ctrl: key.ctrl,
+						meta: key.meta,
+					} satisfies ManagerKey)
+					if (!step.close) {
+						setSkillsManager(step.state)
+						return
+					}
+					const changes = pendingSkillChanges(step.state)
+					const saved = saveSkillOverrides(ctx.cwd, changes)
+					setSkillsManager(null)
+					setChoicePicker(null)
+					if (saved.ok && saved.changed > 0) {
+						// The next turn and `/skills <name>` read the new states at once.
+						const overrides: Record<string, SkillOverride> = {
+							...(ctxRef.current.skills?.overrides ?? {}),
+						}
+						for (const [name, wanted] of Object.entries(changes)) {
+							if (wanted === null) delete overrides[name]
+							else overrides[name] = wanted
+						}
+						// A name the weaker layers turn off needs an explicit `on` to stay on.
+						const next = {
+							...ctxRef.current,
+							skills: { ...ctxRef.current.skills, overrides },
+						}
+						ctxRef.current = next
+						setCtx(next)
+					}
+					const line = closingLine(
+						saved.ok ? saved.changed : 0,
+						saved.ok ? undefined : saved.message,
+					)
+					pushMessage('system', line.text)
+					return
+				}
 				const searchable = choicePickerSearchable(picker)
 				const options = filterChoiceOptions(picker.options, choiceQueryRef.current)
 				const applyVisibleChoice = (index: number) => {
@@ -20070,38 +20135,47 @@ function AppBody({
 								scheduleReviewPrompt === null &&
 								!childSurfaceOpen &&
 								choicePicker ? (
-								<ChoicePicker
-									busy={'busy' in choicePicker && choicePicker.busy === true}
-									columns={Math.max(1, (terminal.columns ?? 80) - SCREEN_MARGIN)}
-									title={choicePicker.title}
-									notice={choicePicker.notice}
-									{...(choicePicker.kind === 'workflow-runs'
-										? {
-												subtitle: choicePicker.subtitle,
-												hints: workflowRunsHints(workflowPickerCanStop, workflowPickerCanResume),
-											}
-										: {})}
-									{...(choicePicker.kind === 'peers-network' && choicePicker.body
-										? { body: choicePicker.body }
-										: {})}
-									{...(choicePicker.kind === 'account' ? { hints: ACCOUNT_PICKER_HINTS } : {})}
-									options={filterChoiceOptions(choicePicker.options, choiceQuery)}
-									describeSelected={
-										choicePicker.kind === 'user-question' || choicePicker.kind === 'peers-network'
-									}
-									query={choicePickerSearchable(choicePicker) ? choiceQuery : undefined}
-									selected={selectedChoice}
-									windowSize={
-										choicePicker.kind === 'command' || choicePicker.kind === 'theme'
-											? choicePicker.windowSize
-											: undefined
-									}
-									{...(choicePicker.kind === 'theme' && terminal.rows >= 26
-										? {
-												extra: <ThemeSample width={Math.max(10, (terminal.columns ?? 80) - 6)} />,
-											}
-										: {})}
-								/>
+								choicePicker.kind === 'skills-manager' ? (
+									skillsManager ? (
+										<SkillsManager
+											state={skillsManager}
+											columns={Math.max(1, (terminal.columns ?? 80) - SCREEN_MARGIN)}
+										/>
+									) : null
+								) : (
+									<ChoicePicker
+										busy={'busy' in choicePicker && choicePicker.busy === true}
+										columns={Math.max(1, (terminal.columns ?? 80) - SCREEN_MARGIN)}
+										title={choicePicker.title}
+										notice={choicePicker.notice}
+										{...(choicePicker.kind === 'workflow-runs'
+											? {
+													subtitle: choicePicker.subtitle,
+													hints: workflowRunsHints(workflowPickerCanStop, workflowPickerCanResume),
+												}
+											: {})}
+										{...(choicePicker.kind === 'peers-network' && choicePicker.body
+											? { body: choicePicker.body }
+											: {})}
+										{...(choicePicker.kind === 'account' ? { hints: ACCOUNT_PICKER_HINTS } : {})}
+										options={filterChoiceOptions(choicePicker.options, choiceQuery)}
+										describeSelected={
+											choicePicker.kind === 'user-question' || choicePicker.kind === 'peers-network'
+										}
+										query={choicePickerSearchable(choicePicker) ? choiceQuery : undefined}
+										selected={selectedChoice}
+										windowSize={
+											choicePicker.kind === 'command' || choicePicker.kind === 'theme'
+												? choicePicker.windowSize
+												: undefined
+										}
+										{...(choicePicker.kind === 'theme' && terminal.rows >= 26
+											? {
+													extra: <ThemeSample width={Math.max(10, (terminal.columns ?? 80) - 6)} />,
+												}
+											: {})}
+									/>
+								)
 							) : permission === null &&
 								scheduleReviewPrompt === null &&
 								!childSurfaceOpen &&
@@ -20766,15 +20840,9 @@ function withAccountLabel(
 }
 
 function choicePickerSearchable(picker: ChoicePickerState): boolean {
-	return [
-		'command',
-		'skill',
-		'plugin',
-		'review-branch',
-		'review-commit',
-		'account',
-		'model-live',
-	].includes(picker.kind)
+	return ['command', 'plugin', 'review-branch', 'review-commit', 'account', 'model-live'].includes(
+		picker.kind,
+	)
 }
 
 /** The text `/memory show` prints: curated files, then what the store holds. */
