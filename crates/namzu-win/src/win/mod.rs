@@ -616,11 +616,23 @@ impl Inner {
         let plan = namzu_win_core::act::plan(r, &facts).map_err(refusal)?;
         let before = act::read_state(&element, &actions);
         act::perform(&element, &plan).map_err(|e| act_error(&e))?;
-        let after = act::read_state(&element, &actions);
+        let mut after = act::read_state(&element, &actions);
+        let mut verified = namzu_win_core::act::verify(&plan, &before, &after);
+        // The call can return before the application shows its own new state,
+        // so a read-back that shows no effect is repeated for a short while
+        // rather than reported as a failure. The decision is core's.
+        let timeout = r.timeout_ms();
+        let mut waited = 0_u64;
+        while let Some(pause) = namzu_win_core::act::settle_pause(verified, waited, timeout) {
+            std::thread::sleep(Duration::from_millis(pause));
+            waited += pause;
+            after = act::read_state(&element, &actions);
+            verified = namzu_win_core::act::verify(&plan, &before, &after);
+        }
         Ok(ReplyBody::Act(ActReply {
             done: true,
             via: ActVia::Pattern,
-            verified: namzu_win_core::act::verify(&plan, &before, &after),
+            verified,
             after: Some(after),
             index,
             revision,
