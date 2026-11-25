@@ -2374,10 +2374,15 @@ export class ToolExecutor {
 		// stopped, stays stopped.
 		// The mode the turn is decided under answers a nested call as it answers the same
 		// call made directly: the tool that made this one reads, so the policy never saw it.
-		const modeRefusal = nestedCallModeRefusal(this.config.reviewMode?.(), {
-			readOnly: isTrustedReadOnly(nestedTool, preparedInput, this.toolSource(name)),
-			allowedByRule: gateResult?.decision === 'allow' && gateResult.matchedRule !== null,
-		})
+		// Asked only when there is a mode to answer to: with none, the call is decided as before.
+		const reviewMode = this.config.reviewMode?.()
+		const modeRefusal =
+			reviewMode === undefined
+				? undefined
+				: nestedCallModeRefusal(reviewMode, {
+						readOnly: isTrustedReadOnly(nestedTool, preparedInput, this.toolSource(name)),
+						allowedByRule: gateResult?.decision === 'allow' && gateResult.matchedRule !== null,
+					})
 		const runGranted =
 			modeRefusal === undefined &&
 			gateResult?.decision === 'review' &&
