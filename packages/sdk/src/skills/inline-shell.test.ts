@@ -419,6 +419,20 @@ describe('expandInlineShell', () => {
 			expect(warnings).toEqual(['Not run in /review: x (blocked by hook: not on a Friday)'])
 		})
 
+		it('names a refused fenced block by its first line and how many lines follow', async () => {
+			const warnings: string[] = []
+			const host = fakeHost(() => 'run')
+			await expandInlineShell('```!\necho one\necho two\necho three\n```', {
+				host,
+				commandName: 'review',
+				hook: async () => ({ kind: 'refuse', reason: 'read only here' }),
+				warn: (line) => warnings.push(line),
+			})
+			expect(warnings).toEqual([
+				'Not run in /review: echo one (+2 more lines) (blocked by hook: read only here)',
+			])
+		})
+
 		it('leaves a bare placeholder when the hook gave no reason', async () => {
 			const host = fakeHost(() => 'run')
 			const text = await expandInlineShell('!`x`', {

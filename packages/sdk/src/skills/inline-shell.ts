@@ -351,6 +351,17 @@ function cut(text: string, max: number): string {
 	return flat.length > max ? `${flat.slice(0, max - 1)}…` : flat
 }
 
+/** A command as one short line: its first line, and how many more lines a fenced block holds. */
+function commandLine(command: string): string {
+	const lines = command
+		.split('\n')
+		.map((line) => line.trim())
+		.filter((line) => line !== '')
+	const head = cut(lines[0] ?? '', INLINE_SHELL_COMMAND_SHOWN_CHARS)
+	const more = lines.length - 1
+	return more > 0 ? `${head} (+${more} more line${more === 1 ? '' : 's'})` : head
+}
+
 /** Trimmed standard output, then a `[stderr]` block when there is any standard error. */
 export function shapeShellOutput(stdout: string, stderr: string): string {
 	const out = stdout.trim()
@@ -398,7 +409,7 @@ export async function expandInlineShell(
 	let total = 0
 	for (const marker of markers) {
 		options.signal?.throwIfAborted()
-		const pattern = cut(marker.command, INLINE_SHELL_COMMAND_SHOWN_CHARS)
+		const pattern = commandLine(marker.command)
 		const beforeRun = async (): Promise<InlineShellHookVerdict> => {
 			if (options.hook === undefined) return { kind: 'run' }
 			return options.hook(marker.command)
