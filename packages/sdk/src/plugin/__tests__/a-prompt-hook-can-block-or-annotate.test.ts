@@ -75,6 +75,7 @@ describe('a shell hook on the prompt', () => {
 			'directory_added',
 			'instructions_loaded',
 			'user_prompt_expansion',
+			'pre_skill_shell_command',
 			'task_created',
 			'task_completed',
 			'teammate_idle',

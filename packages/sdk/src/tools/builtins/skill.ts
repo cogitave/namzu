@@ -3,9 +3,23 @@ import { z } from 'zod'
 
 import { parseAllowedTools } from '../../authorization/skill-grant.js'
 import { forkedSkillReportNote } from '../../compaction/loaded-skills.js'
+import {
+	type SkillShellHookOptions,
+	createSkillShellHook,
+	createToolSkillShellHost,
+	skillShellAllow,
+} from '../../skills/inline-shell-host.js'
+import {
+	type InlineShellBlock,
+	InlineShellError,
+	expandInlineShell,
+	findInlineShell,
+	substituteEscaped,
+} from '../../skills/inline-shell.js'
+import type { PluginSkillShellInvoker } from '../../types/plugin/index.js'
 import type { Sandbox } from '../../types/sandbox/index.js'
 import { isInvocableBy, skillInvocation } from '../../types/skills/index.js'
-import type { SkillHooksPlan, ToolContext } from '../../types/tool/index.js'
+import type { SkillHooksPlan, ToolContext, ToolResult } from '../../types/tool/index.js'
 import { defineTool } from '../defineTool.js'
 
 export { parseAllowedTools }
@@ -80,6 +94,38 @@ export interface SkillToolOptions {
 	 * given. The skill is still LOADED from the registry's own path.
 	 */
 	readonly resolveModelDirectory?: SkillDirectoryResolver
+	/**
+	 * Run the shell commands a skill's text holds (`!`cmd`` and a fenced block
+	 * opened with three backticks and a bang) while the skill loads. Absent, the
+	 * text is handed over as written and nothing runs.
+	 */
+	readonly shell?: SkillToolShellOptions
+}
+
+/** What the host says about the shell commands inside a skill's text. */
+export interface SkillToolShellOptions {
+	/** True while commands in skill text must not run; read at each load. */
+	readonly disabled?: () => boolean
+	/**
+	 * Where a skill came from, as the label a hook is told (`user`, `project`,
+	 * `plugin`, `system`), and whether its commands may run at all: a skill from
+	 * a tool server or other remote source, or a project's before its folder is
+	 * trusted, gets `block` and its commands become a placeholder. A host that
+	 * gives this function and answers `undefined` for a skill has not placed it,
+	 * and that skill's commands do not run either.
+	 */
+	readonly sourceOf?: (skill: string) =>
+		| {
+				readonly source?: string
+				readonly block?: InlineShellBlock
+		  }
+		| undefined
+	/** The hook manager of the session; absent, no hook is asked. */
+	readonly hooks?: () => SkillShellHookOptions['manager']
+	/** The session's id, as a hook is told it. */
+	readonly sessionId?: () => string
+	/** A line for the person: a refused command, a hook's own message. */
+	readonly warn?: (line: string) => void
 }
 
 const inputSchema = z.object({
@@ -315,6 +361,17 @@ function pageSkillBody(input: {
 
 export const SKILL_TOOL_NAME = 'skill'
 
+/**
+ * A skill that could not load because a command in it failed, was refused or
+ * was stopped, as the tool's own failure. `undefined` for anything else,
+ * including the turn's own cancellation, which belongs to the turn.
+ */
+function shellLoadFailure(error: unknown, context: ToolContext): ToolResult | undefined {
+	if (context.abortSignal.aborted) return undefined
+	if (!(error instanceof InlineShellError)) return undefined
+	return { success: false, output: '', error: error.message }
+}
+
 /** The tool a skill that sets `context: fork` is handed to. */
 const DELEGATION_TOOL_NAME = 'Agent'
 
@@ -324,6 +381,70 @@ const DELEGATION_TOOL_NAME = 'Agent'
  */
 export function createSkillTool(options: SkillToolOptions = {}) {
 	const resolveModelDirectory = options.resolveModelDirectory
+	// A load that ran commands is read again for each page of a long skill, and
+	// must not run them again: the first load's text is kept for its pages.
+	const expanded = new Map<string, string>()
+	const expandShell = async (input: {
+		readonly name: string
+		readonly body: string
+		readonly args: string | undefined
+		readonly directory: string | undefined
+		readonly allowedTools: readonly string[] | undefined
+		readonly invokedBy: PluginSkillShellInvoker
+		readonly context: ToolContext
+		readonly reuse: boolean
+	}): Promise<string> => {
+		const shell = options.shell
+		if (shell === undefined || findInlineShell(input.body).length === 0) return input.body
+		const key = `${input.name}\u0000${input.body}`
+		const kept = input.reuse ? expanded.get(key) : undefined
+		if (kept !== undefined) return kept
+		const where = shell.sourceOf?.(input.name)
+		// A host that answers where skills come from, and has no answer for this one, has not
+		// placed it: its commands do not run.
+		const block: InlineShellBlock | undefined =
+			shell.disabled?.() === true
+				? 'off'
+				: shell.sourceOf !== undefined && where === undefined
+					? 'remote'
+					: where?.block
+		const values: Record<string, string> = { $ARGUMENTS: input.args?.trim() ?? '' }
+		if (input.directory !== undefined) {
+			values['${CLAUDE_SKILL_DIR}'] = input.directory
+			values['${NAMZU_SKILL_DIR}'] = input.directory
+		}
+		const text = substituteEscaped(input.body, values)
+		const hook = createSkillShellHook({
+			manager: shell.hooks?.(),
+			sessionId: shell.sessionId?.() ?? String(input.context.sessionId),
+			...(input.context.turnId !== undefined ? { turnId: String(input.context.turnId) } : {}),
+			signal: input.context.abortSignal,
+			info: {
+				commandName: input.name,
+				...(where?.source !== undefined ? { commandSource: where.source } : {}),
+				invokedBy: input.invokedBy,
+			},
+		})
+		const allow = skillShellAllow(input.allowedTools, {
+			...(input.directory !== undefined ? { skillDirectory: input.directory } : {}),
+		})
+		const result = await expandInlineShell(text, {
+			host: createToolSkillShellHost({
+				context: input.context,
+				...(allow ? { allow } : {}),
+			}),
+			commandName: input.name,
+			...(block !== undefined ? { block } : {}),
+			...(hook
+				? { hook: (command: string) => hook(command, `skillshell_${crypto.randomUUID()}`) }
+				: {}),
+			...(shell.warn ? { warn: shell.warn } : {}),
+			signal: input.context.abortSignal,
+		})
+		if (expanded.size >= 8) expanded.delete(expanded.keys().next().value as string)
+		expanded.set(key, result)
+		return result
+	}
 	return defineTool({
 		name: SKILL_TOOL_NAME,
 		description:
@@ -514,7 +635,26 @@ export function createSkillTool(options: SkillToolOptions = {}) {
 					// The delegated prompt is known before the agent starts: the host
 					// recognises the agent that receives it, among any others that
 					// start at the same time, and binds the skill's hooks to that one.
-					const forkPrompt = forkedPrompt(forkHeader, argsLine, skill.body)
+					let forkBody = skill.body
+					if (forkBody !== undefined) {
+						try {
+							forkBody = await expandShell({
+								name: input.name,
+								body: forkBody,
+								args: input.args,
+								directory: skill.dirPath,
+								allowedTools: parseAllowedTools(skill.metadata.allowedTools),
+								invokedBy: 'model',
+								context,
+								reuse: false,
+							})
+						} catch (error) {
+							const failed = shellLoadFailure(error, context)
+							if (failed) return failed
+							throw error
+						}
+					}
+					const forkPrompt = forkedPrompt(forkHeader, argsLine, forkBody)
 					const forkHooks = hooksPlanFor(skill, context, true, forkPrompt)
 					const forkResult = await runForkedSkill({
 						name: input.name,
@@ -549,9 +689,28 @@ export function createSkillTool(options: SkillToolOptions = {}) {
 						),
 					)
 				: undefined
+			let loadedBody = skill.body ?? '(this skill has no body)'
+			if (skill.body !== undefined) {
+				try {
+					loadedBody = await expandShell({
+						name: input.name,
+						body: skill.body,
+						args: input.args,
+						directory: resolveModelDirectory ? modelDirectory : skill.dirPath,
+						allowedTools: allowed,
+						invokedBy: 'model',
+						context,
+						reuse: input.cursor !== undefined,
+					})
+				} catch (error) {
+					const failed = shellLoadFailure(error, context)
+					if (failed) return failed
+					throw error
+				}
+			}
 			const snapshot: SkillSnapshot = {
 				name: input.name,
-				body: skill.body ?? '(this skill has no body)',
+				body: loadedBody,
 				allowedTools: allowed,
 				// The model's path when the host gave one: `${CLAUDE_SKILL_DIR}` in a
 				// pattern is matched against a command line the model writes, and it

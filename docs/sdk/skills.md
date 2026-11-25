@@ -141,11 +141,19 @@ A pattern is honoured only for a tool that declares a command argument (`command
 
 The `skill` tool appends one notice to the body. It lists what is pre-approved (and says that deny and ask rules, plan and strict mode, and a call the tool marks destructive still apply), any ignored entries with their reasons, and always: "Every other tool remains available and is reviewed as usual; this skill does not limit which tools you may use." Outside a turn (no `ToolContext.grantSkillTools`) it says that the host applies no pre-approval. The manifest shows the field as `<pre_approved_tools>`, not `<allowed_tools>`, because the old tag read as a whitelist.
 
+# Shell commands inside a skill
+
+A skill body may hold shell commands, `` !`cmd` `` inline or a fenced block opened by three backticks and a bang, that run while the `skill` tool loads it. The host opts in with `createSkillTool({ shell })` (`SkillToolShellOptions`); without it the body is handed over as written and nothing runs. With it, the arguments the model passed (`$ARGUMENTS`) and the skill's folder (`${NAMZU_SKILL_DIR}`, `${CLAUDE_SKILL_DIR}`) are substituted first, **escaped** by `substituteEscaped`, so a value can never start a command; then each command runs in order as a nested call of the `bash` tool through `ToolContext.dispatchTool`, which means the turn's own authorization gate, sandbox and tool and nothing else. A command the gate denies, or would send to a review a nested call cannot open, fails the load (`success: false`, the reason in `error`); a non-zero exit fails it with the output; the first page's text is kept for the following pages, so a long skill's commands run once.
+
+The skill's `allowed-tools` is a pre-approval for these commands for that one load, through `ToolDispatchOptions.allow`. It answers only a call no rule decided (the gate said "review" with no rule matched); a deny, a rule that sends a call to review, the dangerous-command floor and a tool that always needs approval are never reopened. `ToolDispatchOptions.beforeRun` is the host's last word: asked after the call is allowed and before it starts, it returns `undefined` to let it run or the reason it must not, and then nothing is started and no tool event is written. The `pre_skill_shell_command` hook (see [Hook events](hooks.md#shell-commands-inside-a-skill)) is asked there.
+
+`SkillToolShellOptions`: `disabled()` (read at each load; each command becomes `SHELL_OFF_PLACEHOLDER`), `sourceOf(name)` (the label a hook is told, and a `block` of `remote` or `untrusted` for a skill whose commands must not run), `hooks()` (the session's hook manager), `sessionId()` and `warn(line)`. Limits: 256 commands per load, 32 768 characters per command, 4 000 000 characters of output in all (`INLINE_SHELL_MAX_COMMANDS`, `INLINE_SHELL_MAX_COMMAND_CHARS`, `INLINE_SHELL_MAX_OUTPUT_CHARS`). A host that loads text outside a turn (a typed command) uses the pure parts directly: `findInlineShell`, `substituteEscaped`, `expandInlineShell` with its own `InlineShellHost`, `skillShellAllow` and `createSkillShellHook`. See [Skills in the CLI](../cli/skills.md#shell-commands-inside-a-skill) for how the terminal uses them.
+
 # API
 
 | Symbol | Role |
 | --- | --- |
-| `createSkillTool({ resolveModelDirectory })` | Build the `skill` tool with the host's answer to which directory the model can open for each skill (`SkillToolOptions`, `SkillDirectoryResolver`, `SkillDirectoryRequest`, `SkillDirectoryContext`). `SkillTool` is `createSkillTool()`. |
+| `createSkillTool({ resolveModelDirectory, shell })` | Build the `skill` tool with the host's answer to which directory the model can open for each skill (`SkillToolOptions`, `SkillDirectoryResolver`, `SkillDirectoryRequest`, `SkillDirectoryContext`). `SkillTool` is `createSkillTool()`. |
 | `parseAllowedTools(value)` | Split the frontmatter value into entries. |
 | `compileSkillGrant(entries, { resolveTool, skillDirectory })` | Resolve names and compile patterns against a registry. Returns `{ entries, ignored }`. |
 | `SkillGrantSet` | The per-turn set: `grant(skill, compiled)`, `coveringSkill(call, toolDef)`, `clear()`, `list()`, `size`. |

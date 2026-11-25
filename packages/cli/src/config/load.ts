@@ -1060,6 +1060,10 @@ const CONFIG_READERS: ConfigReaders = {
 		if (typeof v === 'boolean') return v
 		return invalidConfigValue(context, [], 'must be a boolean')
 	},
+	disableSkillShellExecution: (v, context) => {
+		if (typeof v === 'boolean') return v
+		return invalidConfigValue(context, [], 'must be a boolean')
+	},
 	hooksManagedOnly: (v, context) => {
 		if (typeof v === 'boolean') return v
 		return invalidConfigValue(context, [], 'must be a boolean')
@@ -2943,6 +2947,9 @@ export const ENV_VARIABLE_NAMES: EnvVariableNames = {
 	disableHooks: 'NAMZU_DISABLE_HOOKS',
 	// Only the organisation-managed file may say it; the environment cannot.
 	hooksManagedOnly: undefined,
+	// Turning the commands inside skills off loosens nothing, but it is a standing decision about
+	// what a skill may do, written in a file where a project's runs are reviewed.
+	disableSkillShellExecution: undefined,
 	additionalDirectories: undefined,
 	// Absent here for the reason `additionalDirectories` is: the environment
 	// carries scalars, and a screen is a list of names whose meaning belongs
@@ -3476,6 +3483,10 @@ function mergeConfigs(...layers: readonly ConfigLayer[]): {
 				// Once on, no later layer turns it off.
 				continue
 			}
+			if (key === 'disableSkillShellExecution' && out.disableSkillShellExecution === true) {
+				// It only tightens: once on, no later layer (the managed one included) turns it off.
+				continue
+			}
 			if (
 				(key === 'cleanupPeriodDays' || key === 'promptHistory') &&
 				isProjectSource(layer.sourceFor(key))
@@ -3930,6 +3941,9 @@ export function projectLayerHolds(path: string, value: unknown): boolean {
 			return tail === 'auto' || tail === 'check' ? value === false : false
 		case 'disableHooks':
 			return value === false
+		case 'disableSkillShellExecution':
+			// A project may only switch the commands off, never on.
+			return value === true
 		case 'worktrees':
 		case 'cleanupPeriodDays':
 		case 'promptHistory':
