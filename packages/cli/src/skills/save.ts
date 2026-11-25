@@ -296,7 +296,7 @@ export function planSkillTargets(
 				const higher = !overwrite && SKILL_TIERS.indexOf(skill.tier) > rank
 				return {
 					effect: higher ? 'hidden-by' : 'replaces',
-					where: skillTierLabel(skill.tier),
+					where: skillTierLabel(skill.tier).replace(/^([^,]+), (.+)$/, '$1 ($2)'),
 					path: skill.path,
 					overwrite,
 				}

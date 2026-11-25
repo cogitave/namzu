@@ -23,6 +23,7 @@ import {
 	SkillDraftError,
 	buildSaveSkillTool,
 	composeSkillMarkdown,
+	describeCollision,
 	displayPath,
 	planSkillTargets,
 	skillWarnings,
@@ -149,6 +150,20 @@ describe('planSkillTargets', () => {
 		expect(targets.user.collisions).toEqual([
 			expect.objectContaining({ path: project, effect: 'hidden-by', overwrite: false }),
 		])
+	})
+
+	it('words a shared or legacy tier with the qualifier in parentheses', () => {
+		const shared = skillAt(join(home, '.agents', 'skills'), 'release-notes')
+		const legacy = skillAt(join(cwd, 'skills'), 'notes-two')
+		const sharedHit = planSkillTargets('release-notes', { cwd, home }).project.collisions[0]
+		const legacyHit = planSkillTargets('notes-two', { cwd, home }).user.collisions[0]
+		expect(sharedHit?.where).toBe('user (shared)')
+		expect(legacyHit?.where).toBe('project (legacy)')
+		expect(describeCollision(sharedHit as never, cwd)).toBe(
+			`replaces user (shared) skill ${shared}`,
+		)
+		expect(describeCollision(legacyHit as never, cwd)).toContain('project (legacy) skill')
+		expect(legacy).toBeTruthy()
 	})
 
 	it('shows the built-in skill a user save replaces', () => {

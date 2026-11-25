@@ -28,13 +28,13 @@ describe('the folder list', () => {
 describe('the skills switches', () => {
 	const installed = [
 		{ name: 'review', where: 'built-in' },
-		{ name: 'mine', where: '~/.namzu/skills' },
+		{ name: 'mine', where: 'user' },
 	]
 	it('lists every installed skill as on unless its name is in the file', () => {
 		expect(skillSwitchRows(installed, ['mine'])).toEqual({
 			installed: [
 				{ name: 'review', where: 'built-in', on: true },
-				{ name: 'mine', where: '~/.namzu/skills', on: false },
+				{ name: 'mine', where: 'user', on: false },
 			],
 			unknown: [],
 		})

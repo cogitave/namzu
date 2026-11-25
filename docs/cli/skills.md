@@ -548,7 +548,7 @@ also resets `suggest` to its default unless it sets it too.
 ## Listing
 
 `/skills list` in the TUI and `namzu skills list [--cwd <path>]` show each skill
-with its source and where it lives in words: `built-in`, `user`, `user, shared`
+with where it lives in words: `built-in`, `user`, `user, shared`
 (`~/.agents/skills`), `project`, `project, shared` (`.agents/skills`) and
 `project, legacy` (`./skills`); `namzu skills list` puts the file's path on the line below. With no skill the
 answer is `No skills yet. Create skills in .namzu/skills/ or ~/.namzu/skills/.` The words

@@ -63,7 +63,7 @@ describe('the skill-save card model', () => {
 					{
 						scope: 'user',
 						path: '~/x',
-						shadows: ['replaces ~/.namzu/skills skill ~/x (overwrites it)'],
+						shadows: ['replaces user skill ~/x (overwrites it)'],
 					},
 					{
 						scope: 'project',
@@ -75,7 +75,7 @@ describe('the skill-save card model', () => {
 		)
 		expect(view.shadows).toBe(true)
 		expect(view.targets[0]?.notes).toEqual([
-			'This replaces ~/.namzu/skills skill ~/x (overwrites it).',
+			'This replaces user skill ~/x (overwrites it).',
 		])
 		expect(view.targets[1]?.notes).toEqual(['Hidden by built-in skill /b, which keeps winning.'])
 		expect(view.warnings).toHaveLength(2)

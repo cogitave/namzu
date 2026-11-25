@@ -241,7 +241,7 @@ function renderSkillsText(cwd: string, skills: readonly SkillListItem[]): string
 	for (const skill of skills) {
 		const status = skill.disabled ? 'disabled · ' : skill.usable ? '' : 'unavailable · '
 		lines.push(
-			`  ${oneLine(skill.name)} [${skill.source} · ${skillTierLabel(skill.tier)}] — ${status}${oneLine(skill.description)}`,
+			`  ${oneLine(skill.name)} [${skillTierLabel(skill.tier)}] — ${status}${oneLine(skill.description)}`,
 			`    ${oneLine(skill.path)}`,
 		)
 		if (skill.problem) lines.push(`    reason: ${oneLine(skill.problem)}`)
