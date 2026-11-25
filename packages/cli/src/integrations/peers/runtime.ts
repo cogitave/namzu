@@ -193,16 +193,16 @@ export interface LivePeersOptions {
 /** The longest display name a record carries: it is drawn in a narrow sidebar and in a message header. */
 const TITLE_MAX = 40
 
-/** The session's display name: its conversation's name as one safe line, else the folder's. */
 /** Whether two recorded folders are the same real folder; one that cannot be resolved counts as different. */
 function sameFolder(a: string, b: string): boolean {
 	try {
-		return realpathSync(a) === realpathSync(b)
+		return realpathSync.native(a) === realpathSync.native(b)
 	} catch {
 		return false
 	}
 }
 
+/** The session's display name: its conversation's name as one safe line, else the folder's. */
 export function displayTitle(name: string | undefined, cwd: string): string {
 	const line = name === undefined ? '' : sanitizeLine(name, TITLE_MAX)
 	return line === '' ? basename(cwd) : line
@@ -228,7 +228,7 @@ export async function openLivePeers(options: LivePeersOptions) {
 	const runtime = resolvePeerRuntime(options.home, options.env ?? process.env)
 	const sessionId = generateSessionId()
 	const ref = derivePeerRef(sessionId)
-	const cwd = realpathSync(options.cwd)
+	const cwd = realpathSync.native(options.cwd)
 	const address =
 		process.platform === 'win32'
 			? pipePeerAddress(
