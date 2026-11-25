@@ -1,3 +1,6 @@
+import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { PassThrough } from 'node:stream'
 import type { Message } from '@namzu/sdk'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
@@ -7,7 +10,8 @@ import { execCommand } from '../exec.js'
 import { streamUserInput } from '../stream-input.js'
 import type { CommandContext } from '../types.js'
 
-const { sent, closed, created } = vi.hoisted(() => ({
+const { sent, closed, created, expanded } = vi.hoisted(() => ({
+	expanded: vi.fn(async (request: { text: string }) => request.text.replace(/!`[^`]*`/g, 'OUT')),
 	sent: [] as Message[][],
 	closed: vi.fn(async () => {}),
 	created: vi.fn(),
@@ -22,6 +26,7 @@ vi.mock('../../tui/agent.js', () => ({
 		created()
 		return fakeAgentSession({
 			close: closed,
+			skillShell: { expand: expanded },
 			send: async function* (messages: readonly Message[], options) {
 				sent.push([...messages])
 				options?.onConversationMessages?.([
@@ -61,6 +66,7 @@ beforeEach(() => {
 	sent.length = 0
 	closed.mockClear()
 	created.mockClear()
+	expanded.mockClear()
 	pipe = new PassThrough()
 	events = []
 	onDone = () => {}
@@ -192,4 +198,15 @@ it('reports invalid input-format in band when streaming output was explicitly re
 	expect(events.map((event) => event.kind)).toEqual(['error', 'done'])
 	expect(events[0]?.message).toContain('--input-format')
 	expect(created).not.toHaveBeenCalled()
+})
+
+it('runs the commands a later streamed command holds, as it does for the first', async () => {
+	const dir = realpathSync(mkdtempSync(join(tmpdir(), 'namzu-stream-shell-')))
+	mkdirSync(join(dir, '.namzu', 'commands'), { recursive: true })
+	writeFileSync(join(dir, '.namzu', 'commands', 'probe.md'), 'Status: !`echo hi`\n')
+	pipe.end('{"role":"user","content":"first"}\n{"role":"user","content":"/probe"}\n')
+	expect(await run(['--cwd', dir])).toBe(0)
+	expect(expanded).toHaveBeenCalledTimes(1)
+	expect(expanded.mock.calls[0]?.[0]).toMatchObject({ name: 'probe', invokedBy: 'other' })
+	expect(sent[1]?.at(-1)?.content).toBe('Status: OUT')
 })

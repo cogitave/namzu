@@ -5732,7 +5732,11 @@ export async function createAgentSession(
 			disabled: () => options.skillShellDisabled === true,
 			sourceOf: (name) => {
 				const file = skillCatalog.fileSkills.find((skill) => skill.name === name)
-				// Not a file skill: a plugin's, which carries its own trust.
+				// A plugin's skill carries its own trust. A name that is neither a file skill nor a
+				// plugin's is one this session cannot place, and nothing unplaced runs commands.
+				if (file === undefined && pluginRuntime?.skills.has(name) !== true) {
+					return { source: 'remote', block: shellBlockFor('remote', false) }
+				}
 				const origin = file === undefined ? 'plugin' : file.source
 				const block = shellBlockFor(origin, options.folderTrusted === true || isTrusted(cwd))
 				return { source: origin, ...(block ? { block } : {}) }
@@ -7050,6 +7054,7 @@ export async function createAgentSession(
 			: {}),
 		skillShell: createSessionSkillShell({
 			cwd: () => cwd,
+			roots: () => [cwd, ...directories],
 			disabled: () => options.skillShellDisabled === true,
 			trusted: () => options.folderTrusted === true || isTrusted(cwd),
 			gate: () => new AuthorizationGate(gateFor(sessionRules), cliLogger()),

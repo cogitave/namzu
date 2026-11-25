@@ -717,6 +717,7 @@ import {
 } from './schedule/source-deliveries.js'
 import { SelfMendingPauseRow } from './self-mending-pause-row.js'
 import { SHELL_LIVE_LINES, type ShellOutput } from './shell-cell.js'
+import { createShellExpansionSlot } from './shell-expansion-slot.js'
 import {
 	SUGGESTIONS_STOPPED_NOTICE,
 	type TurnActivity,
@@ -14385,7 +14386,7 @@ function AppBody({
 		readonly context?: string
 	} | null>(null)
 	/** A typed command whose shell commands have run, until its line is submitted again. */
-	const shellExpandedRef = useRef<{ readonly line: string; readonly text: string } | null>(null)
+	const shellExpandedSlot = useRef(createShellExpansionSlot()).current
 	const handleSubmitRef = useRef<
 		| ((
 				value: string,
@@ -14711,8 +14712,7 @@ function AppBody({
 				// The second pass of a line whose expansion hooks have answered is
 				// the same use, not another.
 				const secondPass =
-					expansionAnsweredRef.current?.line === dispatch ||
-					shellExpandedRef.current?.line === dispatch
+					expansionAnsweredRef.current?.line === dispatch || shellExpandedSlot.holds(dispatch)
 				if (commandName && !secondPass) tipHistory?.recordUse(commandName.toLowerCase())
 			}
 			if (slash) {
@@ -16034,13 +16034,13 @@ function AppBody({
 					case 'prompt': {
 						// The shell commands a skill or a command holds run first, while its text
 						// loads, and the line is submitted again with their output in place; that
-						// second pass finds the text in `shellExpandedRef`. A command that fails, or
+						// second pass finds the text in `shellExpandedSlot`. A command that fails, or
 						// is refused, is said and nothing is sent.
 						let promptText = slash.text
 						if (slash.shell && session?.skillShell) {
-							const done = shellExpandedRef.current
-							if (done !== null && done.line === dispatch) {
-								promptText = done.text
+							const done = shellExpandedSlot.take(dispatch)
+							if (done !== undefined) {
+								promptText = done
 							} else {
 								const shell = slash.shell
 								const skillShell = session.skillShell
@@ -16067,8 +16067,11 @@ function AppBody({
 										return
 									}
 									if (conversationGenRef.current !== generation) return
-									shellExpandedRef.current = { line: dispatch, text }
+									const entry = shellExpandedSlot.put(dispatch, text)
 									handleSubmitRef.current?.(value, attachments, mode, meta)
+									// Turned aside on the way (queued, blocked): the text is not kept for a later
+									// typing of the same line.
+									shellExpandedSlot.settle(entry)
 								})()
 								return
 							}
@@ -16081,7 +16084,7 @@ function AppBody({
 						const answered = expansionAnsweredRef.current
 						if (answered !== null && answered.line === dispatch) {
 							expansionAnsweredRef.current = null
-							shellExpandedRef.current = null
+							shellExpandedSlot.clear()
 							outgoing = answered.context ? `${promptText}\n\n${answered.context}` : promptText
 						} else if (slash.expansion && hooks) {
 							const expansion = slash.expansion
@@ -16092,6 +16095,7 @@ function AppBody({
 									.catch(() => ({}) as { blocked?: string; context?: string })
 								if (conversationGenRef.current !== generation) return
 								if (verdict.blocked !== undefined) {
+									shellExpandedSlot.clear()
 									pushMessage(
 										'system',
 										`A hook stopped /${expansion.commandName}: ${verdict.blocked}`,
@@ -16106,7 +16110,7 @@ function AppBody({
 							})()
 							return
 						} else {
-							shellExpandedRef.current = null
+							shellExpandedSlot.clear()
 							outgoing = promptText
 						}
 						if (slash.skillHooks) attachSkillHooks(slash.skillHooks)

@@ -236,3 +236,25 @@ describe('the hook', () => {
 		})
 	})
 })
+
+describe('what a command reaches past the working folders', () => {
+	it('fails the load for a removal or an outside path even when allowed-tools grants bash', async () => {
+		const { shell: run } = shell({ gate: () => gateWith() })
+		await expect(run.expand(request('!`rm -rf ~/x`', { allowedTools: 'Bash' }))).rejects.toThrow(
+			/review/,
+		)
+		await expect(
+			run.expand(request('!`echo hi > /etc/namzu-test-out`', { allowedTools: 'Bash' })),
+		).rejects.toThrow(/review/)
+	})
+
+	it('fails the load under an allow-all rule too', async () => {
+		const { shell: run } = shell()
+		await expect(run.expand(request('!`rm -rf ~/x`'))).rejects.toThrow(/review/)
+	})
+
+	it('still runs a command that stays inside the roots', async () => {
+		const { shell: run } = shell()
+		expect(await run.expand(request('!`echo ok > inside.txt && cat inside.txt`'))).toBe('ok')
+	})
+})

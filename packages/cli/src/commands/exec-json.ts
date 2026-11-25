@@ -765,11 +765,32 @@ export async function execJson(
 				...(ctx.config.skills ? { skills: ctx.config.skills } : {}),
 			})
 			if (nextExpansion.kind === 'refused') throw new Error(nextExpansion.reason)
+			// A streamed command holds shell markers like the first one: they run now, under the
+			// same rules, and a command that fails ends the stream in band.
+			let nextContent = nextExpansion.kind === 'expanded' ? nextExpansion.prompt : next.value
+			if (nextExpansion.kind === 'expanded' && nextExpansion.shell && session.skillShell) {
+				try {
+					nextContent = await session.skillShell.expand({
+						text: nextExpansion.prompt,
+						name: nextExpansion.shell.name,
+						origin: nextExpansion.shell.origin,
+						invokedBy: 'other',
+						...(nextExpansion.shell.allowedTools
+							? { allowedTools: nextExpansion.shell.allowedTools }
+							: {}),
+						...(nextExpansion.shell.directory ? { directory: nextExpansion.shell.directory } : {}),
+					})
+				} catch (error) {
+					throw new Error(
+						`/${nextExpansion.shell.name} did not load: ${error instanceof Error ? error.message : String(error)}`,
+					)
+				}
+			}
 			inputMessages = [
 				...history,
 				{
 					role: 'user',
-					content: nextExpansion.kind === 'expanded' ? nextExpansion.prompt : next.value,
+					content: nextContent,
 					timestamp: Date.now(),
 				},
 			]

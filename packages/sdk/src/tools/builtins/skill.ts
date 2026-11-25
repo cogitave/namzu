@@ -110,7 +110,9 @@ export interface SkillToolShellOptions {
 	 * Where a skill came from, as the label a hook is told (`user`, `project`,
 	 * `plugin`, `system`), and whether its commands may run at all: a skill from
 	 * a tool server or other remote source, or a project's before its folder is
-	 * trusted, gets `block` and its commands become a placeholder.
+	 * trusted, gets `block` and its commands become a placeholder. A host that
+	 * gives this function and answers `undefined` for a skill has not placed it,
+	 * and that skill's commands do not run either.
 	 */
 	readonly sourceOf?: (skill: string) =>
 		| {
@@ -398,7 +400,14 @@ export function createSkillTool(options: SkillToolOptions = {}) {
 		const kept = input.reuse ? expanded.get(key) : undefined
 		if (kept !== undefined) return kept
 		const where = shell.sourceOf?.(input.name)
-		const block: InlineShellBlock | undefined = shell.disabled?.() === true ? 'off' : where?.block
+		// A host that answers where skills come from, and has no answer for this one, has not
+		// placed it: its commands do not run.
+		const block: InlineShellBlock | undefined =
+			shell.disabled?.() === true
+				? 'off'
+				: shell.sourceOf !== undefined && where === undefined
+					? 'remote'
+					: where?.block
 		const values: Record<string, string> = { $ARGUMENTS: input.args?.trim() ?? '' }
 		if (input.directory !== undefined) {
 			values['${CLAUDE_SKILL_DIR}'] = input.directory

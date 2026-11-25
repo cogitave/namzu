@@ -9,4 +9,6 @@ What is new: `` !`cmd` `` inline and a fence opened by three backticks and a ban
 
 The switch: `disableSkillShellExecution: true` in your config, a project's or the managed file turns all of it off (each command becomes a line saying so); once on, no layer turns it off. The new hook event `pre_skill_shell_command` (`PreSkillShellCommand` in the common shape) is asked after permission and before the command starts and can refuse it or stop the load; with no such hook attached nothing changes.
 
-Nothing is removed. `@namzu/sdk` also adds `findInlineShell`, `substituteEscaped`, `expandInlineShell` and the other pieces a host needs, `createSkillTool({ shell })`, and `allow` and `beforeRun` on `ToolDispatchOptions`; a host that passes no `shell` sees no change.
+A command that reaches a protected path, a removal the floor stops, a path outside the working folders or an unreadable program fails the load on every route (typed, headless, `skill` tool), whatever the rules or `allowed-tools` say.
+
+Nothing is removed. `@namzu/sdk` also adds `findInlineShell`, `substituteEscaped`, `expandInlineShell` and the other pieces a host needs, `createSkillTool({ shell })`, `shellLineEscalation`, and `allow` and `beforeRun` on `ToolDispatchOptions`; a host that passes no `shell` sees no change.

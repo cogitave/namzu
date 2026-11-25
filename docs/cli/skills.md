@@ -397,6 +397,8 @@ Each command goes through the **same shell tool** a model's own call goes throug
 allowed-tools: Bash(git status *), Bash(git log *)
 ```
 
+A command that reaches a protected path, a removal the floor stops, a path outside the working folders or a program Namzu cannot read goes to a person even for a model's own call, so a load, which has no person, fails on it however it was started (typed, `namzu exec`, or the `skill` tool) and whatever the rules or `allowed-tools` say. Run such a command as a direct call instead.
+
 That grants the listed commands for **that load only**. It answers only what no rule decided: a command a rule denied or sent to review on purpose stays refused. A command the grant does not cover is refused like any other. In the model's own call the commands show as nested calls under the `skill` call.
 
 ### What replaces the marker
@@ -421,7 +423,7 @@ Commands run one after another, in order.
 | A project's skills and commands | only once the project's folder is trusted; before that each command is replaced by `[shell commands are not run until this folder is trusted ...]` |
 | A plugin's commands and skills | yes |
 | The skills that ship with Namzu | yes |
-| A skill from a tool server or any other remote source | **never**: each command is replaced by `[shell commands are not run in text that comes from a tool server or another remote source ...]` |
+| A skill from a tool server, any other remote source, or one Namzu cannot place | **never**: each command is replaced by `[shell commands are not run in text that comes from a tool server or another remote source ...]` |
 
 ### Turning it off
 

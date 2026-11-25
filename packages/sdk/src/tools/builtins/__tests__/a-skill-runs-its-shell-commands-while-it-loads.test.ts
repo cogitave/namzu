@@ -311,6 +311,19 @@ describe('a skill that holds shell commands', () => {
 			expect(result.output).toBe(SHELL_REMOTE_PLACEHOLDER)
 			expect(ran).toEqual([])
 		})
+
+		it('runs nothing for a skill the host did not place', async () => {
+			const ran: string[] = []
+			const result = await createSkillTool({ shell: { sourceOf: () => undefined } }).execute(
+				{ name: 'ship' },
+				contextOf(
+					registry('!`ls`'),
+					dispatchOf(() => 'allow', undefined, ran),
+				),
+			)
+			expect(result.output).toBe(SHELL_REMOTE_PLACEHOLDER)
+			expect(ran).toEqual([])
+		})
 	})
 
 	describe('the hook', () => {

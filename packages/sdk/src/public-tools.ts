@@ -84,6 +84,11 @@ export {
 } from './tools/builtins/bash.js'
 // Authorization and execution must agree after a session carries its shell cwd.
 export { effectiveBashWorkingDirectory } from './tools/builtins/bash-cwd.js'
+// The same reach questions the executor asks of a nested shell call, for a host that runs one without a turn.
+export {
+	type ShellLineEscalationContext,
+	shellLineEscalation,
+} from './runtime/query/shell-line-escalation.js'
 export {
 	CODE_ANALYSIS_TOOL_NAME,
 	CodeAnalysisTool,

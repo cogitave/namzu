@@ -5,7 +5,7 @@
  *
  * The model's own `skill` tool runs them as nested calls of the shell tool
  * inside its turn (`@namzu/sdk` `createToolSkillShellHost`). With no turn to
- * nest in, this does the same three steps in the same order, with the same
+ * nest in, this does the same steps in the same order, with the same
  * parts and no second shell:
  *
  * 1. the session's authorization gate decides (the operator's rules and the
@@ -13,6 +13,9 @@
  *    gate denies, or would send to a person, fails the load with the reason:
  *    a load cannot ask. A skill's `allowed-tools` answers only a command no
  *    rule decided, for this one load;
+ *    A command that reaches a protected path, a removal the floor stops or a
+ *    path outside the working folders then fails the load too, as the
+ *    executor's own review does for a nested call, whatever the rules say;
  * 2. `pre_skill_shell_command` hooks, when one is attached;
  * 3. the shell tool itself, in the sandbox the session runs in.
  */
@@ -34,6 +37,7 @@ import {
 	findInlineShell,
 	getBuiltinTools,
 	parseAllowedTools,
+	shellLineEscalation,
 	skillShellAllow,
 	skillShellOutcomeOf,
 } from '@namzu/sdk'
@@ -83,6 +87,8 @@ export interface SessionSkillShell {
 
 export interface SessionSkillShellDeps {
 	readonly cwd: () => string
+	/** The folders a command may reach: the working directory, then the added ones. */
+	readonly roots?: () => readonly string[]
 	/** `disableSkillShellExecution`, read at each load. */
 	readonly disabled: () => boolean
 	/** Whether the project folder is trusted. */
@@ -160,6 +166,21 @@ export function createSessionSkillShell(deps: SessionSkillShellDeps): SessionSki
 					return {
 						kind: 'denied',
 						reason: 'this command needs the person’s approval, which a skill cannot wait for',
+					}
+				}
+				// What the line reaches past the roots (a protected path, a removal, an outside
+				// path) goes to a person for a model's call and no rule or grant lifts it; a load
+				// has no person, so it fails, as the nested call does.
+				const reach = await shellLineEscalation(command, {
+					roots: deps.roots?.() ?? [deps.cwd()],
+					cwd: deps.cwd(),
+					sandboxed: sandboxPlan !== undefined,
+					dialect: bash.commandDialect?.({ sandboxed: sandboxPlan !== undefined }) ?? 'sh',
+				})
+				if (reach !== undefined) {
+					return {
+						kind: 'denied',
+						reason: `${reach}, which needs the person’s review, and a skill cannot wait for one. Run it as a direct call instead.`,
 					}
 				}
 				const checked = await beforeRun()
