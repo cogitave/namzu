@@ -198,8 +198,8 @@ the project's own check is run as a command of its own. A person who types
 `/verify-change` sees one line, "verify-change was replaced by /run", and a
 model that asks the `skill` tool for it by that name loads the same line. A skill
 of that name that a person or project wrote is found first and works as before.
-`/run` used to put a command from the latest answer in the prompt; that command
-is now `/cmd` ([Slash commands](slash-commands.md)).
+The old `/run` command, which put a shell command from the latest answer in the
+prompt, is removed. Type `! <command>` to run a command ([`!` lines](composer-prefixes.md)).
 
 ## Making a skill
 
