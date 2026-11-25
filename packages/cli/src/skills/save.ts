@@ -16,13 +16,24 @@
  */
 
 import { randomBytes } from 'node:crypto'
-import { closeSync, fsyncSync, mkdirSync, openSync, renameSync, rmSync, writeSync } from 'node:fs'
+import {
+	closeSync,
+	fsyncSync,
+	lstatSync,
+	mkdirSync,
+	openSync,
+	realpathSync,
+	renameSync,
+	rmSync,
+	writeSync,
+} from 'node:fs'
 import { homedir } from 'node:os'
-import { dirname, join, relative, sep } from 'node:path'
+import nodePath, { dirname, join, sep } from 'node:path'
 import {
 	type ToolDefinition,
 	type ToolResult,
 	defineTool,
+	findInlineShell,
 	mcpJsonSchemaToZod,
 	revealHiddenCharacters,
 	scanSchedulePrompt,
@@ -232,13 +243,90 @@ export function composeSkillMarkdown(
 	return markdown
 }
 
-function displayPath(path: string, cwd: string): string {
-	const rel = relative(cwd, path)
-	if (rel && !rel.startsWith('..') && !rel.startsWith(sep)) return `.${sep}${rel}`
-	const home = homedir()
-	const fromHome = relative(home, path)
-	if (fromHome && !fromHome.startsWith('..')) return `~${sep}${fromHome}`
+/**
+ * A path as the operator reads it: `./x` inside the working folder, `~/x`
+ * under the home folder, the full path anywhere else. `relative` answers with
+ * an absolute path when the two are on different drives and with `..` when
+ * the path is outside, and neither is ever dressed up as a short form.
+ */
+export function displayPath(
+	path: string,
+	cwd: string,
+	home: string = homedir(),
+	pathApi: nodePath.PlatformPath = nodePath,
+): string {
+	const inside = (rel: string): boolean =>
+		rel.length > 0 &&
+		!pathApi.isAbsolute(rel) &&
+		rel !== '..' &&
+		!rel.startsWith(`..${pathApi.sep}`) &&
+		!rel.startsWith('../')
+	const rel = pathApi.relative(cwd, path)
+	if (inside(rel)) return `.${pathApi.sep}${rel}`
+	const fromHome = pathApi.relative(home, path)
+	if (inside(fromHome)) return `~${pathApi.sep}${fromHome}`
 	return path
+}
+
+/** A save that would write somewhere other than the skills folder it names. */
+export class SkillPathError extends Error {
+	override readonly name = 'SkillPathError'
+}
+
+function lstatOrUndefined(path: string): ReturnType<typeof lstatSync> | undefined {
+	try {
+		return lstatSync(path)
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined
+		throw error
+	}
+}
+
+function isInside(root: string, path: string): boolean {
+	const rel = nodePath.relative(root, path)
+	return rel === '' || (!nodePath.isAbsolute(rel) && rel !== '..' && !rel.startsWith(`..${sep}`))
+}
+
+/**
+ * Refuse a write that would go through a symlink. Every component of `file`
+ * below `anchor` that exists is looked at with `lstat`; a link anywhere
+ * (a folder or the file itself) is refused, and the real path of the deepest
+ * existing folder must stay inside the real `anchor`. `anchor` is the folder
+ * trusted to be what it says: the working folder for a project skill, the
+ * skills folder itself for a user skill (which may be a link the operator
+ * made on purpose).
+ */
+export function assertNoSymlinkBelow(anchor: string, file: string): void {
+	const rel = nodePath.relative(anchor, file)
+	if (rel === '' || nodePath.isAbsolute(rel) || rel === '..' || rel.startsWith(`..${sep}`)) {
+		throw new SkillPathError(`${file} is not inside ${anchor}.`)
+	}
+	let current = anchor
+	let deepest = anchor
+	for (const part of rel.split(sep)) {
+		current = join(current, part)
+		const stat = lstatOrUndefined(current)
+		if (stat === undefined) break
+		if (stat.isSymbolicLink()) {
+			throw new SkillPathError(
+				`${current} is a symbolic link; a skill is never written through one. Remove the link or save somewhere else.`,
+			)
+		}
+		deepest = current
+	}
+	const realAnchor = realOrSelf(anchor)
+	const realDeepest = realOrSelf(deepest)
+	if (!isInside(realAnchor, realDeepest)) {
+		throw new SkillPathError(`${file} resolves outside ${anchor}; nothing was written.`)
+	}
+}
+
+function realOrSelf(path: string): string {
+	try {
+		return realpathSync(path)
+	} catch {
+		return path
+	}
 }
 
 /** Where each choice writes, and what already holds that name. */
@@ -264,7 +352,9 @@ export function planSkillTargets(
 		const rank = SKILL_TIERS.indexOf(tier)
 		const collisions = existing
 			.map((skill): SkillCollision => {
-				const overwrite = skill.path === path
+				// By real path: a project folder linked into the user's skills folder
+				// is the same file, not a neighbour.
+				const overwrite = skill.path === path || realOrSelf(skill.path) === realOrSelf(path)
 				const higher = !overwrite && SKILL_TIERS.indexOf(skill.tier) > rank
 				return {
 					effect: higher ? 'hidden-by' : 'replaces',
@@ -274,7 +364,12 @@ export function planSkillTargets(
 				}
 			})
 			.sort((a, b) => Number(b.overwrite) - Number(a.overwrite))
-		return { scope, path, displayPath: displayPath(path, options.cwd), collisions }
+		return {
+			scope,
+			path,
+			displayPath: displayPath(path, options.cwd, options.home ?? homedir()),
+			collisions,
+		}
 	}
 	return { user: target('user'), project: target('project') }
 }
@@ -290,14 +385,24 @@ export function describeCollision(collision: SkillCollision, cwd: string): strin
 
 /** The prompt tripwire, worded for a skill. */
 export function skillWarnings(markdown: string): string[] {
-	return scanSchedulePrompt(markdown).map((finding) => finding.replace(/^The prompt/, 'The skill'))
+	const findings = scanSchedulePrompt(markdown).map((finding) =>
+		finding.replace(/^The prompt/, 'The skill'),
+	)
+	const body = markdown.replace(/^---\n[\s\S]*?\n---\n/, '')
+	if (findInlineShell(body).length > 0) {
+		findings.push(
+			'The skill holds shell commands (!`…` or a ```! block) that run on this machine every time the skill loads.',
+		)
+	}
+	return findings
 }
 
 /**
  * Write `text` to `path` so a reader sees the old file or the new one, never
  * part of either: a temporary beside it, flushed, then renamed over it.
  */
-export function writeFileAtomically(path: string, text: string): void {
+export function writeFileAtomically(path: string, text: string, anchor?: string): void {
+	if (anchor !== undefined) assertNoSymlinkBelow(anchor, path)
 	mkdirSync(dirname(path), { recursive: true })
 	const temporary = join(
 		dirname(path),
@@ -311,6 +416,7 @@ export function writeFileAtomically(path: string, text: string): void {
 		} finally {
 			closeSync(fd)
 		}
+		if (anchor !== undefined) assertNoSymlinkBelow(anchor, path)
 		renameSync(temporary, path)
 	} catch (error) {
 		rmSync(temporary, { force: true })
@@ -479,8 +585,10 @@ export function buildSaveSkillTool(host: SaveSkillHost): ToolDefinition {
 			}
 			const target = targets[answer]
 			try {
-				writeFileAtomically(target.path, markdown)
+				const anchor = answer === 'project' ? cwd : userSkillsDir(home)
+				writeFileAtomically(target.path, markdown, anchor)
 			} catch (error) {
+				if (error instanceof SkillPathError) return refuse(`save_skill: ${error.message}`)
 				return refuse(
 					`save_skill: could not write ${target.path}: ${error instanceof Error ? error.message : String(error)}`,
 				)

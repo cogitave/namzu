@@ -217,7 +217,8 @@ model calls `save_skill`, and a screen shows:
 - `replaces <tier> skill <path>` for every existing skill of that name it would
   overwrite or shadow, and `hidden by …` when a higher tier would keep winning;
 - warnings for invisible characters, instructions to ignore instructions,
-  mentions of secrets, and piping a download into a shell.
+  mentions of secrets, piping a download into a shell, and shell commands in the
+  body (`` !`cmd` `` or a fence opened with a bang) that run every time the skill loads.
 
 Choose **Save to user**, **Save to project** or **Cancel** (←/→ or 1–3, then
 Enter; Esc cancels). Cancel is selected when the screen opens, so a stray
@@ -254,6 +255,15 @@ not ask about it, and the screen asks every time, `bypass` and `auto` included. 
 `deny`) still applies (`packages/cli/src/tui/agent.ts` `reviewExemptionFor`).
 A session that can save a skill also carries the `skill` tool, so the saved
 skill is loadable on the next turn.
+
+**A save never writes through a symbolic link.** Before writing, every part of the
+path below the working folder (project) or the skills folder (user) is checked; a link
+at any of them, or a real path that leaves the folder, refuses the save with a line
+naming it, and nothing is written. An existing skill is matched by its real path, so
+a project skill folder linked to your own `~/.namzu/skills/<name>` is shown as the
+file it would overwrite, and the save is refused. A path shown on the screen or the
+card is `./…` inside the working folder, `~/…` under the home folder, and the full
+path otherwise (another drive on Windows, or a folder above the working folder).
 
 ## Skills in Desktop
 
