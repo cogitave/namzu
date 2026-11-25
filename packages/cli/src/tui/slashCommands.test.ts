@@ -397,11 +397,15 @@ describe('runSlash', () => {
 		expect(help?.kind === 'message' ? help.content : '').toContain('replaced by /run')
 	})
 
-	it('no longer has a /run command of its own: /cmd puts an answer command in the prompt', () => {
+	it('has no /run or /cmd command: both answer as unknown commands', () => {
 		const names = CLI_LOCAL_COMMANDS.map((command) => command.name)
 		expect(names).not.toContain('run')
-		expect(names).toContain('cmd')
-		expect(runSlash('/cmd', ctx)).toEqual({ kind: 'run' })
+		expect(names).not.toContain('cmd')
+		expect(runSlash('/cmd', ctx)).toEqual({
+			kind: 'message',
+			role: 'system',
+			content: 'Unknown command: /cmd. Try /help.',
+		})
 	})
 
 	it('has /workflows but no /workflow command', () => {

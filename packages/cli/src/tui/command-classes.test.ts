@@ -45,7 +45,6 @@ describe('what the model may do with each slash command', () => {
 				'btw',
 				'checkpoint',
 				'clear',
-				'cmd',
 				'compact',
 				'effort',
 				'export',

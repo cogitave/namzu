@@ -9,19 +9,17 @@ import { theme } from './theme.js'
 export interface CopyPickerProps {
 	readonly targets: readonly CopyResponseTarget[]
 	readonly selected: number
-	/** `run` puts the choice in the prompt to run it; the default copies it. */
-	readonly mode?: 'copy' | 'run'
 }
 
 /** Source-target chooser; App owns keys, clipboard output and queue admission. */
-export function CopyPicker({ targets, selected, mode = 'copy' }: CopyPickerProps) {
+export function CopyPicker({ targets, selected }: CopyPickerProps) {
 	const { start, items: visible } = selectionWindow(targets, selected)
 	const terminal = useWindowSize()
 	return (
 		<Box flexDirection="column" borderStyle="round" borderColor={theme.border.focus} paddingX={1}>
 			<Box justifyContent="space-between">
 				<Text color={theme.accent.user} bold>
-					{mode === 'run' ? 'Run from response' : 'Copy from response'}
+					Copy from response
 				</Text>
 				<Text color={theme.text.muted}>
 					{selected + 1}/{targets.length}
@@ -64,11 +62,7 @@ export function CopyPicker({ targets, selected, mode = 'copy' }: CopyPickerProps
 							{ text: 'PgUp/PgDn jump', rank: 1 },
 							{ text: 'Home/End', rank: 1 },
 							{ text: '1–9 select', rank: 2 },
-							{
-								text: mode === 'run' ? 'enter put in prompt' : 'enter copy',
-								short: 'enter',
-								rank: 5,
-							},
+							{ text: 'enter copy', short: 'enter', rank: 5 },
 							{ text: 'esc cancel', short: 'esc', rank: 5 },
 						],
 						boxedHintWidth(terminal.columns),
