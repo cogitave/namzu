@@ -90,6 +90,8 @@ export type McpSkillEntryVerdict =
 	| { readonly ok: false; readonly reason: McpSkillRefusal }
 
 const NAME_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
+/** Characters a qualified skill name may use: path segments of letters, digits, `.`, `_` and `-`. */
+const QUALIFIER_PATTERN = /^[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)*$/
 const DIGEST_PATTERN = /^sha256:[0-9a-f]{64}$/
 /** Control characters, quotes and angle brackets: text that cannot be shown or quoted safely. */
 const UNSHOWABLE =
@@ -299,7 +301,14 @@ function qualifiers(entry: McpSkillEntry): readonly string[] {
 	const slash = rest.indexOf('/')
 	const authority = slash < 0 ? rest : rest.slice(0, slash)
 	const path = slash < 0 ? '' : rest.slice(slash + 1)
-	return [entry.name, ...(path ? [path] : []), authority && path ? `${authority}/${path}` : rest]
+	const forms = [
+		entry.name,
+		...(path ? [path] : []),
+		authority && path ? `${authority}/${path}` : rest,
+	]
+	// A name is typed in a `/` menu and matched by `Skill(...)` rules, so a
+	// qualified form keeps to characters neither syntax treats as its own.
+	return forms.filter((form) => QUALIFIER_PATTERN.test(form))
 }
 
 /**

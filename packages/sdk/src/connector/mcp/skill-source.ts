@@ -47,6 +47,31 @@ function text(value: unknown): string | undefined {
 	return typeof value === 'string' && value.trim() !== '' ? value.trim() : undefined
 }
 
+/** Characters of a listed description shown to the model. */
+export const MCP_SKILL_DESCRIPTION_MAX_CHARS = 1536
+/** Characters of a listed `when_to_use`. */
+export const MCP_SKILL_WHEN_TO_USE_MAX_CHARS = 1536
+/** Characters of a listed `license` or `compatibility`. */
+export const MCP_SKILL_SHORT_TEXT_MAX_CHARS = 200
+
+const HIDDEN_OR_BRACKET =
+	// biome-ignore lint/suspicious/noControlCharactersInRegex: matching control characters is the point
+	/[\u0000-\u001f\u007f-\u009f<>\u200b-\u200f\u2028-\u202e\u2060-\u206f\ufeff]/gu
+
+/**
+ * A server's text as one plain line for the model's list of skills: white
+ * space flattened, control and invisible characters and angle brackets
+ * removed (so it cannot close or open the list's own markup), and cut to
+ * `max` characters.
+ */
+export function showableServerText(value: unknown, max: number): string | undefined {
+	const raw = text(value)
+	if (raw === undefined) return undefined
+	const flat = raw.replace(/\s+/gu, ' ').replace(HIDDEN_OR_BRACKET, '').replace(/\s+/gu, ' ').trim()
+	if (flat === '') return undefined
+	return flat.length > max ? `${flat.slice(0, max - 1).trimEnd()}…` : flat
+}
+
 /**
  * The metadata a server's skill gets under `name`: the description, the
  * author's `when_to_use`, `license` and `compatibility`, and nothing else.
@@ -56,12 +81,15 @@ export function mcpSkillMetadata(
 	name: string,
 	frontmatter: Readonly<Record<string, unknown>>,
 ): SkillMetadata {
-	const whenToUse = text(frontmatter.when_to_use)
-	const license = text(frontmatter.license)
-	const compatibility = text(frontmatter.compatibility)
+	const whenToUse = showableServerText(frontmatter.when_to_use, MCP_SKILL_WHEN_TO_USE_MAX_CHARS)
+	const license = showableServerText(frontmatter.license, MCP_SKILL_SHORT_TEXT_MAX_CHARS)
+	const compatibility = showableServerText(
+		frontmatter.compatibility,
+		MCP_SKILL_SHORT_TEXT_MAX_CHARS,
+	)
 	return {
 		name,
-		description: text(frontmatter.description) ?? '',
+		description: showableServerText(frontmatter.description, MCP_SKILL_DESCRIPTION_MAX_CHARS) ?? '',
 		...(whenToUse ? { whenToUse } : {}),
 		...(license ? { license } : {}),
 		...(compatibility ? { compatibility } : {}),
