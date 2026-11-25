@@ -31,7 +31,7 @@ export interface ManagerRow {
 	/** What the roster said when the screen opened. */
 	readonly initial: SkillState
 	/** What the layers under the project's local file give: a saved change that lands here removes its key. */
-	readonly base: SkillState
+	readonly base: SkillState | undefined
 	/** Where the skill lives, as the listings word it (`user`, `project`, `built-in`). */
 	readonly place: string
 	readonly tokens: number
@@ -61,6 +61,8 @@ export const MARK_OFF = '◯'
 export function openManager(
 	skills: readonly SkillInfo[],
 	disabled: readonly string[] | undefined,
+	overrides?: Readonly<Record<string, SkillState>>,
+	localKeys?: ReadonlySet<string>,
 ): ManagerState {
 	const rows = skills
 		.map((info): ManagerRow => {
@@ -82,7 +84,7 @@ export function openManager(
 				description: info.description,
 				state,
 				initial: state,
-				base: baseSkillState(info.name, disabled),
+				base: baseSkillState(info.name, disabled, overrides, localKeys),
 				place: skillTierLabel(info.tier),
 				tokens: skillListingTokens(info),
 				...(locked !== undefined ? { locked } : {}),
@@ -208,7 +210,7 @@ export function pendingChanges(state: ManagerState): Record<string, SkillState |
 	const changes: Record<string, SkillState | null> = {}
 	for (const row of state.rows) {
 		if (row.state === row.initial) continue
-		changes[row.name] = row.state === row.base ? null : row.state
+		changes[row.name] = row.base !== undefined && row.state === row.base ? null : row.state
 	}
 	return changes
 }

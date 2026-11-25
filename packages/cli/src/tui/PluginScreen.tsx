@@ -156,8 +156,8 @@ function ScrollView({
 		<Box flexDirection="column">
 			<Text color={theme.text.muted}>{start > 0 ? `  ↑ ${start} more` : ' '}</Text>
 			{shown.map((line, index) => (
-				// biome-ignore lint/suspicious/noArrayIndexKey: a window of printed lines, never reordered
 				<Text
+					// biome-ignore lint/suspicious/noArrayIndexKey: a window of printed lines, never reordered
 					key={start + index}
 					wrap="truncate-end"
 					color={line === '' ? undefined : theme.text.secondary}
@@ -272,8 +272,8 @@ function DetailView({
 	return (
 		<Box flexDirection="column">
 			{lines.map((line, index) => (
-				// biome-ignore lint/suspicious/noArrayIndexKey: printed lines, never reordered
 				<Text
+					// biome-ignore lint/suspicious/noArrayIndexKey: printed lines, never reordered
 					key={index}
 					wrap="truncate-end"
 					color={index === 0 ? theme.text.primary : theme.text.secondary}

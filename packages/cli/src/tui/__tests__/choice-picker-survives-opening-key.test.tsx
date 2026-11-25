@@ -300,9 +300,7 @@ it.each([60, 120])(
 		screen.press('\x1b[B')
 		await screen.waitForRender()
 		screen.press('\r')
-		await waitUntil(screen, () =>
-			view(screen).includes('After restart or model switch: disabled'),
-		)
+		await waitUntil(screen, () => view(screen).includes('After restart or model switch: disabled'))
 		expect(plugins.startupEnabled).toBe(false)
 		screen.press('\x1b[A')
 		await screen.waitForRender()

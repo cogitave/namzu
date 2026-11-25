@@ -84,6 +84,33 @@ describe('what would be saved', () => {
 	})
 })
 
+describe('what the layers below give', () => {
+	it('uses a lower layer override as the base, so landing on it removes the key', () => {
+		const s0 = openManager([info('alpha', { state: 'user-only' })], undefined, {
+			alpha: 'user-only',
+		})
+		// Merged says user-only (from a lower layer); cycle to on, then round to user-only.
+		const s1 = press(s0, SPACE)
+		expect(stateOf(s1, 'alpha')).toBe('off')
+		expect(pendingChanges(s1)).toEqual({ alpha: 'off' })
+		const s2 = press(s0, SPACE, SPACE)
+		expect(stateOf(s2, 'alpha')).toBe('on')
+		expect(pendingChanges(s2)).toEqual({ alpha: 'on' })
+	})
+
+	it('always writes a state for a name the local file itself sets', () => {
+		const s0 = openManager(
+			[info('alpha', { state: 'user-only' })],
+			undefined,
+			{ alpha: 'user-only' },
+			new Set(['alpha']),
+		)
+		const s = press(s0, SPACE, SPACE)
+		expect(stateOf(s, 'alpha')).toBe('on')
+		expect(pendingChanges(s)).toEqual({ alpha: 'on' })
+	})
+})
+
 describe('the closing row', () => {
 	it('says No changes, how many were updated, or why it could not save', () => {
 		expect(closingLine(0, undefined)).toEqual({ text: 'No changes', failed: false })

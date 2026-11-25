@@ -382,7 +382,7 @@ import {
 	type WakeSnapshot,
 } from '../rounds/wake-ledger.js'
 import { schedulePaths } from '../schedule/paths.js'
-import { saveSkillOverrides } from '../skills/overrides.js'
+import { localSkillOverrideKeys, saveSkillOverrides } from '../skills/overrides.js'
 import {
 	SKILL_CREATOR_SKILL,
 	type SaveSkillAnswer,
@@ -399,6 +399,7 @@ import {
 	renderSkillRoster,
 } from '../skills/store.js'
 import { loadTypedCommand } from '../skills/typed-command-load.js'
+import { readSkillUsage, recordSkillUse } from '../skills/usage.js'
 import { hooksOf } from '../skills/use-hooks.js'
 import { withMcpSkillCommands } from '../user-commands/mcp-skill-commands.js'
 import { type UserCommand, discoverUserCommands } from '../user-commands/store.js'
@@ -463,6 +464,7 @@ import {
 } from './PermissionOverlay.js'
 import { Picker } from './Picker.js'
 import { PlanApprovalOverlay } from './PlanApprovalOverlay.js'
+import { PluginScreen, maxScroll as pluginScreenMaxScroll } from './PluginScreen.js'
 import { QuestionDialog } from './QuestionDialog.js'
 import { ResumePicker } from './ResumePicker.js'
 import { RewindPicker } from './RewindPicker.js'
@@ -472,8 +474,6 @@ import {
 	ScheduleReviewOverlay,
 	type ScheduleReviewRequest,
 } from './ScheduleReviewOverlay.js'
-import { readSkillUsage, recordSkillUse } from '../skills/usage.js'
-import { PluginScreen, maxScroll as pluginScreenMaxScroll } from './PluginScreen.js'
 import { SkillsManager } from './SkillsManager.js'
 import { StatusBar } from './StatusBar.js'
 import { TaskList, type TaskListItem, taskListRows } from './TaskList.js'
@@ -673,6 +673,17 @@ import {
 	isSelfMending,
 	isSpentAllowance,
 } from './plain-interruption.js'
+import {
+	type PluginScreenState,
+	type ScreenEffect,
+	type ScreenInputs,
+	type ScreenKey,
+	openScreen as openPluginScreen,
+	waiting as pluginScreenWaiting,
+	refreshScreen,
+	step as stepPluginScreen,
+	withNotice,
+} from './plugin-screen.js'
 import { emptyPluginReport, noPluginsReason, pluginDetails, pluginOption } from './plugin-view.js'
 import { PointerRegionsContext } from './pointer/context.js'
 import type { PointerRegions } from './pointer/regions.js'
@@ -722,17 +733,6 @@ import {
 	openManager as openSkillsManager,
 	pendingChanges as pendingSkillChanges,
 } from './skills-manager.js'
-import {
-	type PluginScreenState,
-	type ScreenEffect,
-	type ScreenInputs,
-	type ScreenKey,
-	openScreen as openPluginScreen,
-	refreshScreen,
-	step as stepPluginScreen,
-	waiting as pluginScreenWaiting,
-	withNotice,
-} from './plugin-screen.js'
 import {
 	SUGGESTIONS_STOPPED_NOTICE,
 	type TurnActivity,
@@ -15773,7 +15773,14 @@ function AppBody({
 							return
 						}
 						setSelectedChoice(0)
-						setSkillsManager(openSkillsManager(skills, ctx.skills?.disabled))
+						setSkillsManager(
+							openSkillsManager(
+								skills,
+								ctx.skills?.disabled,
+								ctx.skills?.overrides,
+								localSkillOverrideKeys(ctx.cwd),
+							),
+						)
 						setChoicePicker({
 							kind: 'skills-manager',
 							title: 'Skills',

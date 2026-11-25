@@ -14,12 +14,15 @@
  * as it was.
  */
 
+import { readFileSync } from 'node:fs'
+
 import { SKILL_OVERRIDE_STATES, type SkillOverride } from '../config/schema.js'
 import { isTrusted } from '../integrations/trust/store.js'
 import {
 	LOCAL_SETTINGS_FILE,
 	TRACKED_LOCAL_SETTINGS,
 	ensureLocalConfigIgnored,
+	localSettingsPath,
 	localSettingsTracked,
 	logIgnoreOutcome,
 	moveLegacyLocalConfigOnce,
@@ -47,11 +50,32 @@ export function skillStateOf(info: SkillInfo): SkillState {
 
 /**
  * The state the layers under the project's local file give a skill: `off` when
- * the merged `skills.disabled` names it, else `on`. A change that lands here
- * is saved by removing its override.
+ * the merged `skills.disabled` names it, else `on`, or the state a lower
+ * layer's `skills.overrides` gives. A change that lands here is saved by
+ * removing its override. `undefined` when the local file itself sets the name:
+ * what lies beneath is then unknown, so a change is always written out.
  */
-export function baseSkillState(name: string, disabled: readonly string[] | undefined): SkillState {
-	return disabled?.includes(name) ? 'off' : 'on'
+export function baseSkillState(
+	name: string,
+	disabled: readonly string[] | undefined,
+	overrides?: Readonly<Record<string, SkillState>>,
+	localKeys?: ReadonlySet<string>,
+): SkillState | undefined {
+	// A key the local file sets hides what the lower layers say, so it is not known here.
+	if (localKeys?.has(name)) return undefined
+	return overrides?.[name] ?? (disabled?.includes(name) ? 'off' : 'on')
+}
+
+/** The skill names the folder's local settings file gives a state; empty when it is missing or unreadable. */
+export function localSkillOverrideKeys(cwd: string): ReadonlySet<string> {
+	try {
+		const document: unknown = JSON.parse(readFileSync(localSettingsPath(cwd), 'utf8'))
+		const skills = isRecord(document) ? document.skills : undefined
+		const overrides = isRecord(skills) ? skills.overrides : undefined
+		return new Set(isRecord(overrides) ? Object.keys(overrides) : [])
+	} catch {
+		return new Set()
+	}
 }
 
 /** What a skill's one-line entry costs the model each turn, in characters. */

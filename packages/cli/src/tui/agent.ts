@@ -608,12 +608,12 @@ import { createSkillDirectoryResolver } from '../skills/directory.js'
 import { isInsideFolder, restoreSkillHooks } from '../skills/restore-skill-hooks.js'
 import { SAVE_SKILL_TOOL_NAME } from '../skills/save.js'
 import { type AttachedSkillHook, createSkillHooksHost } from '../skills/skill-hooks.js'
-import { recordSkillUse } from '../skills/usage.js'
 import {
 	type SessionSkillShell,
 	createSessionSkillShell,
 	shellBlockFor,
 } from '../skills/skill-shell.js'
+import { recordSkillUse } from '../skills/usage.js'
 import { COMMAND_TOOL_NAME, type CommandToolHost, buildCommandTool } from './command-tool.js'
 import { projectTurnConversation } from './conversation-history.js'
 import { type ModelSwitchOutcome, buildSwitchModelTool } from './model-switch-tool.js'

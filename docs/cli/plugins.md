@@ -252,7 +252,9 @@ skill within a minute count once, and a load's size is kept for seven days. The
 file counts from the day it was first written, which the screen states; skills
 used earlier show `0` and `never`. 7d tokens is the estimated size added to the
 conversation (4 characters per token), not a billed figure. A conversation that
-is not kept writes nothing.
+is not kept writes nothing. The record is best effort: it is replaced whole
+without a lock, so two conversations loading skills at the same moment can lose
+one of the two uses.
 
 There is no Discover or Marketplaces tab and no favorites: Namzu reads plugins
 only from `.namzu/plugins` and `~/.namzu/plugins` and has no catalog or remote

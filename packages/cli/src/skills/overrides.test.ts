@@ -68,6 +68,8 @@ describe('the states a skill cycles through', () => {
 		expect(skillStateOf(info as SkillInfo)).toBe('off')
 		expect(baseSkillState('a', ['a'])).toBe('off')
 		expect(baseSkillState('a', undefined)).toBe('on')
+		expect(baseSkillState('a', ['a'], { a: 'user-only' })).toBe('user-only')
+		expect(baseSkillState('a', undefined, { a: 'user-only' }, new Set(['a']))).toBeUndefined()
 	})
 })
 

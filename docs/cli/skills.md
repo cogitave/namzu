@@ -597,8 +597,11 @@ What the states mean:
 
 The change is written to `skills.overrides` in `.namzu/settings.local.json`, the project's
 local settings file, this computer's and this project's only. Only the skills you changed
-are written; a skill put back to what the layers below already say has its key removed, so a
-full round of Space leaves the file as it was. The next turn and `/skills <name>` use the new
+are written; a skill put back to what the layers below already say (their `disabled` list or
+their `overrides`) has its key removed, so a full round of Space leaves the file as it was. A
+name the local file already sets is always written out, since what lies beneath it is not
+known. A skill set to name-only is listed to the model by name alone, in the per-turn listing
+as well as the system prompt. The next turn and `/skills <name>` use the new
 states at once, without a restart. A folder that is not trusted, a file that is not valid JSON,
 or a file Git tracks is left alone, and the closing row says why. Desktop's Settings switches
 still write `skills.disabled` in your user config; a project's `overrides` entry for a name
