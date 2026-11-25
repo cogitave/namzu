@@ -583,6 +583,7 @@ export async function execJson(
 				invokedBy: 'other',
 				...(expansion.shell.allowedTools ? { allowedTools: expansion.shell.allowedTools } : {}),
 				...(expansion.shell.directory ? { directory: expansion.shell.directory } : {}),
+				mode: modeResult.mode,
 			})
 		} catch (error) {
 			await session.close()
@@ -769,6 +770,13 @@ export async function execJson(
 			// same rules, and a command that fails ends the stream in band.
 			let nextContent = nextExpansion.kind === 'expanded' ? nextExpansion.prompt : next.value
 			if (nextExpansion.kind === 'expanded' && nextExpansion.shell && session.skillShell) {
+				// The skill's own hooks guard its own commands, so they attach first, as for the first line.
+				useSkillHooksByName(
+					session.skillHooks,
+					{ cwd, ...(ctx.config.skills ? { skills: ctx.config.skills } : {}) },
+					[nextExpansion.name],
+					(line) => cliLogger().warn(line),
+				)
 				try {
 					nextContent = await session.skillShell.expand({
 						text: nextExpansion.prompt,
@@ -779,6 +787,7 @@ export async function execJson(
 							? { allowedTools: nextExpansion.shell.allowedTools }
 							: {}),
 						...(nextExpansion.shell.directory ? { directory: nextExpansion.shell.directory } : {}),
+						mode: modeResult.mode,
 					})
 				} catch (error) {
 					throw new Error(

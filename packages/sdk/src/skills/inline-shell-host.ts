@@ -6,6 +6,8 @@
  *   answered into one verdict for one command.
  * - {@link createSkillShellHook} asks those hooks, and answers `undefined`
  *   when none is attached so nothing is asked of nobody.
+ * - {@link createPreToolUseShellHook} asks the `pre_tool_use` hooks the shell
+ *   tool's own calls are asked, for a load that has no turn to ask them in.
  * - {@link createToolSkillShellHost} runs a command as a nested call of the
  *   shell tool from inside another tool (the `skill` tool): the same
  *   authorization gate, the same sandbox and the same tool a model's own call
@@ -33,6 +35,9 @@ export const SKILL_SHELL_TOOL_NAME = 'bash'
 /** The event a host fires before each command, after permission allowed it. */
 export const PRE_SKILL_SHELL_COMMAND_EVENT = 'pre_skill_shell_command'
 
+/** The event the shell tool's own calls are checked by; a load outside a turn asks it too. */
+export const PRE_TOOL_USE_EVENT = 'pre_tool_use'
+
 /** The deadline the lifecycle manager gives a hook before it counts as timed out. */
 const MANAGER_TIMEOUT_MESSAGE = 'Hook timeout'
 
@@ -45,8 +50,9 @@ type HookManager = Pick<PluginLifecycleManager, 'executeHooks' | 'listHooks'>
  * - A `skip` refuses this command and nothing else.
  * - An in-process hook that asks for approval, or rewrites the command, is
  *   refused: a load cannot wait for a person and never runs a changed command.
- * - A hook that did not answer, or crashed, refuses the command: nothing says
- *   it is safe. A hook that ran out of time warns and lets it run.
+ * - A hook that did not answer, that crashed or that ran out of time refuses
+ *   the command: nothing says it is safe. This is how a `pre_tool_use` hook that
+ *   times out treats the shell tool's own call.
  */
 export function skillShellHookVerdict(
 	results: readonly PluginHookResult[],
@@ -75,11 +81,11 @@ export function skillShellHookVerdict(
 				refusals.push("the hook changed the command, which isn't supported here")
 				break
 			case 'error':
-				if (result.message === MANAGER_TIMEOUT_MESSAGE) {
-					warnings.push('a hook timed out, so the command ran without its answer')
-				} else {
-					refusals.push("the hook couldn't run")
-				}
+				refusals.push(
+					result.message === MANAGER_TIMEOUT_MESSAGE
+						? 'the hook timed out'
+						: "the hook couldn't run",
+				)
 				break
 			default:
 				break
@@ -112,22 +118,58 @@ export interface SkillShellHookOptions {
 export function createSkillShellHook(
 	options: SkillShellHookOptions,
 ): ((command: string, toolUseId: string) => Promise<InlineShellHookVerdict>) | undefined {
+	return createShellEventHook(PRE_SKILL_SHELL_COMMAND_EVENT, options, {
+		skillShell: options.info,
+	})
+}
+
+export interface PreToolUseShellHookOptions {
+	readonly manager: HookManager | undefined
+	readonly sessionId: string
+	readonly turnId?: string
+	readonly signal?: AbortSignal
+	/** The tool name the hook is told. Default `bash`. */
+	readonly toolName?: string
+}
+
+/**
+ * Ask the session's `pre_tool_use` hooks about one command, as they are asked
+ * about the shell tool's own call. Inside a turn the executor does it for a
+ * nested call; a load outside a turn (a typed command, a headless prompt, a
+ * preload) has no executor, so the host asks here. A refusal, a stop, a request
+ * for approval, a rewrite, a timeout or a crash all refuse the command: a load
+ * cannot wait for a person and never runs a changed command. `undefined` when
+ * no such hook is attached.
+ */
+export function createPreToolUseShellHook(
+	options: PreToolUseShellHookOptions,
+): ((command: string, toolUseId: string) => Promise<InlineShellHookVerdict>) | undefined {
+	return createShellEventHook(PRE_TOOL_USE_EVENT, options, {})
+}
+
+function createShellEventHook(
+	event: typeof PRE_SKILL_SHELL_COMMAND_EVENT | typeof PRE_TOOL_USE_EVENT,
+	options: PreToolUseShellHookOptions,
+	extra: { readonly skillShell?: PluginSkillShellInfo },
+): ((command: string, toolUseId: string) => Promise<InlineShellHookVerdict>) | undefined {
 	const manager = options.manager
 	if (manager === undefined) return undefined
-	const attached = manager
-		.listHooks()
-		.filter((hook) => hook.event === PRE_SKILL_SHELL_COMMAND_EVENT).length
-	if (attached === 0) return undefined
+	const countAttached = (): number =>
+		manager.listHooks().filter((hook) => hook.event === event).length
+	if (countAttached() === 0) return undefined
 	const toolName = options.toolName ?? SKILL_SHELL_TOOL_NAME
 	return async (command, toolUseId) => {
+		// Read again for each command: a hook a skill attaches while it loads counts.
+		const attached = countAttached()
+		if (attached === 0) return { kind: 'run' }
 		try {
-			const results = await manager.executeHooks(PRE_SKILL_SHELL_COMMAND_EVENT, {
+			const results = await manager.executeHooks(event, {
 				sessionId: options.sessionId as SessionId,
 				...(options.turnId !== undefined ? { turnId: options.turnId as TurnId } : {}),
 				toolName,
 				toolInput: { command },
 				toolCallId: toolUseId,
-				skillShell: options.info,
+				...extra,
 				...(options.signal ? { signal: options.signal } : {}),
 			})
 			return skillShellHookVerdict(results, attached)

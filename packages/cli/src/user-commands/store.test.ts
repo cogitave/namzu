@@ -1,6 +1,7 @@
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { findInlineShell } from '@namzu/sdk'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { removeTempDir } from '../__fixtures__/temp-dir.js'
 
@@ -253,7 +254,7 @@ describe('a template that holds shell commands', () => {
 		const result = expandCommand(command('Log: !`git log $ARGUMENTS`'), '-n 3')
 		expect(result).toEqual({
 			ok: true,
-			prompt: 'Log: !`git log -n 3`',
+			prompt: "Log: !`git log '-n' '3'`",
 			shell: { name: 'ship', origin: 'project' },
 		})
 	})
@@ -276,7 +277,7 @@ describe('a template that holds shell commands', () => {
 
 	it('fills the skill’s folder into the text', () => {
 		const result = expandCommand(command('!`${NAMZU_SKILL_DIR}/run.sh`', { directory: '/s/a' }), '')
-		expect(result).toMatchObject({ ok: true, prompt: '!`/s/a/run.sh`' })
+		expect(result).toMatchObject({ ok: true, prompt: "!`'/s/a'/run.sh`" })
 	})
 
 	it('still refuses extra text the template has nowhere to put', () => {
@@ -318,6 +319,60 @@ describe('a template that holds shell commands', () => {
 })
 
 describe('a skill that holds shell commands, as a command', () => {
+	it('puts the arguments inside a command as separate quoted words, never as shell syntax', () => {
+		const result = expandCommand(
+			{
+				name: 'echoarg',
+				description: '',
+				template: 'Out: !`echo $ARGUMENTS`',
+				path: '/x/echoarg.md',
+				source: 'project',
+				shellOrigin: 'user',
+			} as never,
+			'x; touch RAN #',
+		)
+		expect(result).toMatchObject({ ok: true, prompt: "Out: !`echo 'x;' 'touch' 'RAN' '#'`" })
+	})
+
+	it.skipIf(process.platform === 'win32')(
+		'does not let a folder named like a command run it when the skill loads',
+		() => {
+			const dir = join(cwd, '.namzu', 'skills', 'fx !`touch RAN`')
+			mkdirSync(dir, { recursive: true })
+			writeFileSync(
+				join(dir, 'SKILL.md'),
+				'---\nname: fx\ndescription: Folder\nallowed-tools: Bash(touch *)\n---\nhello\n',
+			)
+			const cmd = discoverUserCommands({ home, cwd, skillCommands: 'declared' }).find(
+				(c) => c.name === 'fx',
+			)
+			const expanded = expandCommand(cmd as NonNullable<typeof cmd>, '')
+			// Nothing in the text is a command, so nothing runs at the load.
+			expect(expanded).toMatchObject({ ok: true })
+			expect(expanded.ok && expanded.shell).toBeUndefined()
+			expect(expanded.ok && expanded.prompt).toContain('hello')
+		},
+	)
+
+	it.skipIf(process.platform === 'win32')(
+		'puts a folder named like a command into a skill that has commands as plain text',
+		() => {
+			const dir = join(cwd, '.namzu', 'skills', 'fy !`touch RAN`')
+			mkdirSync(dir, { recursive: true })
+			writeFileSync(
+				join(dir, 'SKILL.md'),
+				'---\nname: fy\ndescription: Folder\nallowed-tools: Bash\n---\nOut: !`echo ok`\n',
+			)
+			const cmd = discoverUserCommands({ home, cwd, skillCommands: 'declared' }).find(
+				(c) => c.name === 'fy',
+			)
+			const expanded = expandCommand(cmd as NonNullable<typeof cmd>, '')
+			expect(expanded.ok && findInlineShell(expanded.prompt).map((m) => m.command)).toEqual([
+				'echo ok',
+			])
+		},
+	)
+
 	it('carries its tier, its allowed-tools and its folder', () => {
 		const dir = join(cwd, '.namzu', 'skills', 'deploy')
 		mkdirSync(dir, { recursive: true })

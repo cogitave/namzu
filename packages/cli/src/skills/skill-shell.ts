@@ -8,7 +8,10 @@
  * nest in, this does the same steps in the same order, with the same
  * parts and no second shell:
  *
- * 1. the session's authorization gate decides (the operator's rules and the
+ * 1. the session's permission mode answers as it does for the model's own
+ *    `bash` call: `plan` runs only commands that read, `strict` only those a
+ *    rule allows, and a skill's `allowed-tools` lifts neither;
+ *    then the session's authorization gate decides (the operator's rules and the
  *    dangerous-command floor, exactly as for a model's call). A command the
  *    gate denies, or would send to a person, fails the load with the reason:
  *    a load cannot ask. A skill's `allowed-tools` answers only a command no
@@ -16,8 +19,11 @@
  *    A command that reaches a protected path, a removal the floor stops or a
  *    path outside the working folders then fails the load too, as the
  *    executor's own review does for a nested call, whatever the rules say;
- * 2. `pre_skill_shell_command` hooks, when one is attached;
- * 3. the shell tool itself, in the sandbox the session runs in.
+ * 2. the `pre_tool_use` hooks that match the shell tool, as for a model's
+ *    own call: a refusal, a request for approval or a rewrite, a timeout or a
+ *    crash fails the load, and so does a stop;
+ * 3. `pre_skill_shell_command` hooks, when one is attached;
+ * 4. the shell tool itself, in the sandbox the session runs in.
  */
 
 import { randomUUID } from 'node:crypto'
@@ -32,10 +38,12 @@ import {
 	type ToolContext,
 	type ToolDefinition,
 	type TurnId,
+	createPreToolUseShellHook,
 	createSkillShellHook,
 	expandInlineShell,
 	findInlineShell,
 	getBuiltinTools,
+	nestedCallModeRefusal,
 	parseAllowedTools,
 	shellLineEscalation,
 	skillShellAllow,
@@ -73,6 +81,12 @@ export interface SkillShellRequest {
 	readonly allowedTools?: string
 	/** The skill's folder, for `${NAMZU_SKILL_DIR}` in an `allowed-tools` pattern. */
 	readonly directory?: string
+	/**
+	 * The permission mode the load happens under, as the caller knows it (the
+	 * terminal's live mode, the `--permission-mode` of a headless run). Absent:
+	 * the session's own (`SessionSkillShellDeps.mode`).
+	 */
+	readonly mode?: string
 	readonly signal?: AbortSignal
 }
 
@@ -107,6 +121,13 @@ export interface SessionSkillShellDeps {
 		| undefined
 	/** A line for the person: a refused command, a hook's own message. */
 	readonly warn?: (line: string) => void
+	/** The permission mode the session is in now, for a load whose caller names none. */
+	readonly mode?: () => string | undefined
+	/**
+	 * Variables a host adds on purpose. The shell tool adds the inherited
+	 * environment itself, with credential-shaped names left out; passing
+	 * `process.env` here would hand every one of them back.
+	 */
 	readonly env?: () => Record<string, string | undefined>
 }
 
@@ -139,6 +160,12 @@ export function createSessionSkillShell(deps: SessionSkillShellDeps): SessionSki
 					invokedBy: request.invokedBy,
 				},
 			})
+			// The hooks that guard the shell tool's own calls guard these commands too.
+			const preTool = createPreToolUseShellHook({
+				manager: deps.hooks(),
+				sessionId: deps.sessionId(),
+				signal,
+			})
 			const sandboxPlan = deps.sandbox?.()
 			let sandbox: Sandbox | undefined
 			const turnId = randomUUID() as TurnId
@@ -153,6 +180,12 @@ export function createSessionSkillShell(deps: SessionSkillShellDeps): SessionSki
 				if (verdict.decision === 'deny') {
 					return { kind: 'denied', reason: verdict.reason }
 				}
+				// The mode answers before any grant can: a skill's `allowed-tools` is not a rule.
+				const modeRefusal = nestedCallModeRefusal(request.mode ?? deps.mode?.(), {
+					readOnly: bash.isReadOnly?.(input as never) === true,
+					allowedByRule: verdict.decision === 'allow' && verdict.matchedRule !== null,
+				})
+				if (modeRefusal !== undefined) return { kind: 'denied', reason: modeRefusal }
 				if (verdict.decision === 'review') {
 					const granted = verdict.matchedRule === null && allow?.({ name: 'bash', input }) === true
 					if (!granted) {
@@ -183,6 +216,16 @@ export function createSessionSkillShell(deps: SessionSkillShellDeps): SessionSki
 						reason: `${reach}, which needs the person’s review, and a skill cannot wait for one. Run it as a direct call instead.`,
 					}
 				}
+				if (preTool) {
+					const asked = await preTool(command, `skillshell_${randomUUID()}`)
+					// A refusal fails the load, as a refused call of the shell tool fails it in a
+					// turn; a stop is the hook's own word and is passed on as it is.
+					if (asked.kind === 'refuse') {
+						return { kind: 'denied', reason: `a pre_tool_use hook refused it: ${asked.reason}` }
+					}
+					if (asked.kind === 'stop') return { kind: 'hook', verdict: asked }
+					if (asked.warning) deps.warn?.(asked.warning)
+				}
 				const checked = await beforeRun()
 				if (checked.kind !== 'run') return { kind: 'hook', verdict: checked }
 				if (sandboxPlan !== undefined && sandbox === undefined) {
@@ -203,7 +246,7 @@ export function createSessionSkillShell(deps: SessionSkillShellDeps): SessionSki
 					turnId,
 					workingDirectory: deps.cwd(),
 					abortSignal: signal,
-					env: { ...(deps.env?.() ?? process.env) },
+					env: { ...(deps.env?.() ?? {}) } as Record<string, string>,
 					log: () => {},
 					...(sandbox ? { sandbox } : {}),
 				} as unknown as ToolContext

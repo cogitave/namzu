@@ -50,6 +50,8 @@ interface Seen {
 	committed: string[]
 	attached: number
 	removed: number
+	/** What each `attach` was told, in order. */
+	late: ({ readonly prompt?: string } | undefined)[]
 }
 
 function plan(seen: Seen, parts: Partial<SkillHooksPlan> = {}): SkillRegistryRef['prepareHooks'] {
@@ -57,8 +59,9 @@ function plan(seen: Seen, parts: Partial<SkillHooksPlan> = {}): SkillRegistryRef
 		seen.asked.push({ ...skill, options })
 		return {
 			withholdGrants: false,
-			attach: (): SkillHooksHandle => {
+			attach: (late): SkillHooksHandle => {
 				seen.attached += 1
+				seen.late.push(late)
 				return {
 					remove: () => {
 						seen.removed += 1
@@ -94,7 +97,7 @@ function context(
 	}
 }
 
-const fresh = (): Seen => ({ asked: [], committed: [], attached: 0, removed: 0 })
+const fresh = (): Seen => ({ asked: [], committed: [], attached: 0, removed: 0, late: [] })
 
 describe('a skill that carries hooks', () => {
 	it('is read by the host, which says what it needs, and attaches only after the instructions are delivered', async () => {
@@ -225,7 +228,7 @@ describe('a forked skill that carries hooks', () => {
 			},
 		)
 		expect(delegated).toContain('Run commands.')
-		expect(seen.asked[0]?.options.prompt).toBe(delegated)
+		expect(seen.late).toEqual([{ prompt: delegated }])
 	})
 
 	it('takes them off when the delegation throws', async () => {

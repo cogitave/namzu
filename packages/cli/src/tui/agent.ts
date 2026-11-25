@@ -1728,7 +1728,7 @@ export interface AgentSession {
 			readonly name: string
 			readonly dirPath: string
 			readonly hooksSource: string
-		}) => void
+		}) => { readonly remove: () => void }
 		readonly subscribe: (listener: (line: string) => void) => () => void
 		/** Skills that carry hooks and attach them when used, by name. */
 		readonly carriers: () => readonly string[]
@@ -7083,6 +7083,7 @@ export async function createAgentSession(
 							additionalDirectories: [...directories],
 						}
 					: undefined,
+			mode: () => readHookMode?.() ?? options.permissionMode,
 			warn: (line) => pluginRuntime?.hookActivity.notify(line),
 		}),
 		pluginCommandDirs: pluginFiles.commands,

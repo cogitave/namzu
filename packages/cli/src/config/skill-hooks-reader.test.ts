@@ -286,10 +286,16 @@ describe('a hook on pre_skill_shell_command in a skill', () => {
 		'    - command: ./c.sh',
 	].join('\n')
 
-	it('is read in either spelling, and set aside for a skill, whose own hooks attach after its text loads', () => {
+	it('is read in either spelling and kept for an inline skill, whose own hooks attach before its text loads', () => {
 		const loaded = read(text)
 		expect(Object.keys(loaded.hooks).sort()).toEqual(['pre_skill_shell_command', 'pre_tool_use'])
 		const out = withoutSessionStart(loaded)
+		expect(Object.keys(out.hooks).sort()).toEqual(['pre_skill_shell_command', 'pre_tool_use'])
+		expect(out.count).toBe(2)
+	})
+
+	it('is set aside for a forked skill, whose commands run before its agent and its hooks start', () => {
+		const out = withoutConversationEvents(withoutSessionStart(read(text)))
 		expect(Object.keys(out.hooks)).toEqual(['pre_tool_use'])
 		expect(out.count).toBe(1)
 		expect(out.problems).toContainEqual(

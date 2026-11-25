@@ -1,4 +1,4 @@
-import { mkdtempSync, realpathSync } from 'node:fs'
+import { existsSync, mkdtempSync, realpathSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -138,6 +138,88 @@ describe('permission', () => {
 	})
 })
 
+describe('the session’s permission mode', () => {
+	const touch = (name: string) => `!\`touch ${name}\``
+	const grant = { allowedTools: 'Bash(touch *)' }
+
+	it.each(['plan', 'strict'])(
+		'refuses a command that changes something in %s mode, though allowed-tools grants it',
+		async (mode) => {
+			const { shell: run } = shell({ gate: () => gateWith() })
+			await expect(run.expand(request(touch('mode-a'), { ...grant, mode }))).rejects.toMatchObject({
+				reason: 'permission',
+				message: expect.stringContaining(`${mode} mode`),
+			})
+			expect(existsSync(join(cwd, 'mode-a'))).toBe(false)
+		},
+	)
+
+	it('names the command and the mode in the line that fails the load', async () => {
+		const { shell: run } = shell()
+		await expect(run.expand(request(touch('mode-b'), { mode: 'plan' }))).rejects.toThrow(
+			/pattern "touch mode-b": plan mode/,
+		)
+	})
+
+	it('refuses in plan mode even when a rule allows every shell command', async () => {
+		const { shell: run } = shell({ gate: () => gateWith(allowBash) })
+		await expect(run.expand(request(touch('mode-c'), { mode: 'plan' }))).rejects.toMatchObject({
+			reason: 'permission',
+		})
+		expect(existsSync(join(cwd, 'mode-c'))).toBe(false)
+	})
+
+	it('runs a command that only reads in plan mode', async () => {
+		const { shell: run } = shell({ gate: () => gateWith(allowBash) })
+		expect(await run.expand(request('!`echo hi`', { mode: 'plan' }))).toBe('hi')
+	})
+
+	it('runs in strict mode what a rule allows by name', async () => {
+		const { shell: run } = shell({ gate: () => gateWith(allowBash) })
+		expect(await run.expand(request('!`echo hi`', { mode: 'strict' }))).toBe('hi')
+	})
+
+	it('reads the session’s mode when the caller names none', async () => {
+		const { shell: run } = shell({ gate: () => gateWith(allowBash), mode: () => 'plan' })
+		await expect(run.expand(request(touch('mode-d')))).rejects.toMatchObject({
+			reason: 'permission',
+		})
+		expect(existsSync(join(cwd, 'mode-d'))).toBe(false)
+	})
+
+	it.each(['prompt', 'accept-edits', 'auto', 'bypass'])(
+		'answers as before in %s mode',
+		async (mode) => {
+			const { shell: run } = shell({ gate: () => gateWith() })
+			expect(await run.expand(request('!`echo hi`', { allowedTools: 'Bash(echo *)', mode }))).toBe(
+				'hi',
+			)
+		},
+	)
+})
+
+describe('the environment a command sees', () => {
+	it('leaves out variables whose names look like credentials, and keeps the others', async () => {
+		vi.stubEnv('FAKE_SERVICE_API_KEY', 'sk-test-123')
+		vi.stubEnv('FAKE_SERVICE_TOKEN', 'sk-test-123')
+		vi.stubEnv('FAKE_PLAIN_SETTING', 'plain')
+		try {
+			const { shell: run } = shell()
+			const text = await run.expand(
+				request('!`echo "[$FAKE_SERVICE_API_KEY][$FAKE_SERVICE_TOKEN][$FAKE_PLAIN_SETTING]"`'),
+			)
+			expect(text).toBe('[][][plain]')
+		} finally {
+			vi.unstubAllEnvs()
+		}
+	})
+
+	it('keeps a variable the host adds on purpose, even one named like a credential', async () => {
+		const { shell: run } = shell({ env: () => ({ FAKE_ADDED_TOKEN: 'given' }) })
+		expect(await run.expand(request('!`echo "[$FAKE_ADDED_TOKEN]"`'))).toBe('[given]')
+	})
+})
+
 describe('the switch and the sources', () => {
 	it('leaves a placeholder while the switch is on, and runs nothing', async () => {
 		const gate = vi.fn(() => gateWith(allowBash))
@@ -234,6 +316,68 @@ describe('the hook', () => {
 			reason: 'stopped',
 			message: '/review was stopped by a hook: freeze',
 		})
+	})
+})
+
+describe('the pre_tool_use hooks', () => {
+	const hooked = (answer: (command: string) => PluginHookResult | Promise<PluginHookResult>) => {
+		const asked: { event: string; context: Record<string, unknown> }[] = []
+		return {
+			asked,
+			manager: {
+				listHooks: () => [{ pluginId: 'p' as PluginId, event: 'pre_tool_use' as const }],
+				executeHooks: vi.fn(async (event: string, context: Record<string, unknown>) => {
+					asked.push({ event, context })
+					return [await answer((context.toolInput as { command: string }).command)]
+				}),
+			},
+		}
+	}
+
+	it('are asked about each command as about the shell tool’s own call, before it runs', async () => {
+		const { manager: hooks, asked } = hooked(() => ({ action: 'continue' }))
+		const { shell: run } = shell({ hooks: () => hooks as never })
+		expect(await run.expand(request('!`echo a`'))).toBe('a')
+		expect(asked).toHaveLength(1)
+		expect(asked[0]?.event).toBe('pre_tool_use')
+		expect(asked[0]?.context).toMatchObject({ toolName: 'bash', toolInput: { command: 'echo a' } })
+	})
+
+	it('a deny fails the load and the command does not run', async () => {
+		const marker = join(cwd, 'made-by-denied-command')
+		const { manager: hooks } = hooked(() => ({ action: 'skip', reason: 'no touching here' }))
+		const { shell: run } = shell({ hooks: () => hooks as never })
+		await expect(run.expand(request(`!\`touch ${marker}\``))).rejects.toMatchObject({
+			reason: 'permission',
+			message: expect.stringContaining('no touching here'),
+		})
+		expect(existsSync(marker)).toBe(false)
+	})
+
+	it('a hook that times out refuses the command', async () => {
+		const marker = join(cwd, 'made-after-timeout')
+		const { manager: hooks } = hooked(() => ({ action: 'error', message: 'Hook timeout' }))
+		const { shell: run } = shell({ hooks: () => hooks as never })
+		await expect(run.expand(request(`!\`touch ${marker}\``))).rejects.toMatchObject({
+			reason: 'permission',
+		})
+		expect(existsSync(marker)).toBe(false)
+	})
+
+	it('a request for approval refuses it, because a load cannot wait for a person', async () => {
+		const { manager: hooks } = hooked(() => ({
+			action: 'continue',
+			permission: { decision: 'ask' },
+		}))
+		const { shell: run } = shell({ hooks: () => hooks as never })
+		await expect(run.expand(request('!`echo a`'))).rejects.toMatchObject({ reason: 'permission' })
+	})
+
+	it('are not asked for a command the rules refused', async () => {
+		const { manager: hooks } = hooked(() => ({ action: 'continue' }))
+		const { shell: run } = shell({ hooks: () => hooks as never, gate: () => gateWith() })
+		await expect(run.expand(request('!`ls`'))).rejects.toBeDefined()
+		expect(hooks.executeHooks).not.toHaveBeenCalled()
 	})
 })
 

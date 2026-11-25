@@ -632,9 +632,12 @@ export function createSkillTool(options: SkillToolOptions = {}) {
 								),
 							)
 						: ''
-					// The delegated prompt is known before the agent starts: the host
-					// recognises the agent that receives it, among any others that
-					// start at the same time, and binds the skill's hooks to that one.
+					// The skill's hooks are read once, before any command runs: the same plan
+					// decides what its `allowed-tools` may pre-approve for its own commands as
+					// on an inline load. The delegated prompt is not known yet, so the host is
+					// told it when the hooks attach, and recognises the agent that receives it,
+					// among any others that start at the same time.
+					const forkHooks = hooksPlanFor(skill, context, true)
 					let forkBody = skill.body
 					if (forkBody !== undefined) {
 						try {
@@ -643,7 +646,7 @@ export function createSkillTool(options: SkillToolOptions = {}) {
 								body: forkBody,
 								args: input.args,
 								directory: skill.dirPath,
-								allowedTools: parseAllowedTools(skill.metadata.allowedTools),
+								allowedTools: grantedTools(skill, forkHooks),
 								invokedBy: 'model',
 								context,
 								reuse: false,
@@ -655,13 +658,13 @@ export function createSkillTool(options: SkillToolOptions = {}) {
 						}
 					}
 					const forkPrompt = forkedPrompt(forkHeader, argsLine, forkBody)
-					const forkHooks = hooksPlanFor(skill, context, true, forkPrompt)
 					const forkResult = await runForkedSkill({
 						name: input.name,
 						skill,
 						prompt: forkPrompt,
 						dispatch: context.dispatchTool,
 						hooks: forkHooks,
+						hooksPrompt: forkPrompt,
 					})
 					return forkHooks?.notice
 						? { ...forkResult, output: `[${forkHooks.notice}]\n\n${forkResult.output}` }
@@ -675,9 +678,7 @@ export function createSkillTool(options: SkillToolOptions = {}) {
 			// that guards its work cannot be loaded, the skill's pre-approval is
 			// withheld, whatever else it says.
 			const hooksPlan = hooksPlanFor(skill, context, false)
-			const allowed = hooksPlan?.withholdGrants
-				? undefined
-				: parseAllowedTools(skill.metadata.allowedTools)
+			const allowed = grantedTools(skill, hooksPlan)
 			// Asked on every call, first page or continuation: the digest binds
 			// the answer, so a mount that changed between pages is a stale cursor
 			// rather than a second half written for a different directory.
@@ -690,117 +691,136 @@ export function createSkillTool(options: SkillToolOptions = {}) {
 					)
 				: undefined
 			let loadedBody = skill.body ?? '(this skill has no body)'
-			if (skill.body !== undefined) {
-				try {
-					loadedBody = await expandShell({
-						name: input.name,
-						body: skill.body,
-						args: input.args,
-						directory: resolveModelDirectory ? modelDirectory : skill.dirPath,
-						allowedTools: allowed,
-						invokedBy: 'model',
-						context,
-						reuse: input.cursor !== undefined,
-					})
-				} catch (error) {
-					const failed = shellLoadFailure(error, context)
-					if (failed) return failed
-					throw error
+			// A skill's own hooks guard its own load-time commands, so a skill that holds
+			// commands attaches them first and takes them off again when the load fails.
+			// Any other skill keeps the rule that they go live once its instructions
+			// were delivered.
+			const attachedEarly =
+				skill.body !== undefined &&
+				options.shell !== undefined &&
+				findInlineShell(skill.body).length > 0
+					? hooksPlan?.attach()
+					: undefined
+			let delivered = false
+			try {
+				if (skill.body !== undefined) {
+					try {
+						loadedBody = await expandShell({
+							name: input.name,
+							body: skill.body,
+							args: input.args,
+							directory: resolveModelDirectory ? modelDirectory : skill.dirPath,
+							allowedTools: allowed,
+							invokedBy: 'model',
+							context,
+							reuse: input.cursor !== undefined,
+						})
+					} catch (error) {
+						const failed = shellLoadFailure(error, context)
+						if (failed) return failed
+						throw error
+					}
 				}
-			}
-			const snapshot: SkillSnapshot = {
-				name: input.name,
-				body: loadedBody,
-				allowedTools: allowed,
-				// The model's path when the host gave one: `${CLAUDE_SKILL_DIR}` in a
-				// pattern is matched against a command line the model writes, and it
-				// writes the path it was told.
-				skillDirectory: resolveModelDirectory ? modelDirectory : skill.dirPath,
-				header: forkUnavailable + (resolveModelDirectory ? directoryHeader(modelDirectory) : ''),
-				invocation,
-			}
-			const digest = snapshotDigest(snapshot)
-			let start = 0
-			if (input.cursor !== undefined) {
-				const parsed = parseCursor(input.cursor)
-				if (
-					!parsed ||
-					parsed.digest !== digest ||
-					parsed.offset >= snapshot.body.length ||
-					!isCodePointBoundary(snapshot.body, parsed.offset)
-				) {
+				const snapshot: SkillSnapshot = {
+					name: input.name,
+					body: loadedBody,
+					allowedTools: allowed,
+					// The model's path when the host gave one: `${CLAUDE_SKILL_DIR}` in a
+					// pattern is matched against a command line the model writes, and it
+					// writes the path it was told.
+					skillDirectory: resolveModelDirectory ? modelDirectory : skill.dirPath,
+					header: forkUnavailable + (resolveModelDirectory ? directoryHeader(modelDirectory) : ''),
+					invocation,
+				}
+				const digest = snapshotDigest(snapshot)
+				let start = 0
+				if (input.cursor !== undefined) {
+					const parsed = parseCursor(input.cursor)
+					if (
+						!parsed ||
+						parsed.digest !== digest ||
+						parsed.offset >= snapshot.body.length ||
+						!isCodePointBoundary(snapshot.body, parsed.offset)
+					) {
+						return {
+							success: false,
+							output: '',
+							error: `The continuation cursor for "${input.name}" is stale or invalid. Call skill again without a cursor to read the current instructions.`,
+						}
+					}
+					start = parsed.offset
+				}
+
+				// Compiled before paging so the notice can say what the grant is, and
+				// committed only after paging succeeded: a load that fails here gave
+				// the model no instructions, so it must not have approved anything.
+				// Idempotent: a continuation call grants the same entries again, and
+				// the turn's set keeps one copy.
+				let grant: ReturnType<NonNullable<typeof context.grantSkillTools>> | undefined
+				if (allowed !== undefined && allowed.length > 0 && context.grantSkillTools) {
+					grant = context.grantSkillTools({
+						skill: skill.metadata.name,
+						allowedTools: allowed,
+						...(snapshot.skillDirectory ? { skillDirectory: snapshot.skillDirectory } : {}),
+					})
+				}
+				const notice =
+					(hooksPlan?.notice ? `\n\n[${hooksPlan.notice}]` : '') +
+					grantNotice(allowed, grant, context.grantSkillTools !== undefined)
+				const page = pageSkillBody({
+					snapshot:
+						start === 0 && argsLine
+							? { ...snapshot, header: argsLine + snapshot.header }
+							: snapshot,
+					digest,
+					start,
+					notice,
+					maxChars: context.maxToolOutputChars,
+				})
+				if (!page) {
 					return {
 						success: false,
 						output: '',
-						error: `The continuation cursor for "${input.name}" is stale or invalid. Call skill again without a cursor to read the current instructions.`,
+						error: `The model-visible tool-output budget is too small to read "${input.name}" safely. Increase maxToolOutputChars and retry.`,
 					}
 				}
-				start = parsed.offset
-			}
+				grant?.commit()
+				// Live only now that the instructions were delivered, like the grant (a skill
+				// that holds commands attached them before it ran them).
+				delivered = true
+				if (attachedEarly === undefined) hooksPlan?.attach()
+				// Kept with the conversation, so a host that continues it later can
+				// attach the same hooks again. Once, on the first page of a load.
+				let output = page.output
+				if (hooksPlan?.resumable === true && start === 0 && skill.dirPath !== undefined) {
+					const kept = context.recordSkillHooks
+						? await context
+								.recordSkillHooks({
+									skill: skill.metadata.name,
+									directory: skill.dirPath,
+									grantsWithheld: hooksPlan.withholdGrants,
+									...(context.toolUseId !== undefined ? { toolCallId: context.toolUseId } : {}),
+								})
+								.catch(() => false)
+						: false
+					if (!kept) {
+						output += `\n\n[${SKILL_HOOKS_NOT_KEPT}]`
+					}
+				}
 
-			// Compiled before paging so the notice can say what the grant is, and
-			// committed only after paging succeeded: a load that fails here gave
-			// the model no instructions, so it must not have approved anything.
-			// Idempotent: a continuation call grants the same entries again, and
-			// the turn's set keeps one copy.
-			let grant: ReturnType<NonNullable<typeof context.grantSkillTools>> | undefined
-			if (allowed !== undefined && allowed.length > 0 && context.grantSkillTools) {
-				grant = context.grantSkillTools({
-					skill: skill.metadata.name,
-					allowedTools: allowed,
-					...(snapshot.skillDirectory ? { skillDirectory: snapshot.skillDirectory } : {}),
-				})
-			}
-			const notice =
-				(hooksPlan?.notice ? `\n\n[${hooksPlan.notice}]` : '') +
-				grantNotice(allowed, grant, context.grantSkillTools !== undefined)
-			const page = pageSkillBody({
-				snapshot:
-					start === 0 && argsLine ? { ...snapshot, header: argsLine + snapshot.header } : snapshot,
-				digest,
-				start,
-				notice,
-				maxChars: context.maxToolOutputChars,
-			})
-			if (!page) {
 				return {
-					success: false,
-					output: '',
-					error: `The model-visible tool-output budget is too small to read "${input.name}" safely. Increase maxToolOutputChars and retry.`,
+					success: true,
+					output,
+					data: {
+						skill: skill.metadata.name,
+						...(modelDirectory === undefined ? {} : { directory: modelDirectory }),
+						...(allowed === undefined ? {} : { allowedTools: allowed }),
+						...(grant ? { granted: grant.granted, ignored: grant.ignored } : {}),
+						...(page.nextCursor === undefined ? {} : { nextCursor: page.nextCursor }),
+					},
 				}
-			}
-			grant?.commit()
-			// Live only now that the instructions were delivered, like the grant.
-			hooksPlan?.attach()
-			// Kept with the conversation, so a host that continues it later can
-			// attach the same hooks again. Once, on the first page of a load.
-			let output = page.output
-			if (hooksPlan?.resumable === true && start === 0 && skill.dirPath !== undefined) {
-				const kept = context.recordSkillHooks
-					? await context
-							.recordSkillHooks({
-								skill: skill.metadata.name,
-								directory: skill.dirPath,
-								grantsWithheld: hooksPlan.withholdGrants,
-								...(context.toolUseId !== undefined ? { toolCallId: context.toolUseId } : {}),
-							})
-							.catch(() => false)
-					: false
-				if (!kept) {
-					output += `\n\n[${SKILL_HOOKS_NOT_KEPT}]`
-				}
-			}
-
-			return {
-				success: true,
-				output,
-				data: {
-					skill: skill.metadata.name,
-					...(modelDirectory === undefined ? {} : { directory: modelDirectory }),
-					...(allowed === undefined ? {} : { allowedTools: allowed }),
-					...(grant ? { granted: grant.granted, ignored: grant.ignored } : {}),
-					...(page.nextCursor === undefined ? {} : { nextCursor: page.nextCursor }),
-				},
+			} finally {
+				if (!delivered) attachedEarly?.remove()
 			}
 		},
 	})
@@ -809,6 +829,19 @@ export function createSkillTool(options: SkillToolOptions = {}) {
 /** Said to the model when a skill's hooks could not be written into the conversation's record. */
 const SKILL_HOOKS_NOT_KEPT =
 	"This conversation could not keep a record of this skill's hooks, so if it is continued later they will not be attached again: load the skill again then."
+
+/**
+ * What a skill's `allowed-tools` may pre-approve, for its own commands and its
+ * grant alike: nothing when the host withheld the pre-approval (a hook that
+ * guards its work could not be loaded, or hooks cannot be attached here). One
+ * decision, for the inline load and the delegated one.
+ */
+function grantedTools(
+	skill: { readonly metadata: { readonly allowedTools?: string } },
+	plan: SkillHooksPlan | undefined,
+): readonly string[] | undefined {
+	return plan?.withholdGrants ? undefined : parseAllowedTools(skill.metadata.allowedTools)
+}
 
 /**
  * What the host says of the hooks a skill carries, or `undefined` for a skill
@@ -944,9 +977,13 @@ async function runForkedSkill(input: {
 	readonly dispatch: NonNullable<ToolContext['dispatchTool']>
 	/** The skill's hooks, made live for the delegated agent's run only. */
 	readonly hooks?: SkillHooksPlan
+	/** The prompt the hooks are bound to, told to the host when they attach. */
+	readonly hooksPrompt?: string
 }) {
 	const { metadata } = input.skill
-	const attached = input.hooks?.attach()
+	const attached = input.hooks?.attach(
+		input.hooksPrompt !== undefined ? { prompt: input.hooksPrompt } : undefined,
+	)
 	let ended = false
 	const end = (): void => {
 		if (ended) return

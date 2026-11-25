@@ -1694,6 +1694,9 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 		const toolExecutor = ToolingBootstrap.init(
 			{
 				skillGrants,
+				// A host names its approval policy for the mode it implements, so the name is
+				// the live mode; a name that is not a mode says nothing about nested calls.
+				reviewMode: () => approvalPolicy.current.name,
 				tools: toolManager,
 				...(params.structuredOutput?.toolResultRetention === 'durable' && structuredOutputTool
 					? { durableStructuredOutputTool: structuredOutputTool }
