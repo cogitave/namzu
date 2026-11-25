@@ -239,11 +239,11 @@ it('lists and reaches a terminal in another folder, by the same rules', async ()
 	const listed = await f.sender.list()
 	expect(listed).toHaveLength(3)
 	expect(listed.map((row) => row.cwd)).toContain(realpathSync(foreignCwd))
+	// Reaching it is allowed; an agent's mail from another folder waits for the person at the receiver.
 	expect(await foreign.send(f.receiver.ref, 'from another folder')).toMatchObject({
-		status: 'queued',
+		status: 'held',
 	})
-	expect(f.receiver.take(0).map((mail) => mail.text)).toEqual(['from another folder'])
-	// A held-mail rule does not depend on the folder: another mode is held for the person.
+	expect(f.receiver.take(0)).toEqual([])
 	const odd = await openLivePeers({
 		home: f.home,
 		cwd: foreignCwd,
@@ -289,7 +289,7 @@ it('refuses an ambiguous name across folders and names the candidates', async ()
 	expect(receipt.reason).toContain(realpathSync(a.cwd))
 	expect(receipt.reason).toContain(realpathSync(b.cwd))
 	expect(a.peers.pending + b.peers.pending).toBe(0)
-	expect(await f.sender.send(a.peers.ref, 'by ref')).toMatchObject({ status: 'queued' })
+	expect(await f.sender.send(a.peers.ref, 'by ref')).toMatchObject({ status: 'held' })
 })
 
 it('reports accepted but undelivered mail on graceful close', async () => {
@@ -623,7 +623,11 @@ it('accepts a command-line sender in its own project and shows the mail as a com
 })
 
 /** Two terminals in one project with a manual clock, each with its own notices, for the hold flow. */
-async function holdFixture(receiverMode = 'classify', senderMode = 'classify') {
+async function holdFixture(
+	receiverMode = 'classify',
+	senderMode = 'classify',
+	senderFolder?: string,
+) {
 	const root = mkdtempSync(join(tmpdir(), 'nph-'))
 	roots.push(root)
 	const home = join(root, 'h')
@@ -645,10 +649,12 @@ async function holdFixture(receiverMode = 'classify', senderMode = 'classify') {
 				w.resolve()
 			}
 	}
+	const otherCwd = join(root, 'q')
+	if (senderFolder !== undefined) mkdirSync(otherCwd)
 	const open = (who: 'receiver' | 'sender') =>
 		openLivePeers({
 			home,
-			cwd,
+			cwd: who === 'sender' && senderFolder !== undefined ? otherCwd : cwd,
 			version: 'fixture',
 			env: {},
 			clock,
@@ -801,6 +807,49 @@ describe('mail from a terminal in another permission mode is held, not refused',
 		expect(await f.sender.send(f.receiver.ref, '   ')).toMatchObject({ status: 'refused' })
 		f.receiver.setEnabled(false)
 		expect(await f.sender.send(f.receiver.ref, 'hi')).toMatchObject({ status: 'refused' })
+		expect(f.receiver.held()).toEqual([])
+	})
+
+	it('holds an agent message from a session in another folder, and says why to both sides', async () => {
+		const f = await holdFixture('classify', 'classify', 'other')
+		const receipt = await f.sender.send(f.receiver.ref, 'from elsewhere')
+		expect(receipt).toMatchObject({ status: 'held' })
+		expect(String(receipt.reason)).toContain('another folder')
+		expect(f.receiver.pending).toBe(0)
+		expect(f.receiver.held()[0]?.reason).toContain('another folder')
+		expect(f.notices.receiver.join('\n')).toContain('another folder')
+	})
+
+	it('allowing a held message from another folder queues it once, and the next is held again', async () => {
+		const f = await holdFixture('classify', 'classify', 'other')
+		await f.sender.send(f.receiver.ref, 'one')
+		const told = f.heard('sender', (t) => t.includes('allowed your held message'))
+		expect(f.receiver.allowHeld(f.receiver.held()[0]?.id as string)).toBe(true)
+		await told
+		expect(f.receiver.take(0).map((mail) => mail.text)).toEqual(['one'])
+		expect(await f.sender.send(f.receiver.ref, 'two')).toMatchObject({ status: 'held' })
+	})
+
+	it('denying a held message from another folder drops it and tells the sender', async () => {
+		const f = await holdFixture('classify', 'classify', 'other')
+		await f.sender.send(f.receiver.ref, 'no thanks')
+		const told = f.heard('sender', (t) => t.includes('refused your held message'))
+		expect(f.receiver.denyHeld(f.receiver.held()[0]?.id as string)).toBe(true)
+		await told
+		expect(f.receiver.pending).toBe(0)
+		expect(f.receiver.held()).toEqual([])
+	})
+
+	it('names both reasons when the folder and the mode both differ', async () => {
+		const f = await holdFixture('prompt', 'classify', 'other')
+		const receipt = await f.sender.send(f.receiver.ref, 'both')
+		expect(String(receipt.reason)).toContain('permission mode differs')
+		expect(String(receipt.reason)).toContain('another folder')
+	})
+
+	it('delivers a message from a session in the same folder as before', async () => {
+		const f = await holdFixture('classify', 'classify')
+		expect(await f.sender.send(f.receiver.ref, 'same folder')).toMatchObject({ status: 'queued' })
 		expect(f.receiver.held()).toEqual([])
 	})
 

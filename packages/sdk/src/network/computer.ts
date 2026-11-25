@@ -248,6 +248,14 @@ export interface ResolveSecretDeps {
 	readonly writeText: (path: string, text: string) => Promise<void>
 	/** Run a program and return its trimmed standard output, or undefined when it cannot run. */
 	readonly exec: (command: string, args: readonly string[]) => Promise<string | undefined>
+	/**
+	 * The user id the file system reports as owning a file (undefined when it cannot be read). On WSL a
+	 * Windows drive is mounted as one Linux user, so this is how a Windows file is tied to a Linux user.
+	 * Without it the Windows copy is never trusted.
+	 */
+	readonly fileOwner?: (path: string) => Promise<number | undefined>
+	/** The user id of this process (undefined where there is none); the Windows copy is trusted only for the user that owns it. */
+	readonly uid?: number | undefined
 }
 
 export interface ResolveSecretInput {
@@ -290,7 +298,8 @@ const isWsl = (platform: string, env: NodeJS.ProcessEnv) =>
  * Only the default home and a service home directly under it qualify; any other `NAMZU_HOME` (a scratch or
  * sandboxed home) never joins the person's network by itself. On Windows, Linux and macOS the native copy
  * is the secret. On WSL the Windows profile's copy is the source of truth when it can be read (so Desktop
- * and the WSL terminal agree), else the native WSL copy; Windows never reaches into WSL, whose distro may
+ * and the WSL terminal agree) and the Linux user that the Windows drive mount maps the file to is the
+ * current one, else the native WSL copy in this user's own home; Windows never reaches into WSL, whose distro may
  * not be running.
  */
 export async function resolveComputerSecret(
@@ -329,5 +338,10 @@ export async function resolveComputerSecret(
 	const windowsPath = join(profile, '.namzu', 'network', COMPUTER_SECRET_FILE)
 	// Only a copy Windows made: from here nothing is ever created in the Windows profile.
 	if (!(await deps.exists(windowsPath))) return native
+	// A Windows drive is mounted into the distro as one Linux user, so every other Linux user of the
+	// distro would reach the same file. Only the user the mount maps the file to may trust it; any
+	// other uses the copy in its own home, and a file whose owner cannot be seen is not trusted.
+	const owner = await deps.fileOwner?.(windowsPath).catch(() => undefined)
+	if (owner === undefined || deps.uid === undefined || owner !== deps.uid) return native
 	return { path: windowsPath, check: 'path-only', create: false }
 }

@@ -123,7 +123,7 @@ Automatic goal rounds retain their separate goal-driver continuation policy.
 The transcript attributes peer text to the other terminal. Durable history uses
 `runtime-context/peer-message`; peer text is never an operator message or
 approval. The receiving terminal retains its own rules, mode, budgets and
-credentials. Automatic acceptance requires a verified live TUI sender of this user on this computer (any folder) and the same permission mode (a terminal, or a command-line sender from `namzu peers send`), and a receiver that is not in bypass. Anything else
+credentials. Automatic acceptance requires a verified live TUI sender of this user on this computer, in the same real folder as the receiver, and the same permission mode (a terminal, or a command-line sender from `namzu peers send`), and a receiver that is not in bypass. Every session on this computer can be listed and messaged from any folder, but an agent's mail from a session in another folder is held for the person at the receiving terminal (allow once or deny; the sender is told it was held and why), the same as a permission-mode mismatch. A person's own message (`namzu peers send` from outside a session) names its conversation and is not held for the folder, and mail from another machine on your Namzu network keeps the network's own rules (a machine you allowed, the receiver's setting, its mode) since a remote folder cannot be compared. Anything else
 is held, not treated as consent (below). The receiver checks its current mode again before an idle wake consumes mail and
 before busy-turn delivery. If the mode changes after acceptance, incompatible
 pending mail is discarded with a local notice, not replayed under the new mode;

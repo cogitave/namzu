@@ -166,6 +166,9 @@ describe('which secret a home may use', () => {
 				wrote[p] = t
 			},
 			exec: async (cmd, args) => exec[`${cmd} ${args.join(' ')}`],
+			// The Windows drive is mounted as Linux user 1000, who is also this process.
+			fileOwner: async (p) => (p in files ? 1000 : undefined),
+			uid: 1000,
 		}
 	}
 	const base = { osHome: OS, platform: 'linux' }
@@ -305,6 +308,36 @@ describe('which secret a home may use', () => {
 				})
 			)?.path,
 		).toBe(native)
+	})
+	it('WSL trusts the Windows copy only for the Linux user the drive mount maps it to', async () => {
+		const env = { WSL_DISTRO_NAME: 'Ubuntu', WSL_INTEROP: '/run/x' }
+		const files = { [winFile]: GOOD }
+		const exec = { [cmdKey]: 'C:\\Users\\Arda', 'wslpath -u C:\\Users\\Arda': win }
+		// Another Linux user of the same distro: the mount says the file is user 1000's, not theirs.
+		const stranger = { ...deps(files, exec), uid: 1001 }
+		expect(
+			await resolveComputerSecret({
+				...wsl,
+				home: '/home/other/.namzu',
+				osHome: '/home/other',
+				env,
+				deps: stranger,
+			}),
+		).toEqual({ path: '/home/other/.namzu/network/machine-secret', check: 'posix', create: true })
+		// The owner itself still gets the Windows copy.
+		expect((await resolveComputerSecret({ ...wsl, env, deps: deps(files, exec) }))?.path).toBe(
+			winFile,
+		)
+	})
+	it('WSL does not trust a Windows copy whose owner cannot be seen, or a host that gave no way to see it', async () => {
+		const env = { WSL_DISTRO_NAME: 'Ubuntu', WSL_INTEROP: '/run/x' }
+		const files = { [winFile]: GOOD }
+		const exec = { [cmdKey]: 'C:\\Users\\Arda', 'wslpath -u C:\\Users\\Arda': win }
+		const blind = { ...deps(files, exec), fileOwner: async () => undefined }
+		const noCheck = { ...deps(files, exec), fileOwner: undefined }
+		const noUid = { ...deps(files, exec), uid: undefined }
+		for (const d of [blind, noCheck, noUid])
+			expect((await resolveComputerSecret({ ...wsl, env, deps: d }))?.path).toBe(native)
 	})
 	it('WSL refuses a Windows profile path outside /mnt/<drive>/Users/<name>', async () => {
 		for (const bad of [

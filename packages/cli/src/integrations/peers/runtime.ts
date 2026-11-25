@@ -194,6 +194,15 @@ export interface LivePeersOptions {
 const TITLE_MAX = 40
 
 /** The session's display name: its conversation's name as one safe line, else the folder's. */
+/** Whether two recorded folders are the same real folder; one that cannot be resolved counts as different. */
+function sameFolder(a: string, b: string): boolean {
+	try {
+		return realpathSync(a) === realpathSync(b)
+	} catch {
+		return false
+	}
+}
+
 export function displayTitle(name: string | undefined, cwd: string): string {
 	const line = name === undefined ? '' : sanitizeLine(name, TITLE_MAX)
 	return line === '' ? basename(cwd) : line
@@ -513,7 +522,7 @@ export async function openLivePeers(options: LivePeersOptions) {
 		// The person has no permission mode to match. An agent's mail that does not match, or that reaches a
 		// terminal in bypass, is not argued out of the person's hands and not dropped either: it is held for
 		// the person to allow once or deny, and the sender is told which.
-		const decision = decideMail({
+		let decision = decideMail({
 			scope: 'local',
 			text: request.text,
 			hops: 0,
@@ -530,6 +539,15 @@ export async function openLivePeers(options: LivePeersOptions) {
 		if (decision.action === 'refuse') {
 			auditMail('mail_refused', request.from, request.text, decision.reason)
 			return { status: 'refused', reason: decision.reason }
+		}
+		// The list shows every session on this computer and any of them may be messaged, but an agent in
+		// another project is not argued into this one's context: its mail waits for the person here.
+		const otherFolder = !sameFolder(sender.cwd, cwd)
+		const folderReason = 'it comes from a session in another folder'
+		if (decision.action === 'accept' && otherFolder) {
+			decision = { action: 'hold', reason: folderReason }
+		} else if (decision.action === 'hold' && otherFolder) {
+			decision = { action: 'hold', reason: `${decision.reason}; ${folderReason}` }
 		}
 		if (decision.action === 'hold') {
 			const duplicate = accepted.get(`${request.from.sessionId}:${request.id}`)
