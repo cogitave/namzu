@@ -519,6 +519,16 @@ export interface MCPClientConfig {
 	 */
 	tasks?: boolean
 	/**
+	 * Take part in the skills extension (2026-07-28). Default `false`.
+	 *
+	 * Server-supplied skills are server-supplied instructions, so a host opts
+	 * in per server. When `true` and the server advertises
+	 * `io.modelcontextprotocol/skills`, the client declares it on each
+	 * request and `listSkillPage` and `getSkill` ask the server. `false`
+	 * declares nothing and sends neither method.
+	 */
+	skills?: boolean
+	/**
 	 * Answer a server's `elicitation/create` (form mode) by asking the person.
 	 *
 	 * Setting it makes the client declare the `elicitation` capability on a

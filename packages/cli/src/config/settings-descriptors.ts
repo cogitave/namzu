@@ -547,6 +547,7 @@ export function appliesWhenFor(path: string): AppliesWhen {
 		'mcpServers',
 		'hooks',
 		'disableHooks',
+		'disableMcpSkills',
 	])
 	return conversationKeys.has(path) ||
 		conversationPrefixes.some((prefix) => path.startsWith(prefix))
@@ -2368,6 +2369,18 @@ const DECLARED: readonly SettingDescriptor[] = [
 		'Commands that run on events such as before a tool runs. Edit them in the config file.',
 		fileOnly,
 		{ group: 'servers-hooks', keywords: [] },
+	),
+	d(
+		'disableMcpSkills',
+		'tools',
+		'Turn off tool server skills',
+		'Never use the skills a tool server offers, even for a server that is set to offer them. Each server is off until you set skills to true on it in your config file. Only your own file or an administrator can set this.',
+		on,
+		{
+			group: 'servers-hooks',
+			default: false,
+			keywords: ['mcp skills', 'server skills', 'skills from servers', 'disable skills'],
+		},
 	),
 	d(
 		'disableHooks',

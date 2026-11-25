@@ -420,6 +420,22 @@ Not built: `tasks/update` (answering a task's input requests),
 `notifications/tasks` through the listen stream (polling is the default and is
 what runs), and persisting task ids so polling can resume after a restart.
 
+### Skills: the extension is declared only when the host asks
+
+The skills extension (`io.modelcontextprotocol/skills`) adds `skills/list`
+(paged by `cursor`) and `skills/get` for skills a server publishes; a skill's
+`SKILL.md` is read with `resources/read`. Unlike tasks, it is **off unless
+`MCPClientConfig.skills` is `true`**, because a server's skills are
+instructions it wrote. When it is on, the server listed the extension in
+`server/discover` and the connection is on 2026-07-28, the client declares it
+in `io.modelcontextprotocol/clientCapabilities` on each request. On a
+connection made with the older handshake it is never declared and
+`listSkillPage()` resolves `undefined` without sending a request: the older
+`initialize` has no place to learn the server's side before the client
+declares its own, and this client does not rewrite that handshake for an
+extension. "Method not found" from a server that did declare it means no
+skills. See [Skills](skills.md#skills-a-server-offers).
+
 ## Mirroring tool parameters into headers: `x-mcp-header`
 
 A server may annotate a tool parameter with `x-mcp-header` to ask that the

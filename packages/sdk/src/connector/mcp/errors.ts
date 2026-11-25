@@ -115,6 +115,20 @@ export function isHeaderMismatchError(error: unknown): error is MCPProtocolError
 }
 
 /**
+ * A server answered that it has no such method (`-32601`), as a JSON-RPC
+ * error or as the `404` with a `-32601` body a modern HTTP server uses.
+ * For a method an extension adds, this means "the server does not offer
+ * it", not a fault.
+ */
+export function isMethodNotFoundError(error: unknown): boolean {
+	if (error instanceof MCPProtocolError) return error.code === -32601
+	if (error instanceof MCPHttpStatusError) {
+		return error.status === 404 && /-32601/.test(error.bodyText)
+	}
+	return false
+}
+
+/**
  * A server answered that the resource, prompt or tool a request named does
  * not exist — the current spec's `-32002`, or the older `-32602` a
  * pre-2025-06-18 server may still use for the same condition (see

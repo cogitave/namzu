@@ -946,6 +946,14 @@ export interface NamzuCliConfig {
 	 */
 	readonly disableHooks?: boolean
 	/**
+	 * `true` ignores every `skills: true` on an `mcpServers` entry: no tool
+	 * server's skills are asked for or offered. Only the user file and the
+	 * organisation-managed file can set it; in a project or local file it is
+	 * ignored, with a note at launch. Once one of those says `true`, no later
+	 * layer undoes it.
+	 */
+	readonly disableMcpSkills?: boolean
+	/**
 	 * `true`, in the organisation-managed file only, attaches only the hooks
 	 * that file declares: entries from the user, project and local files are not
 	 * attached. Any other file that sets it is ignored, with a note at launch.

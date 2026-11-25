@@ -63,6 +63,7 @@ const FULL = {
 	computerUse: { enabled: true, deniedApps: ['Banking'] },
 	additionalDirectories: ['extra'],
 	toolResultScreens: [],
+	disableMcpSkills: true,
 } as unknown as NamzuCliConfig
 
 describe('every configuration key reaches a session, or says why not', () => {

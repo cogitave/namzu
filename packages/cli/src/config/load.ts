@@ -1060,6 +1060,10 @@ const CONFIG_READERS: ConfigReaders = {
 		if (typeof v === 'boolean') return v
 		return invalidConfigValue(context, [], 'must be a boolean')
 	},
+	disableMcpSkills: (v, context) => {
+		if (typeof v === 'boolean') return v
+		return invalidConfigValue(context, [], 'must be a boolean')
+	},
 	hooksManagedOnly: (v, context) => {
 		if (typeof v === 'boolean') return v
 		return invalidConfigValue(context, [], 'must be a boolean')
@@ -2943,6 +2947,9 @@ export const ENV_VARIABLE_NAMES: EnvVariableNames = {
 	disableHooks: 'NAMZU_DISABLE_HOOKS',
 	// Only the organisation-managed file may say it; the environment cannot.
 	hooksManagedOnly: undefined,
+	// A server's skills are instructions it wrote; the file is the only place
+	// to opt in or to switch the feature off.
+	disableMcpSkills: undefined,
 	additionalDirectories: undefined,
 	// Absent here for the reason `additionalDirectories` is: the environment
 	// carries scalars, and a screen is a list of names whose meaning belongs
@@ -3476,6 +3483,17 @@ function mergeConfigs(...layers: readonly ConfigLayer[]): {
 				// Once on, no later layer turns it off.
 				continue
 			}
+			if (key === 'disableMcpSkills' && isProjectSource(layer.sourceFor(key))) {
+				// A repository's file does not decide what the person's tool servers may teach.
+				configWarnings.add(
+					`disableMcpSkills in ${describeSource(layer.sourceFor(key))} is ignored: only your own config file or the managed file can set it.`,
+				)
+				continue
+			}
+			if (key === 'disableMcpSkills' && out.disableMcpSkills === true) {
+				// Once on, no later layer turns it off.
+				continue
+			}
 			if (
 				(key === 'cleanupPeriodDays' || key === 'promptHistory') &&
 				isProjectSource(layer.sourceFor(key))
@@ -3929,6 +3947,7 @@ export function projectLayerHolds(path: string, value: unknown): boolean {
 		case 'updates':
 			return tail === 'auto' || tail === 'check' ? value === false : false
 		case 'disableHooks':
+		case 'disableMcpSkills':
 			return value === false
 		case 'worktrees':
 		case 'cleanupPeriodDays':

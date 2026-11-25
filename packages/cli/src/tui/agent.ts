@@ -1877,6 +1877,14 @@ export interface AgentSession {
 		readonly pending?: readonly string[]
 	}
 	/**
+	 * The skills tool servers offer, for the `/` menu: each as `server:skill`
+	 * with its description. Empty until a server that was opted in answers.
+	 */
+	readonly mcpSkillMenu?: {
+		list(): readonly { readonly name: string; readonly description: string }[]
+		onChange(listener: () => void): () => void
+	}
+	/**
 	 * What the connected tool servers publish as resources, for the `@` picker
 	 * and for reading a mentioned one. Absent in a session with no tool servers.
 	 */
@@ -2927,6 +2935,11 @@ export interface AgentSessionOptions {
 	 * config. Absent means none, which is what it meant before they existed.
 	 */
 	readonly mcpServers?: McpServersConfig
+	/**
+	 * `true` ignores every server's `skills: true` (`disableMcpSkills`, set in
+	 * the user's or the managed file). Absent leaves each server's own choice.
+	 */
+	readonly disableMcpSkills?: boolean
 	/**
 	 * Whether opening the session waits for the tool servers. `'wait'` (the
 	 * default, what headless runs need) returns once each has answered or
@@ -4426,6 +4439,7 @@ export async function createAgentSession(
 	// server is told "decline".
 	const mcpStart = {
 		cwd,
+		...(options.disableMcpSkills === true ? { disableSkills: true } : {}),
 		elicit: elicitThroughQuestions(
 			() => elicitationHost.ask,
 			() =>
@@ -5958,6 +5972,7 @@ export async function createAgentSession(
 			contextWindowTokens: resolveContextWindow(options.compaction?.contextWindowTokens, turnModel)
 				.tokens,
 			...(sessionPlugins ? { pluginSkills: sessionPlugins.skills } : {}),
+			...(mcp.skills ? { mcpSkills: mcp.skills } : {}),
 			skillHooks,
 		})
 	// The latest system prompt a turn assembled, kept for `/context`.
@@ -7407,6 +7422,18 @@ export async function createAgentSession(
 				gate: () => new AuthorizationGate(gateFor(sessionRules), cliLogger()),
 				...review,
 			}),
+		...(mcp.skills
+			? {
+					mcpSkillMenu: {
+						list: () =>
+							mcp.skills?.list().map((item) => ({
+								name: item.name,
+								description: item.skill.metadata.description,
+							})) ?? [],
+						onChange: (listener: () => void) => mcp.skills?.onChange(listener) ?? (() => {}),
+					},
+				}
+			: {}),
 		mcpResources: {
 			// Background picker discovery has nobody to review it. Explicit asks
 			// therefore wait for /mcp resources, which supplies the review screen.
