@@ -6,6 +6,7 @@ export { MCPClient } from './client.js'
 
 export {
 	isHeaderMismatchError,
+	isMethodNotFoundError,
 	isMissingRequiredClientCapabilityError,
 	isResourceNotFoundError,
 	isUnsupportedProtocolVersionError,
@@ -35,6 +36,41 @@ export type {
 export { buildEnvelope, decodeResult, encodeMcpHeaderValue } from './envelope.js'
 export type { McpEnvelope, McpEnvelopeInput, MCPDecodedResult } from './envelope.js'
 export { MCP_TASKS_EXTENSION } from './tasks.js'
+
+export {
+	MCP_SKILLS_EXTENSION,
+	MCP_SKILL_FILE,
+	MCP_SKILL_LIMITS,
+	admitMcpSkillEntries,
+	mcpSkillServerNameProblem,
+	nameMcpSkills,
+	summarizeMcpSkillRefusals,
+	validateMcpSkillEntry,
+} from './skills.js'
+export type {
+	McpNamedSkill,
+	McpSkillAdmission,
+	McpSkillEntry,
+	McpSkillEntryVerdict,
+	McpSkillFile,
+	McpSkillRefusal,
+} from './skills.js'
+export {
+	MCP_SKILL_STRIPPED_KEYS,
+	McpSkillLoadError,
+	McpSkillSource,
+	loadMcpSkillBody,
+	mcpSkillMetadata,
+	mcpSkillStrippedKeys,
+} from './skill-source.js'
+export type {
+	McpListedSkill,
+	McpSkillLoadFailure,
+	McpSkillSourceOptions,
+	McpSkillsClient,
+	McpSkillsRefresh,
+	McpSkillsRefreshStatus,
+} from './skill-source.js'
 
 // The repo's first refusal path: a tool definition namzu declines to expose.
 // Exported so a host can ask the same question of a schema it holds — and

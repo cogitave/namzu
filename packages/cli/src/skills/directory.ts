@@ -42,6 +42,8 @@ export function createSkillDirectoryResolver(
 ): SkillDirectoryResolver {
 	return async (skill, context) => {
 		if (skill.directory === undefined) return undefined
+		// A skill a tool server offers has an address, not a folder.
+		if (/^[a-z][a-z0-9+.-]*:\/\//i.test(skill.directory)) return undefined
 		// On the host the model's tools open the path the CLI read the skill
 		// from: a path outside the working directory is a permission question,
 		// not a wall.

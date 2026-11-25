@@ -41,6 +41,7 @@ import {
 } from '@namzu/sdk'
 
 import type { SkillsConfig } from '../config/schema.js'
+import type { McpSkillsView } from '../integrations/mcp/servers.js'
 import { retiredSkill } from './retired.js'
 import type { SkillHooksHost } from './skill-hooks.js'
 import {
@@ -100,6 +101,12 @@ export interface TurnSkillsInput {
 	readonly contextWindowTokens: number
 	/** The plugin runtime's registry, when plugins are on. */
 	readonly pluginSkills?: SkillRegistry
+	/**
+	 * The skills the tool servers opted in with `skills: true` offer. Joined
+	 * after the file and plugin skills, under the same manifest budget; a name
+	 * a local skill already holds is dropped with a log line.
+	 */
+	readonly mcpSkills?: McpSkillsView
 	/** Reads and attaches the hooks a skill carries; absent, the `skill` tool has no way to run them. */
 	readonly skillHooks?: Pick<SkillHooksHost, 'prepareHooks'>
 }
@@ -240,7 +247,31 @@ export async function createSessionSkillCatalog(
 				}
 			}
 
-			const all = [...fileSkills, ...pluginSkills]
+			// A server's skills come last, so a long listing cannot push a local
+			// skill out of the manifest, and a name a local skill holds is never
+			// taken over by a server.
+			const heldNames = new Set([
+				...fileSkills.map((skill) => skill.metadata.name),
+				...pluginSkills.map((skill) => skill.metadata.name),
+				...(plugins ? plugins.names() : []),
+			])
+			const mcpView = input.mcpSkills
+			const serverSkills: Skill[] = []
+			for (const listed of mcpView?.list() ?? []) {
+				if (
+					heldNames.has(listed.name) ||
+					serverSkills.some((s) => s.metadata.name === listed.name)
+				) {
+					options.log?.warn('server skill not offered: its name is already taken', {
+						'namzu.skill.name': listed.name,
+					})
+					continue
+				}
+				serverSkills.push(listed.skill)
+			}
+			const serverNames = new Set(serverSkills.map((skill) => skill.metadata.name))
+
+			const all = [...fileSkills, ...pluginSkills, ...serverSkills]
 			if (all.length === 0) {
 				return { registry: undefined, manifest: undefined, overflowNote: null, overflow: [] }
 			}
@@ -266,17 +297,33 @@ export async function createSessionSkillCatalog(
 			}
 
 			const registry: SkillRegistryRef = {
-				names: () => [...offered, ...(plugins ? plugins.names() : [])],
+				names: () => [...offered, ...(plugins ? plugins.names() : []), ...serverNames],
 				async catalog() {
 					const fileEntries = (await files.catalog()).filter((entry) =>
 						offered.has(entry.registeredName),
 					)
 					const pluginEntries = plugins ? await plugins.catalog() : []
-					return [...fileEntries, ...pluginEntries]
+					// No `directory`: a server's skill is not a folder any tool can open.
+					const serverEntries = serverSkills.map((skill) => ({
+						registeredName: skill.metadata.name,
+						description: skillModelDescription(skill.metadata),
+						location: `${skill.dirPath}/SKILL.md`,
+					}))
+					return [...fileEntries, ...pluginEntries, ...serverEntries]
 				},
 				async load(name) {
 					if (offered.has(name)) return files.load(name)
 					if (plugins?.has(name)) return plugins.load(name)
+					if (serverNames.has(name) && mcpView) {
+						const loaded = await mcpView.load(name)
+						return loaded
+							? {
+									skill: loaded.skill,
+									disclosureLevel: 'full' as const,
+									tokenEstimate: Math.ceil(loaded.skill.body.length / CHARS_PER_TOKEN),
+								}
+							: undefined
+					}
 					// A built-in that no longer ships answers with what replaced it.
 					const retired = retiredSkill(name, options.systemDir ?? options.cwd)
 					return retired

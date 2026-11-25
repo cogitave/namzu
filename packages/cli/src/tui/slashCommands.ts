@@ -654,7 +654,7 @@ export function matchSlashCommands(
 	/** The session state `listedWhen` reads; without it every command is listed. */
 	listing?: SlashContext,
 ): SlashCommand[] {
-	const m = /^\/([\w-]*(?: [\w-]*)?)$/.exec(value)
+	const m = /^\/([\w:-]*(?: [\w-]*)?)$/.exec(value)
 	if (!m) return []
 	const prefix = (m[1] ?? '').toLowerCase()
 

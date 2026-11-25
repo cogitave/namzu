@@ -48,6 +48,8 @@ import {
 	type MCPToolDrift,
 	type MCPToolsetOptions,
 	type MCPTransportUnion,
+	type McpListedSkill,
+	McpSkillSource,
 	type ToolDefinition,
 	type ToolSource,
 	type Toolset,
@@ -56,6 +58,7 @@ import {
 	requireApproval,
 } from '@namzu/sdk'
 
+import { cliLogger } from '../../logging.js'
 import {
 	MCP_OUTPUT_CHARS,
 	MCP_TRUNCATION_NOTICE,
@@ -194,6 +197,15 @@ export interface McpServerSpec {
 	 * every turn.
 	 */
 	readonly alwaysLoad?: boolean
+	/**
+	 * Offer the skills this server publishes (`skills/list`) as `server:skill`.
+	 * Default `false`: a server's skills are instructions it wrote, so each
+	 * server is opted in by name. Needs a server that declares the skills
+	 * extension on a 2026-07-28 connection; otherwise it offers none. A skill
+	 * grants nothing: it cannot pre-approve tools, attach hooks or pick a
+	 * model. The `deny` list also refuses a skill by its name.
+	 */
+	readonly skills?: boolean
 }
 
 export type McpServersConfig = Readonly<Record<string, McpServerSpec>>
@@ -281,6 +293,28 @@ export interface McpResourceListing {
 	readonly description?: string
 }
 
+/** What the session reads of the skills its tool servers offer. */
+export interface McpSkillsView {
+	/** Every offered skill, servers in config order. */
+	list(): readonly McpListedSkill[]
+	/** The body of one, read from its server now; `undefined` when no server offers that name. */
+	load(
+		name: string,
+		signal?: AbortSignal,
+	): Promise<
+		| {
+				readonly skill: {
+					readonly metadata: McpListedSkill['skill']['metadata']
+					readonly body: string
+					readonly dirPath: string
+				}
+		  }
+		| undefined
+	>
+	/** Called when a server's list changed. Returns the unsubscribe. */
+	onChange(listener: () => void): () => void
+}
+
 export interface McpConnection {
 	/** Current definitions from every connected server, read from its live toolsets. */
 	readonly tools: readonly ToolDefinition[]
@@ -317,6 +351,12 @@ export interface McpConnection {
 	 * when the server is not connected, does not list it, or it holds no text.
 	 */
 	readResource(server: string, uri: string, signal?: AbortSignal): Promise<string | null>
+	/**
+	 * The skills the servers that were opted in (`skills: true`) offer, named
+	 * `server:skill`. Empty when no server was opted in, the switch is off, or
+	 * none declares the extension.
+	 */
+	readonly skills?: McpSkillsView
 	/** Settles once every server has either connected or failed. Never rejects. */
 	readonly ready: Promise<void>
 	/**
@@ -774,6 +814,9 @@ function toolsetOptionsFor(spec: McpServerSpec, name: string): MCPToolsetOptions
 	if (spec.alwaysLoad !== undefined && typeof spec.alwaysLoad !== 'boolean') {
 		return 'alwaysLoad must be true or false'
 	}
+	if (spec.skills !== undefined && typeof spec.skills !== 'boolean') {
+		return 'skills must be true or false'
+	}
 	return {
 		id: `mcp:${name}`,
 		allow: spec.allow,
@@ -799,12 +842,19 @@ export interface McpStartOptions {
 	 * server never asks.
 	 */
 	readonly elicit?: NonNullable<MCPClientConfig['onElicitation']>
+	/**
+	 * `true` ignores every server's `skills: true`: the global and managed
+	 * switch (`disableMcpSkills`). No skill is asked for and none is offered.
+	 */
+	readonly disableSkills?: boolean
 }
 
 type LiveServer = {
 	readonly client: MCPClient
 	readonly name: string
 	readonly toolsets: readonly Toolset[]
+	/** Present when the server was opted in (`skills: true`) and the switch is on. */
+	readonly skills?: McpSkillSource
 	/** Absent when the server asks for approval before use. */
 	readonly prompts?: ReturnType<typeof promptsOf>
 	readonly resources?: {
@@ -949,6 +999,8 @@ export function startMcpServers(
 	// Closed before every server answered: servers not yet started stay unstarted.
 	let closed = false
 	const pending = new Set<string>()
+	const skillSources = new Map<string, McpSkillSource>()
+	const skillListeners = new Set<() => void>()
 	const settledListeners = new Set<(name: string) => void>()
 	const jobs: Array<{ readonly remote: boolean; readonly run: () => Promise<void> }> = []
 
@@ -999,6 +1051,18 @@ export function startMcpServers(
 			startupFailed.push({ name, reason: toolsetOptions })
 			return
 		}
+		// A server's skills are instructions it wrote, so they are asked for only
+		// when this server is named for it. A server that asks for approval
+		// before use contributes none, as with its prompts and resources: nothing
+		// here could ask the question before the text reaches the model.
+		const wantsSkills = spec.skills === true && options.disableSkills !== true
+		if (wantsSkills && spec.requireApproval === true) {
+			cliLogger().warn(
+				'MCP skills are not offered from a server that requires approval before use',
+				{ 'namzu.connector.server': name },
+			)
+		}
+		const offersSkills = wantsSkills && spec.requireApproval !== true
 		let connectedTransport: MCPTransportUnion
 		try {
 			connectedTransport =
@@ -1016,6 +1080,7 @@ export function startMcpServers(
 				...(requestTimeoutMs !== undefined ? { requestTimeoutMs } : {}),
 				...progressDeadline,
 				...(options.elicit ? { onElicitation: options.elicit } : {}),
+				...(offersSkills ? { skills: true } : {}),
 			})
 		} catch (error) {
 			startupFailed.push({ name, reason: reasonOf(error) })
@@ -1131,10 +1196,38 @@ export function startMcpServers(
 					})
 				}
 				mounted = ready
+				let skills: McpSkillSource | undefined
+				if (offersSkills) {
+					skills = new McpSkillSource(client, {
+						serverName: name,
+						log: cliLogger(),
+						...(spec.deny ? { deny: spec.deny } : {}),
+					})
+					const source = skills
+					skillSources.set(name, source)
+					source.onChange(() => {
+						for (const listener of [...skillListeners]) {
+							try {
+								listener()
+							} catch {
+								// A listener that throws must not stop the others being told.
+							}
+						}
+					})
+					source.start()
+					// Listed once now. A failure here is the source's to log and keep the
+					// (empty) list; it never fails the server, whose tools already work.
+					await withDeadline(
+						source.refresh(),
+						Math.max(1_000, deadlineAt - Date.now()),
+						`server "${name}" listing its skills`,
+					).catch(() => {})
+				}
 				live[index] = {
 					client,
 					name,
 					toolsets: ready,
+					...(skills ? { skills } : {}),
 					discovery,
 					...(spec.requireApproval
 						? {}
@@ -1242,7 +1335,40 @@ export function startMcpServers(
 	const roster = (): readonly Toolset[] =>
 		pending.size === 0 ? live.flatMap((server) => (server ? [...server.toolsets] : [])) : slots
 
+	const skillsView: McpSkillsView = {
+		list: () =>
+			closed
+				? []
+				: live.flatMap((server) => {
+						const source = server ? skillSources.get(server.name) : undefined
+						return source ? source.list() : []
+					}),
+		load: async (name, signal) => {
+			if (closed) return undefined
+			for (const server of live) {
+				const source = server ? skillSources.get(server.name) : undefined
+				if (!source || !name.startsWith(`${source.serverName}:`)) continue
+				const loaded = await source.load(name, signal ? { signal } : undefined)
+				if (loaded) {
+					return {
+						skill: {
+							metadata: loaded.skill.metadata,
+							body: loaded.skill.body,
+							dirPath: loaded.skill.dirPath,
+						},
+					}
+				}
+			}
+			return undefined
+		},
+		onChange: (listener) => {
+			skillListeners.add(listener)
+			return () => skillListeners.delete(listener)
+		},
+	}
+
 	return {
+		skills: skillsView,
 		get tools() {
 			return roster().flatMap((entry) => entry.tools())
 		},
@@ -1293,6 +1419,8 @@ export function startMcpServers(
 		},
 		close: async () => {
 			closed = true
+			for (const source of skillSources.values()) source.dispose()
+			skillListeners.clear()
 			await Promise.all(roster().map((entry) => entry.close?.()))
 			await Promise.all(
 				clients.map((c) =>

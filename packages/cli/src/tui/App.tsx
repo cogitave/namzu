@@ -399,6 +399,7 @@ import {
 	skillTierLabel,
 } from '../skills/store.js'
 import { hooksOf } from '../skills/use-hooks.js'
+import { withMcpSkillCommands } from '../user-commands/mcp-skill-commands.js'
 import { type UserCommand, discoverUserCommands } from '../user-commands/store.js'
 import {
 	AGENT_RAIL_WINDOW,
@@ -2272,6 +2273,15 @@ function AppBody({
 			stop?.()
 		}
 	}, [session, ctx.cwd])
+	// The skills tool servers offer join the `/` menu as they arrive and when a
+	// server changes its list. The commands read from files are not touched.
+	useEffect(() => {
+		const menu = session?.mcpSkillMenu
+		if (!menu || palDefinitionRef.current) return
+		const apply = () => setUserCommands((current) => withMcpSkillCommands(current, menu.list()))
+		apply()
+		return menu.onChange(apply)
+	}, [session])
 	/** A frequently edited file of this repository, for the first prompt's example. */
 	const [exampleFile, setExampleFile] = useState<string | undefined>(undefined)
 	/** Which example to show; chosen once per launch so it does not change while the operator reads it. */
@@ -7539,7 +7549,7 @@ function AppBody({
 					settleEffort()
 				})
 			}
-			setUserCommands(commands)
+			setUserCommands(withMcpSkillCommands(commands, s.mcpSkillMenu?.list() ?? []))
 			const mentionLoadOwner = {}
 			mentionLoadOwnerRef.current = mentionLoadOwner
 			void (

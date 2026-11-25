@@ -1089,6 +1089,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 					...(conversationId ? { initialConversationId: conversationId } : {}),
 					...(openResumePicker ? { openResumePicker } : {}),
 					...(launchMcp.servers ? { mcpServers: launchMcp.servers } : {}),
+					...(resolvedCtx.config.disableMcpSkills === true ? { disableMcpSkills: true } : {}),
 					...(resolvedCtx.config.plugins ? { plugins: resolvedCtx.config.plugins } : {}),
 					...(resolvedCtx.config.skills ? { skills: resolvedCtx.config.skills } : {}),
 					...(resolvedCtx.config.composerTriggers

@@ -37,6 +37,12 @@ entry; outside a checkout only `<cwd>/.agents/skills` is read. The
 skill serves all of them. Directories whose name starts with `.` or `_` are
 not skills. Project tiers are read only after the folder is trusted.
 
+A seventh source is not a folder: a tool server you opt in with `skills: true` can
+offer skills of its own, named `server:skill` and offered after the six tiers
+above. They are off by default, never shadow a skill of yours, and grant nothing
+(no `allowed-tools`, hooks, shell or model). See
+[Skills from a server](mcp-servers.md#skills-from-a-server).
+
 The built-in tier ships in the published package (`package.json` `files`
 lists `skills`) and is resolved from the CLI module's own location, so it is
 the same directory whether the CLI runs from source or from `dist/`.
