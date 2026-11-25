@@ -2,9 +2,9 @@
  * `/skills save off|on`: write `skills.suggest` to the user config, then read
  * the whole cascade back and say whether the value will take effect.
  *
- * The cascade replaces a top-level key whole, so a `skills` block in the
- * project file, a selected profile or the managed file hides the user file's
- * `skills.suggest` entirely (and the environment never sets it). Writing the
+ * The `skills` table merges key by key across the cascade, so only a project
+ * file, a selected profile or the managed file that sets `skills.suggest`
+ * itself outranks the user file (the environment never sets it). Writing the
  * user file and saying "done" would then be false the next time namzu starts.
  * The running session follows the operator's choice either way; the message
  * says so, and names the file that wins later.
@@ -62,6 +62,6 @@ export function setSkillSuggestions(
 	return {
 		file,
 		effective,
-		message: `${saved} But ${winner} sets its own skills block, which replaces the user file’s, so from the next start suggestions will be ${effective ? 'on' : 'off'}. Add suggest: ${value} under skills there to make it stick; this conversation follows your choice.`,
+		message: `${saved} But a stronger config layer sets suggest under skills itself (the strongest skills block is in ${winner}), so from the next start suggestions will be ${effective ? 'on' : 'off'}. Set suggest: ${value} under skills there to make it stick; this conversation follows your choice.`,
 	}
 }

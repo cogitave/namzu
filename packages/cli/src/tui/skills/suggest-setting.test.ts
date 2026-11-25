@@ -34,15 +34,23 @@ describe('setSkillSuggestions', () => {
 		expect(readFileSync(join(home, 'config.yaml'), 'utf8')).toContain('suggest: false')
 	})
 
-	it('names a project skills block that hides the user value', () => {
+	it('lets the user value stand under a project skills block that does not set suggest', () => {
+		const { cwd, opts } = setup()
+		writeFileSync(join(cwd, 'namzu.config.json'), JSON.stringify({ skills: { disabled: ['noisy'] } }))
+		const result = setSkillSuggestions(false, opts)
+		expect(result.effective).toBe(false)
+		expect(result.message).not.toContain('stronger config layer')
+	})
+
+	it('names a project skills block that sets suggest itself', () => {
 		const { cwd, opts } = setup()
 		const project = join(cwd, 'namzu.config.json')
-		writeFileSync(project, JSON.stringify({ skills: { disabled: ['noisy'] } }))
+		writeFileSync(project, JSON.stringify({ skills: { suggest: true, disabled: ['noisy'] } }))
 		const result = setSkillSuggestions(false, opts)
 		expect(result.effective).toBe(true)
 		expect(result.message).toContain(`project-file ${project}`)
 		expect(result.message).toContain('from the next start suggestions will be on')
-		expect(result.message).toContain('Add suggest: false under skills there')
+		expect(result.message).toContain('Set suggest: false under skills there')
 		expect(result.message).toContain('this conversation follows your choice')
 	})
 

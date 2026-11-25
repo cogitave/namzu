@@ -364,11 +364,11 @@ for a turn whose save you asked for. Alt+W drops the trigger before you send;
 user config (`$NAMZU_HOME/config.yaml`, keeping the rest of the file as it
 was) and says which file; `/skills save on` writes `true`. Either applies to
 the running session at once. It then reads the whole cascade back: when a
-project file, a selected profile or the managed file sets its own `skills`
-block (which replaces the user file's whole block, see [Config](#config)) and
-so resolves to the other value, the message names that file, says what
-`skills.suggest` will be from the next start, and asks you to add `suggest`
-there (`packages/cli/src/tui/skills/suggest-setting.ts`). `/skills save` and `/skills new` keep working
+project file, a selected profile or the managed file sets `skills.suggest`
+itself (the `skills` keys merge one by one, see [Config](#config)) and so
+resolves to the other value, the message names the strongest file with a
+`skills` block, says what `skills.suggest` will be from the next start, and
+asks you to set `suggest` there (`packages/cli/src/tui/skills/suggest-setting.ts`). `/skills save` and `/skills new` keep working
 when proposals are off.
 
 **It stops by itself.** A proposal counts as unused until you type
