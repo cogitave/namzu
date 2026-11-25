@@ -208,20 +208,53 @@ export function replaceableSummaries(systemMessages: readonly Message[]): string
 	return bodies
 }
 
-const SUMMARY_TAG = /<summary>([\s\S]*?)<\/summary>/i
+/**
+ * The summary runs from the first opening tag to the last closing tag, because
+ * the closing tag that ends the reply is the one that closes the summary: a
+ * summary body that quotes `</summary>` - the older conversation may well have
+ * shown that markup - must not end the summary at the quoted tag and lose
+ * everything after it. A reply cut off before its closing tag has no last one,
+ * and everything after the opening tag stands.
+ */
+const SUMMARY_TAG = /<summary>([\s\S]*)<\/summary>/i
+const SUMMARY_OPEN = /<summary>/i
+const ANALYSIS_OPEN = /<analysis>/i
+const ANALYSIS_CLOSE = '</analysis>'
+
+/**
+ * A reasoning block a reply puts before its summary, removed. The block runs to
+ * the last `</analysis>` that precedes the summary, so a `</analysis>` the block
+ * itself quotes does not leave the rest of its reasoning in the reply, where a
+ * `<summary>` mentioned inside it would be mistaken for the reply's own. Text
+ * from the summary on is left alone: markup quoted inside a summary is its
+ * content, not a reasoning block.
+ */
+function withoutAnalysis(reply: string): string {
+	const open = ANALYSIS_OPEN.exec(reply)
+	if (!open) return reply
+	const summaryAt = reply.search(SUMMARY_OPEN)
+	const limit = summaryAt >= 0 ? summaryAt : reply.length
+	const closing = /<\/analysis>/gi
+	let last = -1
+	for (let match = closing.exec(reply); match && match.index < limit; match = closing.exec(reply)) {
+		last = match.index
+	}
+	if (last < 0) return reply
+	return reply.slice(0, open.index) + reply.slice(last + ANALYSIS_CLOSE.length)
+}
 
 /** What lies between the summary tags of a reply, or `undefined` when it has none. */
 export function extractSummary(reply: string): string | undefined {
-	const withoutAnalysis = reply.replace(/<analysis>[\s\S]*?<\/analysis>/gi, '')
-	const found = SUMMARY_TAG.exec(withoutAnalysis)
+	const withoutReasoning = withoutAnalysis(reply)
+	const found = SUMMARY_TAG.exec(withoutReasoning)
 	if (found) {
 		const text = found[1]?.trim() ?? ''
 		return text.length > 0 ? text : undefined
 	}
 	// A reply cut off before its closing tag still holds a usable summary.
-	const open = withoutAnalysis.search(/<summary>/i)
+	const open = withoutReasoning.search(SUMMARY_OPEN)
 	if (open >= 0) {
-		const text = withoutAnalysis.slice(open + '<summary>'.length).trim()
+		const text = withoutReasoning.slice(open + '<summary>'.length).trim()
 		return text.length > 0 ? text : undefined
 	}
 	return undefined
