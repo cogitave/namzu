@@ -762,9 +762,30 @@ async function execPrint(
 	}
 	// The piped text, if it was left to the end of the startup (see where it is
 	// read): appended to the question exactly as it would have been before.
-	const finalPrompt = pipedAfterStartup
-		? composePrompt(fromArgs, await pipedRead)
-		: promptUntilPiped
+	// The shell commands a skill or a command holds run now, while its text loads, under the
+	// session's permission rules: nobody can be asked here, so a command no rule allows fails
+	// the load, and nothing is sent.
+	let loadedPrompt = promptUntilPiped
+	if (expansion.kind === 'expanded' && expansion.shell && session.skillShell) {
+		try {
+			loadedPrompt = await session.skillShell.expand({
+				text: promptUntilPiped,
+				name: expansion.shell.name,
+				origin: expansion.shell.origin,
+				invokedBy: 'other',
+				...(expansion.shell.allowedTools ? { allowedTools: expansion.shell.allowedTools } : {}),
+				...(expansion.shell.directory ? { directory: expansion.shell.directory } : {}),
+				signal: turnAbort.signal,
+			})
+		} catch (error) {
+			ctx.formatter.error({
+				message: `/${expansion.shell.name} did not load: ${error instanceof Error ? error.message : String(error)}`,
+			})
+			await session.close()
+			return 1
+		}
+	}
+	const finalPrompt = pipedAfterStartup ? composePrompt(fromArgs, await pipedRead) : loadedPrompt
 	const firstMessage: Message = { role: 'user', content: finalPrompt, timestamp: Date.now() }
 	// The settled conversation, for the turns that follow the first: a workflow
 	// the model started is reported on in a turn of its own.

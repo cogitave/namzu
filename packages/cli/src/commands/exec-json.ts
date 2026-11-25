@@ -570,9 +570,30 @@ export async function execJson(
 	// turn's extra system context (the same channel the TUI's /skill uses).
 	const extraSystem = await loadSkillsContext(cwd, flags.skills, ctx.config.skills)
 
+	// The shell commands a skill or a command holds run now, while its text loads, under the
+	// session's permission rules. Nobody can be asked here, so a command no rule allows fails the
+	// load in band, and nothing is sent.
+	let loadedPrompt = finalPrompt
+	if (expansion.kind === 'expanded' && expansion.shell && session.skillShell) {
+		try {
+			loadedPrompt = await session.skillShell.expand({
+				text: finalPrompt,
+				name: expansion.shell.name,
+				origin: expansion.shell.origin,
+				invokedBy: 'other',
+				...(expansion.shell.allowedTools ? { allowedTools: expansion.shell.allowedTools } : {}),
+				...(expansion.shell.directory ? { directory: expansion.shell.directory } : {}),
+			})
+		} catch (error) {
+			await session.close()
+			return fail(
+				`/${expansion.shell.name} did not load: ${error instanceof Error ? error.message : String(error)}`,
+			)
+		}
+	}
 	const userMessage: Message = {
 		role: 'user',
-		content: finalPrompt,
+		content: loadedPrompt,
 		timestamp: Date.now(),
 	} as Message
 	const messages: Message[] = [...prior, userMessage]
@@ -744,11 +765,32 @@ export async function execJson(
 				...(ctx.config.skills ? { skills: ctx.config.skills } : {}),
 			})
 			if (nextExpansion.kind === 'refused') throw new Error(nextExpansion.reason)
+			// A streamed command holds shell markers like the first one: they run now, under the
+			// same rules, and a command that fails ends the stream in band.
+			let nextContent = nextExpansion.kind === 'expanded' ? nextExpansion.prompt : next.value
+			if (nextExpansion.kind === 'expanded' && nextExpansion.shell && session.skillShell) {
+				try {
+					nextContent = await session.skillShell.expand({
+						text: nextExpansion.prompt,
+						name: nextExpansion.shell.name,
+						origin: nextExpansion.shell.origin,
+						invokedBy: 'other',
+						...(nextExpansion.shell.allowedTools
+							? { allowedTools: nextExpansion.shell.allowedTools }
+							: {}),
+						...(nextExpansion.shell.directory ? { directory: nextExpansion.shell.directory } : {}),
+					})
+				} catch (error) {
+					throw new Error(
+						`/${nextExpansion.shell.name} did not load: ${error instanceof Error ? error.message : String(error)}`,
+					)
+				}
+			}
 			inputMessages = [
 				...history,
 				{
 					role: 'user',
-					content: nextExpansion.kind === 'expanded' ? nextExpansion.prompt : next.value,
+					content: nextContent,
 					timestamp: Date.now(),
 				},
 			]

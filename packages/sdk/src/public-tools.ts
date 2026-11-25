@@ -84,6 +84,11 @@ export {
 } from './tools/builtins/bash.js'
 // Authorization and execution must agree after a session carries its shell cwd.
 export { effectiveBashWorkingDirectory } from './tools/builtins/bash-cwd.js'
+// The same reach questions the executor asks of a nested shell call, for a host that runs one without a turn.
+export {
+	type ShellLineEscalationContext,
+	shellLineEscalation,
+} from './runtime/query/shell-line-escalation.js'
 export {
 	CODE_ANALYSIS_TOOL_NAME,
 	CodeAnalysisTool,
@@ -135,6 +140,7 @@ export type {
 	SkillDirectoryRequest,
 	SkillDirectoryResolver,
 	SkillToolOptions,
+	SkillToolShellOptions,
 } from './tools/builtins/skill.js'
 // Both declare `category: 'network'`, which is what the authorization
 // presets branch on. NOT in the default builtin set: a turn with no web
@@ -221,6 +227,7 @@ export {
 	buildTaskListTool,
 	buildTaskTools,
 	buildTaskUpdateTool,
+	plainTaskReceipt,
 } from './tools/task/index.js'
 export { buildAdvisoryTools } from './tools/advisory/index.js'
 export {

@@ -5,6 +5,7 @@ import type { ToolDefinition } from '../../types/tool/index.js'
 import { asTaskId } from '../../utils/id.js'
 import { defineTool } from '../defineTool.js'
 import type { TaskToolScope } from './index.js'
+import { taskNumbers } from './number.js'
 import { presentTaskUpdateCall, presentTaskUpdateResult } from './present.js'
 
 export function buildTaskUpdateTool(
@@ -57,12 +58,15 @@ export function buildTaskUpdateTool(
 			// which tells the model its task disappeared rather than that it
 			// named the wrong thing.
 			const taskId = asTaskId(id)
+			// A team's list numbers its tasks; the screen says `#2`, so the receipt does too and keeps the id beside it.
+			const number = (await taskNumbers(taskStore)).get(taskId)
+			const named = number === undefined ? `${id}` : `#${number} (id ${id})`
 
 			if (status === 'deleted') {
 				const deleted = await taskStore.delete(taskId)
 				return {
 					success: deleted,
-					output: deleted ? `Task ${id} deleted` : `Task ${id} not found`,
+					output: deleted ? `Task ${named} deleted` : `Task ${named} not found`,
 				}
 			}
 
@@ -95,17 +99,17 @@ export function buildTaskUpdateTool(
 				if (claimant === undefined) {
 					return {
 						success: false,
-						output: `Task ${id} cannot move to in_progress without an owner; pass owner (your member name).`,
+						output: `Task ${named} cannot move to in_progress without an owner; pass owner (your member name).`,
 					}
 				}
 				{
 					const result = await shared.claimTask(taskId, claimant)
 					if (!result.ok) {
 						const reason: Record<typeof result.code, string> = {
-							not_found: `Task ${id} not found`,
-							already_claimed: `Task ${id} is already claimed by ${result.task?.owner ?? 'another member'}`,
-							already_resolved: `Task ${id} is already ${result.task?.status ?? 'closed'}; create a follow-up task instead`,
-							blocked: `Task ${id} is blocked by ${result.blockedBy?.join(', ') ?? 'another task'}; finish those first`,
+							not_found: `Task ${named} not found`,
+							already_claimed: `Task ${named} is already claimed by ${result.task?.owner ?? 'another member'}`,
+							already_resolved: `Task ${named} is already ${result.task?.status ?? 'closed'}; create a follow-up task instead`,
+							blocked: `Task ${named} is blocked by ${result.blockedBy?.join(', ') ?? 'another task'}; finish those first`,
 						}
 						return {
 							success: false,
@@ -127,7 +131,7 @@ export function buildTaskUpdateTool(
 				if (current?.owner !== undefined && current.owner !== scope.member) {
 					return {
 						success: false,
-						output: `Task ${id} is owned by ${current.owner}; only its owner closes it.`,
+						output: `Task ${named} is owned by ${current.owner}; only its owner closes it.`,
 						data: { code: 'already_claimed' },
 					}
 				}
@@ -151,7 +155,7 @@ export function buildTaskUpdateTool(
 			}
 
 			if (!updated) {
-				return { success: false, output: `Task ${id} not found` }
+				return { success: false, output: `Task ${named} not found` }
 			}
 
 			// Stores can retain the old status while applying other edits. The
@@ -161,10 +165,11 @@ export function buildTaskUpdateTool(
 			return {
 				success: statusApplied,
 				output: statusApplied
-					? `Task ${id} updated — status: ${updated.status}`
-					: `Task ${id} requested status "${status}" could not be confirmed; returned status is "${updated.status}". Other requested edits may have applied. Inspect the task and create a new task for follow-up work.`,
+					? `Task ${named} updated — status: ${updated.status}`
+					: `Task ${named} requested status "${status}" could not be confirmed; returned status is "${updated.status}". Other requested edits may have applied. Inspect the task and create a new task for follow-up work.`,
 				data: {
 					id: updated.id,
+					...(number === undefined ? {} : { number }),
 					subject: updated.subject,
 					status: updated.status,
 					owner: updated.owner,

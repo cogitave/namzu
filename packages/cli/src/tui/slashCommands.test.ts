@@ -397,11 +397,11 @@ describe('runSlash', () => {
 		expect(help?.kind === 'message' ? help.content : '').toContain('replaced by /run')
 	})
 
-	it('no longer has a /run command of its own: /paste puts an answer command in the prompt', () => {
+	it('no longer has a /run command of its own: /cmd puts an answer command in the prompt', () => {
 		const names = CLI_LOCAL_COMMANDS.map((command) => command.name)
 		expect(names).not.toContain('run')
-		expect(names).toContain('paste')
-		expect(runSlash('/paste', ctx)).toEqual({ kind: 'run' })
+		expect(names).toContain('cmd')
+		expect(runSlash('/cmd', ctx)).toEqual({ kind: 'run' })
 	})
 
 	it('has /workflows but no /workflow command', () => {
@@ -1973,5 +1973,42 @@ describe('a mistyped command', () => {
 
 	it('suggests nothing when two names are equally close', () => {
 		expect(didYouMean('cat', ['cap', 'car'])).toBe('')
+	})
+})
+
+describe('a typed command whose text holds shell commands', () => {
+	const withTemplate = (template: string) =>
+		context({
+			userCommands: [
+				{
+					name: 'ship',
+					description: 'Ship it',
+					template,
+					path: '/p/.namzu/commands/ship.md',
+					source: 'project',
+					shellOrigin: 'project',
+				},
+			],
+		})
+
+	it('asks for them to be run before the text goes on, and has not run them itself', () => {
+		expect(
+			runSlash('/ship now', withTemplate('Branch: !`git branch` for $ARGUMENTS')),
+		).toMatchObject({
+			kind: 'prompt',
+			text: 'Branch: !`git branch` for now',
+			shell: { name: 'ship', origin: 'project' },
+		})
+	})
+
+	it('sets no shell request when the text holds none', () => {
+		const action = runSlash('/ship now', withTemplate('Ship $ARGUMENTS with `make`'))
+		expect(action).toMatchObject({ kind: 'prompt', text: 'Ship now with `make`' })
+		expect(action).not.toHaveProperty('shell')
+	})
+
+	it('keeps an argument from starting a command', () => {
+		const action = runSlash('/ship !`rm -rf ~`', withTemplate('Ship $ARGUMENTS and !`date`'))
+		expect(action).toMatchObject({ kind: 'prompt', text: 'Ship \\! `rm -rf ~` and !`date`' })
 	})
 })

@@ -41,6 +41,7 @@ export type ConfigSessionOptions = Pick<
 	| 'smallModel'
 	| 'hooks'
 	| 'hooksSwitch'
+	| 'skillShellDisabled'
 	| 'compaction'
 	| 'memory'
 	| 'limits'
@@ -113,6 +114,7 @@ export const SESSION_KEY_MAP: Readonly<Record<keyof NamzuCliConfig, string>> = {
 	disableHooks: 'hooksSwitch',
 	hooksManagedOnly: 'hooksSwitch',
 	disableMcpSkills: 'disableMcpSkills',
+	disableSkillShellExecution: 'skillShellDisabled',
 	additionalDirectories: 'additionalDirectories',
 	toolResultScreens: 'toolResultScreens',
 	compaction: 'compaction',
@@ -158,6 +160,7 @@ export function sessionOptionsFromConfig(
 		...(config.smallModel ? { smallModel: config.smallModel } : {}),
 		...(config.hooks ? { hooks: config.hooks } : {}),
 		...(hooksSwitch ? { hooksSwitch } : {}),
+		...(config.disableSkillShellExecution === true ? { skillShellDisabled: true } : {}),
 		...(config.compaction ? { compaction: config.compaction } : {}),
 		...(config.memory ? { memory: config.memory } : {}),
 		...(Object.keys(limits).length > 0 ? { limits } : {}),

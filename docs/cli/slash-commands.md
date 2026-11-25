@@ -69,7 +69,7 @@ spelling.
 | `/plan [description]` | Switch this conversation to plan mode (the same as choosing it in `/permissions`). With a description, it is sent as your next message once the mode is on. In plan mode already, `/plan` says so. |
 | `/recap` | Write a short recap of this conversation now (the [away recap](terminal-design.md#focus-and-the-away-recap) shown on its own after a few minutes away is switched with `/config recap on\|off`). |
 | `/copy` | Choose the whole latest answer, a code block, or a quote to copy. It goes through the machine's clipboard tool first and the terminal's clipboard request after, the same way a selection in the [workspaces screen](workspaces.md#selecting-and-copying-text) does. |
-| `/paste` | Put a shell command from the latest answer in the prompt after `!`, to run it. It looks for fenced blocks written as `sh`, `bash`, `zsh`, `shell`, `console` or with no language (a transcript-style block loses its `$ ` prompts); one command goes straight into the prompt, several open a picker. Nothing runs until you press Enter, and you can edit the line first. The line is a [`!` line](composer-prefixes.md): it runs in this session with your own authority, with no keyboard, so a command that asks for a password belongs in another terminal. |
+| `/cmd` | Put a shell command from the latest answer in the prompt after `!`, to run it. It looks for fenced blocks written as `sh`, `bash`, `zsh`, `shell`, `console` or with no language (a transcript-style block loses its `$ ` prompts); one command goes straight into the prompt, several open a picker. Nothing runs until you press Enter, and you can edit the line first. The line is a [`!` line](composer-prefixes.md): it runs in this session with your own authority, with no keyboard, so a command that asks for a password belongs in another terminal. |
 | `/raw` | Toggle copy-friendly plain transcript rendering: /raw [on\|off]. |
 | `/export` | Export this verified conversation to the clipboard or a Markdown file. |
 | `/status` | Show model, permissions, files and latest cost, with the folder written from `~` or its last folders. The card leaves out the conversation id and the tool count; `/status details` adds the full conversation id, expands rules and isolation; `/status config` shows setting sources; `/status tools` lists callable tools. |
@@ -109,6 +109,10 @@ For a user command file or a skill, help shows its full source path and scope (a
 problem that prevents execution. Its usage includes `[arguments]` only when
 the template contains `$ARGUMENTS`, followed by its `argument-hint` when it has one. Help does not expand or execute the template.
 
+## Shell commands in a command file
+
+A command file or a skill may hold shell commands, `` !`git status` `` inline or a block opened by three backticks and a bang, that run when you type the command, so the model reads their output. They run **before** the text goes on, one at a time, through the same shell tool and permission rules as the model's own `bash` calls; a command no rule allows (or that would ask you) fails the load and nothing is sent, and a skill's `allowed-tools` can allow its own commands for that load. `$ARGUMENTS` is put in first, escaped, so what you type after the name can never start a command. A project's commands run only in a trusted folder, and `disableSkillShellExecution: true` turns them all off. The full rules, limits and the `pre_skill_shell_command` hook are in [Skills](skills.md#shell-commands-inside-a-skill). `namzu exec "/name"` does the same with nobody to ask, so a command only runs there when a rule or the skill's `allowed-tools` allows it.
+
 ## Commands while a reply is running
 
 A command typed while a reply is being written either runs at once or waits.
@@ -127,7 +131,7 @@ every command either way.
   `/config`, `/settings` and `/add dir` run at once only with an argument;
   `/browser` only without one.
 - **Waits.** Anything that changes or reads the conversation itself, a saved
-  prompt command or a skill: `/clear`, `/new`, `/fork`, `/resume`, `/copy` and `/paste`
+  prompt command or a skill: `/clear`, `/new`, `/fork`, `/resume`, `/copy` and `/cmd`
   (a command never replaces or stops the conversation under a reply that is
   still being written), `/compact`, `/plan`, `/memory`, `/branch`, `/rewind`, `/undo`,
   `/review`, `/init`, `/export`, `/recap`, `/login`, `/logout`, `/auth`, and so on.

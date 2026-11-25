@@ -157,3 +157,73 @@ describe('discoverAgentDefinitions and hooks', () => {
 		expect(found.refused).toEqual([])
 	})
 })
+
+describe('a skill preloaded into an agent that holds shell commands', () => {
+	function agentWithSkill(body: string, allowedTools?: string): void {
+		const skillDir = join(cwd, '.namzu', 'skills', 'status')
+		mkdirSync(skillDir, { recursive: true })
+		writeFileSync(
+			join(skillDir, 'SKILL.md'),
+			`---\nname: status\ndescription: Status\n${allowedTools ? `allowed-tools: ${allowedTools}\n` : ''}---\n${body}`,
+		)
+		writeFileSync(
+			join(projectAgentsDir(cwd), 'ops.md'),
+			'---\nname: ops\ndescription: Ops.\nskills: status\n---\nYou run ops.',
+		)
+	}
+
+	it('is not run by default: each command is replaced by a line saying so, so listing never runs one', async () => {
+		agentWithSkill('Now: !`date`\n```!\nls\n```')
+		const { definitions, missingSkills } = await discoverAgentDefinitions({ cwd, home })
+		const prompt = definitions.find((d) => d.name === 'ops')?.prompt ?? ''
+		expect(missingSkills).toEqual([])
+		expect(prompt).toContain('Now: [shell commands in a skill preloaded into an agent are not run')
+		expect(prompt).not.toContain('!`date`')
+		expect(prompt).not.toContain('```!')
+	})
+
+	it('is run when the caller gives an expander, as `other`, with the skill’s own tier and allowed-tools', async () => {
+		agentWithSkill('Now: !`date`', 'Bash(date)')
+		const seen: Record<string, unknown>[] = []
+		const { definitions } = await discoverAgentDefinitions({
+			cwd,
+			home,
+			skillShell: {
+				expand: async (request) => {
+					seen.push({ ...request })
+					return request.text.replace('!`date`', 'TODAY')
+				},
+			},
+		})
+		expect(definitions.find((d) => d.name === 'ops')?.prompt).toContain('Now: TODAY')
+		expect(seen[0]).toMatchObject({
+			name: 'status',
+			origin: 'project',
+			invokedBy: 'other',
+			allowedTools: 'Bash(date)',
+		})
+	})
+
+	it('names the skill that could not load when a command fails, and the agent still loads', async () => {
+		agentWithSkill('!`false`')
+		const { definitions, missingSkills } = await discoverAgentDefinitions({
+			cwd,
+			home,
+			skillShell: {
+				expand: async () => {
+					throw new Error('Shell command failed for pattern "false": exit code 1')
+				},
+			},
+		})
+		expect(definitions.map((d) => d.name)).toContain('ops')
+		expect(missingSkills[0]?.reason).toContain('could not be read: Shell command failed')
+	})
+
+	it('leaves a skill with no commands exactly as it was', async () => {
+		agentWithSkill('Plain text with `code`.')
+		const { definitions } = await discoverAgentDefinitions({ cwd, home })
+		expect(definitions.find((d) => d.name === 'ops')?.prompt).toContain(
+			'### Skill: status\n\nPlain text with `code`.',
+		)
+	})
+})

@@ -548,6 +548,7 @@ export function appliesWhenFor(path: string): AppliesWhen {
 		'hooks',
 		'disableHooks',
 		'disableMcpSkills',
+		'disableSkillShellExecution',
 	])
 	return conversationKeys.has(path) ||
 		conversationPrefixes.some((prefix) => path.startsWith(prefix))
@@ -2389,6 +2390,18 @@ const DECLARED: readonly SettingDescriptor[] = [
 		"Do not run hooks from your config, project and local files. Hooks from an administrator's file and plugins' JavaScript hooks still run.",
 		on,
 		{ group: 'servers-hooks', default: false, keywords: ['disable hooks', 'run hooks', 'hooks'] },
+	),
+	d(
+		'disableSkillShellExecution',
+		'tools',
+		'Turn off commands inside skills',
+		'Do not run the shell commands a skill or a custom command holds while it loads: each is replaced by a line saying shell commands are off. Once it is on in your file, a project file or your administrator’s file, no other file turns it back off.',
+		on,
+		{
+			group: 'servers-hooks',
+			default: false,
+			keywords: ['skills', 'shell', 'commands', 'bang', 'inline', 'disable', 'custom commands'],
+		},
 	),
 	d(
 		'plugins.enabled',

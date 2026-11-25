@@ -608,6 +608,11 @@ import { createSkillDirectoryResolver } from '../skills/directory.js'
 import { isInsideFolder, restoreSkillHooks } from '../skills/restore-skill-hooks.js'
 import { SAVE_SKILL_TOOL_NAME } from '../skills/save.js'
 import { type AttachedSkillHook, createSkillHooksHost } from '../skills/skill-hooks.js'
+import {
+	type SessionSkillShell,
+	createSessionSkillShell,
+	shellBlockFor,
+} from '../skills/skill-shell.js'
 import { COMMAND_TOOL_NAME, type CommandToolHost, buildCommandTool } from './command-tool.js'
 import { projectTurnConversation } from './conversation-history.js'
 import { type ModelSwitchOutcome, buildSwitchModelTool } from './model-switch-tool.js'
@@ -1567,6 +1572,11 @@ export interface AgentSession {
 	readonly progressNotices?: () => readonly ProgressNotice[]
 	/** Loaded extensions; idle-session changes can explicitly be remembered across reconstruction. */
 	readonly plugins?: Pick<CliPluginRuntime, 'list' | 'setEnabled' | 'rememberState'>
+	/**
+	 * Runs the shell commands a skill or a custom command holds while its text loads, for a load
+	 * outside a model turn (a typed command, a headless prompt). See `skills/skill-shell.ts`.
+	 */
+	readonly skillShell?: SessionSkillShell
 	/** Command folders of the enabled plugins; the composer turns their files into slash commands. */
 	readonly pluginCommandDirs?: readonly { readonly plugin: string; readonly dir: string }[]
 	readonly webSearchSummary?: string
@@ -3042,6 +3052,11 @@ export interface AgentSessionOptions {
 	 * an agent file's hooks all obey it.
 	 */
 	readonly hooksSwitch?: HooksSwitch
+	/**
+	 * `disableSkillShellExecution`: the shell commands a skill or a custom command holds are not
+	 * run while its text loads; each is replaced by a line saying so.
+	 */
+	readonly skillShellDisabled?: boolean
 	/**
 	 * The folder was accepted for this run without being remembered (`--trust`
 	 * on a headless run): its own skills may attach hooks, as its config's hooks
@@ -5725,6 +5740,25 @@ export async function createAgentSession(
 		resolveModelDirectory: createSkillDirectoryResolver({
 			sandboxMounts: () => (sandboxWorkspace === 'working-directory' ? directories : []),
 		}),
+		// The commands a skill holds run while it loads, as nested calls of the shell tool: the
+		// same gate, sandbox and tool as the model's own call.
+		shell: {
+			disabled: () => options.skillShellDisabled === true,
+			sourceOf: (name) => {
+				const file = skillCatalog.fileSkills.find((skill) => skill.name === name)
+				// A plugin's skill carries its own trust. A name that is neither a file skill nor a
+				// plugin's is one this session cannot place, and nothing unplaced runs commands.
+				if (file === undefined && pluginRuntime?.skills.has(name) !== true) {
+					return { source: 'remote', block: shellBlockFor('remote', false) }
+				}
+				const origin = file === undefined ? 'plugin' : file.source
+				const block = shellBlockFor(origin, options.folderTrusted === true || isTrusted(cwd))
+				return { source: origin, ...(block ? { block } : {}) }
+			},
+			hooks: () => pluginRuntime?.manager,
+			sessionId: () => String(scope.sessionId),
+			warn: (line) => pluginRuntime?.hookActivity.notify(line),
+		},
 	})
 	const hasSaveSkillTool = (options.extraTools ?? []).some(
 		(tool) => tool.name === SAVE_SKILL_TOOL_NAME,
@@ -7033,6 +7067,24 @@ export async function createAgentSession(
 					},
 				}
 			: {}),
+		skillShell: createSessionSkillShell({
+			cwd: () => cwd,
+			roots: () => [cwd, ...directories],
+			disabled: () => options.skillShellDisabled === true,
+			trusted: () => options.folderTrusted === true || isTrusted(cwd),
+			gate: () => new AuthorizationGate(gateFor(sessionRules), cliLogger()),
+			hooks: () => pluginRuntime?.manager,
+			sessionId: () => String(scope.sessionId),
+			sandbox: () =>
+				sandbox.provider
+					? {
+							provider: sandbox.provider,
+							workspace: sandboxWorkspace,
+							additionalDirectories: [...directories],
+						}
+					: undefined,
+			warn: (line) => pluginRuntime?.hookActivity.notify(line),
+		}),
 		pluginCommandDirs: pluginFiles.commands,
 		agentIds: allowedAgentIds,
 		currentTaskStore,

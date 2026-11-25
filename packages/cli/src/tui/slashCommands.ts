@@ -87,7 +87,12 @@ import { sandboxRunsShellUnasked } from '../permissions/sandbox-shell.js'
 import { readChangelog, renderReleaseNotes } from '../release-notes.js'
 import { retiredSkillNotice } from '../skills/retired.js'
 import { SKILL_NAME_MAX_CHARS, SKILL_NAME_PATTERN } from '../skills/save.js'
-import { ARGUMENTS_TOKEN, type UserCommand, expandCommand } from '../user-commands/store.js'
+import {
+	ARGUMENTS_TOKEN,
+	type ShellExpansion,
+	type UserCommand,
+	expandCommand,
+} from '../user-commands/store.js'
 import { timeLeft } from './background-view.js'
 import { VIM_USAGE, parseVimArgument } from './editor-mode.js'
 import { keysHelpText } from './keymap.js'
@@ -328,6 +333,8 @@ export type SlashAction =
 			skillHooks?: { name: string; dirPath: string; hooksSource: string }
 			/** Set when a command the person typed expanded into `text`: what `user_prompt_expansion` hooks are told. */
 			expansion?: { commandName: string; commandArgs: string; commandSource: string }
+			/** The text still holds shell commands: run them (`session.skillShell`) before it goes on. */
+			shell?: ShellExpansion
 	  }
 	/**
 	 * Sign in to a subscription without leaving namzu.
@@ -1925,7 +1932,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 		action: () => ({ kind: 'copy' }),
 	},
 	{
-		name: 'paste',
+		name: 'cmd',
 		modelRun: 'confirm',
 		// Finds the shell commands in the latest finished answer and puts the one you
 		// choose in the prompt after `!`: nothing runs until you press Enter.
@@ -3379,6 +3386,7 @@ export function runSlash(
 						commandArgs: parsed.args.join(' '),
 						commandSource: user.source,
 					},
+					...(expanded.shell ? { shell: expanded.shell } : {}),
 					...(user.source === 'skill' && user.hooksSource !== undefined
 						? {
 								skillHooks: {

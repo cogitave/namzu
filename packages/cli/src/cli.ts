@@ -1112,6 +1112,9 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 					...(hookSwitch(resolvedCtx.config)
 						? { hooksSwitch: hookSwitch(resolvedCtx.config) }
 						: {}),
+					...(resolvedCtx.config.disableSkillShellExecution === true
+						? { skillShellDisabled: true }
+						: {}),
 					...(resolvedCtx.config.statusLine ? { statusLine: resolvedCtx.config.statusLine } : {}),
 					...(resolvedCtx.config.compaction ? { compaction: resolvedCtx.config.compaction } : {}),
 					...(resolvedCtx.config.memory ? { memory: resolvedCtx.config.memory } : {}),

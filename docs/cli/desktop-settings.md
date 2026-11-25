@@ -52,7 +52,7 @@ Settings whose layers combine (`permissions`, `permissionChecks`, `routing`, `pe
 file-only settings carry no layer. A project file's `model`, `routing`, `smallModel`, `decision` and
 memory curation, memory-from-conversations and past-conversation search keys are dropped by the loader and are not reported either, nor is any value the loader
 ignores for a project source: the terminal's own look (`tui.*` taste keys), `updates.channel`, `updates.auto`
-or `updates.check` set to true, `disableHooks` or `disableMcpSkills` set to true, and a sandbox, code analysis, learning or
+or `updates.check` set to true, `disableHooks` or `disableMcpSkills` set to true (`disableSkillShellExecution`, which only tightens, is read from a project file), and a sandbox, code analysis, learning or
 composer-trigger value that would loosen what is below it (`projectLayerHolds` in `config/load.ts`, shared with
 the merges). `NAMZU_FULLSCREEN` is read before any file, the managed one included, and `updates.auto` reports
 `NAMZU_UPDATE_CHECK` while that switch is off, since the update policy then installs nothing. The project files are read
