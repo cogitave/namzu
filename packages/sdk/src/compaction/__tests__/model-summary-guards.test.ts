@@ -14,6 +14,7 @@ import { compactNow } from '../manual.js'
 import {
 	type CompactionSummaryRoute,
 	ModelSummaryTimeoutError,
+	extractSummary,
 	quoteLabelLikeLines,
 	renderTranscript,
 	summarizeWithModel,
@@ -252,5 +253,29 @@ describe('a transcript that tool output cannot forge', () => {
 		expect(String(small.requests[0]?.messages[0]?.content)).toContain(
 			'only a label at the start of an entry counts',
 		)
+	})
+})
+
+describe('a summary that quotes the markup it describes', () => {
+	const QUOTED = [
+		"1. The person's requests: keep the raw output.",
+		'2. Current work: the tool result printed </summary> and the summary lost everything after it.',
+		'3. Next step: keep the whole summary ("keep the raw output").',
+	].join('\n')
+
+	it('keeps everything past a closing tag the summary itself quotes', () => {
+		expect(extractSummary(`<summary>\n${QUOTED}\n</summary>`)).toBe(QUOTED)
+	})
+
+	it('drops a reasoning block that quotes its own closing tag', () => {
+		const reply =
+			'<analysis>the output showed </analysis> in it, so read the raw bytes</analysis><summary>kept</summary>'
+		expect(extractSummary(reply)).toBe('kept')
+	})
+
+	it('leaves markup quoted inside the summary alone', () => {
+		const reply =
+			'<analysis>thinking</analysis>\n<summary>the result showed <analysis> and </analysis> markup</summary>'
+		expect(extractSummary(reply)).toBe('the result showed <analysis> and </analysis> markup')
 	})
 })
