@@ -321,6 +321,8 @@ export interface TuiContext {
 	readonly hooks?: HooksConfig
 	/** Set when a switch left hooks out of `hooks`; `/hooks` says so. See `hookSwitch`. */
 	readonly hooksSwitch?: HooksSwitch
+	/** See `NamzuCliConfig.disableSkillShellExecution`: commands inside a skill or custom command are not run. */
+	readonly skillShellDisabled?: boolean
 	/** See `NamzuCliConfig.statusLine`. Only the interactive terminal runs it. */
 	readonly statusLine?: StatusLineConfig
 	readonly compaction?: CompactionCliConfig

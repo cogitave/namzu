@@ -7334,6 +7334,7 @@ function AppBody({
 							...(activeCtx.smallModel ? { smallModel: activeCtx.smallModel } : {}),
 							...(activeCtx.hooks ? { hooks: activeCtx.hooks } : {}),
 							...(activeCtx.hooksSwitch ? { hooksSwitch: activeCtx.hooksSwitch } : {}),
+							...(activeCtx.skillShellDisabled === true ? { skillShellDisabled: true } : {}),
 							...(activeCtx.compaction ? { compaction: activeCtx.compaction } : {}),
 							...(activeCtx.memory ? { memory: activeCtx.memory } : {}),
 							...(activeCtx.workflow ? { workflow: activeCtx.workflow } : {}),
