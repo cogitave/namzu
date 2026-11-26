@@ -1,5 +1,20 @@
 # @namzu/cli
 
+## 60.0.0
+
+### Major Changes
+
+- 0a11e87: Bare `/plugins` no longer opens the plugin picker (Details, Enable or Disable for this conversation, Keep enabled or disabled after restart, chosen with the keys 1 to 3); it, and the new name `/plugin`, open a screen with tabs Installed, Errors and Stats (←/→ switch, Esc closes or goes back). On Installed, Space turns the selected plugin on or off for this conversation and Enter opens a detail view where the same three actions live, now for plugins only; tool servers and skills get detail views too. With no plugin loaded the screen still opens and says why, where `/plugins` used to print that report; `/plugins list` still prints it. `/plugins list` and `/plugins <name>` are unchanged. Skill loads (the model's `skill` tool and a typed `/<name>`) now add to `skill-usage.json` in the Namzu home, which feeds the Stats tab; delete the file to reset the counts. If you scripted the picker's number keys, use `/plugins <name>` to read a plugin and the Enter flow to change it.
+- 0a11e87: Bare `/skills` no longer opens the "Activate a skill" picker; it opens a screen of every skill where Space moves the selected one through on, name-only, user-only and off, `/` searches, `t` sorts by listing cost, and Esc saves the change for the project (a row says `No changes`, `Updated N skills in this project` or `Couldn't save skill settings`). To activate a skill for the conversation, as the picker did, type `/<name>` or `/skills <name>`, which are unchanged along with `/skills list`, `/skills new` and `/skills save`. The change is written to the new `skills.overrides` key in `.namzu/settings.local.json`: `name-only` tells the model a skill exists without its description, `user-only` keeps it from the model and its `skill` tool while `/<name>` still runs it, and `off` is the same as naming it in `skills.disabled`. A project's `overrides` entry wins over that list, and `on` lifts a name a weaker layer disabled. Also, a stronger config layer's `skills` keys now merge with a weaker layer's instead of replacing the whole table (`overrides` merges by skill name): a project file that sets `skills.disabled` no longer resets your own `skills.builtin` or `skills.suggest`. If you relied on that reset, set the keys you want in the project file.
+
+### Patch Changes
+
+- cc45e90: The skill save screen and the skill list use plain labels. The terminal screen offers "Save skill" (your user skills), "Save to project" and "Cancel"; `/skills list` and `namzu skills list` show where a skill lives as `user`, `user, shared`, `project`, `project, shared`, `project, legacy` or `built-in` instead of a folder (JSON output keeps `tier` and `path`); an empty list says "No skills yet. Create skills in .namzu/skills/ or ~/.namzu/skills/." Scripts that match the old text should match the new words. The terminal save screen wraps its question and warnings between words. `save_skill` now writes through the SDK's shared atomic write and still refuses symbolic links.
+- 0a11e87: A skill set to name-only in `/skills` is now listed to the model by name alone in the per-turn skill listing too; before, that listing still carried its description. The `/skills` screen also takes a lower layer's `skills.overrides` into account when deciding whether a change needs a key in the local file, so putting a skill back to what the user or shared config gives no longer reports a change that does not take effect.
+- Updated dependencies [cc45e90]
+- Updated dependencies [0a11e87]
+  - @namzu/sdk@69.2.0
+
 ## 59.0.0
 
 ### Major Changes

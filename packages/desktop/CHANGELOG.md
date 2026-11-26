@@ -1,5 +1,11 @@
 # @namzu/desktop
 
+## 0.8.11
+
+### Patch Changes
+
+- cc45e90: The skill save card says "Save skill" and "Save to project" (it said "Save to my skills" and "Save to this project"), and Settings, Skills has a "Create skill" button and says "No skills yet" when empty.
+
 ## 0.8.10
 
 ### Patch Changes

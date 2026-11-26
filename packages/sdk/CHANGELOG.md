@@ -1,5 +1,12 @@
 # Changelog
 
+## 69.2.0
+
+### Minor Changes
+
+- cc45e90: Adds `atomicWriteFile` and `UnsafeWritePathError` to the public exports: the atomic file write the `write` and `edit` tools use, for a host that writes a file the same safe way. A new `refuseLinksBelow` option refuses to write through a symbolic link below a folder and keeps the path inside it; a new `mode` option sets the bits of a new file. Without them behaviour is unchanged: the write goes through a link and keeps it.
+- 0a11e87: Adds `SkillMetadata.listing`. A host that sets `listing: 'name-only'` on a skill it hands to the prompt gets a manifest entry with the name and location and no description, so the skill costs a few tokens a turn and the model can still load it by name. Absent keeps the whole entry; nothing changes for a host that does not set it.
+
 ## 69.1.0
 
 ### Minor Changes
