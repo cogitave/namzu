@@ -54,7 +54,7 @@ const mebibytes = (bytes: number): string => `${bytes / (1024 * 1024)} MiB`
 
 export function listEntries(archive: Buffer, limits: ArchiveLimits): ArchiveEntry[] {
 	const subject = subjectOf(limits)
-	if (archive.length < 22) throw bad('zip', `This is not a ${subject} file (too short).`)
+	if (archive.length < 22) throw bad('zip', `This is not a valid ${subject} file (too short).`)
 	let eocd = -1
 	for (let at = archive.length - 22; at >= Math.max(0, archive.length - 22 - 0xffff); at--) {
 		if (archive.readUInt32LE(at) === EOCD) {
@@ -62,7 +62,7 @@ export function listEntries(archive: Buffer, limits: ArchiveLimits): ArchiveEntr
 			break
 		}
 	}
-	if (eocd < 0) throw bad('zip', `This is not a ${subject} file (no zip directory).`)
+	if (eocd < 0) throw bad('zip', `This is not a valid ${subject} file (no zip directory).`)
 	if (archive.readUInt16LE(eocd + 4) !== 0 || archive.readUInt16LE(eocd + 6) !== 0)
 		throw bad('zip', 'Multi-disk archives are not accepted.')
 	const count = archive.readUInt16LE(eocd + 10)

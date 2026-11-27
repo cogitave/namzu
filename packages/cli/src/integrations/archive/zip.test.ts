@@ -47,10 +47,10 @@ describe('openArchive', () => {
 
 	it('names the archive by the caller subject', () => {
 		expect(message(() => openArchive(Buffer.from('short'), LIMITS))).toBe(
-			'This is not a skill file (too short).',
+			'This is not a valid skill file (too short).',
 		)
 		expect(message(() => openArchive(Buffer.alloc(64), { ...LIMITS, subject: undefined }))).toBe(
-			'This is not a archive file (no zip directory).',
+			'This is not a valid archive file (no zip directory).',
 		)
 	})
 
