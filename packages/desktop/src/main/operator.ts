@@ -42,6 +42,21 @@ import {
 } from '../shared/context-protocol.js'
 import { QUESTION_TOOL } from '../shared/conversation-status.js'
 import {
+	type MarketplaceAddView,
+	type MarketplaceAvailableView,
+	type MarketplaceListView,
+	type MarketplacePreviewView,
+	type MarketplaceRemoveView,
+	type MarketplaceUpdateView,
+	OP_ID_PATTERN,
+	OP_PROGRESS_NOTIFICATION,
+	type PluginEnableView,
+	type PluginInstallView,
+	type PluginPlanView,
+	type PluginStageView,
+	type PluginUninstallView,
+	type PluginUpdateCheckView,
+	type PluginUpdateView,
 	type SkillCatalogView,
 	type SkillCreateView,
 	type SkillFileTextView,
@@ -49,6 +64,21 @@ import {
 	type SkillInstallView,
 	type SkillRemoveView,
 	type SkillStageView,
+	readMarketplaceAdd,
+	readMarketplaceAvailable,
+	readMarketplaceList,
+	readMarketplacePreview,
+	readMarketplaceRemove,
+	readMarketplaceUpdate,
+	readOpCancel,
+	readOpProgress,
+	readPluginEnable,
+	readPluginInstall,
+	readPluginPlan,
+	readPluginStage,
+	readPluginUninstall,
+	readPluginUpdate,
+	readPluginUpdateCheck,
 	readSkillCatalog,
 	readSkillCreate,
 	readSkillFileText,
@@ -1497,6 +1527,287 @@ export class Operator {
 		})
 		return skills.current() ? readSkillRemove(result) : null
 	}
+	/** The client that adds marketplaces and installs plugins, or null when the engine cannot. */
+	private async pluginsManageClient(
+		projectId: unknown,
+	): Promise<{ client: RuntimeClient; current: () => boolean } | null> {
+		const project =
+			projectId === undefined || projectId === null ? undefined : this.project(projectId)
+		const client = project && !project.view.palId ? project.client : await this.registry(false)
+		if (!client.supportsPluginsManage()) return null
+		return {
+			client,
+			current: () =>
+				!project ||
+				project.view.palId !== undefined ||
+				this.projects.get(project.view.id) === project,
+		}
+	}
+	/**
+	 * One plugin or marketplace request: the keys the page may send are checked here, the engine
+	 * answers, and the answer is read by `read`. Null where the engine cannot.
+	 */
+	private async pluginRequest<T>(
+		method: string,
+		change: unknown,
+		shape: {
+			allowed: readonly string[]
+			required: readonly string[]
+			what: string
+			check?: (row: Record<string, unknown>) => boolean
+		},
+		read: (value: unknown) => T | null,
+		projectId: unknown,
+	): Promise<T | null> {
+		const row =
+			change && typeof change === 'object' && !Array.isArray(change)
+				? (change as Record<string, unknown>)
+				: undefined
+		if (
+			!row ||
+			Object.keys(row).some((key) => !shape.allowed.includes(key)) ||
+			shape.required.some((key) => row[key] === undefined) ||
+			(row.opId !== undefined && (typeof row.opId !== 'string' || !OP_ID_PATTERN.test(row.opId))) ||
+			(row.scope !== undefined &&
+				row.scope !== 'user' &&
+				row.scope !== 'project' &&
+				row.scope !== 'local') ||
+			(shape.check !== undefined && !shape.check(row))
+		)
+			throw new Error(`Invalid ${shape.what}.`)
+		const plugins = await this.pluginsManageClient(projectId)
+		if (!plugins) return null
+		const result = await plugins.client.request(method, row)
+		return plugins.current() ? read(result) : null
+	}
+	async previewMarketplace(
+		source: unknown,
+		projectId?: unknown,
+	): Promise<MarketplacePreviewView | null> {
+		return this.pluginRequest(
+			'namzu/marketplaces/preview',
+			{ source },
+			{
+				allowed: ['source'],
+				required: ['source'],
+				what: 'marketplace address',
+				check: (r) =>
+					typeof r.source === 'string' && r.source.trim() !== '' && r.source.length <= 4096,
+			},
+			readMarketplacePreview,
+			projectId,
+		)
+	}
+	async addMarketplace(change: unknown, projectId?: unknown): Promise<MarketplaceAddView | null> {
+		return this.pluginRequest(
+			'namzu/marketplaces/add',
+			change,
+			{
+				allowed: ['source', 'scope', 'accepted', 'opId'],
+				required: ['source', 'scope', 'accepted'],
+				what: 'marketplace',
+				check: (r) =>
+					typeof r.source === 'string' &&
+					r.source.length <= 4096 &&
+					r.accepted === 'marketplace-v1',
+			},
+			readMarketplaceAdd,
+			projectId,
+		)
+	}
+	async marketplaces(projectId?: unknown): Promise<MarketplaceListView | null> {
+		return this.pluginRequest(
+			'namzu/marketplaces/list',
+			{},
+			{ allowed: [], required: [], what: 'marketplace list' },
+			readMarketplaceList,
+			projectId,
+		)
+	}
+	async removeMarketplace(
+		change: unknown,
+		projectId?: unknown,
+	): Promise<MarketplaceRemoveView | null> {
+		return this.pluginRequest(
+			'namzu/marketplaces/remove',
+			change,
+			{
+				allowed: ['name', 'confirm'],
+				required: ['name', 'confirm'],
+				what: 'marketplace removal',
+				check: (r) => typeof r.name === 'string' && r.name.length <= 64 && r.confirm === true,
+			},
+			readMarketplaceRemove,
+			projectId,
+		)
+	}
+	async updateMarketplaces(
+		change: unknown,
+		projectId?: unknown,
+	): Promise<MarketplaceUpdateView | null> {
+		return this.pluginRequest(
+			'namzu/marketplaces/update',
+			change ?? {},
+			{
+				allowed: ['name', 'opId'],
+				required: [],
+				what: 'marketplace update',
+				check: (r) => r.name === undefined || (typeof r.name === 'string' && r.name.length <= 64),
+			},
+			readMarketplaceUpdate,
+			projectId,
+		)
+	}
+	async availablePlugins(
+		marketplace: unknown,
+		projectId?: unknown,
+	): Promise<MarketplaceAvailableView | null> {
+		return this.pluginRequest(
+			'namzu/marketplaces/available',
+			{ marketplace },
+			{
+				allowed: ['marketplace'],
+				required: ['marketplace'],
+				what: 'marketplace name',
+				check: (r) => typeof r.marketplace === 'string' && r.marketplace.length <= 64,
+			},
+			readMarketplaceAvailable,
+			projectId,
+		)
+	}
+	async planPlugin(change: unknown, projectId?: unknown): Promise<PluginPlanView | null> {
+		return this.pluginRequest(
+			'namzu/plugins/plan',
+			change,
+			{
+				allowed: ['id', 'stageId', 'scope', 'opId'],
+				required: ['scope'],
+				what: 'plugin plan',
+				check: (r) =>
+					(r.id === undefined) !== (r.stageId === undefined) &&
+					(r.id === undefined || (typeof r.id === 'string' && r.id.length <= 200)) &&
+					(r.stageId === undefined || (typeof r.stageId === 'string' && r.stageId.length <= 100)),
+			},
+			readPluginPlan,
+			projectId,
+		)
+	}
+	/** Reads a chosen plugin aside. The path comes from main's registry, never from the page. */
+	async stagePlugin(
+		path: string,
+		opId?: unknown,
+		projectId?: unknown,
+	): Promise<PluginStageView | null> {
+		return this.pluginRequest(
+			'namzu/plugins/stage',
+			{ path, ...(opId === undefined ? {} : { opId }) },
+			{
+				allowed: ['path', 'opId'],
+				required: ['path'],
+				what: 'plugin file',
+				check: (r) => typeof r.path === 'string' && r.path.length <= 4096,
+			},
+			readPluginStage,
+			projectId,
+		)
+	}
+	async installPlugin(change: unknown, projectId?: unknown): Promise<PluginInstallView | null> {
+		return this.pluginRequest(
+			'namzu/plugins/install',
+			change,
+			{
+				allowed: ['planId', 'digest', 'scope', 'consent', 'enableLoading', 'opId'],
+				required: ['planId', 'digest', 'scope', 'consent'],
+				what: 'plugin install',
+				check: (r) =>
+					typeof r.planId === 'string' &&
+					r.planId.length <= 100 &&
+					typeof r.digest === 'string' &&
+					/^[0-9a-fA-F]{64}$/.test(r.digest) &&
+					r.consent === true &&
+					(r.enableLoading === undefined || typeof r.enableLoading === 'boolean'),
+			},
+			readPluginInstall,
+			projectId,
+		)
+	}
+	async enablePlugin(change: unknown, projectId?: unknown): Promise<PluginEnableView | null> {
+		return this.pluginRequest(
+			'namzu/plugins/enable',
+			change,
+			{
+				allowed: ['id', 'scope', 'enabled'],
+				required: ['id', 'scope', 'enabled'],
+				what: 'plugin choice',
+				check: (r) =>
+					typeof r.id === 'string' && r.id.length <= 200 && typeof r.enabled === 'boolean',
+			},
+			readPluginEnable,
+			projectId,
+		)
+	}
+	async checkPluginUpdate(
+		change: unknown,
+		projectId?: unknown,
+	): Promise<PluginUpdateCheckView | null> {
+		return this.pluginRequest(
+			'namzu/plugins/update_check',
+			change,
+			{
+				allowed: ['id', 'opId'],
+				required: ['id'],
+				what: 'plugin update check',
+				check: (r) => typeof r.id === 'string' && r.id.length <= 200,
+			},
+			readPluginUpdateCheck,
+			projectId,
+		)
+	}
+	async updatePlugin(change: unknown, projectId?: unknown): Promise<PluginUpdateView | null> {
+		return this.pluginRequest(
+			'namzu/plugins/update',
+			change,
+			{
+				allowed: ['id', 'acceptDigest', 'opId'],
+				required: ['id'],
+				what: 'plugin update',
+				check: (r) =>
+					typeof r.id === 'string' &&
+					r.id.length <= 200 &&
+					(r.acceptDigest === undefined ||
+						(typeof r.acceptDigest === 'string' && /^[0-9a-fA-F]{64}$/.test(r.acceptDigest))),
+			},
+			readPluginUpdate,
+			projectId,
+		)
+	}
+	async uninstallPlugin(change: unknown, projectId?: unknown): Promise<PluginUninstallView | null> {
+		return this.pluginRequest(
+			'namzu/plugins/uninstall',
+			change,
+			{
+				allowed: ['id', 'scope', 'deleteData', 'confirm'],
+				required: ['id', 'scope', 'confirm'],
+				what: 'plugin removal',
+				check: (r) =>
+					typeof r.id === 'string' &&
+					r.id.length <= 200 &&
+					r.confirm === true &&
+					(r.deleteData === undefined || typeof r.deleteData === 'boolean'),
+			},
+			readPluginUninstall,
+			projectId,
+		)
+	}
+	/** Stops a long step by the id the page named it with; false when nothing by that id was running. */
+	async cancelOp(opId: unknown): Promise<boolean> {
+		if (typeof opId !== 'string' || !OP_ID_PATTERN.test(opId)) throw new Error('Invalid opId.')
+		const plugins = await this.pluginsManageClient(undefined)
+		if (!plugins) return false
+		return (
+			readOpCancel(await plugins.client.request('namzu/ops/cancel', { opId }))?.cancelled === true
+		)
+	}
 	private async instructionsHost(): Promise<RuntimeClient> {
 		const client = await this.registry(false)
 		if (!client.supportsStandingInstructions())
@@ -2413,6 +2724,7 @@ export class Operator {
 			event.kind !== 'providers-changed' &&
 			event.kind !== 'config-file-changed' &&
 			event.kind !== 'limits' &&
+			event.kind !== 'op-progress' &&
 			event.kind !== 'extensions-state' &&
 			event.kind !== 'extension-page' &&
 			event.kind !== 'unread'
@@ -7290,6 +7602,10 @@ export class Operator {
 			// What the providers say about the account. A notice that does not read is dropped.
 			const limits = readLimitsNotice(frame.params)
 			if (limits) this.emit({ kind: 'limits', limits })
+		} else if (frame.method === OP_PROGRESS_NOTIFICATION) {
+			// Which phase a marketplace or plugin step the person started is in. One that does not read is dropped.
+			const progress = readOpProgress(frame.params)
+			if (progress) this.emit({ kind: 'op-progress', ...progress })
 		} else if (frame.method === TITLE_NOTIFICATION) {
 			// The name the model gave a conversation. It replaces the words of the first message only
 			// while the title is still those words: a name the person typed is never overwritten.

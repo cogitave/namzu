@@ -1,6 +1,21 @@
 import { describe, expect, it } from 'vitest'
 import {
+	readMarketplaceAdd,
+	readMarketplaceAvailable,
+	readMarketplaceList,
+	readMarketplacePreview,
+	readMarketplaceRemove,
+	readMarketplaceUpdate,
+	readOpCancel,
+	readOpProgress,
+	readPluginEnable,
+	readPluginInstall,
 	readPluginManifestView,
+	readPluginPlan,
+	readPluginStage,
+	readPluginUninstall,
+	readPluginUpdate,
+	readPluginUpdateCheck,
 	readSkillCatalog,
 	readSkillCreate,
 	readSkillFileText,
@@ -244,5 +259,270 @@ describe('reading the answers to install, create and remove', () => {
 			error: 'No skill.',
 		})
 		expect(readSkillRemove({})).toBeNull()
+	})
+})
+
+const digest = 'a'.repeat(64)
+const plan = {
+	planId: 'p1',
+	digest,
+	id: 'ledger@team',
+	name: 'ledger',
+	version: '1.0.0',
+	layout: 'common',
+	scope: 'user',
+	components: { skills: ['ledger__a'], commands: ['close'], agents: [] },
+	surface: {
+		hooks: [
+			{
+				event: 'pre_tool_use',
+				matcher: 'Bash',
+				type: 'command',
+				run: 'guard.sh',
+				from: 'hooks/hooks.json',
+			},
+		],
+		fileHooks: [],
+		mcpLocal: [
+			{ name: 'db', command: 'node', args: ['server.js'], envNames: ['MODE'], secret: 'x' },
+		],
+		mcpRemote: [
+			{
+				name: 'api',
+				origin: 'https://mcp.example.com',
+				transport: 'http',
+				sendsEnv: ['TOKEN'],
+				headers: ['Authorization'],
+			},
+		],
+		modules: [{ path: 'hooks/mod.js', isolated: true, declares: ['Bash'] }],
+		allowedTools: [{ kind: 'skill', name: 'a', tools: ['Read'] }],
+		scripts: [{ path: 'scripts/guard.sh', bytes: 20, exec: true }],
+		scriptsTotal: 1,
+		unpinnedDownload: false,
+	},
+	findings: [{ level: 'notUsed', code: 'x', field: 'f', message: 'm' }],
+	warnings: ['w'],
+	preview: `Install?\nSurface: sha256:${digest}`,
+	loadingOn: false,
+	expiresAt: '2026-11-27T10:10:00.000Z',
+}
+
+describe('reading marketplace answers', () => {
+	it('reads a preview, an error, and refuses a shape it does not know', () => {
+		expect(
+			readMarketplacePreview({ source: '/m', kind: 'path', remote: false, notice: 'n', extra: 1 }),
+		).toEqual({ source: '/m', kind: 'path', remote: false, notice: 'n' })
+		expect(
+			readMarketplacePreview({ source: 'a/b', kind: 'github', remote: true, blocked: 'later' }),
+		).toMatchObject({ blocked: 'later', remote: true })
+		expect(readMarketplacePreview({ error: 'No.' })).toEqual({ error: 'No.' })
+		expect(readMarketplacePreview({ source: '/m' })).toBeNull()
+		expect(readMarketplacePreview('x')).toBeNull()
+	})
+	it('reads add, list, remove, update and available, capped and without extra keys', () => {
+		expect(
+			readMarketplaceAdd({ name: 't', plugins: 2, outcome: 'added', warnings: ['w', 3], x: 1 }),
+		).toEqual({ name: 't', plugins: 2, outcome: 'added', warnings: ['w'] })
+		expect(readMarketplaceAdd({ name: 't', plugins: 2, outcome: 'maybe' })).toBeNull()
+		const list = readMarketplaceList({
+			marketplaces: [
+				{
+					name: 't',
+					source: '/m',
+					kind: 'directory',
+					plugins: null,
+					installed: 1,
+					autoUpdate: false,
+					lastUpdated: 'bad',
+					path: '/secret',
+				},
+				{ name: '' },
+			],
+			declaredByProject: [
+				{ name: 'p', declaredBy: 'project' },
+				{ name: 'q', declaredBy: 'user' },
+			],
+			problems: ['a'],
+		})
+		expect(list?.marketplaces).toEqual([
+			{
+				name: 't',
+				source: '/m',
+				kind: 'directory',
+				autoUpdate: false,
+				plugins: null,
+				installed: 1,
+			},
+		])
+		expect(list?.declaredByProject).toEqual([{ name: 'p', declaredBy: 'project' }])
+		expect(
+			readMarketplaceList({
+				marketplaces: Array.from({ length: 300 }, (_, i) => ({
+					name: `m${i}`,
+					source: 's',
+					kind: 'file',
+				})),
+			})?.marketplaces,
+		).toHaveLength(100)
+		expect(
+			readMarketplaceRemove({ outcome: 'removed', name: 't', removedPlugins: ['a@t (user)'] }),
+		).toEqual({ name: 't', removedPlugins: ['a@t (user)'] })
+		expect(readMarketplaceRemove({ outcome: 'nope', name: 't' })).toBeNull()
+		expect(
+			readMarketplaceUpdate({
+				results: [
+					{ name: 't', outcome: 'updated', plugins: 3 },
+					{ name: 'u', outcome: 'failed', error: 'e' },
+					{ name: 'v', outcome: 'x' },
+				],
+			})?.results,
+		).toHaveLength(2)
+		const available = readMarketplaceAvailable({
+			marketplace: 't',
+			plugins: [
+				{
+					name: 'a',
+					id: 'a@t',
+					installable: true,
+					installedAt: ['user', 'team'],
+					description: 'd',
+				},
+				{ name: 'b', id: 'b@t', installable: 'yes' },
+			],
+			warnings: [],
+		})
+		expect(available?.plugins).toEqual([
+			{ name: 'a', id: 'a@t', description: 'd', installable: true, installedAt: ['user'] },
+		])
+	})
+})
+
+describe('reading plugin answers', () => {
+	it('reads a plan with its surface and digest, and keeps names but never environment values', () => {
+		const view = readPluginPlan(plan)
+		expect(view?.digest).toBe(digest)
+		expect(view?.surface.mcpRemote[0]).toEqual({
+			name: 'api',
+			origin: 'https://mcp.example.com',
+			transport: 'http',
+			sendsEnv: ['TOKEN'],
+			headers: ['Authorization'],
+		})
+		expect(view?.surface.mcpLocal[0]).toEqual({
+			name: 'db',
+			command: 'node',
+			args: ['server.js'],
+			envNames: ['MODE'],
+		})
+		expect(view?.surface.modules[0]).toEqual({
+			path: 'hooks/mod.js',
+			isolated: true,
+			declares: ['Bash'],
+		})
+		expect(view?.layout).toBe('common')
+		expect(view?.preview).toContain(digest)
+	})
+	it('refuses a plan without a digest, a scope, a surface or an expiry', () => {
+		for (const bad of [
+			{ ...plan, digest: 'abc' },
+			{ ...plan, scope: 'team' },
+			{ ...plan, surface: undefined },
+			{ ...plan, expiresAt: 'soon' },
+			{ ...plan, planId: '' },
+			{ ...plan, loadingOn: 'no' },
+			null,
+		])
+			expect(readPluginPlan(bad)).toBeNull()
+	})
+	it('caps what a plan lists', () => {
+		const many = Array.from({ length: 300 }, (_, i) => ({ path: `s${i}`, bytes: 1, exec: false }))
+		const view = readPluginPlan({
+			...plan,
+			surface: { ...plan.surface, scripts: many, scriptsTotal: 300 },
+			findings: Array.from({ length: 80 }, () => plan.findings[0]),
+		})
+		expect(view?.surface.scripts).toHaveLength(100)
+		expect(view?.surface.scriptsTotal).toBe(300)
+		expect(view?.findings).toHaveLength(50)
+	})
+	it('reads stage, install, enable, update check, update and uninstall', () => {
+		expect(
+			readPluginStage({
+				stageId: 's',
+				name: 'n',
+				version: '1',
+				expiresAt: '2026-11-27T10:10:00.000Z',
+			}),
+		).toMatchObject({ stageId: 's' })
+		expect(readPluginStage({ stageId: 's' })).toBeNull()
+		expect(
+			readPluginInstall({
+				id: 'a@b',
+				outcome: 'installed',
+				loading: 'off',
+				message: 'm',
+				notes: ['n'],
+			}),
+		).toEqual({ id: 'a@b', outcome: 'installed', loading: 'off', message: 'm', notes: ['n'] })
+		expect(
+			readPluginInstall({ id: 'a@b', outcome: 'done', loading: 'off', message: 'm' }),
+		).toBeNull()
+		expect(
+			readPluginEnable({
+				outcome: 'disabled',
+				id: 'a@b',
+				scope: 'local',
+				effective: { enabled: false, by: 'user' },
+				loading: 'on',
+			}),
+		).toMatchObject({ effective: { enabled: false, by: 'user' } })
+		expect(readPluginEnable({ outcome: 'disabled', id: 'a@b', scope: 'local' })).toBeNull()
+		expect(
+			readPluginUpdateCheck({
+				id: 'a@b',
+				current: '1',
+				latest: '2',
+				upToDate: false,
+				changesExecutable: true,
+			}),
+		).toEqual({ id: 'a@b', current: '1', latest: '2', upToDate: false, changesExecutable: true })
+		expect(readPluginUpdateCheck({ id: 'a@b', latest: '2' })).toBeNull()
+		expect(
+			readPluginUpdate({
+				outcome: 'needs-consent',
+				id: 'a@b',
+				from: '1',
+				to: '2',
+				digest,
+				changes: ['c'],
+				surface: plan.surface,
+				preview: 'p',
+			}),
+		).toMatchObject({ outcome: 'needs-consent', digest })
+		expect(readPluginUpdate({ outcome: 'needs-consent', id: 'a@b', from: '1', to: '2' })).toBeNull()
+		expect(
+			readPluginUpdate({ outcome: 'updated', id: 'a@b', from: '1', to: '2', message: 'm' }),
+		).toMatchObject({ outcome: 'updated' })
+		expect(
+			readPluginUninstall({
+				outcome: 'uninstalled',
+				id: 'a@b',
+				scope: 'user',
+				dataKept: true,
+				remaining: 1,
+			}),
+		).toEqual({ id: 'a@b', scope: 'user', dataKept: true, dataDeleted: false, remaining: 1 })
+		expect(readPluginUninstall({ outcome: 'x', id: 'a@b', scope: 'user' })).toBeNull()
+	})
+	it('reads cancel and progress', () => {
+		expect(readOpCancel({ cancelled: true })).toEqual({ cancelled: true })
+		expect(readOpCancel({})).toBeNull()
+		expect(readOpProgress({ opId: 'op-12345678', phase: 'reading', x: 1 })).toEqual({
+			opId: 'op-12345678',
+			phase: 'reading',
+		})
+		expect(readOpProgress({ opId: 'short', phase: 'reading' })).toBeNull()
+		expect(readOpProgress({ opId: 'op-12345678', phase: 'later' })).toBeNull()
 	})
 })

@@ -155,3 +155,36 @@ conversation keeps what it loaded.
 - **Connector headers.** The Add custom connector dialog saves through `namzu/mcp/save-user-server`
   with `headers`: names and values that are environment references only (see [Desktop](desktop.md)).
 - **Consent follows the file.** The *I trust what it can run* tick is kept only for the same file (name, size, file count and description); choosing a different file of the same name asks again.
+
+## Marketplaces and plugins (engine and app plumbing)
+
+The page's plugin actions rest on fourteen host methods in the group `pluginsManage` (the
+`namzu/marketplaces/*`, `namzu/plugins/*` and `namzu/ops/cancel` rows of [Desktop](desktop.md)),
+built on the modules behind [`namzu plugin install`](plugin-install.md) (`parseMarketplaceAddress`,
+`readCatalog`, `resolveEntrySource`, `planInstall`, `commitInstall`, `commitUpdate`,
+`removeInstall`, and the recorded yes in the settings files). A source form the engine learns to
+fetch later (a Git repository, an address) is therefore available to the app as soon as those
+functions take it. Every method refuses a Pal (`Host plugins are not inherited by Pals.`), takes
+exact keys with length caps, and refuses `project` and `local` places for a folder nobody trusted.
+An older engine lacks the group, so main reports `supportsPluginsManage()` false and the page hides
+what it cannot serve.
+
+- **Show, then yes.** `plan` copies the plugin into the engine's staging folder and answers with the
+  consent surface and its digest; `install` takes that digest back, recomputes it from the staged
+  files and refuses any other, so the app can install only what the person was shown. Stages and
+  plans live in the host process (at most four each, ten minutes; a dropped or expired one has its
+  copy removed). What a crash leaves behind is what `namzu plugin prune` removes.
+- **An update asks only when something that runs changed.** `update` compares the new source with
+  what the person accepted (the same comparison the command uses) and answers `needs-consent` with
+  the digest and the changes; nothing is written until `acceptDigest` equals it.
+- **Long steps.** A call may carry an `opId` the app chose. Progress arrives as the notification
+  `namzu/ops/progress`, which main forwards as the event `op-progress`; `namzu/ops/cancel` stops the
+  step at its next check, before it writes anything. A write that has started is not interrupted.
+- **Which paths.** Main opens a plugin file dialog (`.zip` or `.plugin`) and a folder dialog, or takes
+  a drop, through the same path registry as skills. A file passes only when `lstat` says it is a
+  regular file of at most 200 MB whose first bytes are a zip signature; a link, another extension or
+  a larger file is refused with a sentence. Only a path registered by one of those gestures in the
+  same window is forwarded, one at a time, and on the WSL engine it is translated as skill paths are
+  (`This engine cannot read that file. Use a file on the engine's computer.` when it cannot be).
+- **No page yet.** This change is the engine and the app's main process only: the Customize page does
+  not call these methods yet.

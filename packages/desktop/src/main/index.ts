@@ -1832,6 +1832,77 @@ function register(): void {
 	handle('removeSkill', (name: unknown, tier: unknown, projectId?: string) =>
 		operator.removeSkill(name, tier, projectId),
 	)
+	// Plugins the person adds: the same registry as skills; one file or folder at a time.
+	handleWindow('choosePluginFile', async ({ id, window }) => {
+		if (!window) return []
+		if (e2ePick) {
+			const paths: unknown = JSON.parse(e2ePick)
+			return skillPaths.registerPlugin(
+				id,
+				Array.isArray(paths) ? paths.filter((p): p is string => typeof p === 'string') : [],
+			)
+		}
+		const picked = await dialog.showOpenDialog(window, {
+			title: 'Add a plugin',
+			properties: ['openFile'],
+			filters: [{ name: 'Plugins', extensions: ['zip', 'plugin'] }],
+		})
+		return picked.canceled ? [] : skillPaths.registerPlugin(id, picked.filePaths)
+	})
+	handleWindow('choosePluginFolder', async ({ id, window }) => {
+		if (!window) return []
+		const picked = await dialog.showOpenDialog(window, {
+			title: 'Choose a folder',
+			properties: ['openDirectory'],
+		})
+		return picked.canceled ? [] : skillPaths.registerPlugin(id, picked.filePaths)
+	})
+	handleWindow('dropPluginFile', ({ id }, paths: unknown) =>
+		skillPaths.registerPlugin(
+			id,
+			Array.isArray(paths) ? paths.filter((p): p is string => typeof p === 'string') : [],
+		),
+	)
+	handleWindow('stagePlugin', ({ id }, path: unknown, opId?: unknown, projectId?: string) => {
+		const taken = skillPaths.takePlugin(id, path)
+		if ('error' in taken) throw new Error(taken.error)
+		return operator.stagePlugin(taken.path, opId, projectId)
+	})
+	handle('previewMarketplace', (source: unknown, projectId?: string) =>
+		operator.previewMarketplace(source, projectId),
+	)
+	handle('addMarketplace', (change: unknown, projectId?: string) =>
+		operator.addMarketplace(change, projectId),
+	)
+	handle('marketplaces', (projectId?: string) => operator.marketplaces(projectId))
+	handle('removeMarketplace', (change: unknown, projectId?: string) =>
+		operator.removeMarketplace(change, projectId),
+	)
+	handle('updateMarketplaces', (change: unknown, projectId?: string) =>
+		operator.updateMarketplaces(change, projectId),
+	)
+	handle('availablePlugins', (marketplace: unknown, projectId?: string) =>
+		operator.availablePlugins(marketplace, projectId),
+	)
+	handle('planPlugin', (change: unknown, projectId?: string) =>
+		operator.planPlugin(change, projectId),
+	)
+	handle('installPlugin', (change: unknown, projectId?: string) =>
+		operator.installPlugin(change, projectId),
+	)
+	handle('enablePlugin', (change: unknown, projectId?: string) =>
+		operator.enablePlugin(change, projectId),
+	)
+	handle('checkPluginUpdate', (change: unknown, projectId?: string) =>
+		operator.checkPluginUpdate(change, projectId),
+	)
+	handle('updatePlugin', (change: unknown, projectId?: string) =>
+		operator.updatePlugin(change, projectId),
+	)
+	handle('uninstallPlugin', (change: unknown, projectId?: string) =>
+		operator.uninstallPlugin(change, projectId),
+	)
+	handle('cancelOp', (opId: unknown) => operator.cancelOp(opId))
 	handle('engineBrowser', () => operator.engineBrowser())
 	handle('standingInstructions', () => operator.standingInstructions())
 	handle('saveStandingInstructions', (text: unknown, revision: unknown) =>

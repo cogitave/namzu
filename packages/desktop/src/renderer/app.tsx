@@ -2579,6 +2579,8 @@ export function App({
 				setLimitsView(event.limits)
 				return
 			}
+			// A marketplace or plugin step's phase belongs to the page that started it, not to a conversation.
+			if (event.kind === 'op-progress') return
 			// The Extensions page and the window mark listen for their own event.
 			if (event.kind === 'extensions-state') return
 			// A page of an extension speaks to its own host, not to a conversation.
