@@ -45,6 +45,10 @@
 {"name":"monitor.stop","wire":{"id":73,"op":"monitor.stop"}},
 {"name":"monitor.poll, everything kept","wire":{"id":74,"op":"monitor.poll"}},
 {"name":"monitor.poll, since","wire":{"id":75,"op":"monitor.poll","since":12}},
+{"name":"watch.start, every kind","wire":{"id":90,"op":"watch.start"}},
+{"name":"watch.start, chosen kinds and caps","wire":{"id":91,"op":"watch.start","kinds":["invoke","value","app"],"coalesceMs":300,"maxQueue":500,"maxValue":100,"maxName":40}},
+{"name":"watch.stop","wire":{"id":92,"op":"watch.stop"}},
+{"name":"watch.poll","wire":{"id":93,"op":"watch.poll"}},
 {"name":"presence.act, a click","wire":{"id":76,"op":"presence.act","windowId":"w:0000000000010a2c:4120","kind":"click","at":{"x":640,"y":480}}},
 {"name":"presence.act, typing","wire":{"id":77,"op":"presence.act","windowId":"w:0000000000010a2c:4120","kind":"type"}},
 {"name":"presence.act, a move","wire":{"id":78,"op":"presence.act","windowId":"w:0000000000010a2c:4120","kind":"move","at":{"x":1,"y":2}}},
@@ -86,7 +90,12 @@
 {"name":"presence.act without a kind","line":"{\"id\":82,\"op\":\"presence.act\",\"windowId\":\"w:1\"}","id":82,"code":"bad_request"},
 {"name":"presence.act with a kind that does not exist","line":"{\"id\":83,\"op\":\"presence.act\",\"windowId\":\"w:1\",\"kind\":\"swipe\"}","id":83,"code":"bad_request"},
 {"name":"presence.act without a window","line":"{\"id\":84,\"op\":\"presence.act\",\"kind\":\"click\"}","id":84,"code":"bad_request"},
-{"name":"the old spelling of a monitor op","line":"{\"id\":85,\"op\":\"monitor_poll\"}","id":85,"code":"unknown_op"}
+{"name":"the old spelling of a monitor op","line":"{\"id\":85,\"op\":\"monitor_poll\"}","id":85,"code":"unknown_op"},
+{"name":"watch.start, a kind that does not exist","line":"{\"id\":94,\"op\":\"watch.start\",\"kinds\":[\"keys\"]}","id":94,"code":"bad_request"},
+{"name":"watch.start, a keyboard kind","line":"{\"id\":95,\"op\":\"watch.start\",\"kinds\":[\"keyboard\"]}","id":95,"code":"bad_request"},
+{"name":"watch.start, a window that is text","line":"{\"id\":96,\"op\":\"watch.start\",\"coalesceMs\":\"250\"}","id":96,"code":"bad_request"},
+{"name":"watch.start, a negative cap","line":"{\"id\":97,\"op\":\"watch.start\",\"maxQueue\":-1}","id":97,"code":"bad_request"},
+{"name":"the old spelling of a watch op","line":"{\"id\":98,\"op\":\"watch_poll\"}","id":98,"code":"unknown_op"}
 ],
 "replies": [
 {"name":"hello","op":"hello","wire":{"id":1,"ok":true,"version":"0.1.0","buildHash":"a1b2c3d4","arch":"x86_64","osBuild":"26100","caps":["uia","hooks"],"dpiAwareness":"perMonitorV2"}},
@@ -135,6 +144,11 @@
 {"name":"monitor.stop","op":"monitor.stop","wire":{"id":73,"ok":true}},
 {"name":"monitor.poll, nothing yet","op":"monitor.poll","wire":{"id":74,"ok":true,"events":[],"seq":0,"inputs":0,"injectedInputs":0,"foregroundChanges":0,"dropped":false}},
 {"name":"monitor.poll, input and a foreground change","op":"monitor.poll","wire":{"id":75,"ok":true,"events":[{"seq":13,"kind":"input","tMs":5120,"device":"mouse","injected":false},{"seq":14,"kind":"input","tMs":5200,"device":"keyboard","injected":true},{"seq":15,"kind":"foreground","tMs":5300,"windowId":"w:0000000000010a2c:4120"}],"seq":15,"inputs":42,"injectedInputs":7,"foregroundChanges":3,"lastInputAgoMs":180,"dropped":true}},
+{"name":"watch.start, controls and foreground","op":"watch.start","wire":{"id":90,"ok":true,"controls":true,"foreground":true,"kinds":["invoke","focus","selection","menu","window","value","app"]}},
+{"name":"watch.start, controls unavailable","op":"watch.start","wire":{"id":91,"ok":true,"controls":false,"foreground":true,"kinds":["invoke","value","app"]}},
+{"name":"watch.stop","op":"watch.stop","wire":{"id":92,"ok":true}},
+{"name":"watch.poll, nothing yet","op":"watch.poll","wire":{"id":93,"ok":true,"events":[],"dropped":0}},
+{"name":"watch.poll, a session","op":"watch.poll","wire":{"id":94,"ok":true,"events":[{"kind":"app","tMs":1180,"window":"q3-report.xlsx","process":"spreadsheet.exe","windowId":"w:0000000000010a2c:4120"},{"kind":"focus","tMs":2500,"role":"Edit","name":"Search","window":"q3-report.xlsx","process":"spreadsheet.exe","windowId":"w:0000000000010a2c:4120"},{"kind":"value","tMs":4100,"role":"Edit","name":"Search","value":"overdue invoices","window":"q3-report.xlsx","process":"spreadsheet.exe","windowId":"w:0000000000010a2c:4120"},{"kind":"menu","tMs":5000,"role":"Menu","name":"File","phase":"open","window":"q3-report.xlsx","process":"spreadsheet.exe"},{"kind":"invoke","tMs":6200,"role":"MenuItem","name":"Export","window":"q3-report.xlsx","process":"spreadsheet.exe"},{"kind":"value","tMs":9000,"role":"Edit","name":"Password","secure":true,"window":"Sign in","process":"spreadsheet.exe"},{"kind":"window","tMs":9500,"role":"Window","name":"Sign in","phase":"close","process":"spreadsheet.exe"}],"dropped":3}},
 {"name":"presence.act","op":"presence.act","wire":{"id":76,"ok":true,"cursorWindow":263458,"frameWindow":263460}},
 {"name":"presence.hide","op":"presence.hide","wire":{"id":79,"ok":true}},
 {"name":"lease.end, with the count of a person's input","op":"lease.end","wire":{"id":42,"ok":true,"restoredForeground":true,"restoredCursor":false,"inputMoved":true,"frontElevated":false,"released":false,"inputsDuring":3}}
@@ -166,6 +180,12 @@
 {"name":"a monitor poll with no events","op":"monitor.poll","line":"{\"id\":1,\"ok\":true,\"seq\":0,\"inputs\":0,\"injectedInputs\":0,\"foregroundChanges\":0,\"dropped\":false}"},
 {"name":"a monitor event of a kind that does not exist","op":"monitor.poll","line":"{\"id\":1,\"ok\":true,\"events\":[{\"seq\":1,\"kind\":\"keystroke\",\"tMs\":1}],\"seq\":1,\"inputs\":0,\"injectedInputs\":0,\"foregroundChanges\":0,\"dropped\":false}"},
 {"name":"a monitor start with no input flag","op":"monitor.start","line":"{\"id\":1,\"ok\":true,\"foreground\":true}"},
+{"name":"a watch poll with no events","op":"watch.poll","line":"{\"id\":1,\"ok\":true,\"dropped\":0}"},
+{"name":"a watch poll with no dropped count","op":"watch.poll","line":"{\"id\":1,\"ok\":true,\"events\":[]}"},
+{"name":"a watch event of a kind that does not exist","op":"watch.poll","line":"{\"id\":1,\"ok\":true,\"events\":[{\"kind\":\"keystroke\",\"tMs\":1}],\"dropped\":0}"},
+{"name":"a watch event with no time","op":"watch.poll","line":"{\"id\":1,\"ok\":true,\"events\":[{\"kind\":\"focus\"}],\"dropped\":0}"},
+{"name":"a watch event with a phase that does not exist","op":"watch.poll","line":"{\"id\":1,\"ok\":true,\"events\":[{\"kind\":\"menu\",\"tMs\":1,\"phase\":\"toggle\"}],\"dropped\":0}"},
+{"name":"a watch start with no controls flag","op":"watch.start","line":"{\"id\":1,\"ok\":true,\"foreground\":true,\"kinds\":[]}"},
 {"name":"a presence act with no frame window","op":"presence.act","line":"{\"id\":1,\"ok\":true,\"cursorWindow\":1}"}
 ]
 }
