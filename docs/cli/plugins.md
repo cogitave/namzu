@@ -68,8 +68,32 @@ handshake and discovery. Unknown fields inside a plugin MCP server declaration
 are refused at manifest load time. In particular, plugin manifests do not
 accept `url`, `headers`, `inheritEnv` or `requireApproval`: configure a remote
 server in `mcpServers`, and use a source permission rule for a plugin-owned
-server. `connectors` and `personas` in plugin manifests are not supported and
-are refused rather than ignored.
+server. A remote server in a Namzu `plugin.json` goes under `remoteMcpServers`
+(an `url`, an optional `transport` and `headers`): it is read and listed and not
+started yet. `connectors` and `personas` in a Namzu `plugin.json` are not
+supported and are refused rather than ignored.
+
+### Plugins in the common plugin layout
+
+A plugin folder written in the layout other tools share loads without a
+`plugin.json`: put it under `.namzu/plugins/` or `~/.namzu/plugins/`, or name it
+with `namzu --plugin-dir <folder>`. Namzu reads its manifest, or just its
+conventional folders (`skills/`, `commands/`, `agents/`, `hooks/` and a root
+servers file), and every skill, command and agent in them is found without being
+listed. A scan of `.namzu/plugins` finds a folder that has a manifest; a folder
+with only conventional folders is loaded when you name it with `--plugin-dir`.
+
+Namzu's own names stay: skills are `<plugin>__<skill>`, commands are
+`/<plugin>__<command>` (for these plugins `/<plugin>:<command>` is accepted too,
+so the plugin's own documentation works), and a command or agent file may be a
+single file as well as a folder. `${NAMZU_PLUGIN_ROOT}` in a skill, command or
+agent text is replaced by the plugin's folder. A hook of such a plugin also finds
+its folders under the three names it was written for. Remote servers are read and
+listed and are not started yet, and a plugin may hold up to 64 skills and 16
+servers. What Namzu has no place for (themes, settings, saved options) is said
+once at launch; `namzu plugin validate` shows the whole report. The full rules
+are in [the common plugin layout](../sdk/common-plugin-layout.md). There is no
+install command for these plugins yet: you place the folder.
 
 ### Hook entries
 

@@ -39,6 +39,7 @@ The kernel.
 * [Tool discovery](tool-discovery.md) - Deferred tool search, host readiness, source-bound receipts and allowed-tool filtering.
 * [Toolsets](toolsets.md) - The unit every tool comes from, its composable wrappers, and combineToolsets's atomic conflict detection.
 * [Host capabilities](host-capabilities.md) - Reusable per-run instructions, toolsets, guardrails, prompt contributions and model settings for runAgent.
+* [The common plugin layout](common-plugin-layout.md) - How a plugin folder written in the layout other tools share is read: which file speaks, every field, the findings and the refusals.
 * [Plugin toolsets and lifecycle](plugins.md) - File and in-code plugins, source ownership, MCP servers, request context and revocation.
 * [Tool metadata and selectors](tool-metadata-and-selectors.md) - ToolDefinition.metadata as a host-only, never-on-the-wire data bag, matchesToolSelector's three selector shapes, and how an MCP server's annotations land in it.
 * [Portable tool schemas](tool-schema-portability.md) - One rendering valid in draft-07 and 2020-12, the profile that defines it, the normaliser that enforces it, and the sibling sweep for an undescribed field.
