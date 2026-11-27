@@ -708,6 +708,7 @@ function folderFileLabel(file: FolderConfigFile): string {
 
 /** Keys a project file cannot carry; see the note where the project files are read. */
 const PROJECT_DROPPED_KEYS = [
+	'plugins.blockedMarketplaces',
 	'decision',
 	'model',
 	'routing',
@@ -732,6 +733,7 @@ const PROJECT_DROPPED_KEYS = [
 
 /** Keys a local file cannot carry: the same limits, less the person's own taste. */
 const LOCAL_DROPPED_KEYS = [
+	'plugins.blockedMarketplaces',
 	'decision',
 	'model',
 	'routing',
@@ -2202,7 +2204,13 @@ const CONFIG_READERS: ConfigReaders = {
 	},
 	plugins: (v, context) => {
 		if (!isConfigMapping(v)) return invalidConfigValue(context, [], 'must be a mapping')
-		const known = new Set(['enabled', 'autoDiscovery', 'allowedScopes', 'hookTimeoutMs'])
+		const known = new Set([
+			'enabled',
+			'autoDiscovery',
+			'allowedScopes',
+			'hookTimeoutMs',
+			'blockedMarketplaces',
+		])
 		for (const key of Object.keys(v)) {
 			if (!known.has(key)) {
 				return invalidConfigValue(context, [key], 'is not a recognized plugin setting')
@@ -2213,6 +2221,24 @@ const CONFIG_READERS: ConfigReaders = {
 			autoDiscovery?: unknown
 			allowedScopes?: unknown
 			hookTimeoutMs?: unknown
+			blockedMarketplaces?: unknown
+		}
+		let blockedMarketplaces: readonly string[] | undefined
+		if (raw.blockedMarketplaces !== undefined) {
+			if (!Array.isArray(raw.blockedMarketplaces))
+				return invalidConfigValue(context, ['blockedMarketplaces'], 'must be a list')
+			if (raw.blockedMarketplaces.length > 500)
+				return invalidConfigValue(context, ['blockedMarketplaces'], 'may list at most 500 entries')
+			const bad = raw.blockedMarketplaces.findIndex(
+				(entry) => typeof entry !== 'string' || entry.trim() === '' || entry.length > 300,
+			)
+			if (bad >= 0)
+				return invalidConfigValue(
+					context,
+					['blockedMarketplaces', bad],
+					'must be a marketplace address such as owner/repo or host/*',
+				)
+			blockedMarketplaces = (raw.blockedMarketplaces as string[]).map((entry) => entry.trim())
 		}
 		if (raw.enabled !== undefined && typeof raw.enabled !== 'boolean') {
 			return invalidConfigValue(context, ['enabled'], 'must be a boolean')
@@ -2257,6 +2283,7 @@ const CONFIG_READERS: ConfigReaders = {
 			...(raw.autoDiscovery !== undefined ? { autoDiscovery: raw.autoDiscovery } : {}),
 			...(allowedScopes !== undefined ? { allowedScopes } : {}),
 			...(raw.hookTimeoutMs !== undefined ? { hookTimeoutMs: raw.hookTimeoutMs as number } : {}),
+			...(blockedMarketplaces !== undefined ? { blockedMarketplaces } : {}),
 		}
 	},
 	// Read field by field rather than shape-only, unlike the two above.
@@ -3735,6 +3762,22 @@ function mergeConfigs(...layers: readonly ConfigLayer[]): {
 								describeSource(source),
 							)
 				provenance[key] = source
+				continue
+			}
+			if (key === 'plugins' && layer.config.plugins) {
+				// A layer's `plugins` replaces the one below it, except the block list: it only grows,
+				// so a managed file that sets `plugins` keeps what the user's file blocked.
+				const blocked = [
+					...new Set([
+						...(out.plugins?.blockedMarketplaces ?? []),
+						...(layer.config.plugins.blockedMarketplaces ?? []),
+					]),
+				]
+				out.plugins = {
+					...layer.config.plugins,
+					...(blocked.length > 0 ? { blockedMarketplaces: blocked } : {}),
+				}
+				provenance[key] = layer.sourceFor(key)
 				continue
 			}
 			if (key === 'memory' && layer.config.memory) {

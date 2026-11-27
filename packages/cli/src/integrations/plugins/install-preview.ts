@@ -87,7 +87,7 @@ export interface PreviewOptions {
 export function renderInstallPreview(plan: InstallPlan, options: PreviewOptions): string {
 	const lines: string[] = [
 		options.headline ??
-			`Install ${one(plan.name)} ${one(plan.version)} from ${one(plan.marketplace)}?   ${options.scopeLine}`,
+			`Install ${one(plan.name)} ${one(plan.version)} from ${one(plan.marketplace)}${plan.commit !== undefined ? ` (commit ${plan.commit.slice(0, 7)})` : ''}?   ${options.scopeLine}`,
 		'',
 	]
 	if (options.changes !== undefined && options.changes.length > 0) {

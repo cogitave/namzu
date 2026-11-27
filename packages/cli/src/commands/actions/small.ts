@@ -331,9 +331,16 @@ export const PLUGIN_ACTIONS: readonly ActionHelp[] = [
 	},
 	{
 		path: ['marketplace', 'add'],
-		operands: '<folder | file.json>',
-		summary: 'Add a marketplace that is a folder or a .json file on this computer, in place.',
+		operands: '<owner/repo | https://… | folder | file.json>',
+		summary:
+			'Add a marketplace: a folder or .json file on this computer (in place), or a Git repository or https address (downloaded after you say yes).',
 		flags: [
+			{ flag: '--ref <ref>', description: 'The branch, tag or commit of a repository.' },
+			{
+				flag: '--sparse <path>...',
+				description: 'Check out only these folders of a repository, and the catalog.',
+			},
+			{ flag: '--yes', description: 'Accept the notice without asking.' },
 			{
 				flag: '--scope <user|project|local>',
 				description: 'The settings file that declares it (default user).',
@@ -342,7 +349,15 @@ export const PLUGIN_ACTIONS: readonly ActionHelp[] = [
 			{ flag: '--cwd <dir>', description: 'The folder whose project plugins are meant.' },
 			{ flag: '--json', description: 'Print one JSON object on standard output.' },
 		],
-		example: 'namzu plugin marketplace add ./team-tools',
+		example: 'namzu plugin marketplace add acme/team-tools',
+	},
+	{
+		path: ['marketplace', 'update'],
+		operands: '[<name>]',
+		summary:
+			'Refresh a marketplace’s catalog (all of them with no name); a marketplace pinned at a commit does not move. No plugin is installed or updated.',
+		flags: [{ flag: '--json', description: 'Print one JSON object on standard output.' }],
+		example: 'namzu plugin marketplace update team-tools',
 	},
 	{
 		path: ['marketplace', 'list'],
