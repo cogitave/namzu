@@ -205,6 +205,24 @@ describe('narration', () => {
 		expect(t.notices).toContainEqual({ type: 'narration', on: false, microphone: 'm1' })
 	})
 
+	it('closes the microphone while the recording is paused and opens it again on resume', async () => {
+		const t = rig({}, true)
+		t.setAnswer({ type: 'start', displayId: 'd1', voice: true, microphone: 'm1' })
+		await t.controller.begin({ provider: 'X' })
+		await t.controller.act('pause')
+		expect(t.notices.filter((notice) => notice.type === 'narration').at(-1)).toEqual({
+			type: 'narration',
+			on: false,
+			microphone: 'm1',
+		})
+		await t.controller.act('resume')
+		expect(t.notices.filter((notice) => notice.type === 'narration').at(-1)).toEqual({
+			type: 'narration',
+			on: true,
+			microphone: 'm1',
+		})
+	})
+
 	it('never opens it for a recording without voice', async () => {
 		const t = rig({}, true)
 		await t.controller.begin({ provider: 'X' })

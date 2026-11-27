@@ -424,7 +424,10 @@ export class RecordingSession {
 	private releaseProtection(): void {
 		if (!this.holdProtection) return
 		this.holdProtection = false
-		this.deps.protection.release()
+		// A window that will not go back must not keep the pill up or the pictures in memory; the
+		// person is told once instead.
+		if (this.deps.protection.release() > 0)
+			this.deps.onMessage?.('A Namzu window could not be restored after the recording.')
 	}
 
 	private stopTimers(): void {

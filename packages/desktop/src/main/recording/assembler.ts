@@ -203,6 +203,14 @@ export class RecordingAssembler {
 		for (const event of events) this.hearOne(event)
 	}
 
+	/** A name, title or program as the review sheet shows it: secrets removed first, then clipped. */
+	private named(value: string | undefined, max: number): string | undefined {
+		if (value === undefined) return undefined
+		const { text, redacted } = scrub(value)
+		this.cutCounts.redacted += redacted
+		return clip(text, max)
+	}
+
 	private hearOne(event: WatchedEvent): void {
 		const now = this.options.clock()
 		const denied = isDeniedWindow(event)
@@ -223,7 +231,7 @@ export class RecordingAssembler {
 			return
 		}
 		if (event.kind !== 'app') this.controlsSeen = true
-		const name = clip(event.name, RECORDING_LIMITS.maxNameChars)
+		const name = this.named(event.name, RECORDING_LIMITS.maxNameChars)
 		switch (event.kind) {
 			case 'app': {
 				this.flushText(true)
@@ -233,8 +241,10 @@ export class RecordingAssembler {
 				this.add({
 					t: this.elapsed(),
 					type: 'app',
-					...(program ? { name: clip(program, RECORDING_LIMITS.maxNameChars) } : {}),
-					...(event.window ? { title: clip(event.window, RECORDING_LIMITS.maxTitleChars) } : {}),
+					...(program ? { name: this.named(program, RECORDING_LIMITS.maxNameChars) } : {}),
+					...(event.window
+						? { title: this.named(event.window, RECORDING_LIMITS.maxTitleChars) }
+						: {}),
 				})
 				this.forced = this.forced ?? 'app'
 				this.awaitFrame(now, true)
@@ -287,7 +297,7 @@ export class RecordingAssembler {
 					...(name ? { name } : {}),
 					...(event.phase ? { phase: event.phase } : {}),
 					...(event.kind === 'window' && event.window
-						? { title: clip(event.window, RECORDING_LIMITS.maxTitleChars) }
+						? { title: this.named(event.window, RECORDING_LIMITS.maxTitleChars) }
 						: {}),
 				})
 				if (record && FRAME_REF_KINDS.has(type)) this.awaiting.push(record)
@@ -516,7 +526,7 @@ export class RecordingAssembler {
 			this.add({
 				t: pending.t,
 				type: 'text',
-				field: clip(pending.field, RECORDING_LIMITS.maxNameChars),
+				field: this.named(pending.field, RECORDING_LIMITS.maxNameChars) ?? '',
 				value: clipped,
 			})
 		}

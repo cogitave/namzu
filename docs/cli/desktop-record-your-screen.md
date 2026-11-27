@@ -19,7 +19,8 @@ The first release records on **Windows 10 (2004 and later) and 11, on the comput
 at**. The item is not shown on macOS, Linux or WSL, in a remote desktop session, or where the native
 Windows helper (`namzu-win.exe`) is not present. In a remote session, asking says
 `Recording does not work in a remote session.` The remote check reads `SESSIONNAME` (a remote desktop
-session is named `RDP-Tcp#<n>`; a local one says `Console`); it is a best effort that a real machine
+session is named `RDP-Tcp#<n>`; a local one says `Console`) and `CLIENTNAME` (set only by a remote
+desktop client), again at each Start; it is a best effort that a real machine
 has to confirm.
 
 ## What is recorded
@@ -51,20 +52,21 @@ something else cannot start it; **Escape** and **Cancel** close it.
 Voice is offered only when listening is downloaded and voice input is turned on in Settings, Speech.
 Otherwise the row says why (`Download listening in Settings to use your voice.`). The recognizer is
 configured for **Turkish** only, and the chooser says `Voice narration understands Turkish.` Narration
-is a second yes, asked for each recording.
+is a second yes, asked for each recording. Only the window that started the recording opens the
+microphone, and only while the recording runs: Pause, a lock and a sleep close it, Resume opens it again.
 
 ## The recorder pill
 
 A small always-on-top window at the top centre of the chosen display shows a red dot, `Recording`, the
 time, **Pause**, **Done** and **Discard**, and a level meter when voice is on. It never takes focus and
 moves to the bottom of the display when the pointer comes near it. From 9:00 it also says `1:00 left`.
-Its other states are `Paused`, `Stopped: kept until 14:32` (after a lock or sleep), `Processing` and
+Its other states are `Paused`, `Stopped, kept until 14:32` (after a lock or sleep), `Processing` and
 `Recording discarded after the time limit`; a line under it says `Narration disconnected. Click to
 reconnect.`, `Typing in this window isn't recorded.` (when no program exposed its controls) or
 `Screenshots are failing.` once.
 
 Ending from anywhere: **Ctrl+Alt+Shift+R** (a system shortcut; the usual Ctrl+Shift+Esc opens Task
-Manager and cannot be taken) and a tray icon with a red dot and a menu (**Done: stop and review**,
+Manager and cannot be taken) and a tray icon with a red dot and a menu (**Done: stop and review**, **Pause or resume**,
 **Discard the recording**), so a stuck pill cannot trap anyone.
 
 ## Hidden from its own pictures
@@ -81,7 +83,7 @@ hidden, recording does not start.
   `Password`, pauses it the same way until another program comes to the front.
 - A completely black picture (the secure desktop, protected video, a permission prompt) is dropped and
   noted as a pause.
-- Text you typed and words you said pass through a scrubber first: `sk-`, `ghp_`, `xox` and
+- Text you typed, words you said and the names of controls, windows and programs pass through a scrubber first: `sk-`, `ghp_`, `xox` and
   `github_pat_` tokens, AWS and Google key shapes, long high-entropy tokens, `-----BEGIN` key blocks and
   card numbers that pass the Luhn check become `[removed]`.
 
@@ -107,7 +109,7 @@ is dropped. Past a cap the recorder stops adding that kind and the review sheet 
 ## The review sheet
 
 **Done** opens a sheet above the message box: `Recording ready: 3:12, 14 pictures, 9 steps, voice on`.
-**View** shows the pictures and every step; each step and each picture can be removed, as can all the
+The sheet opens with the pictures and every step shown (**Hide steps and pictures** folds them); each step and each picture can be removed, as can all the
 pictures (**Remove pictures**) and the voice text (**Remove voice text**). The sheet lists what was
 redacted, cut or removed. A note field takes your own words (`make this a weekly report skill`).
 **Send** puts the recording into the message as one attachment chip, with your note, and the message is

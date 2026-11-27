@@ -62,12 +62,16 @@ export function readPillAction(value: unknown): PillAction | undefined {
 
 /** Start ignores input that arrives sooner than `inputProtectionMs` after the chooser opened. */
 export class ChooserGate {
-	private readonly openedAt: number
+	private openedAt: number
 	constructor(
 		private readonly clock: () => number,
 		private readonly protectionMs: number = RECORDING_LIMITS.inputProtectionMs,
 	) {
 		this.openedAt = clock()
+	}
+	/** The window is on screen now: the guard counts from here, not from when it was built. */
+	shown(): void {
+		this.openedAt = this.clock()
 	}
 	accept(answer: ChooserAnswer): ChooserAnswer | undefined {
 		if (answer.type === 'start' && this.clock() - this.openedAt < this.protectionMs)
@@ -194,7 +198,11 @@ export function showChooser(options: {
 			.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(chooserPage())}`)
 			.then(() => {
 				if (window.isDestroyed()) return
-				window.webContents.send('recording:chooser', init)
+				// The guard and the page's own timer both start once the window is visible.
+				window.once('show', () => {
+					gate.shown()
+					if (!window.isDestroyed()) window.webContents.send('recording:chooser', init)
+				})
 				window.show()
 			})
 	})

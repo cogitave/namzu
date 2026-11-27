@@ -299,7 +299,7 @@ export const RECORDING_WORDS = {
 
 /** `Namzu records pictures ...` as the chooser says it, with the provider and model filled in. */
 export function chooserDisclosure(provider: string): string {
-	return `Namzu records pictures of your screen, the controls you use, text you type into ordinary fields, and your voice if you turn it on. It stays on this computer until you press Send, and then goes to ${provider} as a message you can read first. Namzu turns it into a skill you can review.`
+	return `Namzu records pictures of your screen, the controls you use, text you type into ordinary fields (read when you leave the field), and your voice if you turn it on. It stays in memory on this computer until you press Send, and then goes to ${provider} as a message you can read first. Namzu turns it into a skill you can review.`
 }
 
 export function formatClock(ms: number): string {

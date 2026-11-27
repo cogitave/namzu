@@ -1290,9 +1290,13 @@ const recording = new RecordingHost({
 	settings: () => settingsStore.get(),
 	saveSettings: (patch) => settingsStore.set(patch),
 	listening: localListening,
-	broadcast: (notice) => {
+	broadcast: (notice, only) => {
 		for (const [, window] of windows.entries())
-			if (!window.isDestroyed() && !window.webContents.isDestroyed())
+			if (
+				!window.isDestroyed() &&
+				!window.webContents.isDestroyed() &&
+				(only === undefined || window.webContents.id === only)
+			)
 				window.webContents.send('namzu:recording-notice', notice)
 	},
 	openSettings: () => showMainWindow(),
@@ -1966,10 +1970,12 @@ function register(): void {
 		recording.controller.confirmSent()
 		return { attachments, text: delivery.composerText }
 	})
-	handle('recordingAudio', (samples: unknown) =>
-		recording.controller.audio(readVoiceChunk(samples)),
-	)
-	handle('recordingNarrationLost', () => recording.controller.narrationLost())
+	handleWindow('recordingAudio', ({ window }, samples: unknown) => {
+		if (recording.isNarrator(window)) recording.controller.audio(readVoiceChunk(samples))
+	})
+	handleWindow('recordingNarrationLost', ({ window }) => {
+		if (recording.isNarrator(window)) recording.controller.narrationLost()
+	})
 	handleWindow('setComputerKeyboardCapture', ({ window }, enabled: boolean) => {
 		if (typeof enabled !== 'boolean') throw new Error('Invalid computer keyboard focus.')
 		window.webContents.setIgnoreMenuShortcuts(enabled)

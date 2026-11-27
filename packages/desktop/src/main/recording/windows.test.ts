@@ -20,6 +20,11 @@ describe('the chooser gate', () => {
 		expect(gate.accept(start)).toBeUndefined()
 		now = 1_300
 		expect(gate.accept(start)).toEqual(start)
+		// Counted again from the moment the window is shown.
+		gate.shown()
+		expect(gate.accept(start)).toBeUndefined()
+		now = 1_600
+		expect(gate.accept(start)).toEqual(start)
 	})
 })
 

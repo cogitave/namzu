@@ -313,6 +313,22 @@ describe('typed text', () => {
 		expect(text?.value).toBe('token [removed]')
 		expect(result.cut.redacted).toBe(1)
 	})
+
+	it('removes a secret from a control name and a window title too', async () => {
+		const { assembler } = rig()
+		await assembler.start()
+		assembler.hear([
+			event('app', {
+				process: 'mail.exe',
+				window: 'Inbox ghp_abcdefghijklmnopqrstuvwxyz0123456789',
+			}),
+			event('focus', { role: 'Edit', name: 'Key ghp_abcdefghijklmnopqrstuvwxyz0123456789' }),
+		])
+		const result = await assembler.finish('done')
+		const shown = JSON.stringify(result.events)
+		expect(shown).not.toContain('ghp_')
+		expect(result.cut.redacted).toBe(2)
+	})
 })
 
 describe('spoken text', () => {

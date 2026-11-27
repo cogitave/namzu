@@ -218,7 +218,8 @@ export class RecordingController {
 		let narrating = false
 		const noticeState = (state: SessionState) => {
 			if (microphone !== undefined) {
-				const wanted = state === 'running' || state === 'paused' || state === 'away'
+				// The microphone is open only while audio is kept: a pause or an away stops it, not just the audio.
+				const wanted = state === 'running'
 				if (wanted !== narrating) {
 					narrating = wanted
 					this.deps.notify({ type: 'narration', on: wanted, microphone })

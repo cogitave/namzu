@@ -43,7 +43,8 @@ export interface RecordingHostDeps {
 	settings: () => RecordingHostSettings
 	saveSettings: (patch: Partial<Pick<RecordingHostSettings, 'screenRecordingVoice'>>) => void
 	listening: LocalListeningService
-	broadcast: (notice: RecordingNotice) => void
+	/** `only`: the id of the one window's contents that gets the notice; absent, every window does. */
+	broadcast: (notice: RecordingNotice, only?: number) => void
 	openSettings: () => void
 	/** A test profile started with `NAMZU_RECORDING_FAKE=1`: painted screen, scripted controls. */
 	fake?: boolean
@@ -66,6 +67,8 @@ export class RecordingHost {
 	readonly protection = new ContentProtection()
 	private readonly pill: PillWindow
 	private parent: BrowserWindow | undefined
+	/** The window that started the recording: the only one that opens the microphone. */
+	private narrator: number | undefined
 	private tray: Tray | undefined
 	private shortcutOn = false
 	private placed: Electron.Display | undefined
@@ -154,12 +157,27 @@ export class RecordingHost {
 		options: { provider: string; microphones?: ChooserMicrophone[]; microphone?: string },
 	): Promise<BeginResult> {
 		this.parent = window
+		this.narrator = window && !window.isDestroyed() ? window.webContents.id : undefined
 		return this.controller.begin(options)
 	}
 
 	private notify(notice: RecordingNotice): void {
 		if (notice.type === 'state') this.onState(notice.recording)
+		if (notice.type === 'narration') {
+			// One window opens the microphone; a notice with no such window is dropped.
+			if (this.narrator !== undefined) this.deps.broadcast(notice, this.narrator)
+			return
+		}
 		this.deps.broadcast(notice)
+	}
+
+	/** Audio and a lost microphone are taken from the window that started the recording only. */
+	isNarrator(window: BrowserWindow): boolean {
+		return (
+			this.narrator !== undefined &&
+			!window.isDestroyed() &&
+			window.webContents.id === this.narrator
+		)
 	}
 
 	/** The shortcut and the tray exist only while a recording could be ended by them. */
@@ -193,6 +211,15 @@ export class RecordingHost {
 				tray.setContextMenu(
 					this.menu([
 						{ label: 'Done: stop and review', click: () => void this.controller.endNow() },
+						{
+							label: 'Pause or resume',
+							click: () => {
+								const state = this.controller.state
+								void this.controller.act(
+									state === 'paused' || state === 'away' ? 'resume' : 'pause',
+								)
+							},
+						},
 						{ label: 'Discard the recording', click: () => void this.controller.act('discard') },
 					]),
 				)

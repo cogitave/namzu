@@ -42,15 +42,15 @@ it('says what was recorded, that nothing was sent, and offers Send and Discard',
 	expect(html).toContain(REVIEW_HINT.replace(/'/g, '&#x27;'))
 	expect(html).toContain('data-action="send"')
 	expect(html).toContain('data-action="discard"')
-	expect(html).toContain('>View<')
+	expect(html).toContain('>Hide steps and pictures<')
 	// The note field is the person's own words, which travel with the recording.
 	expect(html).toContain('aria-label="Your note for this recording"')
 })
 
-it('keeps the steps and pictures behind View, so the sheet starts small', () => {
+it('opens with the steps and pictures shown, as the Privacy text promises', () => {
 	const html = draw()
-	expect(html).not.toContain('recording-review-steps')
-	expect(html).not.toContain('Remove pictures')
+	expect(html).toContain('recording-review-steps')
+	expect(html).toContain('Remove pictures')
 })
 
 it('counts pictures and says when none will be sent', () => {

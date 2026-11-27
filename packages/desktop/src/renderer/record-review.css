@@ -85,8 +85,8 @@
 	display: inline-grid;
 	place-items: center;
 	flex: none;
-	width: 20px;
-	height: 20px;
+	width: 24px;
+	height: 24px;
 	padding: 0;
 	border: 0;
 	border-radius: 50%;
@@ -105,7 +105,8 @@
 	position: absolute;
 	top: 4px;
 	right: 4px;
-	background: color-mix(in srgb, var(--background) 82%, transparent);
+	border: 1px solid var(--border);
+	background: var(--background);
 }
 .recording-review-steps {
 	display: flex;
@@ -117,7 +118,7 @@
 }
 .recording-review-step {
 	display: flex;
-	align-items: baseline;
+	align-items: flex-start;
 	gap: 10px;
 	min-width: 0;
 }

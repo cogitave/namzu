@@ -1795,13 +1795,13 @@ function EngineDeliveryRows({ settings, now }: { settings: DesktopSettingsContro
  * all three places.
  */
 export const SCREEN_RECORDING_POINTS: readonly string[] = [
-	'Namzu records pictures of the screen you choose, the controls you use (which button, which menu), text you leave in ordinary fields, and your voice if you turn it on.',
-	'It stays in this app’s memory until you press Send. Nothing is written to disk, and nothing is recorded in the background.',
+	'Namzu records pictures of the screen you choose, the controls you use (which button, which menu), text you type into ordinary fields (read when you leave the field), and your voice if you turn it on.',
+	'It stays in memory on this computer until you press Send. Nothing is written to disk, and nothing is recorded in the background.',
 	'After you press Send, the pictures and text go to the model you chose, which may be a provider on the internet or a model on this computer. You read the whole recording first and can remove any step or picture.',
 	'Password fields are never recorded. Recording pauses while one has focus, and a password manager’s window pauses it too.',
-	'Keystrokes are never captured. Text is read from ordinary fields when you leave them, never key by key.',
+	'Keystrokes are never captured. Text you type into ordinary fields is read when you leave them, never key by key.',
 	'Namzu’s own windows are hidden from the pictures while recording.',
-	'Voice narration understands Turkish. It is turned into text on this computer, and only the text is kept; the sound is not.',
+	'Voice narration is turned into text on this computer, in the language of local voice input (the recording window names it), and only the text is kept; the sound is not.',
 	'To remove the permission, turn the switch below off: Record your screen disappears from Customize.',
 ]
 

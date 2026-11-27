@@ -60,4 +60,21 @@ describe('content protection during a recording', () => {
 		registry.add(bad)
 		expect(() => registry.engage()).toThrow('could not be hidden')
 	})
+
+	it('puts every other window back when one fails to, and says how many failed', () => {
+		const registry = new ContentProtection()
+		const bad: ProtectableWindow = {
+			setContentProtection: (enabled) => {
+				if (!enabled) throw new Error('no')
+			},
+			isDestroyed: () => false,
+		}
+		const good = new FakeWindow()
+		registry.add(bad)
+		registry.add(good)
+		registry.engage()
+		expect(registry.release()).toBe(1)
+		expect(good.protected).toBe(false)
+		expect(registry.active).toBe(false)
+	})
 })

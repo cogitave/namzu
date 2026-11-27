@@ -16,6 +16,7 @@ interface Entry {
 	baseline: boolean | undefined
 }
 
+const PROTECTION_FAILED = 'A Namzu window could not be hidden from the recording.'
 const protectedByDefault = new WeakSet<object>()
 
 /** A window that is hidden from captures all the time (the working pill): it stays so afterwards. */
@@ -52,10 +53,18 @@ export class ContentProtection {
 		for (const entry of this.entries) this.apply(entry, true)
 	}
 
-	release(): void {
+	/** Every window goes back, one that cannot never stops the rest; the count of those is returned. */
+	release(): number {
 		this.engaged = false
-		for (const entry of this.entries)
-			this.apply(entry, entry.baseline ?? protectedByDefault.has(entry.window))
+		let failed = 0
+		for (const entry of [...this.entries]) {
+			try {
+				this.apply(entry, entry.baseline ?? protectedByDefault.has(entry.window))
+			} catch {
+				failed += 1
+			}
+		}
+		return failed
 	}
 
 	/** Windows that are no longer there are forgotten. */
@@ -69,7 +78,7 @@ export class ContentProtection {
 		} catch {
 			// A window that cannot be protected is a window the person has to know about; the
 			// session treats a failed engage as a refusal to record, so nothing is hidden here.
-			throw new Error('A Namzu window could not be hidden from the recording.')
+			throw new Error(PROTECTION_FAILED)
 		}
 	}
 }

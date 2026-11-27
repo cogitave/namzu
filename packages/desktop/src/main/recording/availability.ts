@@ -35,6 +35,9 @@ export function platformOf(platform: NodeJS.Platform): RecordingPlatform {
 export function isRemoteSession(env: Readonly<Record<string, string | undefined>>): boolean {
 	const name = env.SESSIONNAME?.trim()
 	if (name && /^(RDP|ICA)-/i.test(name)) return true
+	// A remote desktop client names itself in `CLIENTNAME`; a console session never carries one.
+	const client = env.CLIENTNAME?.trim()
+	if (client && (!name || !/^console$/i.test(name))) return true
 	return false
 }
 

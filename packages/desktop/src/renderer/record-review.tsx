@@ -35,7 +35,7 @@ export function RecordingReview({
 	onDiscard: () => unknown
 	disabled?: boolean
 }) {
-	const [open, setOpen] = useState(false)
+	const [open, setOpen] = useState(true)
 	const [note, setNote] = useState('')
 	const [busy, setBusy] = useState(false)
 	const [error, setError] = useState<string>()
@@ -177,7 +177,7 @@ export function RecordingReview({
 						aria-controls={open ? bodyId : undefined}
 						onClick={() => setOpen((value) => !value)}
 					>
-						{open ? 'Hide' : 'View'}
+						{open ? 'Hide steps and pictures' : 'Show steps and pictures'}
 					</button>
 					<div className="approval-actions">
 						<button

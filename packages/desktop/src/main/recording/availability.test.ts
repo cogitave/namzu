@@ -33,6 +33,16 @@ describe('availability', () => {
 		})
 	})
 
+	it('refuses a session that names a remote client even when its session name is missing', () => {
+		expect(recordingAvailability({ ...ok, env: { CLIENTNAME: 'LAPTOP-7' } }).reason).toBe(
+			'remote-session',
+		)
+		expect(
+			recordingAvailability({ ...ok, env: { SESSIONNAME: 'Console', CLIENTNAME: 'LAPTOP-7' } })
+				.available,
+		).toBe(true)
+	})
+
 	it('treats the console session as local', () => {
 		expect(recordingAvailability({ ...ok, env: { SESSIONNAME: 'Console' } }).available).toBe(true)
 		expect(recordingAvailability({ ...ok, env: {} }).available).toBe(true)

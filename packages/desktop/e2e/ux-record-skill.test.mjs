@@ -191,15 +191,16 @@ test("Record your screen: the menu, the chooser, the pill, the review, Send and 
 		await expect(sheet).toBeVisible({ timeout: T });
 		await expect(sheet.getByRole("heading")).toHaveText(/^Recording ready: 0:\d\d, \d+ pictures?, \d+ steps?, voice off$/);
 		await expect(sheet).toContainText("Nothing has been sent");
-		assert.deepEqual(await auditPage(w), [], "the sheet fits (closed)");
-		await shoot(w, "5-review-closed");
-		await sheet.getByRole("button", { name: "View" }).click({ timeout: T });
 		await expect(sheet.getByRole("list", { name: "Steps" })).toContainText("Switched to sheet.exe: q3-report.xlsx", { timeout: T });
 		await expect(sheet.getByRole("list", { name: "Steps" })).toContainText("Typed “overdue invoices” in Search");
 		await expect(sheet.getByRole("list", { name: "Steps" })).toContainText("Pressed Button “Filter”");
 		await expect(sheet.getByRole("list", { name: "Pictures" }).locator("img").first()).toBeVisible();
 		assert.deepEqual(await auditPage(w), [], "the sheet fits (open)");
 		await shoot(w, "6-review-open");
+		await sheet.getByRole("button", { name: "Hide steps and pictures" }).click({ timeout: T });
+		assert.deepEqual(await auditPage(w), [], "the sheet fits (closed)");
+		await shoot(w, "5-review-closed");
+		await sheet.getByRole("button", { name: "Show steps and pictures" }).click({ timeout: T });
 
 		step(4);
 		// Remove a step: it leaves the list and the sheet says so.
