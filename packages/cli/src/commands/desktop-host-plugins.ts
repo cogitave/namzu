@@ -43,7 +43,13 @@ import {
 	commitUpdate,
 	removeInstall,
 } from '../integrations/plugins/install.js'
-import { currentEnabledAnswer, readLayers } from '../integrations/plugins/installed-source.js'
+import {
+	currentEnabledAnswer,
+	loadInstalledManifest,
+	planInstalledPlugins,
+	readLayers,
+} from '../integrations/plugins/installed-source.js'
+import { readPluginManifestDetails } from '../integrations/plugins/manifest-details.js'
 import {
 	type Catalog,
 	LOCAL_UPLOADS_MARKETPLACE,
@@ -1141,5 +1147,64 @@ export function createDesktopPluginActions(deps: PluginActionDeps) {
 		}
 	}
 
-	return { methods, enrichList, stages, plans, ops, prune }
+	/**
+	 * The plugins installed here that the listing did not name: with no conversation open the
+	 * listing reads only the plugin folders, so a plugin installed from a marketplace or an upload
+	 * would be missing from the page that installed it. A row is read from the install record and
+	 * its own manifest; nothing is run.
+	 */
+	const withInstalled = async <
+		T extends { plugins: readonly { name: string }[]; live?: boolean; notice?: string },
+	>(
+		given: T,
+	): Promise<T> => {
+		// The listing was read with the settings the host started with; loading turned on since then
+		// (by an install that asked for it) is not "off", so the old line would contradict the page.
+		let view = given
+		if (view.notice === 'Plugins are off for this project.' && deps.loadingOn()) {
+			const { notice: _stale, ...rest } = view
+			view = rest as T
+		}
+		const plan = planInstalledPlugins({
+			home,
+			cwd: effectiveCwd(),
+			projectTrusted: trusted(),
+			allowedScopes: ['user', 'project'],
+		})
+		const listed = new Set(view.plugins.map((plugin) => plugin.name))
+		const missing = plan.candidates.filter((candidate) => !listed.has(candidate.name))
+		if (missing.length === 0) return view
+		const where = {
+			home,
+			cwd: effectiveCwd(),
+			installedNames: new Set(plan.candidates.map((candidate) => candidate.name)),
+		}
+		const rows: Record<string, unknown>[] = []
+		for (const candidate of missing.slice(0, 100)) {
+			try {
+				const manifest = await loadInstalledManifest(candidate, where)
+				rows.push({
+					...(await readPluginManifestDetails(candidate.installPath, manifest)),
+					name: line(manifest.name),
+					version: line(manifest.version ?? candidate.record.version ?? ''),
+					description: line(manifest.description ?? ''),
+					scope: candidate.scope,
+					status: view.live === true && !candidate.answer.on ? 'disabled' : 'installed',
+					startupEnabled: candidate.answer.on,
+				})
+			} catch {
+				rows.push({
+					name: line(candidate.name),
+					version: line(candidate.record.version ?? ''),
+					description: '',
+					scope: candidate.scope,
+					status: 'error',
+					startupError: 'This plugin’s manifest could not be read or validated.',
+				})
+			}
+		}
+		return { ...view, plugins: [...view.plugins, ...(rows as unknown as T['plugins'])] }
+	}
+
+	return { methods, enrichList, withInstalled, stages, plans, ops, prune }
 }

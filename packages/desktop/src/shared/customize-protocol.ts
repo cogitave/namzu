@@ -140,6 +140,15 @@ export interface PluginManifestView {
 	servers?: { name: string }[]
 	author?: string
 	updatedAt?: string
+	/** `name@marketplace`: only a plugin Namzu installed has one. A hand-placed folder has none. */
+	id?: string
+	marketplace?: string
+	layout?: 'common' | 'namzu'
+	/** The places an install record exists for it. */
+	installed?: ('user' | 'project' | 'local')[]
+	findings?: Record<string, number>
+	/** A check found a newer version. */
+	updateKnown?: true
 }
 
 const PLUGIN_ITEMS_MAX = 100
@@ -170,7 +179,32 @@ export function readPluginManifestView(value: unknown): PluginManifestView {
 		}
 	const author = short(row.author, 200)
 	const updatedAt = isoTime(row.updatedAt)
+	const id = short(row.id, 200)
+	const marketplace = short(row.marketplace, 64)
+	const installed = Array.isArray(row.installed)
+		? [
+				...new Set(
+					row.installed.filter(
+						(scope): scope is 'user' | 'project' | 'local' =>
+							scope === 'user' || scope === 'project' || scope === 'local',
+					),
+				),
+			]
+		: []
+	const findings: Record<string, number> = {}
+	const rawFindings = record(row.findings)
+	if (rawFindings)
+		for (const [level, total] of Object.entries(rawFindings).slice(0, 10)) {
+			const n = count(total, 10_000)
+			if (n !== undefined && /^[a-z-]{1,20}$/.test(level)) findings[level] = n
+		}
 	return {
+		...(id ? { id } : {}),
+		...(marketplace ? { marketplace } : {}),
+		...(row.layout === 'common' || row.layout === 'namzu' ? { layout: row.layout } : {}),
+		...(installed.length > 0 ? { installed } : {}),
+		...(Object.keys(findings).length > 0 ? { findings } : {}),
+		...(row.updateKnown === true ? { updateKnown: true as const } : {}),
 		...(skills.length > 0 ? { skills } : {}),
 		...(servers.length > 0 ? { servers } : {}),
 		...(author ? { author } : {}),
@@ -189,7 +223,19 @@ export function withManifestDetails<T extends { plugins: readonly unknown[] }>(v
 		plugins: view.plugins.map((entry) => {
 			const row = record(entry)
 			if (!row) return entry
-			const { skills: _s, servers: _v, author: _a, updatedAt: _u, ...rest } = row
+			const {
+				skills: _s,
+				servers: _v,
+				author: _a,
+				updatedAt: _u,
+				id: _i,
+				marketplace: _m,
+				layout: _l,
+				installed: _n,
+				findings: _f,
+				updateKnown: _k,
+				...rest
+			} = row
 			return { ...rest, ...readPluginManifestView(row) }
 		}),
 	}

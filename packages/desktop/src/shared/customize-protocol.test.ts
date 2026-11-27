@@ -143,6 +143,35 @@ describe('reading a plugin’s manifest fields', () => {
 		expect(readPluginManifestView({ updatedAt: 'x', author: '' })).toEqual({})
 		expect(readPluginManifestView('x')).toEqual({})
 	})
+	it('reads the identity of a plugin Namzu installed and nothing it cannot trust', () => {
+		expect(
+			readPluginManifestView({
+				id: 'ledger@team-tools',
+				marketplace: 'team-tools',
+				layout: 'common',
+				installed: ['user', 'user', 'nowhere', 'local'],
+				findings: { warning: 2, 'bad level!': 3, ignored: 'many' },
+				updateKnown: true,
+			}),
+		).toEqual({
+			id: 'ledger@team-tools',
+			marketplace: 'team-tools',
+			layout: 'common',
+			installed: ['user', 'local'],
+			findings: { warning: 2 },
+			updateKnown: true,
+		})
+		expect(
+			readPluginManifestView({ layout: 'other', updateKnown: 'yes', installed: 'user' }),
+		).toEqual({})
+	})
+	it('keeps those fields on an inventory row only after reading them', () => {
+		const view = withManifestDetails({
+			live: false,
+			plugins: [{ name: 'p', id: 'p@m', marketplace: 7, installed: ['project', 'x'] }],
+		})
+		expect(view.plugins).toEqual([{ name: 'p', id: 'p@m', installed: ['project'] }])
+	})
 	it('cleans each plugin of an inventory and leaves its other fields alone', () => {
 		const view = withManifestDetails({
 			live: false,

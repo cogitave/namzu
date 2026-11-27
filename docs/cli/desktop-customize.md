@@ -32,8 +32,9 @@ and on the right a search field, a **Sort** button (Skills and Plugins; by name 
 updated) and **Add**. In a window about 900 px wide the controls wrap under the tabs and nothing
 spills sideways.
 
-There is no Yours/Discover switch. Namzu has no catalogue of skills or plugins to discover, so the
-switch would have one side.
+There is no Yours/Discover switch on Skills. Namzu has no catalogue of skills to discover, so the
+switch would have one side. On **Plugins** it appears beside the tabs once a marketplace has been
+added (see [Marketplaces and plugins: the page](#marketplaces-and-plugins-the-page)).
 
 ### Skills
 
@@ -82,8 +83,9 @@ on**, and **Details**. A change needs a running conversation and is refused whil
 says so in the words the old page used. The detail has **Overview** (description and the
 information: installation, version, author, status, whether it starts next time, a start-up
 error), **Skills** (each skill as `/name` with its description) and **Connectors** (the server
-names). Namzu has no install, update or remove verbs for plugins, so none is offered. With no
-plugin, the page says where they live (`.namzu/plugins/`, `~/.namzu/plugins/`).
+names). With no plugin, the page says where they live (`.namzu/plugins/`, `~/.namzu/plugins/`).
+Where the engine offers the group `pluginsManage`, the tab also adds, updates and removes plugins
+and marketplaces, below.
 
 ## What the page reads
 
@@ -186,5 +188,79 @@ what it cannot serve.
   a larger file is refused with a sentence. Only a path registered by one of those gestures in the
   same window is forwarded, one at a time, and on the WSL engine it is translated as skill paths are
   (`This engine cannot read that file. Use a file on the engine's computer.` when it cannot be).
-- **No page yet.** This change is the engine and the app's main process only: the Customize page does
-  not call these methods yet.
+- **A listing with no conversation open.** With no conversation, `namzu/plugins/list` read only the
+  plugin folders, so a plugin installed from a marketplace or an upload was missing from the page
+  that installed it. The host now adds a row for every installed plugin (an install record that
+  applies to this folder or to the person) the listing did not name: name, version, description,
+  `scope`, `status` `installed` (`disabled` when the saved record says off and a conversation is
+  open), `startupEnabled` from the saved record, and the manifest's skills and servers, all read
+  from the install copy without running anything. A line saying plugins are off for the project is
+  dropped once an install has turned loading on, because the listing was read before that.
+
+## Marketplaces and plugins: the page
+
+Where the engine has the group `pluginsManage` (one that does not answers `marketplaces` with
+nothing, and the page then shows the old Plugins tab and **Create with Namzu** only):
+
+- **Add** on Plugins holds **Add marketplace**, **Upload plugin** and **Create with Namzu**.
+  *Create with Namzu* opens a new conversation with *Help me create a new Namzu plugin. Ask me what
+  it should do, put it in a new folder, check it with namzu plugin validate, and tell me how to try
+  it with --plugin-dir.* in the box, unsent; the model writes files with its own tools and
+  approvals and nothing is installed.
+- **Add marketplace** is a dialog: the notice (*Only add marketplaces you trust. Namzu does not
+  control their plugins, and their owners can change them later.*), **URL** (placeholder `owner/repo
+  or a Git address`) with the help line and **Choose a folder**. While the person types, the page asks
+  `namzu/marketplaces/preview` (the address is parsed, nothing is fetched) and shows `Will add
+  <address>` or the engine's refusal in its words; **Add** stays off until the address is accepted.
+  **Add** is the consent: it calls `namzu/marketplaces/add` for the *Yours* place with `accepted:
+  marketplace-v1`, shows the phase the engine announces (`Checking…`, `Downloading…`, `Reading…`) and
+  **Cancel** stops the step through `namzu/ops/cancel`. A Git or URL address is added exactly as far
+  as the engine's own marketplace functions go; the dialog does not decide. A toast says
+  `Marketplace "team-tools" added (14 plugins).` and the page switches to **Discover**.
+  *Keep up to date automatically* is not offered: the host method has no such option yet.
+- **Yours | Discover** appears beside the tabs once a marketplace exists. **Yours** is the installed
+  plugins, grouped by where each came from (**From team-tools**, **Uploaded**, and **Installed** for
+  a plugin placed by hand), then a small **Marketplaces** list (letter tile, name, `N installed`,
+  `N plugins · source · updated …`, menu **Update now** and **Remove**). **Discover** is a card grid
+  read from `namzu/marketplaces/available`: letter tile, name, two lines of description, `from
+  team-tools · 1.0.0` and a **+** named `Add <name>`; a plugin that is already installed shows a
+  check instead, and one that cannot be installed here shows the reason as the **+**'s tooltip. The
+  search field filters both views.
+- **The consent card** is what the **+** opens, and what **Upload plugin** shows after reading the
+  file: **Install for** (**Yours** or **This project**; the second is off, with the reason, in a
+  folder nobody trusted), the plugin's name and version, **This plugin adds** (skills, commands,
+  agents, tools it may use), **Runs on this computer** (each hook with its event and command, each
+  local server with its command and the names of the variables it would get, each remote server with
+  its address and what it would send, hook modules, scripts, an unpinned download), **Not used by
+  Namzu** (muted), the digest in small print, *Plugins run code on your computer, with access to your
+  files. Install only what you trust.* and, when plugin loading is off, an unticked *Turn on plugin
+  loading (needed for plugins to run)*. **Install** is the consent: it sends the digest of what was
+  on screen to `namzu/plugins/install`, which refuses any other. A plugin already installed shows
+  `"x" is already installed (version 1.0.0).` and **Install** stays off (use *Check for updates*).
+- **Upload plugin** is a page (**← Your plugins**, *Upload a plugin*): a notice, the drop zone
+  (*Drag and drop a plugin file here, or browse.*), **Choose a folder**, the help about the manifest,
+  **Install** (off until a file is read, with *Choose a file to continue.*) and **Cancel**. One
+  plugin at a time. The file goes through `plugins/stage` (read aside, nothing installed) and then the
+  consent card above.
+- **A plugin's menu** (row and detail): **Turn off** or **Turn on** (for a plugin Namzu installed
+  this writes the saved record through `namzu/plugins/enable` and works with no conversation open;
+  an open, idle conversation follows through `set_enabled`; **Turn off** first asks `Turn off
+  "ledger"?`), **Check for updates**, **Update** (when a check found a newer version), **Details**,
+  and **Remove** (red). A plugin placed by hand keeps the old switch, has **Check for updates**
+  disabled with the reason, no **Remove**, and its detail says `This plugin is a folder you placed in
+  .namzu/plugins. Namzu will not delete it; remove the folder yourself.` A plugin you uploaded has
+  no source to compare with, so its check is disabled with that reason.
+- **Check for updates** shows `Checking for updates`, then `Up to date`, `Version 1.3.0 is available`
+  or `Couldn't check for updates. Try again.` beside the row. **Update** calls `namzu/plugins/update`;
+  when what runs changed it answers `needs-consent`, and the page shows the consent card headed
+  **What changed** with **Update** as the yes (sending `acceptDigest`); otherwise it applies and
+  says `Updated … It loads in new conversations.`
+- **Remove plugin?** (*"ledger" will be removed from this computer. You can add it again from its
+  marketplace.*) has **Also delete its saved data**, off. **Remove marketplace?** says how many
+  installed plugins go with it and names them; their data is kept. Nothing leaves the page for the
+  network except what the person asked for.
+- `e2e/ux-customize-plugins.test.mjs` drives all of it against a marketplace folder built on disk
+  (add it, Discover, install through the consent card, Yours, a version bump and the update, turn
+  off, remove, an uploaded zip, remove the marketplace, Create with Namzu). The test hook
+  `NAMZU_E2E_PLUGIN_PICK` (a JSON list of paths the plugin file dialog would return) is never read
+  by a packaged app.

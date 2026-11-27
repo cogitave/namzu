@@ -19,6 +19,13 @@ export interface ComposerPlugin {
 	readonly servers?: readonly { name: string }[]
 	readonly author?: string
 	readonly updatedAt?: string
+	/** `name@marketplace`, set only for a plugin Namzu installed. */
+	readonly id?: string
+	readonly marketplace?: string
+	readonly layout?: 'common' | 'namzu'
+	readonly installed?: readonly ('user' | 'project' | 'local')[]
+	readonly findings?: Readonly<Record<string, number>>
+	readonly updateKnown?: true
 }
 export interface ComposerPluginInventory {
 	readonly plugins: readonly ComposerPlugin[]

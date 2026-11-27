@@ -241,6 +241,7 @@ import { type PasteRange, addPaste, confirmedRanges, trackEdit } from './paste-r
 import { pendingMessages } from './pending-messages.js'
 import type { PendingActions } from './pending-tail.js'
 import { plainError, plainErrorText } from './plain-error.js'
+import { NEW_PLUGIN_EVENT, NEW_PLUGIN_PROMPT } from './plugin-create.js'
 import {
 	EMPTY_CONVERSATION_TITLE,
 	emptyProjectConversation,
@@ -5517,9 +5518,17 @@ export function App({
 		}
 		// The saved-skill card's link: Customize on the Skills tab.
 		const openSkills = () => openCustomizeRef.current('skills')
+		// Plugins, Add, Create with Namzu: the request waits in the box, unsent.
+		const startPlugin = () => {
+			pendingSeed.current = NEW_PLUGIN_PROMPT
+			setSettingsOpen(false)
+			void act(newConversationRef.current)
+		}
 		window.addEventListener(NEW_SKILL_EVENT, start)
+		window.addEventListener(NEW_PLUGIN_EVENT, startPlugin)
 		window.addEventListener(OPEN_SKILLS_EVENT, openSkills)
 		return () => {
+			window.removeEventListener(NEW_PLUGIN_EVENT, startPlugin)
 			window.removeEventListener(NEW_SKILL_EVENT, start)
 			window.removeEventListener(OPEN_SKILLS_EVENT, openSkills)
 		}

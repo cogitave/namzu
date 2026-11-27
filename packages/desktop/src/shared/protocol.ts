@@ -247,6 +247,12 @@ export interface PluginInventoryView {
 		servers?: { name: string }[]
 		author?: string
 		updatedAt?: string
+		id?: string
+		marketplace?: string
+		layout?: 'common' | 'namzu'
+		installed?: ('user' | 'project' | 'local')[]
+		findings?: Record<string, number>
+		updateKnown?: true
 	}[]
 	live: boolean
 	canChange: boolean

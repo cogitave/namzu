@@ -2093,7 +2093,9 @@ export function createDesktopHostExtensions(
 					canChange: false,
 					notice: 'Host plugins are not inherited by Pals.',
 				}
-			return pluginActions.enrichList(await runtime.plugins(cwd, id))
+			return pluginActions.enrichList(
+				await pluginActions.withInstalled(await runtime.plugins(cwd, id)),
+			)
 		},
 		'namzu/plugins/set_enabled': async (params: Record<string, unknown>) => {
 			if (!isTrusted(cwd)) throw new Error('Trust this folder first.')

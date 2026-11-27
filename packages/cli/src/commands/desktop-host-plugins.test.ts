@@ -598,6 +598,34 @@ describe('namzu/plugins/enable, update and uninstall', () => {
 		).toThrow(PLUGIN_TRUST_MESSAGE)
 	})
 
+	it('adds a row for an installed plugin the listing did not name, and none for one it did', async () => {
+		const m = actions()
+		await installed(m, market())
+		const view = await m.withInstalled({ plugins: [], live: false })
+		expect(view.plugins).toHaveLength(1)
+		expect(view.plugins[0]).toMatchObject({
+			name: 'ledger',
+			version: '1.0.0',
+			scope: 'user',
+			status: 'installed',
+			startupEnabled: true,
+		})
+		const listed = { plugins: [{ name: 'ledger' }], live: true }
+		expect(await m.withInstalled(listed)).toBe(listed)
+		// The "off" line is dropped once loading is on, because the listing was read before.
+		const stale = { plugins: [], live: false, notice: 'Plugins are off for this project.' }
+		expect((await m.withInstalled(stale)).notice).toBe(stale.notice)
+		loadingOn = true
+		expect((await m.withInstalled(stale)).notice).toBeUndefined()
+		loadingOn = false
+		// A plugin that was turned off shows as off, and a live listing says it is not loaded.
+		m.methods['namzu/plugins/enable']({ id: 'ledger@team', scope: 'user', enabled: false })
+		const off = await m.withInstalled({ plugins: [], live: true })
+		expect(off.plugins[0]).toMatchObject({ status: 'disabled', startupEnabled: false })
+		// The id and the marketplace come from the same pass of the listing.
+		expect(m.enrichList(off).plugins[0]).toMatchObject({ id: 'ledger@team', marketplace: 'team' })
+	})
+
 	it('checks for an update, and updates without a new yes when nothing that runs changed', async () => {
 		const m = actions()
 		const dir = market()

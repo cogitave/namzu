@@ -1788,6 +1788,8 @@ function register(): void {
 	const skillPaths = createSkillPathRegistry()
 	// An end-to-end run (never a packaged app) names the files the dialog would have returned.
 	const e2ePick = !app.isPackaged ? process.env.NAMZU_E2E_SKILL_PICK : undefined
+	// The same for the plugin file dialog: the paths an end-to-end run names instead of a dialog.
+	const e2ePluginPick = !app.isPackaged ? process.env.NAMZU_E2E_PLUGIN_PICK : undefined
 	handleWindow('chooseSkillFiles', async ({ id, window }) => {
 		if (!window) return []
 		if (e2ePick) {
@@ -1835,8 +1837,8 @@ function register(): void {
 	// Plugins the person adds: the same registry as skills; one file or folder at a time.
 	handleWindow('choosePluginFile', async ({ id, window }) => {
 		if (!window) return []
-		if (e2ePick) {
-			const paths: unknown = JSON.parse(e2ePick)
+		if (e2ePluginPick) {
+			const paths: unknown = JSON.parse(e2ePluginPick)
 			return skillPaths.registerPlugin(
 				id,
 				Array.isArray(paths) ? paths.filter((p): p is string => typeof p === 'string') : [],
