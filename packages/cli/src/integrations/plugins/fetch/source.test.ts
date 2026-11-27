@@ -164,6 +164,10 @@ describe('git addresses of a catalog', () => {
 		]) {
 			expect(gitUrlProblem(bad, false), bad).toBeDefined()
 		}
+		expect(gitUrlProblem('ssh://-oProxyCommand=x@h/x', false)).toBeDefined()
+		expect(gitUrlProblem('ssh://%2DoProxyCommand=x@h/x', false)).toBeDefined()
+		expect(gitUrlProblem('ssh://a%0Ab@h/x', false)).toBeDefined()
+		expect(gitUrlProblem('ssh://git@h/x', false)).toBeUndefined()
 		expect(gitUrlProblem('file:///tmp/x', true)).toBeUndefined()
 		expect(gitUrlProblem('/tmp/x', true)).toBeUndefined()
 	})
@@ -258,6 +262,37 @@ describe('blocked marketplaces', () => {
 		expect(isBlockedSource(github, ['https://github.com/acme/tools.git'])).toBe(true)
 		expect(isBlockedSource(github, ['other/tools', 'github.com/other/*'])).toBe(false)
 		expect(isBlockedSource(github, [])).toBe(false)
+		// The same repository under another spelling is the same repository.
+		for (const url of [
+			'ssh://git@github.com/acme/tools.git',
+			'https://github.com:443/acme/tools.git',
+			'https://www.github.com/acme/tools.git',
+			'https://github.com//acme/tools.git',
+			'https://GITHUB.com./acme/tools',
+			'ssh://git@github.com:22/acme/tools',
+			'git@github.com:acme/tools.git',
+			'https://github.com/acme/tools.git/',
+			'https://github.com/acme/%74ools',
+		])
+			for (const entry of [
+				'acme/tools',
+				'github.com/acme/*',
+				'github.com',
+				'www.github.com/acme/tools',
+			])
+				expect(isBlockedSource({ source: 'git', url }, [entry]), `${url} vs ${entry}`).toBe(true)
+		expect(
+			isBlockedSource({ source: 'git', url: 'https://github.com/acme/other' }, ['acme/tools']),
+		).toBe(false)
+		expect(
+			isBlockedSource({ source: 'git', url: 'https://github.com/acme-x/tools' }, ['acme/*']),
+		).toBe(false)
+		expect(
+			isBlockedSource({ source: 'git', url: 'https://notgithub.com/acme/tools' }, ['github.com']),
+		).toBe(false)
+		expect(sourceKey({ source: 'git', url: 'ssh://git@Example.com:2222//a//b.git/' })).toBe(
+			'example.com/a/b',
+		)
 		expect(isBlockedSource(github, undefined)).toBe(false)
 		expect(
 			isBlockedSource({ source: 'git', url: 'https://example.com/a/b.git' }, ['example.com']),

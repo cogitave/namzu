@@ -94,7 +94,8 @@ Add this marketplace? [y/N]
    preview.
 6. The same name from the same source exits 0, `already added; nothing
    changed.` (and declares it at this scope if it was not). The same name from
-   another source is exit 65.
+   another source is exit 65; when it is the same repository at another ref or
+   folder set, the message says that (the added ref and the one asked for).
 7. The fetched folder moves to `$NAMZU_HOME/plugins/marketplaces/<name>/` (a
    clone keeps its `.git`; a hosted catalog is saved where the common plugin layout keeps its catalog), `known_marketplaces.json` gets the source,
    the commit, the time and the consent, and the scope's `extraKnownMarketplaces`
@@ -196,7 +197,14 @@ after `--`.
 
 Only https and ssh addresses are accepted. A run is stopped after 120 seconds
 (`NAMZU_PLUGIN_GIT_TIMEOUT_MS` changes it, at most 600 000) by killing its whole
-process group, or its process tree on Windows, and its output is kept to 1 MiB.
+process group, or its process tree on Windows, and its result is given once Git
+has ended (or five seconds after the kill). The folder it writes into is
+measured every second and the run is stopped past 512 MiB or 100 000 files
+(exit 65, "larger than Namzu takes"). Git runs in a group of its own, so when
+Namzu is stopped by SIGINT, SIGTERM or SIGHUP, or exits, it kills every live Git
+and removes the folder it was filling. Its output is kept to 1 MiB. A catalog's
+`ssh://` address whose user name starts with a dash or holds control characters
+is refused.
 
 **https** downloads (a hosted catalog, an archive) send a plain request with no
 cookies or sign-in; follow at most five redirects, none to an address that is
@@ -228,7 +236,10 @@ is fetched is never run. A plugin is copied from a clone with its own limits
 `marketplace update` and every download from a marketplace refuse (exit 77). An
 entry is `owner/repo`, `owner/*` (GitHub), `host/path`, `host/*` or a bare host
 (`example.com`); it is compared with the marketplace's normalised address
-(lowercase, no scheme, no `.git`). It also applies to the address of a plugin
+(lowercase, no scheme, sign-in details, port or `.git`, no trailing dot on the
+host, no `www.` on github.com, gitlab.com and bitbucket.org, repeated slashes
+collapsed; `ssh://git@host/x`, `host:443/x` and `git@host:x` read as
+`https://host/x`). It also applies to the address of a plugin
 entry, so a blocked repository cannot be reached through an allowed marketplace.
 A folder or a file on this computer is never blocked. The key is read from your
 user config and the managed file only: a project or local file that carries it is

@@ -12,7 +12,13 @@
  *
  * A run is stopped after a timeout (120 s, or NAMZU_PLUGIN_GIT_TIMEOUT_MS up
  * to 600 s) by killing its whole process group, or its process tree on
- * Windows. Output is kept to 1 MiB.
+ * Windows, and its result is given only once Git has really ended (or five
+ * seconds after the kill). The folder it writes into is measured while it
+ * runs and the run is stopped past 512 MiB or 100,000 files. Output is kept
+ * to 1 MiB. Git runs in a group of its own, which a Ctrl+C at the terminal
+ * does not reach, so the process stops every live Git and removes the folder it
+ * was filling when it is told to stop by SIGINT, SIGTERM or SIGHUP, and when it
+ * exits.
  */
 
 import { type SpawnOptions, execFile, spawn } from 'node:child_process'
@@ -25,6 +31,7 @@ import {
 	readFileSync,
 	readSync,
 	readdirSync,
+	rmSync,
 } from 'node:fs'
 import { join } from 'node:path'
 
@@ -52,6 +59,12 @@ export class FetchError extends Error {
 export const DEFAULT_GIT_TIMEOUT_MS = 120_000
 export const MAX_GIT_TIMEOUT_MS = 600_000
 export const GIT_OUTPUT_CAP = 1024 * 1024
+/** Most a repository may write into its folder while it is being fetched, `.git` included. */
+export const GIT_WRITE_MAX_BYTES = 512 * 1024 * 1024
+export const GIT_WRITE_MAX_FILES = 100_000
+/** How often the folder is measured, and how long after a kill the result is given without waiting for Git. */
+export const GIT_WATCH_MS = 1000
+export const GIT_KILL_GRACE_MS = 5000
 
 /** The timeout from the environment, clamped; anything unreadable is the default. */
 export function gitTimeoutMs(env: NodeJS.ProcessEnv = process.env): number {
@@ -69,12 +82,16 @@ export interface GitRun {
 	readonly timedOut: boolean
 	/** The `git` program was not found. */
 	readonly missing: boolean
+	/** The run was stopped because its folder grew past the limits. */
+	readonly oversize?: boolean
 }
 
 export interface GitRunOptions {
 	readonly cwd?: string
 	readonly env: NodeJS.ProcessEnv
 	readonly timeoutMs: number
+	/** A folder the run writes into: measured while it runs, the run is stopped past the limits. */
+	readonly watch?: { readonly dir: string; readonly maxBytes: number; readonly maxFiles: number }
 }
 
 export type GitRunner = (args: readonly string[], options: GitRunOptions) => Promise<GitRun>
@@ -95,7 +112,8 @@ export interface FetchOptions {
 
 export interface RunnerDeps {
 	readonly spawn?: (command: string, args: readonly string[], options: SpawnOptions) => ChildLike
-	readonly killTree?: (pid: number) => void
+	readonly killTree?: (pid: number) => void | Promise<void>
+	readonly sizeOf?: (dir: string, maxFiles: number) => { bytes: number; files: number }
 	readonly setTimeout?: (fn: () => void, ms: number) => unknown
 	readonly clearTimeout?: (handle: unknown) => void
 	readonly platform?: NodeJS.Platform
@@ -111,15 +129,16 @@ export interface ChildLike {
 }
 
 /** Stop a process and everything it started: the group on POSIX, the tree on Windows. */
-function killProcessTree(pid: number, platform: NodeJS.Platform): void {
+function killProcessTree(pid: number, platform: NodeJS.Platform): void | Promise<void> {
 	if (platform === 'win32') {
-		execFile(
-			join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'taskkill.exe'),
-			['/PID', String(pid), '/T', '/F'],
-			{ windowsHide: true, timeout: 5000 },
-			() => undefined,
-		)
-		return
+		return new Promise<void>((resolve) => {
+			execFile(
+				join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'taskkill.exe'),
+				['/PID', String(pid), '/T', '/F'],
+				{ windowsHide: true, timeout: 5000 },
+				() => resolve(),
+			)
+		})
 	}
 	try {
 		process.kill(-pid, 'SIGKILL')
@@ -132,6 +151,90 @@ function killProcessTree(pid: number, platform: NodeJS.Platform): void {
 	}
 }
 
+/** The bytes and files under a folder, stopping once `maxFiles` is passed. */
+export function measureFolder(dir: string, maxFiles: number): { bytes: number; files: number } {
+	let bytes = 0
+	let files = 0
+	const walk = (path: string): void => {
+		let entries: import('node:fs').Dirent[]
+		try {
+			entries = readdirSync(path, { withFileTypes: true })
+		} catch {
+			return
+		}
+		for (const entry of entries) {
+			if (files > maxFiles) return
+			const child = join(path, entry.name)
+			if (entry.isDirectory()) walk(child)
+			else {
+				files += 1
+				try {
+					bytes += lstatSync(child).size
+				} catch {
+					// Gone meanwhile.
+				}
+			}
+		}
+	}
+	walk(dir)
+	return { bytes, files }
+}
+
+interface LiveGit {
+	readonly kill: () => void
+	readonly dir: string | undefined
+}
+
+const live = new Map<number, LiveGit>()
+let hooked = false
+
+/** Stop every Git this process started and remove the folders they were filling. */
+export function stopLiveGits(): void {
+	for (const [pid, entry] of [...live]) {
+		try {
+			entry.kill()
+		} catch {
+			// Already gone.
+		}
+		live.delete(pid)
+		if (entry.dir !== undefined) {
+			try {
+				rmSync(entry.dir, { recursive: true, force: true })
+			} catch {
+				// Left for `namzu plugin prune`.
+			}
+		}
+	}
+}
+
+const HOOK_SIGNALS = ['SIGINT', 'SIGTERM', 'SIGHUP'] as const
+
+function onSignal(signal: NodeJS.Signals): void {
+	stopLiveGits()
+	unhook()
+	// Another listener (a command that answers the signal itself) keeps the process; otherwise end as the signal would have.
+	if (process.listenerCount(signal) === 0) process.kill(process.pid, signal)
+}
+const signalListeners = {
+	SIGINT: () => onSignal('SIGINT'),
+	SIGTERM: () => onSignal('SIGTERM'),
+	SIGHUP: () => onSignal('SIGHUP'),
+} as const
+
+function hook(): void {
+	if (hooked) return
+	hooked = true
+	process.on('exit', stopLiveGits)
+	for (const signal of HOOK_SIGNALS) process.on(signal, signalListeners[signal])
+}
+
+function unhook(): void {
+	if (!hooked) return
+	hooked = false
+	process.removeListener('exit', stopLiveGits)
+	for (const signal of HOOK_SIGNALS) process.removeListener(signal, signalListeners[signal])
+}
+
 /** The runner that starts the system `git`. Its parts can be replaced so a test never needs a real process or a real clock. */
 export function createGitRunner(deps: RunnerDeps = {}): GitRunner {
 	const platform = deps.platform ?? process.platform
@@ -141,17 +244,42 @@ export function createGitRunner(deps: RunnerDeps = {}): GitRunner {
 	const kill = deps.killTree ?? ((pid: number) => killProcessTree(pid, platform))
 	const later = deps.setTimeout ?? ((fn: () => void, ms: number) => setTimeout(fn, ms))
 	const cancel = deps.clearTimeout ?? ((handle: unknown) => clearTimeout(handle as NodeJS.Timeout))
+	const sizeOf = deps.sizeOf ?? measureFolder
 	return (args, options) =>
 		new Promise<GitRun>((resolve) => {
 			let stdout = ''
 			let stderr = ''
 			let done = false
 			let timedOut = false
+			let oversize = false
+			let stopping = false
+			let watcher: unknown
+			let grace: unknown
+			let pid: number | undefined
 			const finish = (code: number | null, missing = false): void => {
 				if (done) return
 				done = true
 				cancel(timer)
-				resolve({ code, stdout, stderr, timedOut, missing })
+				if (watcher !== undefined) cancel(watcher)
+				if (grace !== undefined) cancel(grace)
+				if (pid !== undefined) {
+					live.delete(pid)
+					if (live.size === 0) unhook()
+				}
+				resolve({ code, stdout, stderr, timedOut, missing, ...(oversize ? { oversize } : {}) })
+			}
+			// Kill, then give the result once Git has really ended: its files are still being written until then.
+			const stop = (): void => {
+				if (stopping) return
+				stopping = true
+				if (child.pid === undefined) {
+					child.kill('SIGKILL')
+					finish(null)
+					return
+				}
+				void Promise.resolve(kill(child.pid)).then(() => {
+					if (!done) grace = later(() => finish(null), GIT_KILL_GRACE_MS)
+				})
 			}
 			const child = start('git', args, {
 				...(options.cwd !== undefined ? { cwd: options.cwd } : {}),
@@ -181,10 +309,31 @@ export function createGitRunner(deps: RunnerDeps = {}): GitRunner {
 			child.on('close', (code) => finish(code))
 			const timer = later(() => {
 				timedOut = true
-				if (child.pid !== undefined) kill(child.pid)
-				else child.kill('SIGKILL')
-				finish(null)
+				stop()
 			}, options.timeoutMs)
+			if (child.pid !== undefined) {
+				pid = child.pid
+				const childPid = child.pid
+				live.set(childPid, {
+					kill: () => void kill(childPid),
+					dir: options.watch?.dir,
+				})
+				hook()
+			}
+			const watch = options.watch
+			if (watch !== undefined) {
+				const poll = (): void => {
+					if (done || stopping) return
+					const size = sizeOf(watch.dir, watch.maxFiles)
+					if (size.bytes > watch.maxBytes || size.files > watch.maxFiles) {
+						oversize = true
+						stop()
+						return
+					}
+					watcher = later(poll, GIT_WATCH_MS)
+				}
+				watcher = later(poll, GIT_WATCH_MS)
+			}
 		})
 }
 
@@ -247,6 +396,12 @@ export function explainGitFailure(run: GitRun, url: string, timeoutMs: number): 
 			EXIT_UNAVAILABLE,
 			'Git is needed for this address. Install Git and run the command again.',
 			'git-missing',
+		)
+	if (run.oversize)
+		return new FetchError(
+			EXIT_DATAERR,
+			`The repository is larger than Namzu takes (more than ${GIT_WRITE_MAX_BYTES / (1024 * 1024)} MiB or ${GIT_WRITE_MAX_FILES} files), so it was stopped and nothing was taken from it.`,
+			'too-large',
 		)
 	if (run.timedOut)
 		return new FetchError(
@@ -342,7 +497,10 @@ class Git {
 	readonly settings: string[]
 	readonly timeoutMs: number
 	readonly runner: GitRunner
-	constructor(readonly options: FetchOptions) {
+	constructor(
+		readonly options: FetchOptions,
+		readonly dest: string,
+	) {
 		const allowFile = options.allowFileProtocol === true
 		this.env = gitEnvironment(options.env ?? process.env, allowFile)
 		this.settings = gitSettings(allowFile)
@@ -354,6 +512,7 @@ class Git {
 			...(cwd !== undefined ? { cwd } : {}),
 			env: this.env,
 			timeoutMs: this.timeoutMs,
+			watch: { dir: this.dest, maxBytes: GIT_WRITE_MAX_BYTES, maxFiles: GIT_WRITE_MAX_FILES },
 		})
 		if (run.code !== 0) throw explainGitFailure(run, url, this.timeoutMs)
 		return run
@@ -421,14 +580,14 @@ export async function cloneRepository(
 		if (bad !== undefined) throw new FetchError(EXIT_USAGE, bad, 'path')
 	}
 	const url = options.rewriteUrl?.(request.url) ?? request.url
-	const git = new Git(options)
+	const git = new Git(options, request.dest)
 	const byId =
 		request.sha ?? (request.ref !== undefined && isCommitId(request.ref) ? request.ref : undefined)
 	const filter = sparse.length > 0 ? ['--filter=blob:none'] : []
 	mkdirSync(request.dest, { recursive: true, mode: 0o700 })
 	if (byId !== undefined) {
 		await git.run(['init', '--quiet'], request.url, request.dest)
-		await git.run(['remote', 'add', 'origin', url], request.url, request.dest)
+		await git.run(['remote', 'add', 'origin', '--', url], request.url, request.dest)
 		if (sparse.length > 0)
 			await git.run(
 				['sparse-checkout', 'set', '--cone', '--', ...sparse],

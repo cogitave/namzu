@@ -217,15 +217,16 @@ repository, or null), `layout`, `findings`, `surface`, `surfaceSha256`, `invento
 `update <id>` reads the plugin again from where it came from (its marketplace's
 catalog, downloading it again when it is a remote one, or the folder it was
 uploaded from), builds the new preview and marks
-what changed (`1 new hook`, `1 local server removed or changed`). Every scope of
+what changed (`1 new hook`, `1 script changed`, `1 local server removed`). Every scope of
 the id moves together. If what runs did not change and only a version that the
 catalog names did, or the version in `plugin.json` did and nothing that runs
 differs (the same surface and only manifests or files that cannot run changed),
 it applies after printing the summary. Otherwise it shows the
 preview and asks as `install` does. The old folder stays, marked
 `.orphaned_at`, so a conversation that has it open keeps its files; `prune` takes
-it a day later. A version that kept its number but changed is refused: ask the
-author to raise it.
+it a day later. A version that kept its number but changed is refused up front, before any
+preview or question and with or without `--yes` (exit 65): ask the author to
+raise it. A script that was edited counts once, as changed.
 
 `uninstall <id>` removes the record for one scope, its recorded yes, and, when
 no other scope needs them, the install manifest and the copy. The plugin's data

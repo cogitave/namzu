@@ -511,7 +511,16 @@ async function sourceFor(
 			id: `${wanted}@${hit.marketplace}`,
 		})
 	if (resolved.kind === 'invalid')
-		return failure(deps, flags.json, command, EXIT_DATAERR, `${entry.name}: ${resolved.reason}`)
+		return failure(
+			deps,
+			flags.json,
+			command,
+			EXIT_DATAERR,
+			// The remote-source reasons already begin with the plugin's name.
+			resolved.reason.startsWith(`${entry.name}: `)
+				? resolved.reason
+				: `${entry.name}: ${resolved.reason}`,
+		)
 	if (resolved.kind === 'remote') {
 		// Before any download: a marketplace or a source the settings block is never fetched from.
 		const remote = resolved.remote
@@ -807,6 +816,17 @@ async function runUpdate(deps: PluginInstallDeps, flags: Flags): Promise<number>
 			else deps.out(`${message}\n`)
 			return EXIT_OK
 		}
+		// The same version with other files cannot be applied (commitUpdate refuses it): say so once,
+		// before a preview and a question that could only end in that refusal.
+		if (current.version === plan.version)
+			return failure(
+				deps,
+				flags.json,
+				command,
+				EXIT_DATAERR,
+				`${id} still says version ${plan.version} but its files changed. Ask its author to raise the version, or remove it and install it again.`,
+				{ id },
+			)
 		const before = recorded.manifest.surface as unknown as Parameters<typeof surfaceChanges>[0]
 		const changes = surfaceChanges(before, plan.surface)
 		// Nothing that runs changed: the same surface rows, and the only files that differ
@@ -1265,7 +1285,7 @@ async function runMarketplaceAdd(deps: PluginInstallDeps, flags: Flags): Promise
 			flags.json,
 			command,
 			EXIT_DATAERR,
-			`A marketplace named "${catalog.name}" is already added from another place (${oneLine(String(existing.source.path ?? existing.source.source))}). Remove it first: namzu plugin marketplace remove ${catalog.name}`,
+			anotherPlace(catalog.name, existing.source, source),
 		)
 	}
 	show(deps, flags.json, MARKETPLACE_NOTICE)
@@ -1319,6 +1339,31 @@ function sameSource(
 			[...((v.sparsePaths as string[] | undefined) ?? [])].sort(),
 		])
 	return norm(a) === norm(b)
+}
+
+/** The refusal for a marketplace name that is already added from a different source; says so when only the ref or the sparse folders differ. */
+function anotherPlace(
+	name: string,
+	existing: Readonly<Record<string, unknown>>,
+	wanted: Readonly<Record<string, unknown>>,
+): string {
+	const remove = `Remove it first: namzu plugin marketplace remove ${name}`
+	const sameRepo =
+		existing.source === wanted.source &&
+		(existing.repo ?? existing.url ?? existing.path ?? null) ===
+			(wanted.repo ?? wanted.url ?? wanted.path ?? null) &&
+		wanted.source !== 'directory'
+	if (sameRepo) {
+		const pin = (v: Readonly<Record<string, unknown>>): string => {
+			const sparse = (v.sparsePaths as string[] | undefined) ?? []
+			return [
+				v.ref !== undefined ? `ref ${String(v.ref)}` : 'default branch',
+				...(sparse.length > 0 ? [`folders ${sparse.join(', ')}`] : []),
+			].join(', ')
+		}
+		return `A marketplace named "${name}" is already added from this repository at a different ref or folder set (added: ${oneLine(pin(existing))}; asked for: ${oneLine(pin(wanted))}). ${remove}`
+	}
+	return `A marketplace named "${name}" is already added from another place (${oneLine(describeSource(existing as { source: string }))}). ${remove}`
 }
 
 /** The source with `--ref` and `--sparse` applied, or the sentence that says why they do not fit. */
@@ -1455,7 +1500,7 @@ async function runRemoteMarketplaceAdd(
 					flags.json,
 					command,
 					EXIT_DATAERR,
-					`A marketplace named "${catalog.name}" is already added from another place (${oneLine(describeSource(existing.source))}). Remove it first: namzu plugin marketplace remove ${catalog.name}`,
+					anotherPlace(catalog.name, existing.source, source),
 				)
 			const layerPath = recordLayerPath(scope, { home: deps.namzuHome, cwd: ctx.cwd })
 			const layer = readRecordLayer(layerPath)

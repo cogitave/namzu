@@ -212,21 +212,65 @@ export function describeSource(source: {
 	}
 }
 
-/** `host/path`, lowercase, no scheme and no `.git`: what a block-list entry is compared with. */
+/**
+ * An address as `host/path`: lowercase, no scheme, sign-in details or port, no
+ * trailing dot on the host, no `www.` on a well-known host, repeated slashes
+ * collapsed, no `.git` and no trailing slash. `ssh://git@host/x`, `host:443/x`
+ * and the scp form all read the same as `https://host/x`, so a block-list
+ * entry cannot be got around by spelling.
+ */
+export function normalizeAddress(text: string): string {
+	let value = text.trim()
+	const scp = /^[^@/\s]+@([^:/\s]+):\/?(.+)$/.exec(value)
+	let host: string
+	let path: string
+	if (scp !== null && !/^[a-z][a-z0-9+.-]*:\/\//i.test(value)) {
+		host = scp[1] as string
+		path = scp[2] as string
+	} else if (/^[a-z][a-z0-9+.-]*:\/\//i.test(value)) {
+		try {
+			const url = new URL(value)
+			host = url.hostname
+			path = url.pathname
+		} catch {
+			value = value.replace(/^[a-z][a-z0-9+.-]*:\/\//i, '')
+			const at = value.indexOf('/')
+			host = at < 0 ? value : value.slice(0, at)
+			path = at < 0 ? '' : value.slice(at)
+		}
+	} else {
+		const at = value.indexOf('/')
+		host = at < 0 ? value : value.slice(0, at)
+		path = at < 0 ? '' : value.slice(at)
+	}
+	host = host
+		.replace(/^[^@]*@/, '')
+		.replace(/:\d*$/, '')
+		.toLowerCase()
+		.replace(/\.+$/, '')
+	if (host.startsWith('www.') && KNOWN_GIT_HOSTS.includes(host.slice(4))) host = host.slice(4)
+	try {
+		path = decodeURIComponent(path)
+	} catch {
+		// Kept as written.
+	}
+	path = path
+		.toLowerCase()
+		.replace(/\/{2,}/g, '/')
+		.replace(/\/+$/, '')
+		.replace(/\.git$/, '')
+		.replace(/\/+$/, '')
+	return `${host}${path.startsWith('/') || path === '' ? '' : '/'}${path}`
+}
+
+/** `host/path` of a source, as {@link normalizeAddress} reads it: what a block-list entry is compared with. */
 export function sourceKey(source: { readonly source: string; readonly [key: string]: unknown }):
 	| string
 	| undefined {
-	let text: string
-	if (source.source === 'github') text = `github.com/${String(source.repo)}`
-	else if (source.source === 'git' || source.source === 'url') text = String(source.url)
-	else return undefined
-	const scp = /^[^@/]+@([^:/]+):\/?(.+)$/.exec(text)
-	if (scp !== null) text = `${scp[1]}/${scp[2]}`
-	return text
-		.replace(/^[a-z]+:\/\//i, '')
-		.replace(/\.git$/i, '')
-		.replace(/\/+$/, '')
-		.toLowerCase()
+	if (source.source === 'github') return normalizeAddress(`github.com/${String(source.repo)}`)
+	if (source.source === 'git' || source.source === 'url')
+		return normalizeAddress(String(source.url))
+	return undefined
 }
 
 /** Whether `blocked` (entries like `acme/tools`, `github.com/acme/*`, `example.com`) names this source. */
@@ -238,19 +282,21 @@ export function isBlockedSource(
 	const key = sourceKey(source)
 	if (key === undefined) return false
 	for (const raw of blocked) {
-		let entry = raw
-			.trim()
-			.toLowerCase()
-			.replace(/^[a-z]+:\/\//, '')
-			.replace(/\.git$/, '')
+		let entry = raw.trim().toLowerCase()
 		if (entry === '') continue
+		const wildcard = entry.endsWith('/*')
+		if (wildcard) entry = entry.slice(0, -2)
+		const hasScheme = /^[a-z][a-z0-9+.-]*:\/\//.test(entry)
 		// `owner/repo` and `owner/*` mean GitHub.
-		if (!entry.split('/')[0]?.includes('.') && !entry.includes('@')) entry = `github.com/${entry}`
-		if (entry.endsWith('/*')) {
-			if (key.startsWith(entry.slice(0, -1))) return true
+		if (!hasScheme && !entry.split('/')[0]?.includes('.') && !entry.includes('@'))
+			entry = `github.com/${entry}`
+		entry = normalizeAddress(entry)
+		if (entry === '') continue
+		if (wildcard) {
+			if (key.startsWith(`${entry}/`)) return true
 		} else if (!entry.includes('/')) {
 			if (key === entry || key.startsWith(`${entry}/`)) return true
-		} else if (key === entry.replace(/\/+$/, '')) return true
+		} else if (key === entry) return true
 	}
 	return false
 }
@@ -291,6 +337,17 @@ export function gitUrlProblem(url: string, allowFile: boolean): string | undefin
 		if (parsed.password !== '' || (parsed.protocol === 'https:' && parsed.username !== ''))
 			return 'it has sign-in details in it'
 		if (parsed.hostname === '' || parsed.hostname.startsWith('-')) return 'it names no host'
+		if (parsed.protocol === 'ssh:') {
+			let user = parsed.username
+			try {
+				user = decodeURIComponent(user)
+			} catch {
+				return 'it has sign-in details Namzu cannot read'
+			}
+			// biome-ignore lint/suspicious/noControlCharactersInRegex: control characters are what is refused
+			if (user.startsWith('-') || /[\u0000-\u001f\u007f\s]/.test(user))
+				return 'its user name is not one Namzu will pass to Git'
+		}
 		return undefined
 	}
 	if (allowFile && (url.startsWith('/') || /^file:\/\//i.test(url))) return undefined

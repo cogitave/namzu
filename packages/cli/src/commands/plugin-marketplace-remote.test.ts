@@ -295,6 +295,12 @@ describe('namzu plugin marketplace add, from a repository', () => {
 		const clash = await market(['add', 'fork/team-tools', '--yes'])
 		expect(clash.code).toBe(65)
 		expect(clash.err).toContain('already added from another place')
+		// The same repository at another ref says so, instead of naming the same place twice.
+		const pinned = await market(['add', 'acme/team-tools', '--ref', 'main', '--yes'])
+		expect(pinned.code).toBe(65)
+		expect(pinned.err).toContain('different ref or folder set')
+		expect(pinned.err).toContain('added: default branch; asked for: ref main')
+		expect(pinned.err).not.toContain('another place')
 	})
 
 	it('sparse: only the catalog folder and the named folders are checked out', async () => {
@@ -607,6 +613,8 @@ describe('namzu plugin install, from entries that are downloaded', () => {
 		expect(installed()['solo@remote-cat']?.[0].gitCommitSha).toBe(soloHead)
 		const climbs = await plugin('install', ['escape@remote-cat', '--yes'])
 		expect(climbs.code).toBe(65)
+		expect(climbs.err).toContain('escape: "../x" is not a folder inside the repository')
+		expect(climbs.err).not.toContain('escape: escape:')
 		const missing = await plugin('install', ['missing@remote-cat', '--yes'])
 		expect(missing.code).toBe(65)
 		expect(missing.err).toContain('has no folder')
@@ -814,6 +822,42 @@ describe('namzu plugin update, for a plugin that was downloaded', () => {
 		expect(
 			existsSync(join(home, 'plugins', 'cache', 'live', 'solo', '1.1.0', '.orphaned_at')),
 		).toBe(true)
+	})
+})
+
+describe('namzu plugin update, a changed plugin that kept its version', () => {
+	it('refuses once, up front, with no preview, whether or not --yes is given', async () => {
+		const solo = makeRepo(root, 'same-version')
+		const files = (script: string) => ({
+			[MANIFEST]: JSON.stringify({ name: 'ledger', version: '1.0.0', description: 'L.' }),
+			'hooks/hooks.json': JSON.stringify({
+				hooks: {
+					PreToolUse: [
+						{
+							matcher: 'Bash',
+							hooks: [{ type: 'command', command: '${NAMZU_PLUGIN_ROOT}/guard.sh' }],
+						},
+					],
+				},
+			}),
+			'guard.sh': { content: script, mode: 0o755 },
+		})
+		solo.commit(files('#!/bin/sh\nexit 0\n'))
+		addresses.set('https://github.com/acme/ledger.git', solo.url)
+		const dir = join(root, 'cat-same')
+		write(
+			dir,
+			catalog([{ name: 'ledger', source: { source: 'github', repo: 'acme/ledger' } }], 'live'),
+		)
+		await market(['add', dir, '--yes'])
+		expect((await plugin('install', ['ledger@live', '--yes'])).code).toBe(0)
+		solo.commit(files('#!/bin/sh\necho changed\nexit 0\n'))
+		for (const extra of [[], ['--yes'], ['--dry-run']]) {
+			const result = await plugin('update', ['ledger@live', ...extra])
+			expect(result.code, extra.join(' ')).toBe(65)
+			expect(result.err).toContain('still says version 1.0.0 but its files changed')
+			expect(result.out).not.toContain('What changed since')
+		}
 	})
 })
 

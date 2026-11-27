@@ -9,7 +9,9 @@ import { removeTempDir } from '../../../__fixtures__/temp-dir.js'
 import {
 	type ChildLike,
 	FetchError,
+	GIT_KILL_GRACE_MS,
 	GIT_OUTPUT_CAP,
+	GIT_WATCH_MS,
 	type GitRun,
 	cloneRepository,
 	createGitRunner,
@@ -17,6 +19,8 @@ import {
 	gitEnvironment,
 	gitSettings,
 	gitTimeoutMs,
+	measureFolder,
+	stopLiveGits,
 } from './git.js'
 
 let root: string
@@ -112,16 +116,18 @@ describe('the git runner', () => {
 					options = spawnOptions as Record<string, unknown>
 					return child as unknown as ChildLike
 				},
-				killTree: (pid) => killed.push(pid),
+				killTree: (pid) => void killed.push(pid),
 				platform: 'linux',
 			})
 			const pending = runner(['clone'], { env: {}, timeoutMs: 120_000 })
 			await vi.advanceTimersByTimeAsync(119_999)
 			expect(killed).toEqual([])
 			await vi.advanceTimersByTimeAsync(1)
+			expect(killed).toEqual([4242])
+			// The result waits for Git to really end: its files are still being written until then.
+			child.emit('close', null)
 			const run = await pending
 			expect(run.timedOut).toBe(true)
-			expect(killed).toEqual([4242])
 			// A group of its own (so the kill reaches children), no shell, no stdin.
 			expect(options).toMatchObject({
 				shell: false,
@@ -151,17 +157,164 @@ describe('the git runner', () => {
 					options = o as Record<string, unknown>
 					return child as unknown as ChildLike
 				},
-				killTree: (pid) => killed.push(pid),
+				killTree: (pid) => void killed.push(pid),
 				platform: 'win32',
 			})
 			const pending = runner(['fetch'], { env: {}, timeoutMs: 10 })
 			await vi.advanceTimersByTimeAsync(10)
+			child.emit('close', null)
 			await pending
 			expect(options.detached).toBe(false)
 			expect(killed).toEqual([4242])
 		} finally {
 			vi.useRealTimers()
 		}
+	})
+
+	it('gives the result five seconds after the kill when Git never reports that it ended', async () => {
+		vi.useFakeTimers()
+		try {
+			const child = new FakeChild()
+			const runner = createGitRunner({
+				spawn: () => child as unknown as ChildLike,
+				killTree: () => undefined,
+				platform: 'linux',
+			})
+			let settled = false
+			const pending = runner(['fetch'], { env: {}, timeoutMs: 10 }).then((run) => {
+				settled = true
+				return run
+			})
+			await vi.advanceTimersByTimeAsync(10)
+			await vi.advanceTimersByTimeAsync(GIT_KILL_GRACE_MS - 1)
+			expect(settled).toBe(false)
+			await vi.advanceTimersByTimeAsync(1)
+			expect((await pending).timedOut).toBe(true)
+		} finally {
+			vi.useRealTimers()
+		}
+	})
+
+	it('waits for the tree kill to be done on Windows before it counts the grace', async () => {
+		vi.useFakeTimers()
+		try {
+			const child = new FakeChild()
+			let finishKill: () => void = () => undefined
+			const runner = createGitRunner({
+				spawn: () => child as unknown as ChildLike,
+				killTree: () =>
+					new Promise<void>((resolve) => {
+						finishKill = resolve
+					}),
+				platform: 'win32',
+			})
+			let settled = false
+			const pending = runner(['fetch'], { env: {}, timeoutMs: 10 }).then((run) => {
+				settled = true
+				return run
+			})
+			await vi.advanceTimersByTimeAsync(10 + GIT_KILL_GRACE_MS * 2)
+			expect(settled).toBe(false)
+			finishKill()
+			await vi.advanceTimersByTimeAsync(GIT_KILL_GRACE_MS)
+			await pending
+			expect(settled).toBe(true)
+		} finally {
+			vi.useRealTimers()
+		}
+	})
+
+	it('stops a run whose folder grows past the limit and says it was too large', async () => {
+		vi.useFakeTimers()
+		try {
+			const child = new FakeChild()
+			const killed: number[] = []
+			let bytes = 10
+			const runner = createGitRunner({
+				spawn: () => child as unknown as ChildLike,
+				killTree: (pid) => void killed.push(pid),
+				sizeOf: () => ({ bytes, files: 3 }),
+				platform: 'linux',
+			})
+			const pending = runner(['clone'], {
+				env: {},
+				timeoutMs: 600_000,
+				watch: { dir: '/x', maxBytes: 100, maxFiles: 10 },
+			})
+			await vi.advanceTimersByTimeAsync(GIT_WATCH_MS * 3)
+			expect(killed).toEqual([])
+			bytes = 101
+			await vi.advanceTimersByTimeAsync(GIT_WATCH_MS)
+			expect(killed).toEqual([4242])
+			child.emit('close', null)
+			const run = await pending
+			expect(run.oversize).toBe(true)
+			expect(explainGitFailure(run, 'https://example.com/x.git', 1000)).toMatchObject({
+				code: 65,
+				kind: 'too-large',
+			})
+		} finally {
+			vi.useRealTimers()
+		}
+	})
+
+	it('stops a run that writes too many files', async () => {
+		vi.useFakeTimers()
+		try {
+			const child = new FakeChild()
+			const killed: number[] = []
+			const runner = createGitRunner({
+				spawn: () => child as unknown as ChildLike,
+				killTree: (pid) => void killed.push(pid),
+				sizeOf: () => ({ bytes: 1, files: 11 }),
+				platform: 'linux',
+			})
+			const pending = runner(['clone'], {
+				env: {},
+				timeoutMs: 600_000,
+				watch: { dir: '/x', maxBytes: 100, maxFiles: 10 },
+			})
+			await vi.advanceTimersByTimeAsync(GIT_WATCH_MS)
+			expect(killed).toEqual([4242])
+			child.emit('close', null)
+			expect((await pending).oversize).toBe(true)
+		} finally {
+			vi.useRealTimers()
+		}
+	})
+
+	it('measures a real folder by bytes and files', () => {
+		mkdirSync(join(root, 'a', 'b'), { recursive: true })
+		writeFileSync(join(root, 'a', 'one'), '12345')
+		writeFileSync(join(root, 'a', 'b', 'two'), '123')
+		expect(measureFolder(root, 100)).toEqual({ bytes: 8, files: 2 })
+		expect(measureFolder(join(root, 'missing'), 100)).toEqual({ bytes: 0, files: 0 })
+	})
+
+	it('kills every live Git and removes its folder when the process is told to stop', async () => {
+		const child = new FakeChild()
+		const killed: number[] = []
+		const dir = join(root, 'filling')
+		mkdirSync(dir)
+		writeFileSync(join(dir, 'partial'), 'x')
+		const runner = createGitRunner({
+			spawn: () => child as unknown as ChildLike,
+			killTree: (pid) => void killed.push(pid),
+			platform: 'linux',
+		})
+		const pending = runner(['clone'], {
+			env: {},
+			timeoutMs: 600_000,
+			watch: { dir, maxBytes: 100, maxFiles: 10 },
+		})
+		stopLiveGits()
+		expect(killed).toEqual([4242])
+		expect(existsSync(dir)).toBe(false)
+		child.emit('close', null)
+		await pending
+		// A second stop has nothing left to do.
+		stopLiveGits()
+		expect(killed).toEqual([4242])
 	})
 
 	it('does not time out a run that finished, and keeps at most 1 MiB of output', async () => {
@@ -171,7 +324,7 @@ describe('the git runner', () => {
 			const killed: number[] = []
 			const runner = createGitRunner({
 				spawn: () => child as unknown as ChildLike,
-				killTree: (pid) => killed.push(pid),
+				killTree: (pid) => void killed.push(pid),
 				platform: 'linux',
 			})
 			const pending = runner(['status'], { env: {}, timeoutMs: 1000 })
