@@ -36,6 +36,9 @@ import {
 } from '@namzu/sdk'
 
 import { ArchiveError, type ArchiveLimits, openArchive } from '../archive/zip.js'
+import { FetchError, type FetchOptions } from './fetch/git.js'
+import { type FetchedPlugin, fetchPlugin } from './fetch/index.js'
+import type { RemoteEntrySource } from './fetch/source.js'
 import { listMarkdownNames, resolvePluginFileDirs } from './files.js'
 import { surfaceDigest } from './install-manifest.js'
 import { readPluginManifestDetails } from './manifest-details.js'
@@ -201,6 +204,15 @@ export type InstallSource =
 			readonly entry: CatalogEntry
 			readonly dir: string
 			readonly version?: string
+			/** The commit of the marketplace repository the folder was read from. */
+			readonly commit?: string
+	  }
+	| {
+			/** An entry whose plugin is downloaded: a repository, a folder of one, or a zip. */
+			readonly kind: 'remote-catalog'
+			readonly marketplace: string
+			readonly entry: CatalogEntry
+			readonly remote: RemoteEntrySource
 	  }
 	| { readonly kind: 'path'; readonly path: string }
 
@@ -209,6 +221,8 @@ export interface InstallPlan {
 	readonly name: string
 	readonly marketplace: string
 	readonly version: string
+	/** The commit a repository source was at, in full. */
+	readonly commit?: string
 	readonly layout: 'common' | 'namzu'
 	/** `plugins/.staging/<uuid>`: removed when the plan is discarded or committed. */
 	readonly stagingDir: string
@@ -234,6 +248,8 @@ export interface InstallPlan {
 export interface PlanOptions {
 	readonly home: string
 	readonly cwd: string
+	/** How downloads are made; tests replace parts of it. */
+	readonly fetch?: FetchOptions
 }
 
 const DATA_SENTINEL = '/namzu-sentinel/plugin-data'
@@ -318,8 +334,40 @@ async function build(
 	let installedFrom: Record<string, unknown>
 	let marketplace: string
 	let entry: CatalogEntry | undefined
+	let commit: string | undefined
+	let unpinnedDownload = false
+	const notes: string[] = []
 
-	if (source.kind === 'catalog') {
+	if (source.kind === 'remote-catalog') {
+		marketplace = source.marketplace
+		entry = source.entry
+		installedFrom = { marketplace, source: entry.source, kind: 'catalog' }
+		let fetched: FetchedPlugin
+		try {
+			fetched = await fetchPlugin(source.remote, staging, options.fetch)
+		} catch (error) {
+			if (error instanceof FetchError) throw new PlanRefusal(error.code, error.message)
+			throw error
+		}
+		commit = fetched.commit
+		if (fetched.lfsPointers > 0)
+			notes.push(
+				`${fetched.lfsPointers} ${fetched.lfsPointers === 1 ? 'file is' : 'files are'} stored with Git LFS and was not downloaded; ${fetched.lfsPointers === 1 ? 'it stays' : 'they stay'} a small pointer file.`,
+			)
+		if (fetched.submodules > 0)
+			notes.push(
+				`The repository lists ${fetched.submodules} ${fetched.submodules === 1 ? 'submodule' : 'submodules'}; none was downloaded.`,
+			)
+		if (fetched.archive !== undefined) {
+			if (source.remote.kind === 'archive' && source.remote.sha256 === undefined)
+				unpinnedDownload = true
+			const unpacked = join(staging, 'unpacked')
+			mkdirSync(unpacked, { recursive: true, mode: 0o755 })
+			unpackPluginArchive(fetched.archive.file, unpacked)
+			const inner = await findCommonLayoutRoot(unpacked)
+			renameSync(inner, root)
+		} else if (fetched.dir !== undefined) copyFolderSource(fetched.dir, root, options, findings)
+	} else if (source.kind === 'catalog') {
 		marketplace = source.marketplace
 		entry = source.entry
 		installedFrom = {
@@ -327,6 +375,7 @@ async function build(
 			source: entry.source,
 			kind: 'catalog',
 		}
+		commit = source.commit
 		copyFolderSource(source.dir, root, options, findings)
 	} else {
 		marketplace = LOCAL_UPLOADS_MARKETPLACE
@@ -450,21 +499,25 @@ async function build(
 		resolvePluginFileDirs(name, root, declared, manifest.layout).dirs.flatMap((dir) =>
 			listMarkdownNames(dir.dir, dir.only).map((file) => `${name}__${file}`),
 		)
-	const warnings: string[] = []
+	const warnings: string[] = [...notes]
 	if (manifest.remoteMcpServers !== undefined || layout.remoteServers.length > 0)
 		warnings.push('Remote servers ask you before they connect; nothing connects at install.')
-	const digest = surfaceDigest(read.surface, hashed.files, hashed.executable)
+	const surface: PluginSurface = unpinnedDownload
+		? { ...read.surface, unpinnedDownload: true }
+		: read.surface
+	const digest = surfaceDigest(surface, hashed.files, hashed.executable)
 	return {
 		id,
 		name,
 		marketplace,
 		version,
+		...(commit !== undefined ? { commit } : {}),
 		layout: layoutKind,
 		stagingDir: staging,
 		root,
 		manifest,
 		findings,
-		surface: read.surface,
+		surface,
 		executable: hashed.executable,
 		files: hashed.files,
 		digest,
@@ -510,6 +563,7 @@ export function recordFields(
 		installPath: where.installPath,
 		...(where.projectPath !== undefined ? { projectPath: where.projectPath } : {}),
 		version: plan.version,
+		...(plan.commit !== undefined ? { gitCommitSha: plan.commit } : {}),
 		installedAt: where.now,
 		lastUpdated: where.now,
 		layout: plan.layout,

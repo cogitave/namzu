@@ -106,9 +106,27 @@ describe('what counts as runnable', () => {
 		}
 		const hook = { event: 'pre_tool_use', type: 'command' as const, run: 'x' }
 		expect(surfaceChanges(empty, { ...empty, hooks: [hook] })).toEqual(['1 new hook'])
-		expect(surfaceChanges({ ...empty, hooks: [hook] }, empty)).toEqual([
-			'1 hook removed or changed',
-		])
+		expect(surfaceChanges({ ...empty, hooks: [hook] }, empty)).toEqual(['1 hook removed'])
+		// An edited script is one change, not a new one and a removed one.
+		const script = { path: 'scripts/guard.sh', bytes: 17, exec: true }
+		expect(
+			surfaceChanges(
+				{ ...empty, scripts: [script] },
+				{ ...empty, scripts: [{ ...script, bytes: 23 }] },
+			),
+		).toEqual(['1 script changed'])
+		expect(
+			surfaceChanges(
+				{ ...empty, scripts: [script] },
+				{
+					...empty,
+					scripts: [
+						{ ...script, bytes: 23 },
+						{ path: 'scripts/b.sh', bytes: 1, exec: false },
+					],
+				},
+			),
+		).toEqual(['1 new script', '1 script changed'])
 		expect(surfaceChanges(empty, empty)).toEqual([])
 	})
 })

@@ -23,6 +23,13 @@ import {
 	resolveWithinReal,
 } from '@namzu/sdk'
 
+import {
+	type EntrySourceRead,
+	type MarketplaceSource,
+	type RemoteEntrySource,
+	parseEntrySource,
+	parseRemoteAddress,
+} from './fetch/source.js'
 import { isRecord } from './json-state.js'
 
 /** The marketplace id every plugin installed from a file or a folder gets. It has no record. */
@@ -229,11 +236,16 @@ export function readCatalog(location: string, kind: 'directory' | 'file'): Catal
 
 export type EntrySource =
 	| { readonly kind: 'local'; readonly dir: string }
+	| { readonly kind: 'remote'; readonly remote: RemoteEntrySource }
 	| { readonly kind: 'unsupported'; readonly reason: string }
 	| { readonly kind: 'invalid'; readonly reason: string }
 
-/** Remote forms an entry may name; reading them needs a download this version does not do. */
-const DOWNLOAD_KINDS = ['github', 'url', 'git', 'git-subdir', 'archive']
+export interface ResolveOptions {
+	/** The catalog came from a hosted file: relative sources have nothing behind them. */
+	readonly hosted?: boolean
+	/** Test only. */
+	readonly allowFileProtocol?: boolean
+}
 
 /**
  * Where an entry's plugin is. A relative path (`./plugins/ledger`, or a bare
@@ -243,9 +255,15 @@ const DOWNLOAD_KINDS = ['github', 'url', 'git', 'git-subdir', 'archive']
 export async function resolveEntrySource(
 	entry: CatalogEntry,
 	catalog: Catalog,
+	options: ResolveOptions = {},
 ): Promise<EntrySource> {
 	const source = entry.source
 	if (typeof source === 'string') {
+		if (options.hosted === true)
+			return {
+				kind: 'unsupported',
+				reason: `${entry.name} is a folder inside the marketplace, and a hosted catalog file has no folders behind it. Add the marketplace as a repository instead.`,
+			}
 		let relative: string
 		if (source.startsWith('./') || source.startsWith('../') || source === '.') relative = source
 		else if (catalog.pluginRoot !== undefined && !isAbsolute(source) && !/^[A-Za-z]:/.test(source))
@@ -275,23 +293,28 @@ export async function resolveEntrySource(
 		}
 	}
 	if (isRecord(source)) {
-		const kind = typeof source.source === 'string' ? source.source : ''
-		if (DOWNLOAD_KINDS.includes(kind))
-			return {
-				kind: 'unsupported',
-				reason: `${entry.name} comes from a download (${kind}), which this version of Namzu cannot fetch yet.`,
-			}
-		return {
-			kind: 'unsupported',
-			reason: `${entry.name} is obtained by ${kind === '' ? 'an unknown means' : kind}, which Namzu does not install: it would run a package manager or another program to get the code.`,
-		}
+		const read: EntrySourceRead = parseEntrySource(
+			entry.name,
+			source,
+			entry.raw,
+			options.allowFileProtocol === true,
+		)
+		if (read.ok) return { kind: 'remote', remote: read.source }
+		return read.unsupported
+			? { kind: 'unsupported', reason: read.reason }
+			: { kind: 'invalid', reason: read.reason }
 	}
 	return { kind: 'invalid', reason: 'The entry has no usable source.' }
 }
 
 export type MarketplaceAddress =
 	| { readonly kind: 'path'; readonly path: string }
-	| { readonly kind: 'remote'; readonly form: string; readonly text: string }
+	| {
+			readonly kind: 'remote'
+			readonly form: string
+			readonly text: string
+			readonly source: MarketplaceSource
+	  }
 	| { readonly kind: 'refused'; readonly message: string }
 
 const NOT_AN_ADDRESS =
@@ -320,28 +343,9 @@ export function parseMarketplaceAddress(input: string, cwd: string): Marketplace
 		const expanded = value === '~' || /^~[\\/]/.test(value) ? join(home, value.slice(1)) : value
 		return { kind: 'path', path: resolve(cwd, expanded) }
 	}
-	if (/^[\w.-]+@[\w.-]+:[^/\\].*/.test(value)) return { kind: 'remote', form: 'git', text: value }
-	if (/^https:\/\//i.test(value)) {
-		let url: URL
-		try {
-			url = new URL(value)
-		} catch {
-			return { kind: 'refused', message: NOT_AN_ADDRESS }
-		}
-		if (url.username !== '' || url.password !== '' || url.search !== '' || url.hash !== '')
-			return {
-				kind: 'refused',
-				message: 'Remove the sign-in details from the address; Namzu uses your own Git setup.',
-			}
-		if (/^github\.com$/i.test(url.hostname) && /\/(tree|blob)\//.test(url.pathname))
-			return {
-				kind: 'refused',
-				message: 'Use the repository address (owner/repo), not a page inside it.',
-			}
-		return { kind: 'remote', form: 'https', text: value }
-	}
-	if (/^[\w.-]+\/[\w.-]+(#.+)?$/.test(value)) return { kind: 'remote', form: 'github', text: value }
-	return { kind: 'refused', message: NOT_AN_ADDRESS }
+	const remote = parseRemoteAddress(value)
+	if (!remote.ok) return { kind: 'refused', message: remote.message }
+	return { kind: 'remote', form: remote.form, text: value, source: remote.source }
 }
 
 /** A path as the file system names it, or `undefined` when it does not exist. */

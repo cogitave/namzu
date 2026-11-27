@@ -96,8 +96,9 @@ and 16 servers. A hand-placed folder Namzu refuses is reported and the other
 plugins still load. What Namzu has no place for (themes, settings, saved options) is said
 once at launch; `namzu plugin validate` shows the whole report. The full rules
 are in [the common plugin layout](../sdk/common-plugin-layout.md). You can place
-the folder yourself, or install it from a folder, an archive or a local
-marketplace with `namzu plugin install`; see [Install plugins](plugin-install.md).
+the folder yourself, or install it from a folder, an archive or a marketplace
+(a folder, a Git repository or an https address) with `namzu plugin install`; see
+[Install plugins](plugin-install.md) and [Marketplaces and downloads](plugin-marketplaces.md).
 
 ### Hooks modules (common layout)
 
@@ -237,8 +238,8 @@ contributions. A failed or timed-out MCP handshake starts bounded transport
 shutdown before rollback completes. The shipped stdio transport escalates to
 process termination if its child does not exit. This menu does not install
 plugins. `namzu plugin install` does, from a folder, an archive or a marketplace
-that is a folder or a file on this computer (nothing is downloaded yet); see
-[Install plugins](plugin-install.md). Plugins that were installed on this
+(a folder, a Git repository or an https address); see
+[Install plugins](plugin-install.md) and [Marketplaces and downloads](plugin-marketplaces.md). Plugins that were installed on this
 computer (they have an install record) load as a third source and are managed
 with `namzu plugin list`, `details`, `enable`, `disable`, `update` and
 `uninstall`; see [Installed plugins](plugin-records.md).

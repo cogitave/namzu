@@ -45,6 +45,11 @@ export function pluginsFolder(home: string): string {
 export function knownMarketplacesPath(home: string): string {
 	return join(pluginsFolder(home), 'known_marketplaces.json')
 }
+/** Where marketplaces Namzu downloaded are kept, one folder per name. */
+export function marketplacesFolder(home: string): string {
+	return join(pluginsFolder(home), 'marketplaces')
+}
+
 export function installedPluginsPath(home: string): string {
 	return join(pluginsFolder(home), 'installed_plugins.json')
 }
