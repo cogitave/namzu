@@ -848,7 +848,10 @@ export {
 	WORKTREE_HOOK_SHOWN_CHARS,
 	expandPluginPaths,
 	expandPluginRootText,
+	COMMON_MARKETPLACE_DIR,
+	COMMON_MARKETPLACE_FILE,
 	findCommonLayoutRoot,
+	isOfficialLookingMarketplaceName,
 	loadPluginManifestWithFindings,
 	readCommonLayout,
 } from './plugin/index.js'
