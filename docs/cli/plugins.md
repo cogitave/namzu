@@ -89,7 +89,9 @@ so the plugin's own documentation works), and a command or agent file may be a
 single file as well as a folder. `${NAMZU_PLUGIN_ROOT}` in a skill, command or
 agent text is replaced by the plugin's folder. A hook of such a plugin also finds
 its folders under the three names it was written for. Remote servers are read and
-listed and are not started yet, and a plugin in this layout may hold up to 64 skills
+listed, and an installed plugin's connect only after you approve each one (see
+[Remote servers of installed plugins](mcp-servers.md#remote-servers-of-installed-plugins)),
+and a plugin in this layout may hold up to 64 skills
 and 16 servers. A hand-placed folder Namzu refuses is reported and the other
 plugins still load. What Namzu has no place for (themes, settings, saved options) is said
 once at launch; `namzu plugin validate` shows the whole report. The full rules

@@ -12,7 +12,12 @@
  * only when the folder is trusted: an untrusted folder reads none of them.
  */
 
-import { type PluginManifest, loadPluginManifestWithFindings, readCommonLayout } from '@namzu/sdk'
+import {
+	type LayoutFinding,
+	type PluginManifest,
+	loadPluginManifestWithFindings,
+	readCommonLayout,
+} from '@namzu/sdk'
 
 import type { PluginScope } from '../../config/schema.js'
 import {
@@ -180,7 +185,7 @@ export async function readInstalledManifest(
 	},
 ): Promise<{
 	readonly manifest?: PluginManifest
-	readonly findings: readonly { readonly level: string; readonly message: string }[]
+	readonly findings: readonly LayoutFinding[]
 }> {
 	if (candidate.record.layout !== 'common') return { findings: [] }
 	const read = await readCommonLayout(candidate.installPath, {

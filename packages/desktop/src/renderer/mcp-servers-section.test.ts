@@ -11,6 +11,7 @@ import {
 	emptyDraft,
 	mcpServerRowView,
 	mcpServersNote,
+	pluginWaitingNotes,
 	serverConfirmationCopy,
 	userServerDetail,
 	variablesNote,
@@ -72,6 +73,37 @@ it('lists every server read-only, with the failure reason and the approval for w
 	expect(html).not.toContain('Not set')
 	expect(html).not.toContain('<textarea')
 	expect(html).toContain('The tool servers for “shop”.')
+})
+
+it('shows a plugin’s remote server by the plugin, waiting for approval or needing setup', () => {
+	const html = markup(
+		controls({
+			view: {
+				servers: [
+					{
+						name: 'ledger-api',
+						origin: 'plugin',
+						plugin: 'ledger',
+						state: 'waiting',
+						detail: 'https://mcp.example.com',
+						fingerprint: 'f9',
+					},
+					{
+						name: 'ledger-two',
+						origin: 'plugin',
+						plugin: 'ledger',
+						state: 'needs-setup',
+						reason: 'TOKEN is not set',
+					},
+				],
+			},
+		}),
+	)
+	expect(html).toContain('Plugin ledger')
+	expect(html).toContain('Needs setup')
+	expect(html).toContain('TOKEN is not set')
+	expect(html).toContain('Approve this server')
+	expect(html).toContain('installed plugin')
 })
 
 it('offers no approval when nothing waits, and says so when nothing is set up', () => {
@@ -264,5 +296,27 @@ describe('the ask to add a connector', () => {
 		requestAddConnector()
 		expect(takeAddConnector()).toBe(true)
 		expect(takeAddConnector()).toBe(false)
+	})
+})
+
+describe('the approval notes of plugin servers', () => {
+	it('say which plugin, which address and which variables go in the headers', () => {
+		const plugins: McpServersView = {
+			servers: [
+				{
+					name: 'ledger-api',
+					origin: 'plugin',
+					plugin: 'ledger',
+					state: 'waiting',
+					detail: 'https://mcp.example.com',
+					fingerprint: 'f',
+					sends: ['LEDGER_TOKEN'],
+				},
+				{ name: 'tickets', origin: 'project-file', state: 'waiting', fingerprint: 'g' },
+			],
+		}
+		expect(pluginWaitingNotes(plugins)).toEqual([
+			'ledger-api (plugin ledger) reaches https://mcp.example.com and sends headers read from LEDGER_TOKEN.',
+		])
 	})
 })

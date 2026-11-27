@@ -130,6 +130,12 @@ export interface McpServerSpec {
 	/** HTTP: the server's endpoint. */
 	readonly url?: string
 	/**
+	 * HTTP only: `sse` for a server that speaks the older server-sent-events
+	 * transport. Absent means the streamable HTTP transport. Only a plugin's
+	 * remote server sets it; a user's own entry stays on the default.
+	 */
+	readonly transport?: 'http' | 'sse'
+	/**
 	 * Same `${VAR_NAME}` expansion as `env` above — the only secret-safe
 	 * option for a header value, since `inheritEnv` reaches the stdio
 	 * child's process environment only, never an HTTP header.
@@ -466,7 +472,7 @@ export function transportFor(
 		const expandedHeaders = spec.headers ? expandEnvRefsInRecord(spec.headers, env) : undefined
 		if (typeof expandedHeaders === 'string') return expandedHeaders
 		return {
-			type: 'streamable-http',
+			type: spec.transport === 'sse' ? 'http-sse' : 'streamable-http',
 			url: spec.url as string,
 			...(expandedHeaders ? { headers: expandedHeaders } : {}),
 		}

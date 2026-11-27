@@ -69,8 +69,8 @@ the reader would do, with the same exit statuses:
   `platforms` that does not fit) is an **error**;
 - an entry the reader refuses (one skill, one server, one hooks file) is a
   **warning** that says that entry is dropped and the plugin loads without it;
-- something Namzu has no place for (themes, settings, a remote server that is not
-  started yet, a folder it does not read) is a **warning** that says the plugin
+- something Namzu has no place for (themes, settings, a folder it does not read; a remote server
+  is noted too, because it connects only after you approve it) is a **warning** that says the plugin
   still loads;
 - harmless ignored keys and what is used are not problems; they are in the
   `layout` object of `--json`.
@@ -229,7 +229,7 @@ same exit status. Messages about a wrong command line go to standard error.
 | `plugin-folder-reserved` | warning | The folder is named `cache`, `marketplaces` or `data` directly under a `plugins/` folder. Namzu keeps installed plugins and their data there, so discovery never scans such a folder and a hand-placed plugin in it is not loaded; rename it. |
 | `not-a-plugin`, `root-not-directory`, `name-invalid`, `dependency-unmet`, `path-escapes`, `too-many-skills`, `too-many-commands`, `too-many-agents`, `too-many-servers`, `nothing-used`, `manifest-invalid` | error | A folder read in the common plugin layout that cannot load as a whole; see [the layout page](../sdk/common-plugin-layout.md#findings). |
 | `skill-invalid`, `inline-text-unsupported`, `path-missing`, `hooks-modules-refused`, `hooks-module-scan-refused`, `hooks-file-missing`, `hooks-file-invalid`, `mcp-server-both`, `mcp-url-invalid`, `mcp-type-unsupported`, `mcp-command-escapes`, `mcp-name-invalid`, `mcp-file-missing`, `mcp-file-invalid` | warning | One entry of a plugin in the common layout is dropped; the plugin loads without it. |
-| `hooks-module-not-used`, `component-unsupported`, `user-config-unsupported`, `folder-shadowed-by-manifest`, `mcp-server-remote`, `mcp-needs-setup`, `manifest-both` | warning | Something the common layout has that Namzu does not use (a pattern or a call in a hooks module included), a folder the manifest shadows, a remote server that is read and not started, a server that needs setup, or two manifests in one folder. |
+| `hooks-module-not-used`, `component-unsupported`, `user-config-unsupported`, `folder-shadowed-by-manifest`, `mcp-server-remote`, `mcp-needs-setup`, `manifest-both` | warning | Something the common layout has that Namzu does not use (a pattern or a call in a hooks module included), a folder the manifest shadows, a remote server that connects only after you approve it, a server that needs setup, or two manifests in one folder. |
 
 New codes may be added within version 1.
 

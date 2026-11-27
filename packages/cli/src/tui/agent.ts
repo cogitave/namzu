@@ -358,6 +358,7 @@ import {
 	mcpPersonActions,
 	readMentionedMcpResource,
 } from '../integrations/mcp/person-session.js'
+import { type PluginRemoteLive, createPluginRemoteHost } from '../integrations/mcp/plugin-remote.js'
 import {
 	type ConnectedMcpServer,
 	type FailedMcpServer,
@@ -1892,6 +1893,14 @@ export interface AgentSession {
 		/** Tool servers still being reached; absent when the session waited for all of them. */
 		readonly pending?: readonly string[]
 	}
+	/**
+	 * The remote tool servers of installed plugins, by the name the roster uses: which are
+	 * connected and which failed. Kept apart from `mcpFailed`, so a plugin's server that does
+	 * not answer never refuses the conversation.
+	 */
+	readonly pluginRemoteStatus?: () => PluginRemoteLive
+	/** Start or close the plugin remote servers to match what is on and approved now. */
+	readonly syncPluginServers?: () => void
 	/**
 	 * The skills tool servers offer, for the `/` menu: each as `server:skill`
 	 * with its description. Empty until a server that was opted in answers.
@@ -5853,6 +5862,22 @@ export async function createAgentSession(
 				: [],
 	})
 	if (pluginRuntime) toolsets.push(...pluginRuntime.manager.toolsets)
+	// Remote tool servers of installed plugins: in the roster from the start, connected only
+	// while their plugin is on and the person approved them (`mcp-approvals.json`, `plugins`).
+	const pluginRemote =
+		pluginRuntime && pluginRuntime.remoteServers().length > 0
+			? createPluginRemoteHost({
+					home: resolveNamzuHome(),
+					servers: pluginRuntime.remoteServers(),
+					isOn: (installId) => pluginRuntime.isInstalledOn(installId),
+					start: mcpStart,
+				})
+			: undefined
+	if (pluginRemote && pluginRuntime) {
+		toolsets.push(...pluginRemote.toolsets)
+		pluginRemote.sync()
+		pluginRuntime.onEnabledChange(() => pluginRemote.sync())
+	}
 	// Everything is composed by now but the deferred task tools, which no
 	// caller withholds.
 	const withheldTools = new Set(options.withheldTools ?? [])
@@ -6213,6 +6238,7 @@ export async function createAgentSession(
 						.then(() => sessionPlugins.close())
 				: undefined,
 			mcp.close(),
+			pluginRemote?.close(),
 			computerUseHost?.dispose(),
 			browserControl?.dispose(),
 			codeAnalysis?.dispose(),
@@ -7497,6 +7523,12 @@ export async function createAgentSession(
 			return mcp.failed
 		},
 		mcpStatus: () => mcp.current(),
+		...(pluginRemote
+			? {
+					pluginRemoteStatus: () => pluginRemote.status(),
+					syncPluginServers: () => pluginRemote.sync(),
+				}
+			: {}),
 		mcpActions: (review) =>
 			mcpPersonActions({
 				connection: mcp,
