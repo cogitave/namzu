@@ -1184,7 +1184,7 @@ export function createDesktopPluginActions(deps: PluginActionDeps) {
 				note: PLUGIN_LOADS_NEXT_NOTE,
 			}
 		},
-		/** Reads the source again and says whether a newer version is there; changes nothing. */
+		/** Re-reads the source of that plugin's own marketplace (the folder is replaced and its update record refreshed) and says whether a newer version is there. */
 		'namzu/plugins/update_check': async (params: Record<string, unknown>) => {
 			guard()
 			const record = exactKeys(params, ['id', 'opId'], ['id'], 'plugin update check')
