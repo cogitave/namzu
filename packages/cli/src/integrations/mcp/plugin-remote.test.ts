@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -14,6 +14,7 @@ import {
 	pluginServerApproved,
 	pluginServerRuntimeName,
 	readInstalledRemoteServers,
+	uniqueRuntimeNames,
 } from './plugin-remote.js'
 import { approveShownPluginMcpServers, mcpApprovalsPath } from './project-approval.js'
 import * as servers from './servers.js'
@@ -255,6 +256,23 @@ describe('the live connections of a session', () => {
 		expect(live.close).toHaveBeenCalledTimes(1)
 	})
 
+	it('stops showing a server as live once its approval is gone from disk', async () => {
+		const { made, server } = await host({ value: true })
+		approveShownPluginMcpServers(home, [
+			{ pluginId: 'ledger@m', server: 'api', fingerprint: fingerprintOf(server) },
+		])
+		const live = {
+			...connection(),
+			current: () => ({ connected: ['ledger-api'], failed: [], pending: [] }),
+		}
+		vi.mocked(servers.startMcpServers).mockReturnValue(live as never)
+		made.sync()
+		expect(made.status().connected).toEqual(['ledger-api'])
+		writeFileSync(mcpApprovalsPath(home), '{}')
+		expect(made.status().connected).toEqual([])
+		expect(live.close).toHaveBeenCalledTimes(1)
+	})
+
 	it('never starts a server that needs setup, even when it was approved before', async () => {
 		install('ledger@m', { api })
 		const found = (await read()).servers
@@ -285,5 +303,28 @@ describe('the name a plugin server has in the roster', () => {
 		expect(pluginServerRuntimeName('my.plugin', 'a b')).toBe('my_plugin-a_b')
 		expect(pluginServerRuntimeName('1x', 'y')).toBe('p1x-y')
 		expect(pluginServerRuntimeName('a'.repeat(80), 'b')).toHaveLength(64)
+	})
+
+	it('gives two plugins that build the same name two different names', async () => {
+		install('a-b@m', { c: api })
+		install('a@m', { 'b-c': { url: 'https://two.example.com/' } })
+		const names = (await read()).servers.map((s) => s.runtimeName)
+		expect(names).toHaveLength(2)
+		expect(new Set(names).size).toBe(2)
+		const fake = (runtimeName: string) => ({ runtimeName }) as PluginRemoteServer
+		expect(uniqueRuntimeNames([fake('x'), fake('x'), fake('x')]).map((s) => s.runtimeName)).toEqual(
+			['x', 'x-2', 'x-3'],
+		)
+	})
+
+	it('names the header variables a waiting server will send', async () => {
+		vi.stubEnv('LEDGER_TOKEN', 'x')
+		install('ledger@m', { api })
+		const [server] = (await read()).servers
+		const [row] = pluginRemoteRows(home, [server as PluginRemoteServer], {
+			connected: [],
+			failed: [],
+		})
+		expect(row?.sends).toEqual(['LEDGER_TOKEN'])
 	})
 })

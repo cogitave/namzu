@@ -165,7 +165,26 @@ export async function readInstalledRemoteServers(options: {
 			problems.push(`${candidate.id}: ${error instanceof Error ? error.message : String(error)}`)
 		}
 	}
-	return { servers, problems }
+	return { servers: uniqueRuntimeNames(servers), problems }
+}
+
+/**
+ * Two plugins can build the same runtime name (`a-b` + `c`, and `a` + `b-c`). The later one gets
+ * a counter, so rows, approvals, status and tool roster ids each name one server.
+ */
+export function uniqueRuntimeNames(
+	servers: readonly PluginRemoteServer[],
+): readonly PluginRemoteServer[] {
+	const taken = new Set<string>()
+	return servers.map((server) => {
+		let name = server.runtimeName
+		for (let n = 2; taken.has(name); n++) {
+			const suffix = `-${n}`
+			name = `${server.runtimeName.slice(0, 64 - suffix.length)}${suffix}`
+		}
+		taken.add(name)
+		return name === server.runtimeName ? server : { ...server, runtimeName: name }
+	})
 }
 
 async function readOne(
@@ -268,6 +287,7 @@ export function pluginRemoteRows(
 				...base,
 				state: 'waiting',
 				fingerprint: fingerprintOf(server),
+				...(headerVariablesOf(server).length > 0 ? { sends: headerVariablesOf(server) } : {}),
 			}
 		}
 		const failure = failures.get(server.runtimeName)
@@ -364,29 +384,32 @@ export function createPluginRemoteHost(options: {
 		slot.server.spec !== undefined &&
 		options.isOn(slot.server.pluginId) &&
 		pluginServerApproved(options.home, slot.server)
+	const reconcile = (closeOnly: boolean): void => {
+		if (closed) return
+		for (const slot of slots) {
+			const want = wanted(slot)
+			if (want && slot.connection === undefined && !closeOnly) {
+				const connection = startMcpServers(
+					{ [slot.server.runtimeName]: slot.server.spec as McpServerSpec },
+					options.start,
+				)
+				slot.connection = connection
+				for (const entry of connection.toolsets) {
+					if (entry.onChange) slot.unsubscribe.push(entry.onChange(() => notify(slot)))
+				}
+				slot.unsubscribe.push(connection.onSettled(() => notify(slot)))
+			} else if (!want && slot.connection !== undefined) {
+				void stop(slot)
+			}
+		}
+	}
 	return {
 		toolsets,
 		servers: () => options.servers,
-		sync() {
-			if (closed) return
-			for (const slot of slots) {
-				const want = wanted(slot)
-				if (want && slot.connection === undefined) {
-					const connection = startMcpServers(
-						{ [slot.server.runtimeName]: slot.server.spec as McpServerSpec },
-						options.start,
-					)
-					slot.connection = connection
-					for (const entry of connection.toolsets) {
-						if (entry.onChange) slot.unsubscribe.push(entry.onChange(() => notify(slot)))
-					}
-					slot.unsubscribe.push(connection.onSettled(() => notify(slot)))
-				} else if (!want && slot.connection !== undefined) {
-					void stop(slot)
-				}
-			}
-		},
+		sync: () => reconcile(false),
 		status() {
+			// A plugin removed or an approval changed on disk since the last sync stops showing as live.
+			reconcile(true)
 			const connected: string[] = []
 			const failed: { name: string; reason: string }[] = []
 			for (const slot of slots) {

@@ -321,14 +321,27 @@ export const mcpCommand: CommandDef = {
 				// including a project/profile override, so load it only here.
 				const configured = loadConfig({ profile: ctx.selectedProfile }).mcpServers?.[action.name]
 				// A plugin's remote server signs in through the same store, under the name `namzu mcp servers` shows.
-				const spec =
-					configured ??
-					(
-						await readFolderRemoteServers({
-							cwd: process.cwd(),
-							plugins: loadConfig({ profile: ctx.selectedProfile }).plugins,
-						})
-					).servers.find((server) => server.runtimeName === action.name)?.spec
+				const fromPlugin =
+					configured === undefined
+						? (
+								await readFolderRemoteServers({
+									cwd: process.cwd(),
+									plugins: loadConfig({ profile: ctx.selectedProfile }).plugins,
+								})
+							).servers.find((server) => server.runtimeName === action.name)
+						: undefined
+				const spec = configured ?? fromPlugin?.spec
+				// A plugin's server is contacted only after the person approved it as it reads now.
+				if (
+					fromPlugin &&
+					action.kind === 'login' &&
+					!pluginServerApproved(resolveNamzuHome(), fromPlugin)
+				) {
+					ctx.formatter.error({
+						message: `MCP server "${oneLine(action.name)}" comes from a plugin and is not approved. Run \`namzu mcp approve ${oneLine(action.name)}\` first.`,
+					})
+					return EXIT_USAGE
+				}
 				if (!spec || !spec.url || spec.command) {
 					ctx.formatter.error({
 						message: `MCP server "${oneLine(action.name)}" must be a configured HTTP server to use OAuth.`,

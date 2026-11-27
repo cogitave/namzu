@@ -25,6 +25,8 @@ export interface McpServerRow {
 	readonly detail?: string
 	/** Only on `waiting`: what an approval is bound to. It comes back with the approval. */
 	readonly fingerprint?: string
+	/** Only on a plugin's `waiting` server: the environment variables its headers will send. */
+	readonly sends?: readonly string[]
 }
 
 export interface McpServerListing {

@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
@@ -86,4 +86,22 @@ it('approves what the Connectors table sent by name, and a changed fingerprint s
 			})
 		).servers[0],
 	).toMatchObject({ state: 'failed', reason: 'No answer.' })
+})
+
+it('leaves a project server of the same name to the project and records nothing for the plugin', async () => {
+	const plugins = { enabled: true }
+	writeFileSync(
+		join(cwd, '.mcp.json'),
+		JSON.stringify({ mcpServers: { 'ledger-api': { url: 'https://project.example.com/' } } }),
+	)
+	const rows = (await listAllMcpServers({ cwd, live, plugins })).servers
+	expect(rows.filter((row) => row.name === 'ledger-api')).toHaveLength(1)
+	expect(rows.find((row) => row.name === 'ledger-api')?.origin).not.toBe('plugin')
+	const shown = [{ name: 'ledger-api', fingerprint: rows[0]?.fingerprint ?? 'x' }]
+	await approveListedAnyMcpServers({ cwd, plugins, shown })
+	let approvals = ''
+	try {
+		approvals = readFileSync(join(home, 'mcp-approvals.json'), 'utf8')
+	} catch {}
+	expect(approvals).not.toContain('ledger@m')
 })

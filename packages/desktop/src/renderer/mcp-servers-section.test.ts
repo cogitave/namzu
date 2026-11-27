@@ -11,6 +11,7 @@ import {
 	emptyDraft,
 	mcpServerRowView,
 	mcpServersNote,
+	pluginWaitingNotes,
 	serverConfirmationCopy,
 	userServerDetail,
 	variablesNote,
@@ -295,5 +296,27 @@ describe('the ask to add a connector', () => {
 		requestAddConnector()
 		expect(takeAddConnector()).toBe(true)
 		expect(takeAddConnector()).toBe(false)
+	})
+})
+
+describe('the approval notes of plugin servers', () => {
+	it('say which plugin, which address and which variables go in the headers', () => {
+		const plugins: McpServersView = {
+			servers: [
+				{
+					name: 'ledger-api',
+					origin: 'plugin',
+					plugin: 'ledger',
+					state: 'waiting',
+					detail: 'https://mcp.example.com',
+					fingerprint: 'f',
+					sends: ['LEDGER_TOKEN'],
+				},
+				{ name: 'tickets', origin: 'project-file', state: 'waiting', fingerprint: 'g' },
+			],
+		}
+		expect(pluginWaitingNotes(plugins)).toEqual([
+			'ledger-api (plugin ledger) reaches https://mcp.example.com and sends headers read from LEDGER_TOKEN.',
+		])
 	})
 })

@@ -370,6 +370,8 @@ export interface McpServerView {
 	detail?: string
 	/** Only on `waiting`: what an approval is bound to, handed back with the approval. */
 	fingerprint?: string
+	/** Only on a plugin's `waiting` server: the environment variables its headers will send. */
+	sends?: string[]
 }
 export interface McpServersView {
 	servers: McpServerView[]

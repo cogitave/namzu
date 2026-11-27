@@ -48,7 +48,15 @@ export async function approveListedAnyMcpServers(options: {
 	readonly plugins: PluginConfig | undefined
 	readonly shown: readonly { readonly name: string; readonly fingerprint: string }[]
 }): Promise<readonly string[]> {
-	const { servers } = await readFolderRemoteServers({ cwd: options.cwd, plugins: options.plugins })
+	const read = await readFolderRemoteServers({ cwd: options.cwd, plugins: options.plugins })
+	// A name the person's own settings or the project use is theirs, as in the list: a row of that
+	// name is a project row, never the plugin's.
+	const owned = new Set(
+		listMcpServers({ cwd: options.cwd, live: { connected: [], failed: [] } }).servers.map(
+			(row) => row.name,
+		),
+	)
+	const servers = read.servers.filter((server) => !owned.has(server.runtimeName))
 	const byName = new Map(servers.map((server) => [server.runtimeName, server]))
 	const projectRows = options.shown.filter((row) => !byName.has(row.name))
 	const pluginRows = options.shown.flatMap((row) => {

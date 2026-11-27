@@ -75,6 +75,23 @@ export function waitingServers(view: McpServersView | undefined) {
 	)
 }
 
+/**
+ * What each waiting plugin server will reach and send, one line each: a remote server is not a
+ * program, so the approval says which address it contacts and which environment variables go in its headers.
+ */
+export function pluginWaitingNotes(view: McpServersView | undefined): string[] {
+	return (view?.servers ?? [])
+		.filter((server) => server.state === 'waiting' && server.origin === 'plugin')
+		.map((server) => {
+			const reach = server.detail ? ` reaches ${server.detail}` : ' is a remote server'
+			const sends =
+				server.sends && server.sends.length > 0
+					? ` and sends headers read from ${server.sends.join(', ')}`
+					: ''
+			return `${server.name} (plugin ${server.plugin ?? 'unknown'})${reach}${sends}.`
+		})
+}
+
 export function approveLabel(count: number): string {
 	return count === 1 ? 'Approve this server' : `Approve these ${count} servers`
 }

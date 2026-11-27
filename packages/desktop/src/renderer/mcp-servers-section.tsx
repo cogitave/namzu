@@ -12,6 +12,7 @@ import {
 	emptyDraft,
 	mcpServerRowView,
 	mcpServersNote,
+	pluginWaitingNotes,
 	serverConfirmationCopy,
 	takeAddConnector,
 	userServerDetail,
@@ -322,6 +323,7 @@ export function McpServersRows({
 			</Row>
 		)
 	const waiting = waitingServers(servers.view)
+	const pluginNotes = pluginWaitingNotes(servers.view)
 	// A broken settings file is said once, at the top of the page; this list waits for it.
 	const fileBroken = isSettingsFileError(servers.error) || isSettingsFileError(servers.view?.error)
 	const rows = (servers.view?.servers ?? []).map(mcpServerRowView)
@@ -348,8 +350,17 @@ export function McpServersRows({
 							{waiting.length === 1
 								? 'A tool server from this project’s .mcp.json or from an installed plugin is waiting for your approval and has not started.'
 								: `${waiting.length} tool servers from this project’s .mcp.json or from installed plugins are waiting for your approval and have not started.`}{' '}
-							Approving lets them run the programs listed below on your computer.
+							Approving lets project servers run the programs listed below on your computer.
+							{pluginNotes.length > 0 &&
+								' A plugin’s remote server only connects to the address named here.'}
 						</p>
+						{pluginNotes.length > 0 && (
+							<ul className="settings-note">
+								{pluginNotes.map((note) => (
+									<li key={note}>{note}</li>
+								))}
+							</ul>
+						)}
 						<Button
 							variant="outline"
 							size="sm"
