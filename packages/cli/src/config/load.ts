@@ -3268,6 +3268,17 @@ function readEnv(env: NodeJS.ProcessEnv): {
 export const CONFIG_KEYS: readonly string[] = Object.keys(CONFIG_READERS)
 
 /**
+ * The two keys of a settings file that record installed plugins. They are read
+ * by `integrations/plugins/enabled-records.ts`, a reader of exactly these keys,
+ * and not by the config layers, so config precedence is untouched; they are
+ * listed here so no check calls them unknown.
+ */
+export const PLUGIN_RECORD_KEYS: readonly string[] = ['enabledPlugins', 'extraKnownMarketplaces']
+
+/** Every top-level key a settings file may carry: the settings, and the plugin records. */
+export const KNOWN_FILE_KEYS: readonly string[] = [...CONFIG_KEYS, ...PLUGIN_RECORD_KEYS]
+
+/**
  * Run the loader's own reader for one top-level key. Throws `ConfigValueError`
  * with the sentence the loader would print. For callers that validate a value
  * before they write it, so a write cannot make the next launch refuse to start.
@@ -3288,6 +3299,17 @@ function sanitize(
 ): MutableConfig {
 	const v = value as Record<string, unknown>
 	const out: MutableConfig = {}
+	if (!allowProfiles) {
+		// A profile may be selected by the environment, so it may not name plugins to turn on.
+		for (const key of PLUGIN_RECORD_KEYS) {
+			if (Object.hasOwn(v, key))
+				throw new ConfigValueError(
+					source,
+					formatSettingPath([...prefix, key]),
+					'cannot be declared inside a profile because profiles may be selected by the environment',
+				)
+		}
+	}
 	for (const key of Object.keys(CONFIG_READERS) as (keyof NamzuCliConfig)[]) {
 		if (!Object.hasOwn(v, key)) continue
 		if (!allowProfiles && (key === 'profiles' || key === 'plugins')) {

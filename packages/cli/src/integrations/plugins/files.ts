@@ -1,10 +1,18 @@
 import { readdirSync, realpathSync, statSync } from 'node:fs'
 import { basename, dirname, isAbsolute, join, relative, sep } from 'node:path'
-import { discoverAllPluginDirs, loadPluginManifest, resolveWithinReal } from '@namzu/sdk'
+import {
+	type PluginManifest,
+	discoverAllPluginDirs,
+	loadPluginManifest,
+	resolveWithinReal,
+} from '@namzu/sdk'
 
 import type { PluginConfig, PluginScope } from '../../config/schema.js'
 import { resolveNamzuHome } from '../state/home.js'
+import { isTrusted } from '../trust/store.js'
 import { CHECK_HINT, checkHint } from './check-hint.js'
+import { loadInstalledManifest, planInstalledPlugins } from './installed-source.js'
+import { isReservedPluginDir } from './records.js'
 import { PluginSettingsStore } from './settings.js'
 
 export { CHECK_HINT, checkHint }
@@ -137,6 +145,8 @@ export async function readPluginFileSources(options: {
 	readonly config?: PluginConfig | undefined
 	readonly cwd: string
 	readonly userRoot?: string
+	/** Whether `cwd` is trusted; absent, the trust list says. */
+	readonly projectTrusted?: boolean
 }): Promise<PluginFileSources> {
 	const { config, cwd } = options
 	const userRoot = options.userRoot ?? resolveNamzuHome()
@@ -144,6 +154,7 @@ export async function readPluginFileSources(options: {
 	if (config?.enabled !== true && launchDirs.length === 0) return EMPTY_PLUGIN_FILE_SOURCES
 
 	const found: { dir: string; authority: string }[] = []
+	const launched: string[] = []
 	if (config?.enabled === true) {
 		const allowedScopes: readonly PluginScope[] = config.allowedScopes ?? ['project', 'user']
 		const discovered = await discoverAllPluginDirs(cwd, {
@@ -154,26 +165,32 @@ export async function readPluginFileSources(options: {
 		})
 		for (const scope of allowedScopes) {
 			for (const dir of [...discovered[scope]].sort((a, b) => a.localeCompare(b))) {
+				if (scope === 'user' && isReservedPluginDir(userRoot, dir)) continue
 				found.push({ dir, authority: scope === 'project' ? cwd : userRoot })
 			}
 		}
 	}
-	for (const dir of launchDirs) found.push({ dir, authority: dir })
+	for (const dir of launchDirs) launched.push(dir)
 
 	const settings = new PluginSettingsStore(userRoot)
 	const commands: PluginFileDir[] = []
 	const agents: PluginFileDir[] = []
 	const problems: string[] = []
-	for (const { dir, authority } of found) {
+	const names = new Set<string>()
+	const take = (manifest: PluginManifest, rootDir: string): void => {
+		names.add(manifest.name)
+		const c = resolvePluginFileDirs(manifest.name, rootDir, manifest.commands, manifest.layout)
+		const a = resolvePluginFileDirs(manifest.name, rootDir, manifest.agents, manifest.layout)
+		commands.push(...c.dirs)
+		agents.push(...a.dirs)
+		problems.push(...c.problems, ...a.problems)
+	}
+	const fromFolder = async (dir: string, authority: string): Promise<void> => {
 		try {
 			const rootDir = await resolveWithinReal(authority, dir)
 			const manifest = await loadPluginManifest(rootDir, { skillsSupported: true })
-			if (!settings.read({ rootDir, name: manifest.name })) continue
-			const c = resolvePluginFileDirs(manifest.name, rootDir, manifest.commands, manifest.layout)
-			const a = resolvePluginFileDirs(manifest.name, rootDir, manifest.agents, manifest.layout)
-			commands.push(...c.dirs)
-			agents.push(...a.dirs)
-			problems.push(...c.problems, ...a.problems)
+			if (!settings.read({ rootDir, name: manifest.name })) return
+			take(manifest, rootDir)
 		} catch (error) {
 			// The runtime reports a broken plugin when it starts. Here it only
 			// means this plugin adds no files.
@@ -182,5 +199,47 @@ export async function readPluginFileSources(options: {
 			)
 		}
 	}
+	for (const { dir, authority } of found) await fromFolder(dir, authority)
+	// Installed plugins: the same ones the runtime admits, and a name a
+	// hand-placed or `--plugin-dir` plugin already holds is not theirs.
+	if (config?.enabled === true) {
+		const launchNames = new Set<string>()
+		for (const dir of launched) {
+			try {
+				launchNames.add((await loadPluginManifest(dir, { skillsSupported: true })).name)
+			} catch {
+				// Reported when that folder is read below.
+			}
+		}
+		const plan = planInstalledPlugins({
+			home: userRoot,
+			cwd,
+			projectTrusted: options.projectTrusted ?? isTrustedFolder(cwd),
+			allowedScopes: config.allowedScopes ?? ['project', 'user'],
+		})
+		for (const candidate of plan.candidates) {
+			if (!candidate.answer.on || names.has(candidate.name) || launchNames.has(candidate.name))
+				continue
+			try {
+				take(
+					await loadInstalledManifest(candidate, { home: userRoot, cwd, installedNames: names }),
+					candidate.installPath,
+				)
+			} catch (error) {
+				problems.push(
+					`${candidate.id} was skipped: ${error instanceof Error ? error.message : String(error)}`,
+				)
+			}
+		}
+	}
+	for (const dir of launched) await fromFolder(dir, dir)
 	return { commands, agents, problems }
+}
+
+function isTrustedFolder(cwd: string): boolean {
+	try {
+		return isTrusted(cwd)
+	} catch {
+		return false
+	}
 }

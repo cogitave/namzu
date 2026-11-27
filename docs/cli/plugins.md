@@ -205,8 +205,25 @@ is not a sandbox for plugin startup code. Project trust and admitted scope roots
 still apply. Refused manifests stop plugin startup and roll back already loaded
 contributions. A failed or timed-out MCP handshake starts bounded transport
 shutdown before rollback completes. The shipped stdio transport escalates to
-process termination if its child does not exit. Namzu does not install another
-application's plugin format or download a marketplace through this menu.
+process termination if its child does not exit. This menu does not install
+plugins or download a marketplace. Plugins that were installed on this computer
+(they have an install record) load as a third source and are managed with
+`namzu plugin list`, `details`, `enable` and `disable`; see
+[Installed plugins](plugin-records.md).
+
+## Installed plugins
+
+A plugin installed on this computer is a copy under `$NAMZU_HOME/plugins/cache/`
+with an install record, an install manifest and a recorded yes or no in a
+settings file. When `plugins.enabled` is true the runtime loads these after the
+hand-placed plugins above and before folders named with `--plugin-dir`. They
+are explicit records, so `plugins.autoDiscovery: false` does not hide them;
+`plugins.allowedScopes` and folder trust still decide which records apply. A
+plugin whose executable files changed since you accepted it, or that cannot be
+read, is skipped and reported; the others load. The folders `cache`, `marketplaces`
+and `data` under `plugins/` are Namzu's own state and are never scanned for
+hand-placed plugins. Everything about the records, the settings keys, who may
+turn a plugin on and the four commands is on [Installed plugins](plugin-records.md).
 
 ## Check a plugin before you share it
 
