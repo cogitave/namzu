@@ -56,6 +56,8 @@ export interface SkillCatalogEntryView {
 
 export interface SkillCatalogView {
 	skills: SkillCatalogEntryView[]
+	/** The engine can add, make and remove skills; set by main, absent from an older answer. */
+	canManage?: boolean
 }
 
 export function readSkillCatalog(value: unknown): SkillCatalogView {

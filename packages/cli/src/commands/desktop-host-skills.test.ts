@@ -175,6 +175,49 @@ describe('namzu/skills/stage', () => {
 		expect(stages.has(ids[SKILL_STAGE_MAX] as string)).toBe(true)
 	})
 
+	it('caps the bytes one stage holds and refuses the item that goes over', async () => {
+		const a = put('a.md', md('a-skill', 'x'.repeat(100)))
+		const b = put('b.md', md('b-skill', 'y'.repeat(100)))
+		const { methods } = createDesktopSkillActions({
+			cwd,
+			home,
+			pal: () => false,
+			isTrusted: () => true,
+			stageBytesMax: 200,
+		})
+		const answer = (await methods['namzu/skills/stage']({
+			paths: [a, b],
+		})) as StageAnswer
+		expect(answer.items[0]?.error).toBeUndefined()
+		expect(answer.items[1]?.error).toContain('Too much to add at once')
+		expect(answer.items[1]?.name).toBeUndefined()
+	})
+
+	it('drops the oldest stage when all stages together hold too much', async () => {
+		const a = put('a.md', md('a-skill', 'x'.repeat(100)))
+		const measure = createDesktopSkillActions({
+			cwd,
+			home,
+			pal: () => false,
+			isTrusted: () => true,
+		})
+		const size = ((await measure.methods['namzu/skills/stage']({ paths: [a] })) as StageAnswer)
+			.items[0]?.bytes as number
+		const { methods, stages } = createDesktopSkillActions({
+			cwd,
+			home,
+			pal: () => false,
+			isTrusted: () => true,
+			stagesBytesMax: size * 2 + 1,
+		})
+		const ids: string[] = []
+		for (let i = 0; i < 3; i++)
+			ids.push(((await methods['namzu/skills/stage']({ paths: [a] })) as StageAnswer).stageId)
+		expect(stages.size).toBe(2)
+		expect(stages.has(ids[0] as string)).toBe(false)
+		expect(stages.has(ids[2] as string)).toBe(true)
+	})
+
 	it('refuses a Pal', async () => {
 		const { methods } = actions()
 		pal = true

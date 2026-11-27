@@ -69,6 +69,7 @@ export async function checkSkillPath(
 export function enginePath(
 	path: string,
 	engine: 'local' | 'wsl',
+	distro?: string,
 ): { path: string } | { error: string } {
 	if (engine === 'local') return { path }
 	const drive = /^([A-Za-z]):[\\/](.*)$/.exec(path)
@@ -76,22 +77,33 @@ export function enginePath(
 		return {
 			path: `/mnt/${(drive[1] as string).toLowerCase()}/${(drive[2] as string).replace(/\\/g, '/')}`,
 		}
-	const share = /^\\\\(?:wsl\$|wsl\.localhost)\\[^\\]+\\(.*)$/i.exec(path)
-	if (share) return { path: `/${(share[1] as string).replace(/\\/g, '/')}` }
+	const share = /^\\\\(?:wsl\$|wsl\.localhost)\\([^\\]+)\\(.*)$/i.exec(path)
+	if (share) {
+		// A path in another distribution names a different file system than the engine reads.
+		if (distro !== undefined && (share[1] as string).toLowerCase() !== distro.toLowerCase())
+			return { error: OTHER_FILE_SYSTEM_MESSAGE }
+		return { path: `/${(share[2] as string).replace(/\\/g, '/')}` }
+	}
 	return { error: OTHER_FILE_SYSTEM_MESSAGE }
 }
 
 export interface SkillPathRegistry {
 	/** Checks and remembers what the person chose in window `windowId`. */
 	register(windowId: string, paths: readonly string[]): Promise<SkillPathChoice[]>
-	/** The engine's spelling of each path, once each was registered for this window; forgets them. */
+	/** The engine's spelling of each path, once each was registered for this window. A path stays
+	 * registered until the window closes or newer choices push it out, so the page can stage again. */
 	take(windowId: string, paths: unknown): { paths: string[] } | { error: string }
 	/** The window is gone. */
 	forget(windowId: string): void
 }
 
 export function createSkillPathRegistry(
-	options: { stat?: SkillPathStat; engine?: () => 'local' | 'wsl' } = {},
+	options: {
+		stat?: SkillPathStat
+		engine?: () => 'local' | 'wsl'
+		/** The WSL distribution the engine runs in, when known. */
+		distro?: () => string | undefined
+	} = {},
 ): SkillPathRegistry {
 	const known = new Map<string, Set<string>>()
 	return {
@@ -130,11 +142,10 @@ export function createSkillPathRegistry(
 				return { error: 'Choose the file again.' }
 			const forwarded: string[] = []
 			for (const path of paths as string[]) {
-				const translated = enginePath(path, options.engine?.() ?? 'local')
+				const translated = enginePath(path, options.engine?.() ?? 'local', options.distro?.())
 				if ('error' in translated) return translated
 				forwarded.push(translated.path)
 			}
-			for (const path of paths as string[]) set.delete(path)
 			return { paths: forwarded }
 		},
 		forget(windowId) {

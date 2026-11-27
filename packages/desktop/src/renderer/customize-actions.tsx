@@ -11,9 +11,9 @@ import {
 	CONNECTOR_NAME_HELP,
 	CONNECTOR_NOTICE,
 	CONNECTOR_URL_HELP,
-	CREATE_HINT,
 	type CardState,
 	type ConnectorAuth,
+	type ConnectorProblems,
 	DESCRIPTION_MAX,
 	FRONTMATTER_NOTE,
 	PROJECT_UNTRUSTED,
@@ -23,9 +23,11 @@ import {
 	UPLOAD_HELP,
 	UPLOAD_LIMIT,
 	UPLOAD_SUBTITLE,
+	XML_DESCRIPTION_PROBLEM,
 	collisionLine,
 	connectorChange,
 	connectorProblem,
+	connectorProblems,
 	createProblem,
 	emptyConnector,
 	skillFolderName,
@@ -168,6 +170,10 @@ export function StageCard({
 	)
 }
 
+/** What a yes was given to: the name alone cannot tell two files of that name apart. */
+const itemSignature = (item: SkillStageView['items'][number]): string =>
+	[item.fileName, item.kind, item.files, item.bytes, item.description].join('\0')
+
 /** The page behind Add, Upload skill: choose files, read what each would do, then add them. */
 export function UploadSkillPage({
 	api,
@@ -191,6 +197,7 @@ export function UploadSkillPage({
 	const [over, setOver] = useState(false)
 	const live = useRef(true)
 	const latest = useRef(0)
+	const acceptedFor = useRef(new Map<string, string>())
 	useEffect(() => {
 		live.current = true
 		return () => {
@@ -208,8 +215,18 @@ export function UploadSkillPage({
 			try {
 				const answer = await api.stageSkills(paths, projectId)
 				if (live.current && latest.current === mine) {
-					if (answer) setStage(answer)
-					else setProblem('Update Namzu to add skills from here.')
+					if (answer) {
+						setStage(answer)
+						// A yes holds only for the same file it was given to; anything else asks again.
+						setAccept((all) => {
+							const kept = new Set<string>()
+							for (const name of all) {
+								const item = answer.items.find((other) => other.name === name)
+								if (item && acceptedFor.current.get(name) === itemSignature(item)) kept.add(name)
+							}
+							return kept
+						})
+					} else setProblem('Update Namzu to add skills from here.')
 				}
 			} catch (failure) {
 				if (live.current && latest.current === mine)
@@ -371,9 +388,12 @@ export function UploadSkillPage({
 								onReplace={(on) =>
 									card.item?.name && setReplace((all) => toggle(all, card.item?.name ?? '', on))
 								}
-								onAccept={(on) =>
-									card.item?.name && setAccept((all) => toggle(all, card.item?.name ?? '', on))
-								}
+								onAccept={(on) => {
+									const item = card.item
+									if (!item?.name) return
+									if (on) acceptedFor.current.set(item.name, itemSignature(item))
+									setAccept((all) => toggle(all, item.name ?? '', on))
+								}}
 								onRemove={() => void reading(choices.filter((other) => other !== card.choice))}
 							/>
 						))}
@@ -387,7 +407,11 @@ export function UploadSkillPage({
 					</p>
 				)}
 				<div className="customize-actions">
-					<Button disabled={Boolean(reasonBlocked) || busy} onClick={() => void upload()}>
+					<Button
+						className="customize-primary"
+						disabled={Boolean(reasonBlocked) || busy}
+						onClick={() => void upload()}
+					>
 						{busy ? 'Adding…' : 'Upload'}
 					</Button>
 					<Button variant="outline" onClick={onBack}>
@@ -410,18 +434,21 @@ function Overlay({
 	onClose,
 	returnFocus,
 	size = 'form',
+	locked = false,
 }: {
 	title: string
 	children: React.ReactNode
 	onClose: () => void
 	returnFocus: () => HTMLElement | null
 	size?: 'form' | 'wide'
+	/** A request is running: Escape, the backdrop and the X wait, as Cancel does. */
+	locked?: boolean
 }) {
 	return (
 		<Dialog.Root
 			open
 			onOpenChange={(open) => {
-				if (!open) onClose()
+				if (!open && !locked) onClose()
 			}}
 		>
 			<Dialog.Portal>
@@ -453,11 +480,13 @@ export function CreateSkillForm({
 	projectId,
 	onClose,
 	onCreated,
+	onPending,
 }: {
 	api: Pick<DesktopApi, 'createSkill'>
 	projectId?: string
 	onClose: () => void
 	onCreated: (name: string) => void
+	onPending?: (pending: boolean) => void
 }) {
 	const uid = useId()
 	const [name, setName] = useState('')
@@ -466,7 +495,11 @@ export function CreateSkillForm({
 	const [scope, setScope] = useState<SkillScope>('user')
 	const [exists, setExists] = useState(false)
 	const [error, setError] = useState<string>()
-	const [pending, setPending] = useState(false)
+	const [pending, setPendingState] = useState(false)
+	const setPending = (value: boolean) => {
+		setPendingState(value)
+		onPending?.(value)
+	}
 	const folder = skillFolderName(name)
 	const problem = createProblem({ name, description, instructions })
 	const submit = async (replace: boolean) => {
@@ -549,9 +582,7 @@ export function CreateSkillForm({
 				<span className="customize-counter">
 					{description.length}/{DESCRIPTION_MAX}
 				</span>
-				{problem === 'Description cannot contain XML tags' && (
-					<span className="customize-error">{problem}</span>
-				)}
+				{problem === XML_DESCRIPTION_PROBLEM && <span className="customize-error">{problem}</span>}
 			</div>
 			<div className="customize-field">
 				<label className="customize-field-label" htmlFor={`${uid}-instructions`}>
@@ -577,8 +608,8 @@ export function CreateSkillForm({
 				</p>
 			)}
 			<div className="dialog-actions customize-dialog-actions">
-				{problem && problem === CREATE_HINT && (
-					<span className="customize-hint customize-dialog-hint">{CREATE_HINT}</span>
+				{problem && problem !== XML_DESCRIPTION_PROBLEM && (
+					<span className="customize-hint customize-dialog-hint">{problem}</span>
 				)}
 				<Button type="button" variant="outline" disabled={pending} onClick={onClose}>
 					Cancel
@@ -593,7 +624,11 @@ export function CreateSkillForm({
 						Replace
 					</Button>
 				)}
-				<Button type="submit" disabled={Boolean(problem) || pending || exists}>
+				<Button
+					type="submit"
+					className="customize-primary"
+					disabled={Boolean(problem) || pending || exists}
+				>
 					{pending ? 'Creating…' : 'Create'}
 				</Button>
 			</div>
@@ -606,9 +641,16 @@ export function CreateSkillDialog({
 	onClose,
 	...form
 }: Parameters<typeof CreateSkillForm>[0] & { returnFocus: () => HTMLElement | null }) {
+	const [busy, setBusy] = useState(false)
 	return (
-		<Overlay title="Create a skill" onClose={onClose} returnFocus={returnFocus} size="wide">
-			<CreateSkillForm onClose={onClose} {...form} />
+		<Overlay
+			title="Create a skill"
+			onClose={onClose}
+			returnFocus={returnFocus}
+			size="wide"
+			locked={busy}
+		>
+			<CreateSkillForm onClose={onClose} {...form} onPending={setBusy} />
 		</Overlay>
 	)
 }
@@ -624,17 +666,31 @@ export function AddConnectorForm({
 	save,
 	onClose,
 	onSaved,
+	onPending,
 }: {
 	/** Saves through `namzu/mcp/save-user-server`; true once the engine took it. */
 	save: (change: ReturnType<typeof connectorChange>) => Promise<boolean>
 	onClose: () => void
 	onSaved: (name: string) => void
+	onPending?: (pending: boolean) => void
 }) {
 	const uid = useId()
 	const [draft, setDraft] = useState(emptyConnector)
 	const [error, setError] = useState<string>()
-	const [pending, setPending] = useState(false)
+	const [pending, setPendingState] = useState(false)
+	const setPending = (value: boolean) => {
+		setPendingState(value)
+		onPending?.(value)
+	}
+	// A field shows its own problem once the person has been in it; until then the hint says what is missing.
+	const [touched, setTouched] = useState<ReadonlySet<keyof ConnectorProblems>>(() => new Set())
+	const touch = (field: keyof ConnectorProblems) =>
+		setTouched((all) => (all.has(field) ? all : new Set(all).add(field)))
+	const problems = connectorProblems(draft)
 	const problem = connectorProblem(draft)
+	const shown = (field: keyof ConnectorProblems): string | undefined =>
+		touched.has(field) ? problems[field] : undefined
+	const anyShown = shown('name') ?? shown('url') ?? shown('header')
 	const submit = async () => {
 		if (problem || pending) return
 		setPending(true)
@@ -667,12 +723,22 @@ export function AddConnectorForm({
 					data-autofocus
 					className="customize-input"
 					value={draft.name}
-					placeholder="Name"
+					placeholder="example-tools"
 					autoComplete="off"
 					spellCheck={false}
+					aria-invalid={Boolean(shown('name')) || undefined}
+					aria-describedby={`${uid}-cname-help${shown('name') ? ` ${uid}-cname-error` : ''}`}
+					onBlur={() => touch('name')}
 					onChange={(event) => setDraft({ ...draft, name: event.target.value })}
 				/>
-				<span className="customize-hint">{CONNECTOR_NAME_HELP}</span>
+				<span className="customize-hint" id={`${uid}-cname-help`}>
+					{CONNECTOR_NAME_HELP}
+				</span>
+				{shown('name') && (
+					<span className="customize-error" id={`${uid}-cname-error`}>
+						{shown('name')}
+					</span>
+				)}
 			</div>
 			<div className="customize-field">
 				<label className="customize-field-label" htmlFor={`${uid}-curl`}>
@@ -682,13 +748,23 @@ export function AddConnectorForm({
 					id={`${uid}-curl`}
 					className="customize-input"
 					value={draft.url}
-					placeholder="MCP server URL"
+					placeholder="https://mcp.example.com/mcp"
 					autoComplete="off"
 					spellCheck={false}
 					inputMode="url"
+					aria-invalid={Boolean(shown('url')) || undefined}
+					aria-describedby={`${uid}-curl-help${shown('url') ? ` ${uid}-curl-error` : ''}`}
+					onBlur={() => touch('url')}
 					onChange={(event) => setDraft({ ...draft, url: event.target.value })}
 				/>
-				<span className="customize-hint">{CONNECTOR_URL_HELP}</span>
+				<span className="customize-hint" id={`${uid}-curl-help`}>
+					{CONNECTOR_URL_HELP}
+				</span>
+				{shown('url') && (
+					<span className="customize-error" id={`${uid}-curl-error`}>
+						{shown('url')}
+					</span>
+				)}
 			</div>
 			<fieldset className="customize-fieldset">
 				<legend className="customize-field-label">Authentication</legend>
@@ -710,6 +786,9 @@ export function AddConnectorForm({
 						<input
 							className="customize-input"
 							aria-label="Header name"
+							aria-invalid={Boolean(shown('header')) || undefined}
+							aria-describedby={shown('header') ? `${uid}-cheader-error` : undefined}
+							onBlur={() => touch('header')}
 							placeholder="Authorization"
 							value={draft.header.name}
 							autoComplete="off"
@@ -721,6 +800,9 @@ export function AddConnectorForm({
 						<input
 							className="customize-input"
 							aria-label="Header value"
+							aria-invalid={Boolean(shown('header')) || undefined}
+							aria-describedby={shown('header') ? `${uid}-cheader-error` : undefined}
+							onBlur={() => touch('header')}
 							placeholder="Bearer ${EXAMPLE_TOKEN}"
 							value={draft.header.value}
 							autoComplete="off"
@@ -731,6 +813,11 @@ export function AddConnectorForm({
 						/>
 					</div>
 				)}
+				{shown('header') && (
+					<span className="customize-error" id={`${uid}-cheader-error`}>
+						{shown('header')}
+					</span>
+				)}
 			</fieldset>
 			<p className="dialog-body">{CONNECTOR_NOTICE}</p>
 			{error && (
@@ -739,10 +826,13 @@ export function AddConnectorForm({
 				</p>
 			)}
 			<div className="dialog-actions customize-dialog-actions">
+				{problem && !anyShown && (
+					<span className="customize-hint customize-dialog-hint">{problem}</span>
+				)}
 				<Button type="button" variant="outline" disabled={pending} onClick={onClose}>
 					Cancel
 				</Button>
-				<Button type="submit" disabled={Boolean(problem) || pending}>
+				<Button type="submit" className="customize-primary" disabled={Boolean(problem) || pending}>
 					{pending ? 'Saving…' : 'Save'}
 				</Button>
 			</div>
@@ -755,9 +845,10 @@ export function AddConnectorDialog({
 	onClose,
 	...form
 }: Parameters<typeof AddConnectorForm>[0] & { returnFocus: () => HTMLElement | null }) {
+	const [busy, setBusy] = useState(false)
 	return (
-		<Overlay title="Add custom connector" onClose={onClose} returnFocus={returnFocus}>
-			<AddConnectorForm onClose={onClose} {...form} />
+		<Overlay title="Add custom connector" onClose={onClose} returnFocus={returnFocus} locked={busy}>
+			<AddConnectorForm onClose={onClose} {...form} onPending={setBusy} />
 		</Overlay>
 	)
 }

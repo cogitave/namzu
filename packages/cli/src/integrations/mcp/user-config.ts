@@ -240,7 +240,8 @@ export function checkUserMcpServerInput(input: UserMcpServerInput): UserMcpServe
 		// A header travels with every request, so it never goes over plain http to another computer.
 		if (headers && new URL(url).protocol === 'http:' && !isLocalHost(new URL(url).hostname))
 			throw new Error('Headers need an https address, or one that points at this computer.')
-		return { url, ...(headers ? { headers } : {}) }
+		// An empty set is kept as one: an edit reads it as "clear the headers".
+		return { url, ...(headers ? { headers } : input.headers !== undefined ? { headers: {} } : {}) }
 	}
 	if (input.headers !== undefined && Object.keys(input.headers).length > 0)
 		throw new Error('Headers go with an address, not a command.')
@@ -357,14 +358,21 @@ function saveCheckedServer(
 ): void {
 	const checked = checkUserMcpServerSave(mode, name, input, opts)
 	if (mode === 'add') {
-		addUserMcpServer(name, checked as McpServerSpec, opts)
+		const { headers, ...rest } = checked
+		const spec = headers && Object.keys(headers).length > 0 ? checked : rest
+		addUserMcpServer(name, spec as McpServerSpec, opts)
 		return
 	}
 	editUserConfigDocument((doc) => {
 		const at = ['mcpServers', name]
 		if (checked.url !== undefined) {
 			doc.setIn([...at, 'url'], checked.url)
-			if (checked.headers) doc.setIn([...at, 'headers'], { ...checked.headers })
+			// Omitted headers are kept (the Settings form never shows them); an empty set clears them.
+			if (checked.headers !== undefined) {
+				if (Object.keys(checked.headers).length > 0)
+					doc.setIn([...at, 'headers'], { ...checked.headers })
+				else doc.deleteIn([...at, 'headers'])
+			}
 			doc.deleteIn([...at, 'command'])
 			doc.deleteIn([...at, 'args'])
 			return
@@ -373,5 +381,7 @@ function saveCheckedServer(
 		if (checked.args && checked.args.length > 0) doc.setIn([...at, 'args'], [...checked.args])
 		else doc.deleteIn([...at, 'args'])
 		doc.deleteIn([...at, 'url'])
+		// Headers belong to an address; a command server keeps none.
+		doc.deleteIn([...at, 'headers'])
 	}, opts)
 }

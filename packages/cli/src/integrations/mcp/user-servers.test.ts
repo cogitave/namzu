@@ -135,10 +135,8 @@ describe('editing a tool server keeps what the form does not show', () => {
 			cwd: '/work',
 		})
 		saveUserMcpServer('edit', 'remote', { command: 'run' }, opts())
-		expect(servers().remote).toEqual({
-			command: 'run',
-			headers: { Authorization: 'Bearer ${API_TOKEN}' },
-		})
+		// Headers belong to an address, so none are left on a command.
+		expect(servers().remote).toEqual({ command: 'run' })
 	})
 
 	it('refuses to edit what does not exist or cannot be read as a server', () => {
@@ -272,5 +270,7 @@ describe('headers on an address', () => {
 			opts(),
 		)
 		expect(servers().remote?.headers).toEqual({ 'X-B': '${B}' })
+		saveUserMcpServer('edit', 'remote', { url: 'https://example.com/v2', headers: {} }, opts())
+		expect(servers().remote).toEqual({ url: 'https://example.com/v2' })
 	})
 })

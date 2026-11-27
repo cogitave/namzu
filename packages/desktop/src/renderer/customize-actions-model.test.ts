@@ -5,6 +5,7 @@ import {
 	collisionLine,
 	connectorChange,
 	connectorProblem,
+	connectorProblems,
 	createProblem,
 	emptyConnector,
 	sizeWords,
@@ -167,6 +168,21 @@ describe('the connector form', () => {
 				draft({ auth: 'header', header: { name: 'Authorization', value: 'Bearer abc' } }),
 			),
 		).toMatch(/environment reference/)
+	})
+	it('names each problem under the field it belongs to', () => {
+		expect(connectorProblems(draft())).toEqual({})
+		expect(connectorProblems(emptyConnector())).toEqual({
+			name: 'Name the connector.',
+			url: 'Enter the https address of the server.',
+		})
+		expect(
+			connectorProblems(
+				draft({
+					auth: 'header',
+					header: { name: 'Authorization', value: 'Bearer abc' },
+				}),
+			),
+		).toEqual({ header: expect.stringMatching(/environment reference/) })
 	})
 	it('sends the header as a reference only when the header option is chosen', () => {
 		expect(connectorChange(draft())).toEqual({

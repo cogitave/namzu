@@ -38,6 +38,10 @@ import {
 
 export const SKILL_STAGE_TTL_MS = 10 * 60 * 1000
 export const SKILL_STAGE_MAX = 4
+/** Unpacked bytes one stage may hold across its items. */
+export const SKILL_STAGE_BYTES_MAX = 64 * 1024 * 1024
+/** Unpacked bytes all live stages may hold together; the oldest stage goes first. */
+export const SKILL_STAGES_BYTES_MAX = 128 * 1024 * 1024
 export const SKILL_PATH_MAX_CHARS = 4096
 const FINDINGS_MAX = 20
 const LINE_MAX = 300
@@ -68,6 +72,7 @@ interface StagedItem {
 }
 
 interface Stage {
+	readonly bytes: number
 	readonly items: readonly StagedItem[]
 	readonly expiresAt: number
 	readonly digest: string
@@ -82,6 +87,9 @@ export interface SkillActionDeps {
 	/** The OS home folder (tests); absent means `NAMZU_HOME` and the real home. */
 	readonly home?: string
 	readonly now?: () => number
+	/** Byte caps for one stage and for all stages together (tests); default to the constants. */
+	readonly stageBytesMax?: number
+	readonly stagesBytesMax?: number
 }
 
 const line = (text: string): string =>
@@ -274,8 +282,40 @@ export function createDesktopSkillActions(deps: SkillActionDeps) {
 				throw new Error('Choose between 1 and 20 skills.')
 			prune()
 			const unique = [...new Set(paths as string[])]
-			const results = unique.map(stageOne)
-			while (stages.size >= SKILL_STAGE_MAX) {
+			let held = 0
+			const results = unique.map((path) => {
+				const result = stageOne(path)
+				const size = result.item.bytes ?? 0
+				if (held + size <= (deps.stageBytesMax ?? SKILL_STAGE_BYTES_MAX)) {
+					held += size
+					return result
+				}
+				// Over the total for one stage: the item is refused and its bytes are dropped.
+				const fileName = result.item.fileName
+				return {
+					item: {
+						fileName,
+						kind: result.item.kind,
+						findings: [],
+						grants: [],
+						scripts: [],
+						error: 'Too much to add at once. Add the rest in a second step.',
+					} as SkillStageItem,
+					staged: {
+						digest: createHash('sha256').update(`over\0${path}`).digest('hex'),
+					},
+				}
+			})
+			const heldBytes = (): number => {
+				let sum = 0
+				for (const stage of stages.values()) sum += stage.bytes
+				return sum
+			}
+			while (
+				stages.size > 0 &&
+				(stages.size >= SKILL_STAGE_MAX ||
+					heldBytes() + held > (deps.stagesBytesMax ?? SKILL_STAGES_BYTES_MAX))
+			) {
 				const oldest = stages.keys().next().value
 				if (oldest === undefined) break
 				stages.delete(oldest)
@@ -283,7 +323,12 @@ export function createDesktopSkillActions(deps: SkillActionDeps) {
 			const stageId = randomUUID()
 			const items = results.map((r) => r.staged)
 			const expiresAt = now() + SKILL_STAGE_TTL_MS
-			stages.set(stageId, { items, expiresAt, digest: stageDigest(items) })
+			stages.set(stageId, {
+				items,
+				expiresAt,
+				digest: stageDigest(items),
+				bytes: held,
+			})
 			return {
 				stageId,
 				items: results.map((r) => r.item),

@@ -917,6 +917,20 @@
 	font-size: var(--text-small);
 	cursor: pointer;
 }
+.customize-segment input {
+	accent-color: var(--primary);
+}
+.customize-fieldset > legend {
+	margin-bottom: 6px;
+}
+/* A primary button that cannot be pressed reads as flat and muted, not as a live green one. */
+.customize-primary.customize-primary:disabled {
+	opacity: 1;
+	border-color: var(--border);
+	background: var(--muted);
+	color: var(--muted-foreground);
+	box-shadow: none;
+}
 .customize-segment:has(input:checked) {
 	background: var(--sidebar-row-active);
 }
@@ -933,6 +947,14 @@
 	align-items: center;
 	gap: 8px;
 	margin-top: 8px;
+}
+/* Upload, Cancel and the reason stay in view however many cards are listed. */
+.customize-upload > .customize-actions {
+	position: sticky;
+	bottom: 0;
+	z-index: 1;
+	padding: 12px 0;
+	background: var(--background);
 }
 
 /* The two dialogs */
@@ -1001,7 +1023,8 @@
 	resize: vertical;
 }
 .customize-input::placeholder {
-	color: var(--placeholder, var(--muted-foreground));
+	color: var(--muted-foreground);
+	opacity: 0.55;
 }
 .customize-input:focus-visible {
 	outline: 2px solid transparent;

@@ -165,7 +165,7 @@ export function CustomizePage({
 
 	const searchLabel = `Search ${tab}`
 	// An engine that cannot stage or make skills hides the entries it cannot serve.
-	const canManage = Boolean(rows) && !skills.basic && Boolean(api.stageSkills)
+	const canManage = Boolean(rows) && !skills.basic && skills.canManage && Boolean(api.stageSkills)
 	const skillEntries: MenuEntry[] = [
 		...(canManage
 			? [

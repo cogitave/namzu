@@ -1386,7 +1386,9 @@ export class Operator {
 		const skills = await this.skillsClient(projectId)
 		if (!skills) return null
 		const result = await skills.client.request('namzu/skills/catalog', {})
-		return skills.current() ? readSkillCatalog(result) : null
+		return skills.current()
+			? { ...readSkillCatalog(result), canManage: skills.client.supportsSkillsManage() }
+			: null
 	}
 	/** The files in one skill's folder. */
 	async skillFiles(name: unknown, projectId?: unknown): Promise<SkillFilesView | null> {

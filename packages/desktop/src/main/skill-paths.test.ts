@@ -52,7 +52,7 @@ describe('checking a path', () => {
 describe('the path registry', () => {
 	const registry = () => createSkillPathRegistry({ stat: stat(entries) })
 
-	it('registers only what passed the check and hands each back once', async () => {
+	it('registers only what passed the check and keeps them for the window', async () => {
 		const r = registry()
 		const chosen = await r.register('w1', ['/in/a.md', '/in/link.md', '/in/folder'])
 		expect(chosen).toEqual([
@@ -63,7 +63,22 @@ describe('the path registry', () => {
 		expect(r.take('w1', ['/in/a.md', '/in/folder'])).toEqual({
 			paths: ['/in/a.md', '/in/folder'],
 		})
-		expect(r.take('w1', ['/in/a.md'])).toEqual({ error: 'Choose the file again.' })
+		// Staging again (a second file added, a card removed, a retry) sends the same paths.
+		expect(r.take('w1', ['/in/a.md'])).toEqual({ paths: ['/in/a.md'] })
+	})
+
+	it('lets the page stage again after adding a file, removing a card or retrying', async () => {
+		const r = registry()
+		await r.register('w1', ['/in/a.md'])
+		expect(r.take('w1', ['/in/a.md'])).toEqual({ paths: ['/in/a.md'] })
+		await r.register('w1', ['/in/folder'])
+		expect(r.take('w1', ['/in/a.md', '/in/folder'])).toEqual({
+			paths: ['/in/a.md', '/in/folder'],
+		})
+		expect(r.take('w1', ['/in/folder'])).toEqual({ paths: ['/in/folder'] })
+		expect(r.take('w1', ['/in/a.md', '/in/folder'])).toEqual({
+			paths: ['/in/a.md', '/in/folder'],
+		})
 	})
 
 	it('refuses a path the page made up, one from another window, and one that failed the check', async () => {
@@ -73,7 +88,6 @@ describe('the path registry', () => {
 		expect(r.take('w2', ['/in/a.md'])).toEqual({ error: 'Choose the file again.' })
 		expect(r.take('w1', ['/in/link.md'])).toEqual({ error: 'Choose the file again.' })
 		expect(r.take('w1', ['/in/a.md', '/etc/passwd'])).toEqual({ error: 'Choose the file again.' })
-		// A refused take forgets nothing.
 		expect(r.take('w1', ['/in/a.md'])).toEqual({ paths: ['/in/a.md'] })
 	})
 
@@ -99,6 +113,12 @@ describe('the path registry', () => {
 		expect(enginePath('C:\\in\\a.md', 'wsl')).toEqual({ path: '/mnt/c/in/a.md' })
 		expect(enginePath('\\\\wsl$\\Ubuntu\\home\\me\\a.md', 'wsl')).toEqual({
 			path: '/home/me/a.md',
+		})
+		expect(enginePath('\\\\wsl$\\Ubuntu\\home\\me\\a.md', 'wsl', 'ubuntu')).toEqual({
+			path: '/home/me/a.md',
+		})
+		expect(enginePath('\\\\wsl$\\Other\\home\\me\\a.md', 'wsl', 'Ubuntu')).toEqual({
+			error: OTHER_FILE_SYSTEM_MESSAGE,
 		})
 		expect(enginePath('\\\\server\\share\\a.md', 'wsl')).toEqual({
 			error: OTHER_FILE_SYSTEM_MESSAGE,

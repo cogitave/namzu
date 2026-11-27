@@ -114,7 +114,7 @@ shape it expects, caps the counts and lengths and drops the rest.
   (`n/1024`; XML tags are refused), **Instructions** (monospace; a leading `---` is flagged) and
   **Where to save**. **Create** stays off until the name and description are valid. A name that is
   taken says *You already have a skill named "x".* and offers **Replace**. On success the new skill
-  opens. No model is involved. There is no attached-files list yet.
+  opens. No model is involved. There is no attached-files list: an optional **Add file** (extra files beside `SKILL.md`) was left out on purpose, and `namzu/skills/create` takes no files; a skill with extra files is added with **Upload skill**. Whatever keeps **Create** off is written beside it (*Add a valid name and description before saving.*, *Write what the skill should do.*, the length limit, XML tags), and a disabled primary button is drawn flat and muted so it does not read as live.
 - **Remove** in a row's menu (user and project skills only) asks **Remove skill?** with *"x" will
   be removed from this computer. A copy is kept in Namzu's backups, so you can put it back.* and
   moves the folder to the backups.
@@ -122,7 +122,7 @@ shape it expects, caps the counts and lengths and drops the rest.
   computer), **Authentication** (**No sign-in**, **Sign in when asked**, or **Header** with a name
   and a value written as an environment reference such as `Bearer ${EXAMPLE_TOKEN}`; a literal
   value is not accepted, so no secret is typed or stored), the notice about trusting developers,
-  **Cancel** and **Save**. It saves through `namzu/mcp/save-user-server`. The server is one of your
+  **Cancel** and **Save**. **Save** stays off until the form is valid, and the reason sits beside it (*Name the connector.*, the address and header rules); once a field has been visited its own problem shows under it. Escape, the backdrop and the X wait while a request runs, as **Cancel** does. It saves through `namzu/mcp/save-user-server`. The server is one of your
   own settings, so its row reads *Remote*, *Your own settings* and a dash; nothing waits for an
   approval. Toasts from this page show over it (the page used to hide the notice area with the
   conversation).
@@ -137,20 +137,21 @@ The page's Add and Remove actions (above) rest on four host methods in the group
 built on the same modules as [`namzu skills add`, `create` and `remove`](skills-add.md). A method
 refuses a Pal, takes exact keys with length caps, and refuses `scope: project` and `tier: project`
 for a folder nobody trusted. An older engine lacks the group, so the page hides the entries it
-cannot serve. Success answers carry `It loads in new conversations.`, because a running
+cannot serve: the catalog answer carries `canManage`, which main sets from the engine's `skillsManage` group, so an engine with the catalog but without the group hides them too. Success answers carry `It loads in new conversations.`, because a running
 conversation keeps what it loaded.
 
 - **Stage, then install.** `stage` reads and checks what the person chose and returns what each
   item is, what it can run (`grants`), the scripts it ships and whether the name is already in use;
-  it writes nothing. The items stay in the host's memory for ten minutes (at most four stages), and
+  it writes nothing. The items stay in the host's memory for ten minutes (at most four stages, at most 64 MiB of unpacked files in one stage and 128 MiB across all stages; an item over the stage's total is an item with an error, and the oldest stage goes first when the total is passed), and
   `install` recomputes their digest before it writes, so the app can install only what the person
   was shown.
 - **Which paths.** The app's main process opens the file dialog (`.skill`, `.zip`, `.md`) and a
   separate Choose a folder dialog, or takes a drop whose path the preload reads with
   `webUtils.getPathForFile`. It checks each path with `lstat` (a regular file of at most 30 MB, or a
-  folder, never a link; at most 20 at once) and remembers it for that window. The page can name a
-  path only to take back one it was given: a path it made up is refused before the engine is asked.
+  folder, never a link; at most 20 at once) and remembers it for that window (the last 64). The page can name a
+  path only to take back one it was given, and may name it again for as long as the window lives, so adding a second file, removing a card or retrying after a partial failure stages the same paths again; a path it made up is refused before the engine is asked. A \\wsl$ path in a distribution other than the engine's is refused like any other file system.
   The engine checks everything again. An engine on another file system gets a translated path, or
   `This engine cannot read that file. Use a file on the engine's computer.`
 - **Connector headers.** The Add custom connector dialog saves through `namzu/mcp/save-user-server`
   with `headers`: names and values that are environment references only (see [Desktop](desktop.md)).
+- **Consent follows the file.** The *I trust what it can run* tick is kept only for the same file (name, size, file count and description); choosing a different file of the same name asks again.

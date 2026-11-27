@@ -20,6 +20,7 @@ export const UPLOAD_CHECKED_LINE =
 	'Each skill is checked when you add it: name, description, size, links and what it can run. Nothing leaves your computer.'
 export const UPLOAD_HINT = 'Choose a file to continue.'
 export const PROJECT_UNTRUSTED = 'Open a trusted project folder to save skills there.'
+export const XML_DESCRIPTION_PROBLEM = 'Description cannot contain XML tags'
 export const CREATE_HINT = 'Add a valid name and description before saving.'
 export const CONNECTOR_NOTICE =
 	'Only use connectors from developers you trust. Namzu cannot verify what their tools do or that they will not change.'
@@ -148,7 +149,7 @@ export function createProblem(form: {
 	if (form.description.trim() === '') return CREATE_HINT
 	if (form.description.length > DESCRIPTION_MAX)
 		return `Description is longer than ${DESCRIPTION_MAX}.`
-	if (hasXmlTag(form.description)) return 'Description cannot contain XML tags'
+	if (hasXmlTag(form.description)) return XML_DESCRIPTION_PROBLEM
 	if (hasXmlTag(form.name)) return 'Skill name cannot contain XML tags'
 	if (form.instructions.trim() === '') return 'Write what the skill should do.'
 	return undefined
@@ -191,29 +192,50 @@ export const emptyConnector = (): ConnectorDraft => ({
 	header: { name: '', value: '' },
 })
 
-/** What is wrong with the connector form, or nothing; the engine checks it all again. */
-export function connectorProblem(draft: ConnectorDraft): string | undefined {
+/** What is wrong with the connector form, field by field; the engine checks it all again. */
+export interface ConnectorProblems {
+	name?: string
+	url?: string
+	header?: string
+}
+
+export function connectorProblems(draft: ConnectorDraft): ConnectorProblems {
+	const out: ConnectorProblems = {}
 	const name = draft.name.trim()
-	if (!name) return 'Name the connector.'
-	if (!/^[A-Za-z][A-Za-z0-9_-]{0,63}$/.test(name))
-		return 'A name starts with a letter and uses only letters, digits, _ or -, up to 64 characters.'
-	let url: URL
+	if (!name) out.name = 'Name the connector.'
+	else if (!/^[A-Za-z][A-Za-z0-9_-]{0,63}$/.test(name))
+		out.name =
+			'A name starts with a letter and uses only letters, digits, _ or -, up to 64 characters.'
+	let url: URL | undefined
 	try {
 		url = new URL(draft.url.trim())
 	} catch {
-		return 'Enter the https address of the server.'
+		out.url = 'Enter the https address of the server.'
 	}
-	if (url.protocol !== 'https:' && url.protocol !== 'http:')
-		return 'The address must start with http or https.'
-	if (url.protocol === 'http:' && !['localhost', '127.0.0.1', '[::1]'].includes(url.hostname))
-		return 'An http address is only allowed for this computer. Use https.'
-	if (url.username || url.password) return 'Do not put a user name or password in the address.'
+	if (url) {
+		if (url.protocol !== 'https:' && url.protocol !== 'http:')
+			out.url = 'The address must start with http or https.'
+		else if (
+			url.protocol === 'http:' &&
+			!['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)
+		)
+			out.url = 'An http address is only allowed for this computer. Use https.'
+		else if (url.username || url.password)
+			out.url = 'Do not put a user name or password in the address.'
+	}
 	if (draft.auth === 'header') {
-		if (!HEADER_NAME.test(draft.header.name.trim())) return 'Name the header.'
-		if (!HEADER_REFERENCE.test(draft.header.value.trim()))
-			return 'A header value is written as an environment reference such as ${EXAMPLE_TOKEN}, so no secret is stored here.'
+		if (!HEADER_NAME.test(draft.header.name.trim())) out.header = 'Name the header.'
+		else if (!HEADER_REFERENCE.test(draft.header.value.trim()))
+			out.header =
+				'A header value is written as an environment reference such as ${EXAMPLE_TOKEN}, so no secret is stored here.'
 	}
-	return undefined
+	return out
+}
+
+/** The first thing wrong with the connector form, or nothing. */
+export function connectorProblem(draft: ConnectorDraft): string | undefined {
+	const all = connectorProblems(draft)
+	return all.name ?? all.url ?? all.header
 }
 
 /** The change `namzu/mcp/save-user-server` takes for this form. */
