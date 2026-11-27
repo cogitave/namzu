@@ -51,7 +51,7 @@ const AREAS: ReadonlyArray<{ def: CommandDef; sources: readonly string[] }> = [
 	{ def: providersCommand, sources: ['commands/providers.ts'] },
 	{ def: createWorktreeCommand(), sources: [] },
 	{ def: archiveCommand, sources: ['commands/archive.ts'] },
-	{ def: pluginCommand, sources: ['commands/plugin.ts'] },
+	{ def: pluginCommand, sources: ['commands/plugin.ts', 'commands/plugin-records.ts'] },
 	{ def: githubCommand, sources: ['commands/github.ts'] },
 	{
 		def: mcpCommand,

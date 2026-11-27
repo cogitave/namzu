@@ -36,6 +36,7 @@ import {
 	ConversationIcon,
 	EyeIcon,
 	FileIcon,
+	TrashIcon,
 } from './icons.js'
 import { MarkdownContent } from './message.js'
 import { Switch } from './settings-row.js'
@@ -47,17 +48,41 @@ const toggleEntry = (skill: SkillRowModel, onToggle: (on: boolean) => void): Men
 	onSelect: () => onToggle(skill.state === 'off'),
 })
 
+/** Only the skills the person added (their own and the project's) can be removed here. */
+export const skillCanBeRemoved = (skill: SkillRowModel): boolean =>
+	!skill.basic && (skill.tier === 'user' || skill.tier === 'project')
+
+const menuFor = (
+	skill: SkillRowModel,
+	onToggle: (on: boolean) => void,
+	onRemove?: (skill: SkillRowModel) => void,
+): MenuEntry[] => [
+	toggleEntry(skill, onToggle),
+	...(onRemove && skillCanBeRemoved(skill)
+		? [
+				{
+					label: 'Remove',
+					icon: TrashIcon,
+					danger: true,
+					onSelect: () => onRemove(skill),
+				},
+			]
+		: []),
+]
+
 /** The Skills tab: a group per place, a row per skill. */
 export function SkillsList({
 	groups,
 	now,
 	onOpen,
 	onToggle,
+	onRemove,
 }: {
 	groups: readonly SkillGroupModel[]
 	now: number
 	onOpen: (name: string) => void
 	onToggle: (skill: SkillRowModel, on: boolean) => void
+	onRemove?: (skill: SkillRowModel) => void
 }) {
 	return (
 		<div className="customize-groups">
@@ -96,7 +121,7 @@ export function SkillsList({
 								{skillHasMenu(skill) && (
 									<MoreMenu
 										label={`Actions for ${skill.name}`}
-										items={[toggleEntry(skill, (on) => onToggle(skill, on))]}
+										items={menuFor(skill, (on) => onToggle(skill, on), onRemove)}
 									/>
 								)}
 							</li>
@@ -142,6 +167,7 @@ export function SkillDetail({
 	onTry,
 	switchDisabled,
 	contents,
+	onRemove,
 }: {
 	skill: SkillRowModel
 	now: number
@@ -154,6 +180,7 @@ export function SkillDetail({
 	switchDisabled?: string
 	/** What the Contents tab shows; absent when the engine cannot read the folder. */
 	contents?: React.ReactNode
+	onRemove?: (skill: SkillRowModel) => void
 }) {
 	const on = skill.state !== 'off'
 	const lock = switchDisabled ?? skill.locked
@@ -177,7 +204,10 @@ export function SkillDetail({
 						Try in chat
 					</button>
 					{menu && (
-						<MoreMenu label={`Actions for ${skill.name}`} items={[toggleEntry(skill, onToggle)]} />
+						<MoreMenu
+							label={`Actions for ${skill.name}`}
+							items={menuFor(skill, onToggle, onRemove)}
+						/>
 					)}
 					<Switch
 						label={`Use ${skill.name}`}

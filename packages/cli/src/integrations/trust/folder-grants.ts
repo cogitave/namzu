@@ -26,6 +26,9 @@ import { readSkillHooks, withoutSessionStart } from '../../config/skill-hooks-re
 import { discoverSkills } from '../../skills/store.js'
 import { fingerprintMcpServer } from '../mcp/project-approval.js'
 import { PROJECT_MCP_FILE, parseMcpServerFile } from '../mcp/shared-file.js'
+import { readInstallManifest } from '../plugins/install-manifest.js'
+import { isPluginId, readInstalledPlugins, samePath, splitPluginId } from '../plugins/records.js'
+import { resolveNamzuHome } from '../state/home.js'
 import { readAgentHooks } from '../subagents/agent-hooks.js'
 
 /** Rules shown before the rest are counted. */
@@ -51,6 +54,24 @@ export interface HookGrant {
 /** The longest text one shown hook carries. */
 const MAX_HOOK_RUNS_CHARS = 200
 
+/** One plugin the folder's own settings files ask for, and whether this computer has it. */
+export interface PluginRecordGrant {
+	readonly id: string
+	/** The file that says it: the shared `.namzu/settings.json` or this computer's `.namzu/settings.local.json`. */
+	readonly layer: 'project' | 'local'
+	/** `true` asks for it to be on here; `false` turns it off here. */
+	readonly on: boolean
+	/** A record on this computer exists for this folder, or the plugin is installed for the user. */
+	readonly installed: boolean
+}
+
+/** A marketplace the folder's settings declare; a suggestion, never an add. */
+export interface MarketplaceGrant {
+	readonly name: string
+	/** Where it would come from, in a few words. */
+	readonly from: string
+}
+
 export interface FolderGrants {
 	/** Allow rules in the order written, `tool` or `tool(pattern)`, each once. */
 	readonly allowRules: readonly string[]
@@ -60,6 +81,10 @@ export interface FolderGrants {
 	readonly toolServers: readonly ToolServerGrant[]
 	/** Hooks the folder's own files declare, in file order; they run on events once the folder is trusted. */
 	readonly hooks: readonly HookGrant[]
+	/** Plugins the folder's settings files turn on or off here. */
+	readonly pluginRecords?: readonly PluginRecordGrant[]
+	/** Marketplaces the folder's settings files declare. */
+	readonly marketplaces?: readonly MarketplaceGrant[]
 }
 
 /** The address without credentials or a query, which can carry a token. */
@@ -290,8 +315,81 @@ function describeAgentHooks(cwd: string): HookGrant[] {
 	return out
 }
 
+/** A marketplace source in a few words: the repository, address or path. */
+function describeMarketplaceSource(source: unknown): string {
+	if (source === null || typeof source !== 'object') return 'unknown'
+	const s = source as Record<string, unknown>
+	const where = s.repo ?? s.url ?? s.path
+	return typeof where === 'string' ? `${String(s.source)} ${plainAddress(where)}` : String(s.source)
+}
+
+/**
+ * What the folder's two settings files say about installed plugins: the ones
+ * they turn on or off, each marked installed here or not, the marketplaces
+ * they declare, and the hook commands an installed plugin they turn on would
+ * run. A name in a repository's file turns nothing on by itself: a plugin that
+ * is not installed on this computer shows as not installed.
+ */
+function describePluginRecords(
+	cwd: string,
+	home: string,
+): { records: PluginRecordGrant[]; marketplaces: MarketplaceGrant[]; hooks: HookGrant[] } {
+	const records: PluginRecordGrant[] = []
+	const marketplaces: MarketplaceGrant[] = []
+	const hooks: HookGrant[] = []
+	const installed = readInstalledPlugins(home)
+	const here = (id: string): boolean => {
+		if (installed.state === 'unreadable') return false
+		return (installed.plugins.get(id) ?? []).some(
+			(record) =>
+				record.scope === 'user' ||
+				(record.projectPath !== undefined && samePath(record.projectPath, cwd)),
+		)
+	}
+	const layers = [
+		['project', resolve(cwd, '.namzu', 'settings.json')],
+		['local', resolve(cwd, '.namzu', 'settings.local.json')],
+	] as const
+	for (const [layer, path] of layers) {
+		const file = readObject(path)
+		if (!file) continue
+		const enabled = file.enabledPlugins
+		if (enabled !== null && typeof enabled === 'object' && !Array.isArray(enabled)) {
+			for (const [id, value] of Object.entries(enabled as Record<string, unknown>)) {
+				if (!isPluginId(id) || typeof value !== 'boolean') continue
+				const have = here(id)
+				records.push({ id, layer, on: value, installed: have })
+				if (!value || !have) continue
+				const manifest = readInstallManifest(home, id)
+				const surface = manifest.state === 'ok' ? manifest.manifest.surface.hooks : undefined
+				if (!Array.isArray(surface)) continue
+				for (const hook of surface) {
+					if (hook === null || typeof hook !== 'object') continue
+					const h = hook as Record<string, unknown>
+					if (typeof h.command !== 'string') continue
+					hooks.push({
+						event: typeof h.event === 'string' ? h.event : 'hook',
+						runs: `${h.command.replace(/\s+/g, ' ').slice(0, MAX_HOOK_RUNS_CHARS)} (plugin ${splitPluginId(id).name})`,
+					})
+				}
+			}
+		}
+		const declared = file.extraKnownMarketplaces
+		if (declared !== null && typeof declared === 'object' && !Array.isArray(declared)) {
+			for (const [name, entry] of Object.entries(declared as Record<string, unknown>)) {
+				const source =
+					entry !== null && typeof entry === 'object'
+						? (entry as { source?: unknown }).source
+						: undefined
+				marketplaces.push({ name, from: describeMarketplaceSource(source) })
+			}
+		}
+	}
+	return { records, marketplaces, hooks }
+}
+
 /** The allow rules and added directories the folder's own config carries. */
-export function readFolderGrants(cwd: string): FolderGrants {
+export function readFolderGrants(cwd: string, home: string = resolveNamzuHome()): FolderGrants {
 	const allowRules: string[] = []
 	const directories: string[] = []
 	const hooks: HookGrant[] = []
@@ -318,6 +416,16 @@ export function readFolderGrants(cwd: string): FolderGrants {
 	}
 	// Order: the config files, then plugins, then skills, then agent files.
 	hooks.push(...describePluginHooks(cwd))
+	let pluginRecords: PluginRecordGrant[] = []
+	let marketplaces: MarketplaceGrant[] = []
+	try {
+		const described = describePluginRecords(cwd, home)
+		pluginRecords = described.records
+		marketplaces = described.marketplaces
+		hooks.push(...described.hooks)
+	} catch {
+		// Plugin records that cannot be read are reported when the plugins load.
+	}
 	try {
 		hooks.push(...describeSkillHooks(cwd))
 	} catch {
@@ -347,5 +455,7 @@ export function readFolderGrants(cwd: string): FolderGrants {
 		directories: [...new Set(directories)],
 		toolServers,
 		hooks,
+		...(pluginRecords.length > 0 ? { pluginRecords } : {}),
+		...(marketplaces.length > 0 ? { marketplaces } : {}),
 	}
 }

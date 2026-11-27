@@ -105,6 +105,19 @@ describe('what a plugin contributes as files', () => {
 		expect(found.agents).toEqual([])
 	})
 
+	it('lets a disabled hand-placed plugin keep its name against an installed one', async () => {
+		const dir = plugin(join(cwd, '.namzu', 'plugins', 'ledger'), 'ledger')
+		const { PluginSettingsStore } = await import('./settings.js')
+		const { realpathSync } = await import('node:fs')
+		new PluginSettingsStore(home).write({ rootDir: realpathSync(dir), name: 'ledger' }, false)
+		const { installFixture } = await import('../../__fixtures__/installed-plugin.js')
+		const { recordLayerPath, setEnabledPlugin } = await import('./enabled-records.js')
+		installFixture(home, { id: 'ledger@m' })
+		setEnabledPlugin(recordLayerPath('user', { home, cwd }), home, 'ledger@m', true)
+		const found = await readPluginFileSources({ cwd, userRoot: home, config: { enabled: true } })
+		expect(found.commands).toEqual([])
+	})
+
 	it('loads a folder named with --plugin-dir even though plugins are off, from outside the project', async () => {
 		const outside = plugin(join(root, 'elsewhere', 'tryout'), 'tryout')
 		const found = await readPluginFileSources({

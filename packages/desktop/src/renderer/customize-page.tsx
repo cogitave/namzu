@@ -8,6 +8,9 @@ import {
 	usePluginInventory,
 } from './composer-plugins.js'
 import { stateFor } from './config-settings-model.js'
+import { ConfirmRemovalDialog } from './confirm-removal-dialog.js'
+import { removeBody, removeTitle } from './customize-actions-model.js'
+import { AddConnectorDialog, CreateSkillDialog, UploadSkillPage } from './customize-actions.js'
 import { ConnectorsTable } from './customize-connectors.js'
 import {
 	type CustomizeTab,
@@ -17,7 +20,7 @@ import {
 	groupSkills,
 	withSwitchLocks,
 } from './customize-model.js'
-import { type AddMenuModel, CustomizeHeader } from './customize-parts.js'
+import { type AddMenuModel, CustomizeHeader, type MenuEntry } from './customize-parts.js'
 import {
 	PluginDetail,
 	type PluginDetailTab,
@@ -31,7 +34,9 @@ import {
 	SkillsEmpty,
 	SkillsList,
 } from './customize-skills.js'
-import { PlusIcon } from './icons.js'
+import { PencilIcon, PlusIcon, UploadIcon } from './icons.js'
+import { notify } from './notify.js'
+import { plainErrorText } from './plain-error.js'
 import { foldedIncludes } from './text-fold.js'
 import { useConfigSettings } from './use-config-settings.js'
 import { useCustomizeSkills, useSkillFiles } from './use-customize-skills.js'
@@ -82,11 +87,23 @@ export function CustomizePage({
 		return () => window.clearInterval(timer)
 	}, [])
 	const root = useRef<HTMLElement>(null)
+	const [upload, setUpload] = useState(false)
+	// A skill just made is selected once the list has read it.
+	const [pendingSelect, setPendingSelect] = useState<string>()
+	const [dialog, setDialog] = useState<'create' | 'connector' | { remove: SkillRowModel }>()
+	// The button that opened a dialog gets the focus back when it closes.
+	const opener = useRef<HTMLElement | null>(null)
+	const openDialog = (next: NonNullable<typeof dialog>) => {
+		opener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
+		setDialog(next)
+	}
+	const returnFocus = () => opener.current
 	// Another tab, another search: what was typed for one list means nothing in the next.
 	const change = (next: CustomizeTab) => {
 		setQuery('')
 		setSkillName(undefined)
 		setPluginKey(undefined)
+		setUpload(false)
 		onTabChange(next)
 	}
 
@@ -110,8 +127,12 @@ export function CustomizePage({
 		skill !== undefined && skillTab === 'contents' && !skill.basic,
 	)
 	useEffect(() => {
-		if (skillName && rows && !skill) setSkillName(undefined)
-	}, [skillName, rows, skill])
+		if (pendingSelect && rows?.some((row) => row.name === pendingSelect)) {
+			setSkillTab('overview')
+			setSkillName(pendingSelect)
+			setPendingSelect(undefined)
+		} else if (skillName && rows && !skill) setSkillName(undefined)
+	}, [skillName, rows, skill, pendingSelect])
 
 	// Plugins
 	const inventory = usePluginInventory(plugins)
@@ -137,18 +158,46 @@ export function CustomizePage({
 
 	// Connectors
 	const servers = useMcpServers(api, tab === 'connectors' ? projectId : undefined)
-	const own = useUserMcpServers(tab === 'connectors' ? api : undefined)
+	const own = useUserMcpServers(tab === 'connectors' ? api : undefined, servers.reload)
 	const connectors = connectorRows(servers.view, own?.view?.servers).filter(
 		(row) => !query.trim() || foldedIncludes(`${row.name} ${row.type} ${row.source}`, query),
 	)
 
 	const searchLabel = `Search ${tab}`
+	// An engine that cannot stage or make skills hides the entries it cannot serve.
+	const canManage = Boolean(rows) && !skills.basic && skills.canManage && Boolean(api.stageSkills)
+	const skillEntries: MenuEntry[] = [
+		...(canManage
+			? [
+					{ label: 'Upload skill', icon: UploadIcon, onSelect: () => setUpload(true) },
+					{ label: 'Create a skill', icon: PencilIcon, onSelect: () => openDialog('create') },
+				]
+			: []),
+		{ label: 'Create with Namzu', icon: PlusIcon, onSelect: onCreateSkill },
+	]
 	const add: AddMenuModel | undefined =
 		tab === 'skills'
-			? { items: [{ label: 'Create with Namzu', icon: PlusIcon, onSelect: onCreateSkill }] }
+			? { items: skillEntries }
 			: tab === 'connectors'
-				? { items: [{ label: 'Add custom connector', icon: PlusIcon, onSelect: onAddConnector }] }
+				? {
+						items: [
+							{
+								label: 'Add custom connector',
+								icon: PlusIcon,
+								onSelect: () => (own ? openDialog('connector') : onAddConnector()),
+							},
+						],
+					}
 				: undefined
+	const removeSkill = async (row: SkillRowModel) => {
+		if (!api.removeSkill || (row.tier !== 'user' && row.tier !== 'project')) return
+		const answer = await api.removeSkill(row.name, row.tier, projectId)
+		if (!answer) throw new Error('Update Namzu to remove skills from here.')
+		if (answer.outcome !== 'removed') throw new Error(answer.error ?? 'The skill was not removed.')
+		notify(`Removed ${row.name}. A copy is kept in Namzu's backups.`, { tone: 'success' })
+		setSkillName(undefined)
+		skills.reload()
+	}
 
 	const detail = (() => {
 		if (tab === 'skills' && skill)
@@ -161,6 +210,7 @@ export function CustomizePage({
 					onBack={() => setSkillName(undefined)}
 					onToggle={(on) => void toggleSkill(skill, on)}
 					onTry={() => onTryInChat(skill.name)}
+					onRemove={canManage ? (row) => openDialog({ remove: row }) : undefined}
 					switchDisabled={
 						skill.plugin
 							? `Follows the ${skill.plugin} plugin; turn the plugin off or on.`
@@ -210,6 +260,51 @@ export function CustomizePage({
 	)
 	const groups = rows ? groupSkills(rows, { query, sort }) : []
 
+	const dialogs = (
+		<>
+			{dialog === 'create' && (
+				<CreateSkillDialog
+					api={api}
+					projectId={projectId}
+					returnFocus={returnFocus}
+					onClose={() => setDialog(undefined)}
+					onCreated={(name) => {
+						setDialog(undefined)
+						setPendingSelect(name)
+						skills.reload()
+					}}
+				/>
+			)}
+			{dialog === 'connector' && own && (
+				<AddConnectorDialog
+					returnFocus={returnFocus}
+					onClose={() => setDialog(undefined)}
+					save={(change) => own.save(change)}
+					onSaved={(name) => {
+						setDialog(undefined)
+						notify(`Added ${name}. It loads in new conversations.`, { tone: 'success' })
+					}}
+				/>
+			)}
+			{typeof dialog === 'object' && (
+				<ConfirmRemovalDialog
+					title={removeTitle}
+					description={removeBody(dialog.remove.name)}
+					actionLabel="Remove"
+					returnFocus={returnFocus}
+					onConfirm={async () => {
+						try {
+							await removeSkill(dialog.remove)
+						} catch (failure) {
+							throw new Error(plainErrorText(failure, 'remove the skill'))
+						}
+					}}
+					onClose={() => setDialog(undefined)}
+				/>
+			)}
+		</>
+	)
+
 	return (
 		<section
 			ref={root}
@@ -219,90 +314,106 @@ export function CustomizePage({
 			tabIndex={-1}
 		>
 			<div className="customize-content">
-				{detail ?? (
-					<>
-						<h1 className="customize-title">Customize</h1>
-						<Tabs.Root value={tab} onValueChange={(value) => change(value as CustomizeTab)}>
-							<CustomizeHeader
-								tab={tab}
-								onTab={change}
-								query={query}
-								onQuery={setQuery}
-								sort={sort}
-								onSort={setSort}
-								add={add}
-								searchLabel={searchLabel}
-							/>
-							<Tabs.Panel value="skills" className="customize-panel">
-								{skills.error && !rows && <p className="customize-error">{skills.error}</p>}
-								{!rows && !skills.error && <p className="customize-muted">Reading the skills…</p>}
-								{rows && groups.length > 0 && (
-									<SkillsList
-										groups={groups}
-										now={now}
-										onOpen={(name) => {
-											setSkillTab('overview')
-											setSkillName(name)
-										}}
-										onToggle={(row, on) => void toggleSkill(row, on)}
-									/>
-								)}
-								{rows && groups.length === 0 && (
-									<SkillsEmpty onCreate={onCreateSkill} searching={query.trim() !== ''} />
-								)}
-							</Tabs.Panel>
-							<Tabs.Panel value="connectors" className="customize-panel">
-								{servers.error && <p className="customize-error">{servers.error}</p>}
-								<ConnectorsTable
-									rows={connectors}
-									approving={servers.approving}
-									onOpen={onOpenConnector}
-									onApprove={() => void servers.approve()}
-									onAdd={onAddConnector}
-									searching={query.trim() !== ''}
+				{tab === 'skills' && upload ? (
+					<UploadSkillPage
+						api={api}
+						projectId={projectId}
+						onBack={() => setUpload(false)}
+						onDone={() => {
+							setUpload(false)
+							skills.reload()
+						}}
+					/>
+				) : (
+					(detail ?? (
+						<>
+							<h1 className="customize-title">Customize</h1>
+							<Tabs.Root value={tab} onValueChange={(value) => change(value as CustomizeTab)}>
+								<CustomizeHeader
+									tab={tab}
+									onTab={change}
+									query={query}
+									onQuery={setQuery}
+									sort={sort}
+									onSort={setSort}
+									add={add}
+									searchLabel={searchLabel}
 								/>
-							</Tabs.Panel>
-							<Tabs.Panel value="plugins" className="customize-panel">
-								{view?.notice && <p className="customize-note">{view.notice}</p>}
-								{view && !view.live && !view.notice && !disabled && (
-									<p className="customize-note">
-										Open a conversation to enable or disable plugins.
-									</p>
-								)}
-								{view?.live && !view.canChange && (
-									<p className="customize-note">Finish the active work before changing plugins.</p>
-								)}
-								{inventory.error && (
-									<p className="customize-error" role="alert">
-										{inventory.error}
-									</p>
-								)}
-								{!disabled && view && orderedPlugins.length > 0 ? (
-									<PluginsList
-										plugins={orderedPlugins}
-										view={view}
-										inventory={inventory}
-										now={now}
-										onOpen={(entry: ComposerPlugin) => {
-											inventory.clearError()
-											setPluginTab('overview')
-											setPluginKey(`${entry.scope}:${entry.name}`)
-										}}
-									/>
-								) : !loading && (disabled || view) ? (
-									<PluginsEmpty
+								<Tabs.Panel value="skills" className="customize-panel">
+									{skills.error && !rows && <p className="customize-error">{skills.error}</p>}
+									{!rows && !skills.error && <p className="customize-muted">Reading the skills…</p>}
+									{rows && groups.length > 0 && (
+										<SkillsList
+											groups={groups}
+											now={now}
+											onOpen={(name) => {
+												setSkillTab('overview')
+												setSkillName(name)
+											}}
+											onToggle={(row, on) => void toggleSkill(row, on)}
+											onRemove={canManage ? (row) => openDialog({ remove: row }) : undefined}
+										/>
+									)}
+									{rows && groups.length === 0 && (
+										<SkillsEmpty onCreate={onCreateSkill} searching={query.trim() !== ''} />
+									)}
+								</Tabs.Panel>
+								<Tabs.Panel value="connectors" className="customize-panel">
+									{servers.error && <p className="customize-error">{servers.error}</p>}
+									<ConnectorsTable
+										rows={connectors}
+										approving={servers.approving}
+										onOpen={onOpenConnector}
+										onApprove={() => void servers.approve()}
+										onAdd={onAddConnector}
 										searching={query.trim() !== ''}
-										disabled={Boolean(disabled)}
-										onChooseSpace={onChooseSpace}
 									/>
-								) : (
-									<p className="customize-muted">Loading plugins…</p>
-								)}
-							</Tabs.Panel>
-						</Tabs.Root>
-					</>
+								</Tabs.Panel>
+								<Tabs.Panel value="plugins" className="customize-panel">
+									{view?.notice && <p className="customize-note">{view.notice}</p>}
+									{view && !view.live && !view.notice && !disabled && (
+										<p className="customize-note">
+											Open a conversation to enable or disable plugins.
+										</p>
+									)}
+									{view?.live && !view.canChange && (
+										<p className="customize-note">
+											Finish the active work before changing plugins.
+										</p>
+									)}
+									{inventory.error && (
+										<p className="customize-error" role="alert">
+											{inventory.error}
+										</p>
+									)}
+									{!disabled && view && orderedPlugins.length > 0 ? (
+										<PluginsList
+											plugins={orderedPlugins}
+											view={view}
+											inventory={inventory}
+											now={now}
+											onOpen={(entry: ComposerPlugin) => {
+												inventory.clearError()
+												setPluginTab('overview')
+												setPluginKey(`${entry.scope}:${entry.name}`)
+											}}
+										/>
+									) : !loading && (disabled || view) ? (
+										<PluginsEmpty
+											searching={query.trim() !== ''}
+											disabled={Boolean(disabled)}
+											onChooseSpace={onChooseSpace}
+										/>
+									) : (
+										<p className="customize-muted">Loading plugins…</p>
+									)}
+								</Tabs.Panel>
+							</Tabs.Root>
+						</>
+					))
 				)}
 			</div>
+			{dialogs}
 		</section>
 	)
 }

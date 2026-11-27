@@ -1,5 +1,8 @@
 import { resolve } from 'node:path'
 
+import { namzuHomePath } from '../integrations/state/home.js'
+import { isTrusted } from '../integrations/trust/store.js'
+
 import { EXIT_FAIL, EXIT_NOINPUT, EXIT_OK, EXIT_USAGE } from '../exit-codes.js'
 import {
 	type PluginValidationReport,
@@ -8,6 +11,12 @@ import {
 import { createFormatter } from '../output/index.js'
 import { terminalDisplayText } from '../tui/terminal-display.js'
 import { PLUGIN_ACTIONS } from './actions/small.js'
+import {
+	PLUGIN_RECORD_HELP,
+	PLUGIN_RECORD_VERBS,
+	type PluginRecordVerb,
+	runPluginRecords,
+} from './plugin-records.js'
 import type { CommandDef } from './types.js'
 
 /**
@@ -25,6 +34,7 @@ export const PLUGIN_VALIDATE_EXIT = {
 
 const HELP = [
 	'Usage: namzu plugin validate [--json] [--] [path]',
+	'       namzu plugin list | details <id> | enable <id> | disable <id>   (installed plugins)',
 	'',
 	'Check a plugin folder (default: the current folder) and every part it carries,',
 	'without running anything from it: no hook, MCP server, command or script is',
@@ -48,6 +58,8 @@ const HELP = [
 	'  1   at least one error',
 	'  66  the folder could not be read',
 	'  64  the command line is wrong',
+	'',
+	PLUGIN_RECORD_HELP,
 ].join('\n')
 
 interface ParsedArgs {
@@ -64,8 +76,8 @@ function parseArgs(rawArgs: readonly string[]): ParsedArgs {
 			json: false,
 			error:
 				sub === undefined
-					? 'plugin needs a subcommand: validate. Run `namzu plugin --help`.'
-					: `unknown plugin subcommand: ${sub}. The one there is: validate.`,
+					? 'plugin needs a subcommand: validate, list, details, enable or disable. Run `namzu plugin --help`.'
+					: `unknown plugin subcommand: ${sub}. The ones there are: validate, ${PLUGIN_RECORD_VERBS.join(', ')}.`,
 		}
 	}
 	let json = false
@@ -162,11 +174,22 @@ export function renderPluginReport(report: PluginValidationReport): string {
 
 export const pluginCommand: CommandDef = {
 	name: 'plugin',
-	description: 'Check a plugin folder without running anything from it',
+	description: 'Check a plugin folder, and list, inspect and turn on or off installed plugins',
 	passThrough: true,
 	help: HELP,
 	actions: PLUGIN_ACTIONS,
 	handler: async ({ ctx, rawArgs }) => {
+		const verb = rawArgs[0]
+		if ((PLUGIN_RECORD_VERBS as readonly string[]).includes(verb ?? '')) {
+			return runPluginRecords(verb as PluginRecordVerb, rawArgs.slice(1), {
+				out: (text) => process.stdout.write(text),
+				err: (text) => process.stderr.write(text),
+				cwd: () => process.cwd(),
+				namzuHome: namzuHomePath(),
+				isTrusted: (dir) => isTrusted(dir),
+				loadingOn: ctx.config.plugins?.enabled === true,
+			})
+		}
 		const args = parseArgs(rawArgs)
 		if (args.error) {
 			ctx.formatter.error({ message: args.error })

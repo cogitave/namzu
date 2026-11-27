@@ -21,6 +21,8 @@ import {
 	transportFor,
 } from '../integrations/mcp/servers.js'
 import {
+	MCP_HEADER_NAME,
+	MCP_HEADER_REFERENCE,
 	MCP_NAME_RULE,
 	addUserMcpServer,
 	isUserMcpName,
@@ -557,8 +559,8 @@ const RETIRED_ENV = '`--env NAME` is now `--env NAME=${NAME}`.'
 const RETIRED_HEADER = "`--header NAME=VALUE` is now `--header 'NAME: VALUE'`."
 
 const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/
-const HEADER_NAME = /^[A-Za-z0-9-]+$/
-const HEADER_REFERENCE = /^(?:Bearer )?\$\{[A-Za-z_][A-Za-z0-9_]*\}$/
+const HEADER_NAME = MCP_HEADER_NAME
+const HEADER_REFERENCE = MCP_HEADER_REFERENCE
 const LITERAL_SECRET =
 	'--header needs a value of the form ${ENV_VAR} or Bearer ${ENV_VAR}; literal secrets are refused so they are not written to a file.'
 

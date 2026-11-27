@@ -37,6 +37,13 @@ export const OPTIONAL_EXTENSION_GROUPS = {
 	],
 	skillsList: ['namzu/skills/list'],
 	skillsCatalog: ['namzu/skills/catalog', 'namzu/skills/files', 'namzu/skills/read_file'],
+	/** The Customize page adds, makes and removes skills: stage a file, install it, create, remove. */
+	skillsManage: [
+		'namzu/skills/stage',
+		'namzu/skills/install',
+		'namzu/skills/create',
+		'namzu/skills/remove',
+	],
 	browserStatus: ['namzu/browser/status'],
 	hooksView: ['namzu/hooks/list'],
 	standingInstructions: ['namzu/instructions/get', 'namzu/instructions/set'],
