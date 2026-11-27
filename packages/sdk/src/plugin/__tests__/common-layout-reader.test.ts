@@ -671,16 +671,17 @@ describe('servers', () => {
 		})
 		const read = await readCommonLayout(root, options)
 		expect(read.refusal).toBeUndefined()
-		expect(find(read, 'mcp-needs-setup', 'mcpServers.api')?.server).toEqual({
+		expect(find(read, 'mcp-needs-setup', 'mcpServers.api')?.server).toMatchObject({
 			name: 'api',
 			kind: 'remote',
+			target: 'https://mcp.example.com/a',
 		})
 		const local = folder('onlylocal', {
 			[COMMON_MCP_FILE]: { db: { command: 'x', env: { A: '${MISSING}' } }, ok: { command: 'y' } },
 		})
 		expect(
 			find(await readCommonLayout(local, options), 'mcp-needs-setup', 'mcpServers.db')?.server,
-		).toEqual({ name: 'db', kind: 'local' })
+		).toMatchObject({ name: 'db', kind: 'local', target: 'x' })
 	})
 
 	it('refuses an entry that names both forms, a bad address and an unknown type, and the plugin loads without them', async () => {
@@ -701,6 +702,32 @@ describe('servers', () => {
 		for (const code of ['mcp-server-both', 'mcp-url-invalid', 'mcp-type-unsupported']) {
 			expect(find(read, code)?.level).toBe('refused')
 		}
+	})
+
+	it('carries a server that needs setup as written, so a host can still show it', async () => {
+		const root = folder('asw', {
+			[COMMON_MCP_FILE]: {
+				rem: {
+					url: 'https://mcp.example.com/${TOK}',
+					headers: { A: 'Bearer ${TOK2}' },
+				},
+				loc: { command: 'x', args: ['${TOKEN}'], env: { A: '${MISSING}' } },
+			},
+		})
+		const read = await readCommonLayout(root, { environment: ENV })
+		expect(find(read, 'mcp-needs-setup', 'mcpServers.rem')?.server).toEqual({
+			name: 'rem',
+			kind: 'remote',
+			target: 'https://mcp.example.com/${TOK}',
+			transport: 'http',
+			values: { A: 'Bearer ${TOK2}' },
+		})
+		expect(find(read, 'mcp-needs-setup', 'mcpServers.loc')?.server).toMatchObject({
+			kind: 'local',
+			target: 'x',
+			args: ['${TOKEN}'],
+			values: { A: '${MISSING}' },
+		})
 	})
 
 	it('marks a server that needs setup and does not start it', async () => {

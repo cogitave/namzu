@@ -163,6 +163,17 @@ export function setExtraKnownMarketplace(
 	})
 }
 
+/** Remove one marketplace declaration from one layer's file; false when it was not there. */
+export function removeExtraKnownMarketplace(path: string, home: string, name: string): boolean {
+	return updateJsonObject(path, { home, check: recordShape }, (raw) => {
+		if (!isRecord(raw.extraKnownMarketplaces) || !(name in raw.extraKnownMarketplaces)) return false
+		const current = { ...raw.extraKnownMarketplaces }
+		delete current[name]
+		raw.extraKnownMarketplaces = current
+		return true
+	})
+}
+
 export type LayerReads = Readonly<Partial<Record<RecordLayer, RecordLayerRead>>>
 
 export interface EnabledAnswer {

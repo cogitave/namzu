@@ -132,9 +132,10 @@ function parseFlags(args: readonly string[]): Flags {
 	return { json, ...(scope ? { scope } : {}), ...(cwd ? { cwd } : {}), positional }
 }
 
-const oneLine = (value: string): string => terminalDisplayText(value).replace(/[\t\n\r]+/g, ' ')
+export const oneLine = (value: string): string =>
+	terminalDisplayText(value).replace(/[\t\n\r]+/g, ' ')
 
-function failure(
+export function failure(
 	deps: PluginRecordsDeps,
 	json: boolean,
 	command: string,
@@ -148,7 +149,7 @@ function failure(
 }
 
 /** What a state-file refusal says, with the way the plugin commands name it. */
-function stateFailure(error: unknown): { code: number; message: string } {
+export function stateFailure(error: unknown): { code: number; message: string } {
 	if (error instanceof StateFileUnreadableError)
 		return {
 			code: EXIT_NOINPUT,
@@ -165,7 +166,7 @@ interface Resolved {
 }
 
 /** An id, or a bare name that exactly one installed plugin has, with its records. */
-function resolveId(
+export function resolveId(
 	deps: PluginRecordsDeps,
 	json: boolean,
 	command: string,
@@ -220,7 +221,7 @@ function resolveId(
 }
 
 /** The records that apply to the folder, most specific first. */
-function applicable(
+export function applicable(
 	records: readonly InstallRecord[],
 	cwd: string,
 	trusted: boolean,
@@ -644,7 +645,7 @@ async function runDetails(deps: PluginRecordsDeps, flags: Flags): Promise<number
 	}
 	if (manifestRead.state === 'ok') {
 		lines.push(
-			`  Runs code: ${manifestRead.manifest.executable.length} executable ${manifestRead.manifest.executable.length === 1 ? 'file' : 'files'}, surface sha256:${manifestRead.manifest.surfaceSha256.slice(0, 12)}`,
+			`  Checked before it loads: ${manifestRead.manifest.executable.length} ${manifestRead.manifest.executable.length === 1 ? 'file' : 'files'}, surface sha256:${manifestRead.manifest.surfaceSha256.slice(0, 12)}`,
 		)
 		const consent = manifestRead.manifest.consent
 		if (consent && typeof consent.at === 'string')

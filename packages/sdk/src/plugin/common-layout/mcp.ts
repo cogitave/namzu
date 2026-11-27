@@ -5,7 +5,7 @@ import type {
 } from '../../types/plugin/index.js'
 import { COMMON_USER_CONFIG_PREFIX } from '../common-layout-names.js'
 import { type PluginPathValues, expandPluginPaths } from './paths.js'
-import type { LayoutFinding } from './types.js'
+import type { LayoutFinding, LayoutSetupServer } from './types.js'
 
 /** One servers map and the file (or manifest) it was read from. */
 export interface McpSource {
@@ -109,13 +109,17 @@ class Reader {
 		this.add({ level: 'refused', code, field: `mcpServers.${name}`, message })
 	}
 
-	private needsSetup(name: string, needs: readonly string[], kind: 'local' | 'remote'): void {
+	private needsSetup(
+		name: string,
+		needs: readonly string[],
+		server?: Omit<LayoutSetupServer, 'name'>,
+	): void {
 		this.add({
+			...(server !== undefined ? { server: { name, ...server } } : {}),
 			level: 'notUsed',
 			code: 'mcp-needs-setup',
 			field: `mcpServers.${name}`,
 			message: `${name} needs setup: ${needs.join('; ')}. It is not started.`,
-			server: { name, kind },
 		})
 	}
 
@@ -241,7 +245,12 @@ class Reader {
 			connectTimeoutMs = spec.connectTimeoutMs
 		}
 		if (needs.length > 0) {
-			this.needsSetup(name, [...new Set(needs)], 'local')
+			this.needsSetup(name, [...new Set(needs)], {
+				kind: 'local',
+				target: spec.command as string,
+				args: Array.isArray(spec.args) ? (spec.args as string[]) : [],
+				values: isMapping(spec.env) ? (spec.env as Record<string, string>) : {},
+			})
 			return
 		}
 		this.local.push({
@@ -261,8 +270,18 @@ class Reader {
 
 	private readRemote(name: string, spec: Record<string, unknown>, type: string | undefined): void {
 		const url = this.expand(spec.url as string, 'url', name, 'none')
+		const asWritten = (): Omit<LayoutSetupServer, 'name'> => ({
+			kind: 'remote',
+			target: spec.url as string,
+			transport: type === 'sse' ? 'sse' : 'http',
+			values:
+				isMapping(spec.headers) &&
+				Object.values(spec.headers).every((value) => typeof value === 'string')
+					? (spec.headers as Record<string, string>)
+					: {},
+		})
 		if (url.needs.length > 0) {
-			this.needsSetup(name, url.needs, 'remote')
+			this.needsSetup(name, url.needs, asWritten())
 			return
 		}
 		let parsed: URL
@@ -307,7 +326,7 @@ class Reader {
 				headers[key] = expanded.text
 			}
 			if (needs.length > 0) {
-				this.needsSetup(name, [...new Set(needs)], 'remote')
+				this.needsSetup(name, [...new Set(needs)], asWritten())
 				return
 			}
 		}
