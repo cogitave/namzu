@@ -258,7 +258,7 @@ export async function startHookModule(options: StartHookModuleOptions): Promise<
 	const clock = options.clock ?? realClock
 	const budgetMs = options.budgetMs ?? HOOK_MODULE_BUDGET_MS
 	const catchMs = options.catchMs ?? HOOK_MODULE_CATCH_MS
-	const scan = options.scan ?? (await scanHookModule(plugin.root, options.entry))
+	const scan = options.scan ?? scanHookModule(plugin.root, options.entry)
 	const label = `${plugin.name}/${options.entry}`
 	const attrs = { 'namzu.plugin.name': plugin.name, 'namzu.hook_module.entry': options.entry }
 

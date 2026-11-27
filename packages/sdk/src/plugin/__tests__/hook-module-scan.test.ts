@@ -37,7 +37,7 @@ function plugin(files: Record<string, string>): string {
 
 const hooksJson = (modules: unknown) => JSON.stringify({ modules })
 
-async function scan(source: string, extra: Record<string, string> = {}): Promise<HookModuleScan> {
+function scan(source: string, extra: Record<string, string> = {}): HookModuleScan {
 	const root = plugin({ 'hooks/mod.js': source, ...extra })
 	return scanHookModule(root, 'hooks/mod.js')
 }
@@ -45,52 +45,52 @@ async function scan(source: string, extra: Record<string, string> = {}): Promise
 const refused = (result: HookModuleScan): string[] => result.refusals.map((item) => item.message)
 
 describe('where the hooks file says the module is', () => {
-	it('takes one path, relative to the hooks file', async () => {
+	it('takes one path, relative to the hooks file', () => {
 		const root = plugin({ 'hooks/hooks.json': hooksJson(['./mod.js']), 'hooks/mod.js': '' })
-		expect(await locateHookModule(root)).toMatchObject({ kind: 'found', entry: 'hooks/mod.js' })
+		expect(locateHookModule(root)).toMatchObject({ kind: 'found', entry: 'hooks/mod.js' })
 		const upward = plugin({ 'hooks/hooks.json': hooksJson(['../lib/mod.js']) })
-		expect(await locateHookModule(upward)).toMatchObject({ kind: 'found', entry: 'lib/mod.js' })
+		expect(locateHookModule(upward)).toMatchObject({ kind: 'found', entry: 'lib/mod.js' })
 	})
 
-	it('knows no module when there is none, or the file is missing', async () => {
-		expect(await locateHookModule(plugin({}))).toEqual({ kind: 'none' })
-		expect(await locateHookModule(plugin({ 'hooks/hooks.json': '{"hooks":{}}' }))).toEqual({
+	it('knows no module when there is none, or the file is missing', () => {
+		expect(locateHookModule(plugin({}))).toEqual({ kind: 'none' })
+		expect(locateHookModule(plugin({ 'hooks/hooks.json': '{"hooks":{}}' }))).toEqual({
 			kind: 'none',
 		})
-		expect(await locateHookModule(plugin({ 'hooks/hooks.json': hooksJson([]) }))).toEqual({
+		expect(locateHookModule(plugin({ 'hooks/hooks.json': hooksJson([]) }))).toEqual({
 			kind: 'none',
 		})
 	})
 
-	it('refuses two modules, a path that leaves the plugin, an absolute path and a non-path', async () => {
-		const message = async (modules: unknown) => {
-			const found = await locateHookModule(plugin({ 'hooks/hooks.json': hooksJson(modules) }))
+	it('refuses two modules, a path that leaves the plugin, an absolute path and a non-path', () => {
+		const message = (modules: unknown) => {
+			const found = locateHookModule(plugin({ 'hooks/hooks.json': hooksJson(modules) }))
 			return found.kind === 'refused' ? found.message : found.kind
 		}
-		expect(await message(['./a.js', './b.js'])).toContain(
+		expect(message(['./a.js', './b.js'])).toContain(
 			'names one hooks module per plugin; a second entry is refused',
 		)
-		expect(await message(['../../outside.js'])).toContain('leaves the plugin folder')
-		expect(await message(['/etc/x.js'])).toContain('absolute path')
-		expect(await message([3])).toContain('must name a file')
-		expect(await message('./a.js')).toContain('must be a list')
+		expect(message(['../../outside.js'])).toContain('leaves the plugin folder')
+		expect(message(['/etc/x.js'])).toContain('absolute path')
+		expect(message([3])).toContain('must name a file')
+		expect(message('./a.js')).toContain('must be a list')
 	})
 
-	it('does not follow a link for the hooks file, and reads no more than a mebibyte of it', async () => {
+	it('does not follow a link for the hooks file, and reads no more than a mebibyte of it', () => {
 		const root = plugin({ 'real.json': hooksJson(['./mod.js']) })
 		mkdirSync(join(root, 'hooks'))
 		symlinkSync(join(root, 'real.json'), join(root, 'hooks/hooks.json'))
-		expect(await locateHookModule(root)).toEqual({ kind: 'none' })
+		expect(locateHookModule(root)).toEqual({ kind: 'none' })
 		const large = plugin({
 			'hooks/hooks.json': `{"modules":["./a.js"],"pad":"${'x'.repeat(1024 * 1024)}"}`,
 		})
-		expect(await locateHookModule(large)).toEqual({ kind: 'none' })
+		expect(locateHookModule(large)).toEqual({ kind: 'none' })
 	})
 })
 
 describe('what a module hooks and calls', () => {
-	it('lists the patterns, their matchers and catches, and the calls on $', async () => {
-		const result = await scan(`
+	it('lists the patterns, their matchers and catches, and the calls on $', () => {
+		const result = scan(`
 export function register(on) {
 	on('classic.PreToolUse', { tool: 'Bash' }, async ($, e) => {
 		await $.process.run(['git', 'status'])
@@ -139,8 +139,8 @@ export function register(on) {
 		})
 	})
 
-	it('lists what Namzu has no place for as not used, and still loads the rest', async () => {
-		const result = await scan(`
+	it('lists what Namzu has no place for as not used, and still loads the rest', () => {
+		const result = scan(`
 export function register(on) {
 	on('tool.call', ($, e, next) => next(e))
 	on('ui.*', () => ({}))
@@ -184,85 +184,85 @@ export function register(on) {
 })
 
 describe('what refuses a module', () => {
-	it('refuses a dynamic import and a top-level await, with the file and line', async () => {
-		const dynamic = await scan(
+	it('refuses a dynamic import and a top-level await, with the file and line', () => {
+		const dynamic = scan(
 			`export function register(on) {\n\ton('classic.Stop', async () => { await import('node:fs'); return {} })\n}`,
 		)
 		expect(dynamic.refusals[0]).toMatchObject({ file: 'hooks/mod.js', line: 2 })
 		expect(refused(dynamic)[0]).toContain(
 			'a dynamic import(); a hooks module imports its own files with an import declaration',
 		)
-		const top = await scan(
+		const top = scan(
 			`await Promise.resolve()\nexport function register(on) { on('classic.Stop', () => ({})) }`,
 		)
 		expect(refused(top)[0]).toContain('a top-level await')
 		expect(top.refusals[0]?.line).toBe(1)
-		const inside = await scan(
+		const inside = scan(
 			`export function register(on) { on('classic.Stop', async () => { await 1; return {} }) }`,
 		)
 		expect(inside.refusals).toEqual([])
 	})
 
-	it('refuses an import of anything but its own files', async () => {
-		const result = await scan(
+	it('refuses an import of anything but its own files', () => {
+		const result = scan(
 			`import { readFileSync } from 'node:fs'\nexport function register(on) { on('classic.Stop', () => ({})) }`,
 		)
 		expect(refused(result)[0]).toContain(
 			`cannot import "node:fs" (from hooks/mod.js): a hooks module imports its own files by relative path and "${COMMON_MODULE_TYPES_SPECIFIER}", nothing else`,
 		)
-		const bare = await scan(
+		const bare = scan(
 			`import x from 'left-pad'\nexport function register(on) { on('classic.Stop', () => ({})) }`,
 		)
 		expect(refused(bare)[0]).toContain('cannot import "left-pad"')
-		const value = await scan(
+		const value = scan(
 			`import { x } from '${COMMON_MODULE_TYPES_SPECIFIER}'\nexport function register(on) { on('classic.Stop', () => ({})) }`,
 		)
 		expect(refused(value)[0]).toContain('as a value')
-		const missing = await scan(
+		const missing = scan(
 			`import { x } from './nowhere.js'\nexport function register(on) { on('classic.Stop', () => ({})) }`,
 		)
 		expect(refused(missing)[0]).toContain('no such file in the plugin')
 	})
 
-	it('refuses a registration that is not a function or whose event name is not a literal', async () => {
-		const notFunction = await scan(`export function register(on) { on('classic.Stop', 'x') }`)
+	it('refuses a registration that is not a function or whose event name is not a literal', () => {
+		const notFunction = scan(`export function register(on) { on('classic.Stop', 'x') }`)
 		expect(refused(notFunction)[0]).toContain('is not a function declared at the top of this file')
-		const computed = await scan(
+		const computed = scan(
 			`export function register(on) { const name = 'classic.Stop'; on(name, () => ({})) }`,
 		)
 		expect(refused(computed)[0]).toContain('the event name passed to on() is not a string literal')
-		const wrongCount = await scan(`export function register(on) { on('classic.Stop') }`)
+		const wrongCount = scan(`export function register(on) { on('classic.Stop') }`)
 		expect(refused(wrongCount)[0]).toContain(
 			'on() takes (pattern, hook) or (pattern, matcher, hook)',
 		)
-		const named = await scan(
+		const named = scan(
 			`function guard() { return {} }\nexport function register(on) { on('classic.Stop', guard) }`,
 		)
 		expect(named.refusals).toEqual([])
-		const bound = await scan(
+		const bound = scan(
 			`const guard = 3\nexport function register(on) { on('classic.Stop', guard) }`,
 		)
 		expect(refused(bound)[0]).toContain('is not a function declared at the top of this file')
 	})
 
-	it('refuses an unknown name, a glob that selects nothing, and a repeat without a matcher', async () => {
-		const unknown = await scan(`export function register(on) { on('classic.Nope', () => ({})) }`)
+	it('refuses an unknown name, a glob that selects nothing, and a repeat without a matcher', () => {
+		const unknown = scan(`export function register(on) { on('classic.Nope', () => ({})) }`)
 		expect(refused(unknown)[0]).toContain('"classic.Nope" is not an event')
-		const empty = await scan(`export function register(on) { on('mystery.*', () => ({})) }`)
+		const empty = scan(`export function register(on) { on('mystery.*', () => ({})) }`)
 		expect(refused(empty)[0]).toContain('"mystery.*" is not a pattern: it selects no event')
-		const repeat = await scan(
+		const repeat = scan(
 			`export function register(on) {\n\ton('classic.Stop', () => ({}))\n\ton('classic.Stop', () => ({}))\n}`,
 		)
 		expect(refused(repeat)[0]).toContain(
 			'registered twice without a matcher; the first is at hooks/mod.js:2',
 		)
-		const matched = await scan(
+		const matched = scan(
 			`export function register(on) { on('classic.Stop', () => ({})); on('classic.Stop', { reason: 'x' }, () => ({})) }`,
 		)
 		expect(matched.refusals).toEqual([])
 	})
 
-	it('refuses $ and on used other than as $.noun.event(...) and on("<event>", hook)', async () => {
+	it('refuses $ and on used other than as $.noun.event(...) and on("<event>", hook)', () => {
 		const spelled = '$ is always spelled $.noun.event(...) at the call site'
 		const variants = [
 			'const q = $.fs',
@@ -273,62 +273,60 @@ describe('what refuses a module', () => {
 			'$.fs',
 		]
 		for (const body of variants) {
-			const result = await scan(
+			const result = scan(
 				`export function register(on) { on('classic.Stop', async ($) => { ${body}; return {} }) }`,
 			)
 			expect(refused(result).join('\n'), body).toContain(spelled)
 		}
-		const bound = await scan(
+		const bound = scan(
 			`export function register(on) { const t = on; t('classic.Stop', () => ({})) }`,
 		)
 		expect(refused(bound)[0]).toContain('on is always on("<event>", hook)')
-		const passed = await scan('export function register(on) { helper(on) }')
+		const passed = scan('export function register(on) { helper(on) }')
 		expect(refused(passed)[0]).toContain('on is always on("<event>", hook)')
 	})
 
-	it('refuses a module that does not parse, that has no register, or is JSX', async () => {
-		const syntax = await scan(`export function register(on) { on('classic.Stop', ( => {}) }`)
+	it('refuses a module that does not parse, that has no register, or is JSX', () => {
+		const syntax = scan(`export function register(on) { on('classic.Stop', ( => {}) }`)
 		expect(refused(syntax)[0]).toContain('hooks/mod.js does not parse:')
 		expect(syntax.refusals[0]?.line).toBe(1)
-		const none = await scan('export const x = 1')
+		const none = scan('export const x = 1')
 		expect(refused(none)[0]).toContain('does not export a function named register')
-		const jsx = await scanHookModule(plugin({ 'hooks/mod.jsx': '' }), 'hooks/mod.jsx')
+		const jsx = scanHookModule(plugin({ 'hooks/mod.jsx': '' }), 'hooks/mod.jsx')
 		expect(refused(jsx)[0]).toContain('JSX is not supported')
 	})
 
-	it('refuses a link, an oversized file and a file outside the plugin', async () => {
+	it('refuses a link, an oversized file and a file outside the plugin', () => {
 		const root = plugin({
 			'hooks/real.js': `export function register(on) { on('classic.Stop', () => ({})) }`,
 		})
 		symlinkSync(join(root, 'hooks/real.js'), join(root, 'hooks/mod.js'))
-		expect(refused(await scanHookModule(root, 'hooks/mod.js'))[0]).toContain(
+		expect(refused(scanHookModule(root, 'hooks/mod.js'))[0]).toContain(
 			'is a link, and links are not followed',
 		)
 		const large = plugin({
 			'hooks/mod.js': `export function register(on) { on('classic.Stop', () => ({})) }\n// ${'x'.repeat(1024 * 1024)}`,
 		})
-		expect(refused(await scanHookModule(large, 'hooks/mod.js'))[0]).toContain(
-			'is larger than 1024 KiB',
-		)
-		const escaping = await scan(
+		expect(refused(scanHookModule(large, 'hooks/mod.js'))[0]).toContain('is larger than 1024 KiB')
+		const escaping = scan(
 			`import { x } from '../../outside.js'\nexport function register(on) { on('classic.Stop', () => ({})) }`,
 		)
 		expect(refused(escaping)[0]).toContain('no such file in the plugin')
 	})
 
-	it('refuses both of two modules, each for its own reason, and scans neither as a program', async () => {
-		const first = await scan(
+	it('refuses both of two modules, each for its own reason, and scans neither as a program', () => {
+		const first = scan(
 			`import 'node:fs'\nexport function register(on) { on('classic.Stop', () => ({})) }`,
 		)
-		const second = await scan(`export function register(on) { on('classic.Nope', () => ({})) }`)
+		const second = scan(`export function register(on) { on('classic.Nope', () => ({})) }`)
 		expect(first.program).toBeUndefined()
 		expect(second.program).toBeUndefined()
 		expect(refused(first)[0]).toContain('node:fs')
 		expect(refused(second)[0]).toContain('classic.Nope')
 	})
 
-	it('follows the files a module imports, and refuses what is in them', async () => {
-		const result = await scan(
+	it('follows the files a module imports, and refuses what is in them', () => {
+		const result = scan(
 			`import { helper } from './helper.js'\nexport function register(on) { on('classic.Stop', () => helper()) }`,
 			{ 'hooks/helper.js': `export async function helper() { return import('node:os') }` },
 		)

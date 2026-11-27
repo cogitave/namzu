@@ -1,4 +1,4 @@
-import { lstat, readFile, realpath } from 'node:fs/promises'
+import { lstatSync, readFileSync, realpathSync } from 'node:fs'
 import * as nodeModule from 'node:module'
 import { isAbsolute, join, posix, relative, resolve } from 'node:path'
 import * as acorn from 'acorn'
@@ -116,22 +116,22 @@ export type PluginFileRead =
  * A plugin's file as text: a regular file inside the plugin, not a link, no
  * larger than `cap`. A problem says why it was not read.
  */
-export async function readPluginFile(
+export function readPluginFile(
 	root: string,
 	rel: string,
 	cap: number = MAX_MODULE_FILE_BYTES,
-): Promise<PluginFileRead> {
+): PluginFileRead {
 	const path = resolve(root, rel)
 	let realRoot: string
 	try {
-		realRoot = await realpath(root)
+		realRoot = realpathSync(root)
 	} catch {
 		return { problem: 'the plugin folder cannot be read' }
 	}
 	if (!within(resolve(root), path)) return { problem: 'is outside the plugin folder' }
-	let info: Awaited<ReturnType<typeof lstat>>
+	let info: ReturnType<typeof lstatSync>
 	try {
-		info = await lstat(path)
+		info = lstatSync(path)
 	} catch {
 		return { problem: 'no such file' }
 	}
@@ -140,13 +140,13 @@ export async function readPluginFile(
 	if (info.size > cap) return { problem: `is larger than ${cap / 1024} KiB` }
 	let real: string
 	try {
-		real = await realpath(path)
+		real = realpathSync(path)
 	} catch {
 		return { problem: 'no such file' }
 	}
 	if (!within(realRoot, real)) return { problem: 'leaves the plugin folder through a link' }
 	try {
-		return { text: await readFile(real, 'utf8'), real }
+		return { text: readFileSync(real, 'utf8'), real }
 	} catch {
 		return { problem: 'cannot be read' }
 	}
@@ -170,9 +170,9 @@ export type HookModuleLocation =
  * holds one path, relative to the folder the hooks file is in. The file is read
  * as the hook entries are: no link, valid JSON, one mebibyte at most.
  */
-export async function locateHookModule(root: string): Promise<HookModuleLocation> {
+export function locateHookModule(root: string): HookModuleLocation {
 	const hooksFile = COMMON_HOOKS_FILE
-	const read = await readPluginFile(root, hooksFile)
+	const read = readPluginFile(root, hooksFile)
 	if ('problem' in read) {
 		// A missing file is not a module; any other problem is the hook entries' to say.
 		return { kind: 'none' }
@@ -328,18 +328,19 @@ function refuse(state: ScanState, file: string, node: AnyNode | number, message:
 	state.refusals.push({ file, line, message })
 }
 
-async function resolveImport(
-	state: ScanState,
-	fromRel: string,
-	specifier: string,
-): Promise<string | undefined> {
+function resolveImport(state: ScanState, fromRel: string, specifier: string): string | undefined {
 	const base = posix.normalize(posix.join(posix.dirname(fromRel), specifier))
 	if (base.startsWith('../') || base === '..' || posix.isAbsolute(base)) return undefined
 	const candidates = [base]
 	if (/\.m?js$/.test(base)) candidates.push(base.replace(/\.(m?)js$/, '.$1ts'))
 	for (const extension of ['.ts', '.js', '.mjs']) candidates.push(`${base}${extension}`)
 	for (const candidate of candidates) {
-		const info = await lstat(join(state.root, candidate)).catch(() => undefined)
+		let info: ReturnType<typeof lstatSync> | undefined
+		try {
+			info = lstatSync(join(state.root, candidate))
+		} catch {
+			info = undefined
+		}
 		if (info !== undefined && (info.isFile() || info.isSymbolicLink())) return candidate
 	}
 	return undefined
@@ -451,12 +452,7 @@ function capabilityUse(state: ScanState, rel: string, node: AnyNode, parents: An
  * Read one file: parse it, refuse what is refused, and note what it hooks and
  * calls. The entry file also has its `register` function read for `on` calls.
  */
-async function analyseFile(
-	state: ScanState,
-	rel: string,
-	isEntry: boolean,
-	queue: string[],
-): Promise<void> {
+function analyseFile(state: ScanState, rel: string, isEntry: boolean, queue: string[]): void {
 	const extension = extensionOf(rel)
 	if (extension === '.tsx' || extension === '.jsx') {
 		refuse(state, rel, 1, `${rel}: JSX is not supported in a hooks module.`)
@@ -471,7 +467,7 @@ async function analyseFile(
 		)
 		return
 	}
-	const read = await readPluginFile(state.root, rel)
+	const read = readPluginFile(state.root, rel)
 	if ('problem' in read) {
 		refuse(state, rel, 1, `${rel}: ${read.problem}.`)
 		return
@@ -673,7 +669,7 @@ async function analyseFile(
 
 	state.analyses.set(rel, { rel, ast, code, imports })
 	for (const item of imports) {
-		const target = await resolveImport(state, rel, item.specifier)
+		const target = resolveImport(state, rel, item.specifier)
 		if (target === undefined) {
 			refuse(
 				state,
@@ -898,7 +894,7 @@ function rewrite(code: string, ast: AnyNode, resolved: ReadonlyMap<string, strin
  * of, what it hooks, what it calls on `$`, and whatever the module is refused
  * for. Nothing here runs the module.
  */
-export async function scanHookModule(root: string, entry: string): Promise<HookModuleScan> {
+export function scanHookModule(root: string, entry: string): HookModuleScan {
 	const state: ScanState = {
 		root: resolve(root),
 		refusals: [],
@@ -914,7 +910,7 @@ export async function scanHookModule(root: string, entry: string): Promise<HookM
 	while (queue.length > 0) {
 		const next = queue.shift() as string
 		if (state.analyses.has(next)) continue
-		await analyseFile(state, next, next === entryRel, queue)
+		analyseFile(state, next, next === entryRel, queue)
 	}
 	let program: HookModuleProgram | undefined
 	if (state.refusals.length === 0) {
@@ -922,7 +918,7 @@ export async function scanHookModule(root: string, entry: string): Promise<HookM
 		for (const [rel, analysis] of state.analyses) {
 			const resolved = new Map<string, string>()
 			for (const item of analysis.imports) {
-				const target = await resolveImport(state, rel, item.specifier)
+				const target = resolveImport(state, rel, item.specifier)
 				if (target !== undefined) resolved.set(item.specifier, target)
 			}
 			files[rel] = rewrite(analysis.code, analysis.ast, resolved)

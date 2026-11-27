@@ -229,8 +229,8 @@ class Collector {
  * for what runs, for what Namzu has no place for, and for what refuses the
  * module (its plain hook entries still load either way).
  */
-async function noteHookModule(root: string, out: Collector): Promise<void> {
-	const located = await locateHookModule(root)
+function noteHookModule(root: string, out: Collector): void {
+	const located = locateHookModule(root)
 	if (located.kind === 'none') return
 	if (located.kind === 'refused') {
 		out.add({
@@ -242,7 +242,7 @@ async function noteHookModule(root: string, out: Collector): Promise<void> {
 		})
 		return
 	}
-	const scan = await scanHookModule(root, located.entry)
+	const scan = scanHookModule(root, located.entry)
 	for (const refusal of scan.refusals) {
 		out.add({
 			level: 'refused',
@@ -905,7 +905,7 @@ async function readMerged(
 		}
 		if (isMapping(parsed) && parsed.modules !== undefined) {
 			if (rel === COMMON_HOOKS_FILE) {
-				await noteHookModule(root, out)
+				noteHookModule(root, out)
 			} else {
 				out.add({
 					level: 'refused',
