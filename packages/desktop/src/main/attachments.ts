@@ -12,7 +12,13 @@ const MAX_TOTAL_TEXT_BYTES = 256 * 1024
 export interface AdmittedAttachment {
 	view: AttachmentView
 	image?: ImageAttachment
+	/** A screen recording carries its pictures here, in order; it has no `image`. */
+	images?: ImageAttachment[]
 	text?: string
+	/** A screen recording: held in memory only, never written to the drafts file. */
+	recording?: true
+	/** What the file holds in memory when that is more than `view.size`. */
+	retained?: number
 }
 const quoted = (name: string) => `“${shortFileName(name)}”`
 const NOT_ATTACHABLE = (name: string) =>
@@ -80,7 +86,61 @@ export function admitAttachment(file: AttachmentInput): AdmittedAttachment {
 		text,
 	}
 }
-export function validateAttachmentBatch(files: readonly AdmittedAttachment[]): void {
+export const RECORDING_MEDIA_TYPE = 'application/x-namzu-recording'
+const MAX_RECORDING_TEXT_BYTES = 64 * 1024
+const MAX_RECORDING_IMAGES = 24
+const MAX_RECORDING_IMAGE_BYTES = 6 * 1024 * 1024
+
+/**
+ * A screen recording as one attachment: the message block as text and the pictures it names, in
+ * order. It is held in memory only. Its own limits (24 pictures, 6 MiB, a small text) replace the
+ * ordinary file limits, which would refuse it.
+ */
+export function admitRecording(input: unknown): AdmittedAttachment {
+	if (typeof input !== 'object' || input === null) throw new Error('Invalid recording.')
+	const raw = input as Record<string, unknown>
+	if (typeof raw.name !== 'string' || !raw.name.trim() || raw.name.length > 180)
+		throw new Error('Invalid recording.')
+	if (typeof raw.text !== 'string' || !raw.text) throw new Error('Invalid recording.')
+	const textBytes = Buffer.byteLength(raw.text, 'utf8')
+	if (textBytes > MAX_RECORDING_TEXT_BYTES) throw new Error('This recording is too long to attach.')
+	if (!Array.isArray(raw.images) || raw.images.length > MAX_RECORDING_IMAGES)
+		throw new Error('Invalid recording.')
+	let imageBytes = 0
+	const images: ImageAttachment[] = []
+	for (const item of raw.images) {
+		if (
+			typeof item !== 'object' ||
+			item === null ||
+			typeof (item as { data?: unknown }).data !== 'string' ||
+			!/^[A-Za-z0-9+/]+={0,2}$/.test((item as { data: string }).data)
+		)
+			throw new Error('Invalid recording.')
+		const data = (item as { data: string }).data
+		imageBytes += Math.floor((data.length * 3) / 4)
+		images.push({ type: 'image', data, mediaType: 'image/jpeg' })
+	}
+	if (imageBytes > MAX_RECORDING_IMAGE_BYTES)
+		throw new Error('This recording is too large to attach.')
+	return {
+		view: {
+			id: randomUUID(),
+			name: raw.name.trim(),
+			kind: 'text',
+			size: textBytes,
+			mediaType: RECORDING_MEDIA_TYPE,
+		},
+		text: raw.text,
+		images,
+		recording: true,
+		retained: textBytes + imageBytes,
+	}
+}
+
+export function validateAttachmentBatch(all: readonly AdmittedAttachment[]): void {
+	if (all.filter((file) => file.recording).length > 1)
+		throw new Error('A message can carry one screen recording.')
+	const files = all.filter((file) => !file.recording)
 	if (files.length > MAX_ATTACHMENT_COUNT) throw new Error(ATTACHMENT_COUNT_MESSAGE)
 	if (files.reduce((total, file) => total + file.view.size, 0) > MAX_ATTACHMENT_BYTES)
 		throw new Error(ATTACHMENT_TOTAL_MESSAGE)

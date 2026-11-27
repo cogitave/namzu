@@ -179,6 +179,7 @@ import {
 	type AdmittedAttachment,
 	MAX_ATTACHMENT_COUNT,
 	admitAttachment,
+	admitRecording,
 	readChosenFile,
 	validateAttachmentBatch,
 } from './attachments.js'
@@ -910,7 +911,8 @@ export class Operator {
 				? { collapsedSections: collapsedSectionsFrom([...this.collapsedSections]) }
 				: {}),
 			attachments: [...this.attachmentFiles.values()]
-				.filter((item) => item.draft)
+				// A screen recording stays in memory: it is never written to the drafts file.
+				.filter((item) => item.draft && !item.recording)
 				.map((item) => ({ ...item, draft: true as const })),
 		}
 		try {
@@ -5247,7 +5249,7 @@ export class Operator {
 		)
 		validateAttachmentBatch([...existing, ...incoming])
 		const retainedBytes = [...this.attachmentFiles.values()].reduce(
-			(total, file) => total + file.view.size,
+			(total, file) => total + (file.retained ?? file.view.size),
 			0,
 		)
 		if (
@@ -5258,6 +5260,25 @@ export class Operator {
 		for (const file of incoming)
 			this.attachmentFiles.set(file.view.id, { ...file, ownerId, draft: true })
 		this.persistDesktop()
+		return this.attachments(ownerId)
+	}
+	/**
+	 * A reviewed screen recording as one attachment of the draft: the message block as text and its
+	 * pictures in order. Memory only; the pictures reach the model only when the message is sent.
+	 */
+	addRecording(ownerId: string, input: unknown): AttachmentView[] {
+		const projectId = this.attachmentProject(ownerId)
+		if (!this.project(projectId).view.trusted)
+			throw new Error('Trust this folder before attaching a recording.')
+		const incoming = admitRecording(input)
+		const existing = [...this.attachmentFiles.values()].filter(
+			(file) => file.ownerId === ownerId && file.draft && !file.recording,
+		)
+		validateAttachmentBatch([...existing, incoming])
+		// A newer recording takes the place of one still waiting in the same draft.
+		for (const [id, file] of this.attachmentFiles)
+			if (file.recording && file.draft && file.ownerId === ownerId) this.attachmentFiles.delete(id)
+		this.attachmentFiles.set(incoming.view.id, { ...incoming, ownerId, draft: true })
 		return this.attachments(ownerId)
 	}
 	async addChosenFiles(ownerId: string, paths: string[]): Promise<AttachmentView[]> {
@@ -5638,7 +5659,10 @@ export class Operator {
 			return file
 		})
 		validateAttachmentBatch(files)
-		if (files.some((file) => file.image) && !session.client.supportsPromptAttachments())
+		if (
+			files.some((file) => file.image || file.images?.length) &&
+			!session.client.supportsPromptAttachments()
+		)
 			throw new Error('Update Namzu to a version that can receive image attachments.')
 		if (
 			options?.effort !== undefined &&
@@ -6580,7 +6604,9 @@ export class Operator {
 			]
 				.filter(Boolean)
 				.join('\n\n')
-			const images = files.flatMap((file) => (file.image ? [file.image] : []))
+			const images = files.flatMap((file) =>
+				file.images ? file.images : file.image ? [file.image] : [],
+			)
 			const result = (await session.client.request(
 				'session/prompt',
 				{

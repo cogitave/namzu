@@ -207,7 +207,7 @@ export interface RecordingReviewPicture {
 
 /** The states the pill shows. */
 export type PillState =
-	| { kind: 'recording'; elapsedMs: number; leftMs?: number; voice: boolean }
+	| { kind: 'recording'; elapsedMs: number; leftMs?: number; voice: boolean; level?: number }
 	| { kind: 'paused'; elapsedMs: number }
 	| { kind: 'away'; elapsedMs: number; keptUntil: string }
 	| { kind: 'processing' }
@@ -242,6 +242,11 @@ export interface ChooserMicrophone {
 	label: string
 }
 export interface ChooserInit {
+	/** What Namzu records and where it goes, with the provider filled in. */
+	disclosure: string
+	warning: string
+	/** Said when listening is not downloaded. */
+	voiceMissing: string
 	displays: ChooserDisplay[]
 	voice: {
 		/** Local listening is installed. */

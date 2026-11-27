@@ -58,3 +58,17 @@ export type {
 	A11yWindow,
 	AccessibilityBackend,
 } from './a11y/index.js'
+
+/**
+ * The controls a person uses, watched through the native Windows helper's read-only UI Automation
+ * subscriptions. There is no key and no mouse button in what it reports, and a password field says
+ * `secure` and never its text.
+ */
+export { NativeWatch } from './native/watch.js'
+export type { NativeWatchOptions, NativeWatchStart, NativeWatching } from './native/watch.js'
+export { NATIVE_WATCH_KINDS } from './native/protocol.js'
+export type {
+	NativeWatchEvent,
+	NativeWatchKind,
+	NativeWatchPollReply,
+} from './native/protocol.js'

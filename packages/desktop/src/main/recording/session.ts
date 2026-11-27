@@ -86,6 +86,7 @@ const CURSOR_MS = 1000 / RECORDING_LIMITS.cursorHz
 const PILL_MS = 1000
 const NOTE_MS = 6_000
 const CONTROLS_CHECK_MS = 3_000
+const LEVEL_PAINT_MS = 150
 
 const hhmm = (epoch: number): string => {
 	const date = new Date(epoch)
@@ -110,6 +111,8 @@ export class RecordingSession {
 	private controls = false
 	private startedWall = 0
 	private holdProtection = false
+	private level = 0
+	private levelPaintedAt = Number.NEGATIVE_INFINITY
 
 	constructor(private readonly deps: SessionDeps) {}
 
@@ -250,6 +253,7 @@ export class RecordingSession {
 								? { leftMs: Math.max(0, RECORDING_LIMITS.maxDurationMs - elapsedMs) }
 								: {}),
 							voice: this.voice === 'on',
+							...(this.voice === 'on' ? { level: this.level } : {}),
 						},
 					}),
 				)
@@ -305,6 +309,30 @@ export class RecordingSession {
 	audio(samples: Float32Array): void {
 		if (this.current !== 'running' || !this.narrationOn) return
 		this.narration?.push(samples)
+		let sum = 0
+		for (const sample of samples) sum += sample * sample
+		const rms = Math.sqrt(sum / Math.max(1, samples.length))
+		this.level = Math.min(1, rms * 6)
+		const now = this.deps.clock()
+		if (now - this.levelPaintedAt >= LEVEL_PAINT_MS) {
+			this.levelPaintedAt = now
+			this.paintPill()
+		}
+	}
+
+	/** The person clicked "Narration disconnected": open narration again, and say so if it cannot. */
+	reconnectNarration(): void {
+		if (this.current !== 'running' && this.current !== 'paused') return
+		if (!this.deps.narration) return
+		void this.narration?.stop()
+		this.narration = this.deps.narration({
+			say: (text, startMs) => this.assembler?.say(text, startMs),
+			disconnected: () => this.showNote('narration-disconnected'),
+		})
+		this.narrationOn = true
+		this.narration.start()
+		this.note = undefined
+		this.paintPill()
 	}
 
 	/** Ends the recording and opens it for review. */
