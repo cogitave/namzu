@@ -156,7 +156,8 @@ export const historyCommand = lazyCommand(
 export const pluginCommand = lazyCommand(
 	{
 		name: 'plugin',
-		description: 'Check a plugin folder, and list, inspect and turn on or off installed plugins',
+		description:
+			'Check a plugin folder, install plugins from folders and files, and list, inspect, update and remove them',
 		passThrough: true,
 	},
 	async () => (await import('./plugin.js')).pluginCommand,

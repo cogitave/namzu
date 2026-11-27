@@ -12,6 +12,19 @@ import type { PluginPathValues } from './paths.js'
  */
 export type LayoutFindingLevel = 'used' | 'ignored' | 'notUsed' | 'refused'
 
+/** A server the reader listed but did not admit because it needs setup, as written in the file. */
+export interface LayoutSetupServer {
+	readonly kind: 'remote' | 'local'
+	readonly name: string
+	/** Remote: the address as written. Local: the command as written. */
+	readonly target: string
+	readonly args?: readonly string[]
+	/** Remote: the transport the entry names. */
+	readonly transport?: 'http' | 'sse'
+	/** Header or environment values as written, by name. */
+	readonly values: Readonly<Record<string, string>>
+}
+
 export interface LayoutFinding {
 	readonly level: LayoutFindingLevel
 	/** A stable kebab-case code, the same for the same cause. */
@@ -21,6 +34,8 @@ export interface LayoutFinding {
 	readonly message: string
 	/** The file inside the plugin the finding is about, when it names one. */
 	readonly path?: string
+	/** On `mcp-needs-setup`: the entry as written, so a consent surface can still show it. */
+	readonly server?: LayoutSetupServer
 }
 
 /** Where the manifest of a read came from. */

@@ -13,9 +13,10 @@ A plugin installed on this computer is a copy of its files under
 when it was installed is written in three places, and a recorded yes or no in a
 settings file says whether it runs. This page describes those files, the rules
 that read them, how the session loads installed plugins and the commands that
-show and change them. The commands that create the records (install, update,
-uninstall) are separate; until they exist the records are written by hand or by
-a script, and everything here reads them the same way.
+show and change them. The commands that create and remove the records (install,
+update, uninstall, prune and the marketplace commands) are on
+[Install plugins](plugin-install.md); a record written by hand or by a script is
+read the same way.
 
 An id is `<plugin>@<marketplace>`: each half starts with a letter or digit and
 holds letters, digits, `.`, `_` and `-`, at most 64 characters each.

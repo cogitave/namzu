@@ -62,6 +62,41 @@ export const COMMON_USER_CONFIG_PREFIX = 'user_config.'
 /** A command spelled `/<plugin>:<command>` in the layout's own documentation. */
 export const COMMON_COMMAND_SEPARATOR = ':'
 
+/** A marketplace catalog's file name; it sits in {@link COMMON_MANIFEST_DIR} of the marketplace folder. */
+export const COMMON_MARKETPLACE_FILE = 'marketplace.json'
+
+/**
+ * Marketplace names the layout's own official catalogs use. A marketplace added
+ * from anywhere else may not take one, nor a name built from the two words the
+ * layout's maker goes by, so a catalog cannot pass itself off as an official one.
+ */
+export const COMMON_OFFICIAL_MARKETPLACE_NAMES: readonly string[] = [
+	'claude-code-marketplace',
+	'claude-code-plugins',
+	'claude-plugins-official',
+	'anthropic-marketplace',
+	'anthropic-plugins',
+	'agent-skills',
+	'anthropic-agent-skills',
+	'life-sciences',
+	'knowledge-work-plugins',
+	'claude-for-legal',
+	'claude-for-financial-services',
+	'financial-services-plugins',
+	'first-party-plugins',
+	'claude-tag-plugins',
+	'claude-community',
+	'claude-plugins-community',
+	'healthcare',
+]
+
+/** Whether a marketplace name is an official one of the layout, or built to look like one. */
+export function isOfficialLookingMarketplaceName(name: string): boolean {
+	const lower = name.toLowerCase()
+	if (COMMON_OFFICIAL_MARKETPLACE_NAMES.includes(lower)) return true
+	return /(^|[-_.])(claude|anthropic)([-_.]|$)/.test(lower)
+}
+
 /**
  * What a hooks module may import besides its own files: the package that holds
  * its types. A type import is erased before the module runs; a value import of
