@@ -40,6 +40,28 @@ import {
 	skillTierLabel,
 	userSkillsDir,
 } from './store.js'
+import {
+	SKILL_BODY_MAX_BYTES,
+	SKILL_DESCRIPTION_MAX_CHARS,
+	SKILL_NAME_MAX_CHARS,
+	SKILL_NAME_PATTERN,
+	type SkillDraft,
+	SkillDraftError,
+	type SkillOrigin,
+	validateSkillDraft,
+} from './validate.js'
+
+// The rules live in validate.ts, shared with `namzu skills add|create`; these names stay importable from here.
+export {
+	SKILL_BODY_MAX_BYTES,
+	SKILL_DESCRIPTION_MAX_CHARS,
+	SKILL_NAME_MAX_CHARS,
+	SKILL_NAME_PATTERN,
+	type SkillDraft,
+	SkillDraftError,
+	type SkillOrigin,
+	validateSkillDraft,
+}
 
 export const SAVE_SKILL_TOOL_NAME = 'save_skill'
 
@@ -77,25 +99,7 @@ export function learnSkillPrompt(name?: string): string {
 	].join(' ')
 }
 
-/** The kernel loader's own limits, checked here so the operator is never shown a file it would refuse. */
-export const SKILL_NAME_MAX_CHARS = 64
-export const SKILL_DESCRIPTION_MAX_CHARS = 1024
-/** A skill body is instructions, not a document store. */
-export const SKILL_BODY_MAX_BYTES = 64 * 1024
-
-export const SKILL_NAME_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
-
 export type SkillSaveScope = 'user' | 'project'
-export type SkillOrigin = 'created' | 'learned'
-
-/** What the model proposed, after validation. */
-export interface SkillDraft {
-	readonly name: string
-	readonly description: string
-	readonly body: string
-	readonly origin: SkillOrigin
-}
-
 /** Another `SKILL.md` of the same name, and what saving here does to it. */
 export interface SkillCollision {
 	/**
@@ -154,49 +158,6 @@ export interface SaveSkillHost {
 	readonly saved?: (result: { readonly name: string; readonly path: string }) => void
 	/** The clock, for `namzu-created`. */
 	readonly now?: () => Date
-}
-
-export class SkillDraftError extends Error {
-	override readonly name = 'SkillDraftError'
-}
-
-/**
- * Normalise and check what the model proposed. Throws {@link SkillDraftError}
- * naming the first problem.
- */
-export function validateSkillDraft(input: {
-	readonly name: string
-	readonly description: string
-	readonly body: string
-	readonly origin?: SkillOrigin
-}): SkillDraft {
-	const name = input.name.trim()
-	if (name.length === 0 || name.length > SKILL_NAME_MAX_CHARS || !SKILL_NAME_PATTERN.test(name)) {
-		throw new SkillDraftError(
-			`name "${name}" must be 1–${SKILL_NAME_MAX_CHARS} lowercase letters, digits and single hyphens (like "release-notes").`,
-		)
-	}
-	// One line: the frontmatter holds a single-line value, and a description
-	// is read by the model as one sentence or two anyway.
-	const description = input.description.replace(/\s+/g, ' ').trim()
-	if (description.length === 0) throw new SkillDraftError('description must not be empty.')
-	if (description.length > SKILL_DESCRIPTION_MAX_CHARS) {
-		throw new SkillDraftError(
-			`description is ${description.length} characters; at most ${SKILL_DESCRIPTION_MAX_CHARS}.`,
-		)
-	}
-	const body = input.body.replace(/\r\n?/g, '\n').trim()
-	if (body.length === 0) throw new SkillDraftError('body must not be empty.')
-	const bytes = Buffer.byteLength(body, 'utf8')
-	if (bytes > SKILL_BODY_MAX_BYTES) {
-		throw new SkillDraftError(`body is ${bytes} bytes; at most ${SKILL_BODY_MAX_BYTES}.`)
-	}
-	if (/^---[ \t]*$/m.test(body.split('\n', 1)[0] ?? '')) {
-		throw new SkillDraftError(
-			'body must be the instructions only; pass name and description as fields, not as frontmatter.',
-		)
-	}
-	return { name, description, body, origin: input.origin ?? 'created' }
 }
 
 /** The `SKILL.md` for a draft. Round-tripped through the reader before anyone sees it. */

@@ -4,7 +4,12 @@ import { dirname } from 'node:path'
 import { loadSkill } from '@namzu/sdk'
 import { readSkillHooks } from '../config/skill-hooks-reader.js'
 import { manifestEntryChars, skillManifestBudget } from './catalog.js'
-import { SKILL_TIERS, type SkillDiscoveryOptions, discoverSkillRoster } from './store.js'
+import {
+	SKILL_TIERS,
+	type SkillDiscoveryOptions,
+	type SkillInfo,
+	discoverSkillRoster,
+} from './store.js'
 
 export interface SkillAuditFinding {
 	readonly name: string
@@ -39,6 +44,47 @@ export interface SkillAuditReport {
 }
 
 /**
+ * What the model's own loader says about one skill, without the manifest
+ * budget. `namzu skills add` runs it on a staged copy before anything is
+ * installed, so a file the loader would refuse is never put in place.
+ */
+export async function auditSkillInfo(skill: SkillInfo): Promise<SkillAuditFinding> {
+	if (skill.disabled) return { name: skill.name, path: skill.path, status: 'disabled' }
+	if (skill.problem) {
+		return { name: skill.name, path: skill.path, status: 'invalid', reason: skill.problem }
+	}
+	try {
+		const { skill: loaded } = await loadSkill(dirname(skill.path), 'metadata')
+		if (loaded.metadata.invocation === 'operator') {
+			return { name: skill.name, path: skill.path, status: 'operator-only' }
+		}
+		const chars = manifestEntryChars(loaded)
+		const hookProblems =
+			skill.hooksSource === undefined
+				? undefined
+				: readSkillHooks(skill.hooksSource, `skill ${skill.name}`).problems.map((problem) => ({
+						severity: problem.severity,
+						text: `${problem.event} ${problem.message}`,
+					}))
+		return {
+			name: skill.name,
+			path: skill.path,
+			status: 'ready',
+			manifestChars: chars,
+			...(skill.hooksSource !== undefined ? { carriesHooks: true } : {}),
+			...(hookProblems && hookProblems.length > 0 ? { hookProblems } : {}),
+		}
+	} catch (error) {
+		return {
+			name: skill.name,
+			path: skill.path,
+			status: 'invalid',
+			reason: error instanceof Error ? error.message : String(error),
+		}
+	}
+}
+
+/**
  * Check the exact SDK loader that serves the model, not a second copy of its
  * frontmatter rules. The ordinary roster intentionally also lists legacy
  * body-only skills an operator can activate; those are invalid for the model
@@ -62,53 +108,14 @@ export async function auditFileSkills(
 	let admittedChars = 0
 
 	for (const skill of ordered) {
-		if (skill.disabled) {
-			findings.push({ name: skill.name, path: skill.path, status: 'disabled' })
-			continue
-		}
-		if (skill.problem) {
-			findings.push({
-				name: skill.name,
-				path: skill.path,
-				status: 'invalid',
-				reason: skill.problem,
-			})
-			continue
-		}
-		try {
-			const { skill: loaded } = await loadSkill(dirname(skill.path), 'metadata')
-			if (loaded.metadata.invocation === 'operator') {
-				findings.push({ name: skill.name, path: skill.path, status: 'operator-only' })
-				continue
-			}
-			const chars = manifestEntryChars(loaded)
-			manifestChars += chars
-			if (budget !== undefined && (overflow.length > 0 || admittedChars + chars > budget))
-				overflow.push(skill.name)
-			else admittedChars += chars
-			const hookProblems =
-				skill.hooksSource === undefined
-					? undefined
-					: readSkillHooks(skill.hooksSource, `skill ${skill.name}`).problems.map((problem) => ({
-							severity: problem.severity,
-							text: `${problem.event} ${problem.message}`,
-						}))
-			findings.push({
-				name: skill.name,
-				path: skill.path,
-				status: 'ready',
-				manifestChars: chars,
-				...(skill.hooksSource !== undefined ? { carriesHooks: true } : {}),
-				...(hookProblems && hookProblems.length > 0 ? { hookProblems } : {}),
-			})
-		} catch (error) {
-			findings.push({
-				name: skill.name,
-				path: skill.path,
-				status: 'invalid',
-				reason: error instanceof Error ? error.message : String(error),
-			})
-		}
+		const finding = await auditSkillInfo(skill)
+		findings.push(finding)
+		if (finding.status !== 'ready') continue
+		const chars = finding.manifestChars ?? 0
+		manifestChars += chars
+		if (budget !== undefined && (overflow.length > 0 || admittedChars + chars > budget))
+			overflow.push(skill.name)
+		else admittedChars += chars
 	}
 
 	return {
