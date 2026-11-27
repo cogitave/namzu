@@ -42,6 +42,9 @@ export type NativeOp =
 	| 'monitor.start'
 	| 'monitor.stop'
 	| 'monitor.poll'
+	| 'watch.start'
+	| 'watch.stop'
+	| 'watch.poll'
 	| 'presence.act'
 	| 'presence.hide'
 	| 'cancel'
@@ -93,6 +96,9 @@ export type NativeRequest =
 	| NativeMonitorStartRequest
 	| { readonly op: 'monitor.stop' }
 	| { readonly op: 'monitor.poll'; readonly since?: number }
+	| NativeWatchStartRequest
+	| { readonly op: 'watch.stop' }
+	| { readonly op: 'watch.poll' }
 	| NativePresenceActRequest
 	| { readonly op: 'presence.hide' }
 	| { readonly op: 'cancel'; readonly target: number }
@@ -185,6 +191,34 @@ export type NativeMonitorHook = 'foreground' | 'input'
 export interface NativeMonitorStartRequest {
 	readonly op: 'monitor.start'
 	readonly hooks?: readonly NativeMonitorHook[]
+}
+
+/** What a watch reports. Nothing here is about keys or the mouse: there is no such kind. */
+export type NativeWatchKind = 'invoke' | 'focus' | 'selection' | 'menu' | 'window' | 'value' | 'app'
+
+export const NATIVE_WATCH_KINDS: readonly NativeWatchKind[] = [
+	'invoke',
+	'focus',
+	'selection',
+	'menu',
+	'window',
+	'value',
+	'app',
+]
+
+/** What to watch and how much to keep. Every field is optional; the helper clamps each. */
+export interface NativeWatchStartRequest {
+	readonly op: 'watch.start'
+	/** Default every kind. */
+	readonly kinds?: readonly NativeWatchKind[]
+	/** Repeated value changes of one control within this many ms are one event (default 250, at most 5000; 0 keeps all). */
+	readonly coalesceMs?: number
+	/** Events kept between polls (default and most 2000). */
+	readonly maxQueue?: number
+	/** Characters of a value kept (default and most 200). */
+	readonly maxValue?: number
+	/** Characters of a control name kept (default and most 80). */
+	readonly maxName?: number
 }
 
 export type NativePresenceKind = 'click' | 'type' | 'move'
@@ -389,6 +423,45 @@ export interface NativeMonitorPollReply {
 	readonly dropped: boolean
 }
 
+export interface NativeWatchStartReply {
+	/** UI Automation subscriptions are in place; false: the controls of programs are not watched. */
+	readonly controls: boolean
+	/** Foreground changes are hooked. */
+	readonly foreground: boolean
+	/** The kinds being watched. */
+	readonly kinds: readonly NativeWatchKind[]
+}
+
+/**
+ * One thing a person did to a control, or a window that opened or closed.
+ * There is no key, no character typed and no mouse button or position in it;
+ * `value` is an ordinary edit control's text and is never present for a
+ * password field, which says `secure: true` instead.
+ */
+export interface NativeWatchEvent {
+	readonly kind: NativeWatchKind
+	/** Monotonic ms since the watch started. */
+	readonly tMs: number
+	readonly role?: string
+	readonly name?: string
+	readonly value?: string
+	readonly secure?: boolean
+	/** For a menu or a window: which end. */
+	readonly phase?: 'open' | 'close'
+	/** The title of the window the control is in. */
+	readonly window?: string
+	/** The program's file name. */
+	readonly process?: string
+	readonly windowId?: string
+}
+
+export interface NativeWatchPollReply {
+	/** Events since the last poll, oldest first. */
+	readonly events: readonly NativeWatchEvent[]
+	/** Events not kept since the last poll because the queue was full. */
+	readonly dropped: number
+}
+
 export interface NativePresenceActReply {
 	readonly cursorWindow: number
 	readonly frameWindow: number
@@ -413,6 +486,9 @@ export interface NativeReplyBodies {
 	readonly 'monitor.start': NativeMonitorStartReply
 	readonly 'monitor.stop': Record<string, never>
 	readonly 'monitor.poll': NativeMonitorPollReply
+	readonly 'watch.start': NativeWatchStartReply
+	readonly 'watch.stop': Record<string, never>
+	readonly 'watch.poll': NativeWatchPollReply
 	readonly 'presence.act': NativePresenceActReply
 	readonly 'presence.hide': Record<string, never>
 	readonly cancel: Record<string, never>
@@ -848,6 +924,29 @@ function monitorPoll(o: Obj): NativeMonitorPollReply {
 	return out
 }
 
+function watchKind(v: unknown, path: string): NativeWatchKind {
+	return oneOf(v, NATIVE_WATCH_KINDS, path)
+}
+
+function watchEvent(v: unknown, path: string): NativeWatchEvent {
+	const o = obj(v, path)
+	const out: { -readonly [K in keyof NativeWatchEvent]: NativeWatchEvent[K] } = {
+		kind: watchKind(o.kind, `${path}.kind`),
+		tMs: int(o, 'tMs', path),
+	}
+	for (const key of ['role', 'name', 'value', 'window', 'process', 'windowId'] as const) {
+		const text = optStr(o, key, path)
+		if (text !== undefined) out[key] = text
+	}
+	const secure = optBool(o, 'secure', path)
+	if (secure !== undefined) out.secure = secure
+	if (o.phase !== undefined) out.phase = oneOf(o.phase, ['open', 'close'] as const, `${path}.phase`)
+	// A password field never carries its text, whatever a helper sent.
+	if (out.secure === true && out.value !== undefined)
+		bad(`${path}.value`, 'absent for a secure field')
+	return out
+}
+
 function body(op: NativeOp, o: Obj): NativeReplyBodies[NativeOp] {
 	switch (op) {
 		case 'hello':
@@ -889,12 +988,28 @@ function body(op: NativeOp, o: Obj): NativeReplyBodies[NativeOp] {
 			}
 		case 'monitor.poll':
 			return monitorPoll(o)
+		case 'watch.start':
+			return {
+				controls: bool(o, 'controls', 'watch.start'),
+				foreground: bool(o, 'foreground', 'watch.start'),
+				kinds: arr(o, 'kinds', 'watch.start').map((k, i) =>
+					watchKind(k, `watch.start.kinds[${i}]`),
+				),
+			}
+		case 'watch.poll':
+			return {
+				events: arr(o, 'events', 'watch.poll').map((e, i) =>
+					watchEvent(e, `watch.poll.events[${i}]`),
+				),
+				dropped: int(o, 'dropped', 'watch.poll'),
+			}
 		case 'presence.act':
 			return {
 				cursorWindow: int(o, 'cursorWindow', 'presence.act'),
 				frameWindow: int(o, 'frameWindow', 'presence.act'),
 			}
 		case 'monitor.stop':
+		case 'watch.stop':
 		case 'presence.hide':
 		case 'cancel':
 		case 'quit':

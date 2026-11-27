@@ -54,7 +54,7 @@ pub fn class_of(h: HWND) -> String {
     String::from_utf16_lossy(&buf[..n.max(0) as usize])
 }
 
-fn title_of(h: HWND) -> String {
+pub fn title_of(h: HWND) -> String {
     let mut buf = [0u16; 512];
     let n = unsafe { GetWindowTextW(h, &mut buf) };
     String::from_utf16_lossy(&buf[..n.max(0) as usize])

@@ -29,6 +29,7 @@ which parts do not yet.
 | Acting by pattern (`act`), input (`input`), capture (`capture`), the foreground (`foreground.get`, `foreground.set`) and its lease (`lease.begin`, `lease.end`) | built; written without a compiler for Windows on the machine it was written on, so the first Windows CI run is its first build; `windows_act.rs` drives every op against a window the test makes |
 | `NativeWin32Adapter` (screenshot, zoom region, click, drag, scroll, type, key, cursor, displays) in `@namzu/computer-use`, chosen by `NAMZU_WIN_HELPER` | built, opt-in |
 | Monitor (raw input and foreground events, no low-level hooks): `monitor.start`, `monitor.stop`, `monitor.poll`, and a person's input count in `lease.end`; presence overlay (`presence.act`, `presence.hide`) without capture exclusion | built; same caveat as the acting ops, and `windows_monitor.rs` is its test |
+| Watch (the controls a person uses, with no input hook of any kind): `watch.start`, `watch.stop`, `watch.poll`, and `NativeWatch` in `@namzu/computer-use` | built; the first Windows CI run is its first build, and `windows_watch.rs` is its test; see [The watch](#the-watch) for what only that job can show |
 | `NativeForegroundMonitor` and `NativePresence` in `@namzu/computer-use`, chosen by `NAMZU_WIN_HELPER` | built, opt-in; the PowerShell monitor and overlay (and their global hooks and capture exclusion) stay for a machine that names no helper, until the backend ladder lane removes them |
 | Delivery (pinned download, bundling, signing) | not yet; CI uploads unsigned builds, and a person points `NAMZU_WIN_HELPER` at one |
 | An embedded manifest (per-monitor DPI, `asInvoker`) and version resource | not yet; the helper sets per-monitor v2 awareness itself when it starts |
@@ -59,6 +60,7 @@ own helper process.
 | `packages/computer-use/src/native/process.ts` | `NativeWinProcess`: starts the executable (no shell, no window), greets it, matches replies to requests by id, cancels at the helper on a timeout or an abort, starts it again (up to three times, counted afresh after a run of a minute or more) when it ends. The shipped helper aborts on a panic, so a panic ends it and this restart is the recovery. |
 | `packages/computer-use/src/native/a11y.ts` | `NativeA11yBackend`: the `AccessibilityBackend` interface answered by the helper, and `act` (a control by ref or fingerprint, through its pattern); `actFailureCode` names the two failures a ref can have (`STALE_REF`, `AMBIGUOUS_TARGET`). |
 | `packages/computer-use/src/native/foreground-monitor.ts`, `native/presence.ts`, `native/shared.ts` | `NativeForegroundMonitor` (the ladder's `ForegroundMonitor`: `monitor.start`, `foreground.get`, `monitor.poll`, `lease.begin`, `lease.end`) and `NativePresence` (the overlay's `Presence`: `presence.act`, `presence.hide`). The monitor and `NativeWin32Adapter` take their helper from `shareNativeProcess`, so the lease the ladder begins and the input the adapter sends meet in one helper process, which is the only place a lease can refuse an input; the process ends with its last holder, and `release` (ending an idle helper) does nothing while the other still holds it. |
+| `packages/computer-use/src/native/watch.ts` | `NativeWatch`: `watch.start`, `watch.poll`, `watch.stop` on the shared helper process. |
 | `packages/computer-use/src/adapters/win32-native.ts` | `NativeWin32Adapter`: the display `Adapter` (screenshot, zoom region, click, drag, scroll, type, key, cursor position, display geometry) on top of `input`, `capture`, `displays` and `foreground.get`. |
 
 ## The protocol: `namzu-win/1`
@@ -100,6 +102,9 @@ the same shapes as the accessibility interfaces in
 | `foreground.set` | `windowId` | `raised`, `changed`, `how` (`already`, `plain`, `unlock`, `attach`, `switch` or `refused`) and, when refused, `blockedBy` (`windows` or `elevated`). |
 | `lease.begin` | `windowId?`, `raise?`, `idleMs?`, `ttlMs?` (30000), `leasePath?` with `token?` | What `foreground.get` says, `refused` (a person is still using the machine: nothing was moved and no lease is held) and, with `raise`, `raised` and `raiseHow`. |
 | `lease.end` | `restore`, `keepCursor?`, `release?` | `restoredForeground`, `restoredCursor`, `restoreNote?`, `inputMoved`, `frontElevated`, `released`. |
+| `watch.start` | `kinds?` (`invoke`, `focus`, `selection`, `menu`, `window`, `value`, `app`; default all), `coalesceMs?` (250, at most 5000), `maxQueue?` (2000), `maxValue?` (200), `maxName?` (80) | `controls` (UI Automation subscriptions are in place), `foreground`, `kinds`. Starting twice answers what is running. |
+| `watch.poll` | | `events` queued since the last poll, oldest first (see [The watch](#the-watch)), and `dropped`, the events not kept since the last poll. `bad_request` when no watch is running. |
+| `watch.stop` | | `ok`; every subscription is removed. Stopping twice is fine. |
 | `cancel` | `target` (the id of the request to stop) | `ok`. |
 | `quit` | | `ok`, then the helper ends. |
 
@@ -122,7 +127,7 @@ A build without the Windows calls (any other platform) answers the ops beyond
 `hello` reports `caps` as an empty list, so a caller can tell a build apart from
 a finished one. The Windows build reports `windows`, `displays`, `snapshot`,
 `identity`, `resolve`, `seq`, `wait_change`, `act`, `input`, `capture`,
-`foreground`, `lease`, `monitor`, `rawinput`, `presence`, `uia`, `hooks`, `sendinput`, `wgc` and `printwindow`, its
+`foreground`, `lease`, `monitor`, `rawinput`, `watch`, `presence`, `uia`, `hooks`, `sendinput`, `wgc` and `printwindow`, its
 OS build number and `dpiAwareness: "perMonitorV2"`. `NativeWin32Adapter` starts
 only on a helper that reports `capture`, `input` and `foreground`.
 
@@ -343,6 +348,59 @@ path that reads no key content (a single registered hotkey for Escape, or
 treating a person's input during a burst as a stop) comes before it is made the
 default.
 
+## The watch
+
+`watch.*` lets a recorder learn what a person did without any input hook. It is
+read-only UI Automation plus the foreground window event, and it is the reason
+Tier 1 of "Record your screen" can name the control a person used ("pressed
+Export in the File menu") instead of a coordinate. It does not replace the
+monitor: the monitor says that a person used the machine, the watch says which
+control they used.
+
+- **What is subscribed.** One thread, started by `watch.start`, registers
+  event handlers on the desktop root: invoke, keyboard focus change, selection
+  item selected, menu opened and closed, window opened and closed, and the
+  value property of controls. `SetWinEventHook(EVENT_SYSTEM_FOREGROUND)` adds
+  the program in front (`app`). `watch.stop` (or the helper ending) removes
+  every handler.
+- **What is never done.** No `SetWindowsHookEx`, no Raw Input registration, no
+  key-state polling. An event holds no key, no character typed, no mouse
+  button and no pointer position; the vectors and a unit test hold the field
+  names to that. Typed text is an ordinary edit control's text as it reads
+  after a change, not keystrokes.
+- **An event** is `kind`, `tMs` (monotonic ms since the watch started), and
+  where they apply `role`, `name` (80 characters), `value` (200), `secure`,
+  `phase` (`open` or `close`, for a menu or a window), `window` (the title,
+  120), `process` (the program's file name) and `windowId`. `value` is only
+  for a control whose role is `Edit`; a document, a grid or a rich text area
+  never reports text.
+- **Secure fields.** A control that reports `IsPassword` produces an event with
+  `secure: true` and no `value`. The helper does not ask such a control for its
+  text, the queue drops a value it is handed for one, and the TypeScript codec
+  refuses a reply that carries both.
+- **Coalescing and caps.** Repeated value changes of one control within
+  `coalesceMs` of the last are one event, holding the latest text, as long as
+  that event has not been polled. The queue holds `maxQueue` events (2000);
+  past that a new event is dropped and counted, and `watch.poll` says how many
+  since the last poll. The whole queue is emptied by each poll.
+- **Chromium and Electron.** They expose their controls once a UI Automation
+  client is listening. `controls: false` in the `watch.start` reply says no
+  subscription could be registered; a client then has the foreground events
+  only. Whether a given program family answers is learned by running the helper
+  against it.
+- **Window of a control.** A control that has no window handle of its own (as
+  in a browser) is placed in the window in front when the event arrives, which
+  is where a person's action lands; a window that opens or closes in the
+  background is named by its own handle when it has one.
+
+`NativeWatch` in `@namzu/computer-use` (`native/watch.ts`) starts, polls and
+stops it on the shared helper process, and refuses a helper whose `hello` has
+no `watch` cap. The portable parts (kinds, caps, coalescing, the secure rule,
+serialisation) are `namzu-win-core`'s `watch` module and are tested on Linux;
+the UI Automation calls are `crates/namzu-win/src/win/watch.rs`, built and run
+only by the Windows CI job, whose `windows_watch.rs` makes a window with an
+ordinary and a password edit control and checks both.
+
 ## The presence overlay
 
 `presence.act` (`windowId`, `kind` `click`, `type` or `move`, `at`: where the
@@ -430,7 +488,7 @@ the files is that two implementations are held to the same lines.
 
 | File | Held by |
 |---|---|
-| `protocol.json` | Rust (`tests/conformance.rs`) and TypeScript (`native-protocol.test.ts`): valid requests and replies, lines that must be refused, for every op |
+| `protocol.json` | Rust (`tests/conformance.rs`) and TypeScript (`native-protocol.test.ts`, and `native-watch.test.ts` for the watch's replies): valid requests and replies, lines that must be refused, for every op |
 | `refs.json` | both: the one spelling of a ref |
 | `fingerprint.json` | Rust: assignment and resolution; both: the name hash |
 | `keys.json`, `dpi.json` | Rust |
