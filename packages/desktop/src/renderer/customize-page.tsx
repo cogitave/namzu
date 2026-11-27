@@ -34,7 +34,7 @@ import {
 	SkillsEmpty,
 	SkillsList,
 } from './customize-skills.js'
-import { PencilIcon, PlusIcon, UploadIcon } from './icons.js'
+import { MonitorIcon, PencilIcon, PlusIcon, UploadIcon } from './icons.js'
 import { notify } from './notify.js'
 import { plainErrorText } from './plain-error.js'
 import { foldedIncludes } from './text-fold.js'
@@ -57,6 +57,8 @@ export interface CustomizePageProps extends PluginInventoryProps {
 	/** Opens Settings on the tool servers, on the named one when there is one. */
 	onOpenConnector: (name?: string) => void
 	onAddConnector: () => void
+	/** Given only where Record your screen is offered; the Skills Add menu then lists it. */
+	onRecordScreen?: () => void
 }
 
 const DAY_TICK = 60_000
@@ -73,6 +75,7 @@ export function CustomizePage({
 	onTryInChat,
 	onOpenConnector,
 	onAddConnector,
+	onRecordScreen,
 	...plugins
 }: CustomizePageProps) {
 	const [query, setQuery] = useState('')
@@ -174,6 +177,9 @@ export function CustomizePage({
 				]
 			: []),
 		{ label: 'Create with Namzu', icon: PlusIcon, onSelect: onCreateSkill },
+		...(onRecordScreen
+			? [{ label: 'Record your screen', icon: MonitorIcon, onSelect: onRecordScreen }]
+			: []),
 	]
 	const add: AddMenuModel | undefined =
 		tab === 'skills'

@@ -7,12 +7,15 @@ import { RECORDING_WORDS } from '../../shared/recording-protocol.js'
  */
 
 export const CHOOSER_WIDTH = 520
-export const CHOOSER_HEIGHT = 440
+/** The first height; the page then asks for the height its content needs. */
+export const CHOOSER_HEIGHT = 480
+export const CHOOSER_MIN_HEIGHT = 340
+export const CHOOSER_MAX_HEIGHT = 760
 export const PILL_WIDTH = 400
 export const PILL_HEIGHT = 84
 
-const TOKENS = `:root{color-scheme:light dark;--bg:#fbfbfa;--fg:#1c1c1e;--mute:#66666e;--line:#dcdcdf;--card:#f1f1f2;--card-hover:#e8e8ea;--accent:#1c1c1e;--accent-fg:#ffffff;--red:#d92d2d;--warn:#8a5a00;--focus:#3b82f6}
-@media (prefers-color-scheme:dark){:root{--bg:#1b1b1d;--fg:#f2f2f3;--mute:#a4a4aa;--line:#3a3a40;--card:#26262a;--card-hover:#303036;--accent:#f2f2f3;--accent-fg:#1b1b1d;--red:#ff6b6b;--warn:#ffcf5c;--focus:#7aa7ff}}
+const TOKENS = `:root{color-scheme:light;--bg:#fbfbfa;--fg:#1c1c1e;--mute:#66666e;--line:#dcdcdf;--card:#f1f1f2;--card-hover:#e8e8ea;--accent:#1c1c1e;--accent-fg:#ffffff;--red:#d92d2d;--warn:#8a5a00;--focus:#3b82f6}
+:root[data-theme=dark]{color-scheme:dark;--bg:#1b1b1d;--fg:#f2f2f3;--mute:#a4a4aa;--line:#3a3a40;--card:#26262a;--card-hover:#303036;--accent:#f2f2f3;--accent-fg:#1b1b1d;--red:#ff6b6b;--warn:#ffcf5c;--focus:#7aa7ff}
 *{box-sizing:border-box}
 html,body{margin:0;background:var(--bg);color:var(--fg);font:13px/1.45 "Segoe UI",system-ui,-apple-system,sans-serif;user-select:none;overflow:hidden}
 button,select{font:inherit;color:var(--fg)}
@@ -32,7 +35,7 @@ export function chooserPage(): string {
 <title>${RECORDING_WORDS.title}</title>
 <style>
 ${TOKENS}
-body{padding:20px 22px 18px;display:flex;flex-direction:column;gap:12px;height:100vh}
+body{padding:20px 22px 18px;display:flex;flex-direction:column;gap:12px}
 h1{font-size:16px;line-height:1.3;margin:0;font-weight:600}
 p{margin:0}
 .warn{color:var(--warn)}
@@ -43,12 +46,13 @@ p{margin:0}
 .display img{width:100%;aspect-ratio:16/9;object-fit:cover;border-radius:6px;border:1px solid var(--line);background:#000}
 .display[aria-checked=true]{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
 .display span{font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.display .size{color:var(--mute);font-size:11px}
 .row{display:flex;align-items:center;gap:10px;min-height:30px}
 .row label{flex:1;display:flex;align-items:center;gap:8px}
 select{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:5px 8px;max-width:210px}
 .hint{font-size:12px;color:var(--mute)}
 kbd{font:inherit;background:var(--card);border:1px solid var(--line);border-radius:5px;padding:0 5px}
-.spacer{flex:1}
+.spacer{height:2px}
 .buttons{display:flex;gap:8px;justify-content:flex-end}
 </style></head>
 <body>
@@ -68,6 +72,7 @@ const $=(id)=>document.getElementById(id);
 const opened=performance.now();
 let init=null,chosen=null;
 const answer=(a)=>window.recording.answer(a);
+window.recording.onTheme((dark)=>{document.documentElement.dataset.theme=dark?'dark':'light'});
 function ready(){return init&&performance.now()-opened>=init.inputProtectionMs}
 window.recording.onChooser((v)=>{
   init=v;
@@ -80,8 +85,9 @@ window.recording.onChooser((v)=>{
     const b=document.createElement('button');b.type='button';b.className='display';b.setAttribute('role','radio');
     b.setAttribute('aria-checked',String(d.id===chosen));b.dataset.id=d.id;
     const img=document.createElement('img');img.alt='';img.src=d.thumb;
-    const t=document.createElement('span');t.textContent=d.label+' ('+d.width+' x '+d.height+')';
-    b.append(img,t);
+    const t=document.createElement('span');t.textContent=d.label;t.title=d.label;
+    const z=document.createElement('span');z.className='size';z.textContent=d.width+' x '+d.height;
+    b.append(img,t,z);
     b.addEventListener('click',()=>{chosen=d.id;for(const o of box.children)o.setAttribute('aria-checked',String(o.dataset.id===chosen))});
     box.append(b);
   }
@@ -96,6 +102,7 @@ window.recording.onChooser((v)=>{
   $('shortcut').append('To end the recording from anywhere, press ',k,'.');
   if(v.permission){$('start').hidden=true;$('settings').hidden=false;$('continue').hidden=false}
   setTimeout(()=>{$('start').disabled=false},v.inputProtectionMs);
+  requestAnimationFrame(()=>window.recording.size(document.body.offsetHeight));
 });
 $('start').addEventListener('click',()=>{if(!ready()||!init)return;answer({type:'start',displayId:chosen||'',voice:$('voiceOn').checked,microphone:$('mic').value})});
 $('cancel').addEventListener('click',()=>answer({type:'cancel'}));
@@ -156,6 +163,7 @@ function draw(v){
     if(v.note==='narration-disconnected'){n.className='note';const b=document.createElement('button');b.className='note';b.type='button';b.textContent=NOTES[v.note];b.addEventListener('click',()=>window.recording.pill({type:'reconnect'}));n.textContent='';n.append(b)}else n.className='note'}
   else n.hidden=true;
 }
+window.recording.onTheme((dark)=>{document.documentElement.dataset.theme=dark?'dark':'light'});
 window.recording.onPill(draw);
 $('pause').addEventListener('click',()=>{if(!view)return;const k=view.state.kind;window.recording.pill({type:(k==='paused'||k==='away')?'resume':'pause'})});
 $('done').addEventListener('click',()=>window.recording.pill({type:'done'}));

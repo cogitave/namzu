@@ -1,6 +1,6 @@
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { BrowserWindow, type Display, ipcMain } from 'electron'
+import { BrowserWindow, type Display, ipcMain, nativeTheme } from 'electron'
 import {
 	type ChooserAnswer,
 	type ChooserInit,
@@ -9,6 +9,8 @@ import {
 } from '../../shared/recording-protocol.js'
 import {
 	CHOOSER_HEIGHT,
+	CHOOSER_MAX_HEIGHT,
+	CHOOSER_MIN_HEIGHT,
 	CHOOSER_WIDTH,
 	PILL_HEIGHT,
 	PILL_WIDTH,
@@ -115,6 +117,14 @@ function webPreferences() {
 function lock(window: BrowserWindow): void {
 	window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
 	window.webContents.on('will-navigate', (event) => event.preventDefault())
+	// The page follows the app's own light or dark choice, which is the system theme the app sets.
+	const tell = () => {
+		if (!window.isDestroyed() && !window.webContents.isDestroyed())
+			window.webContents.send('recording:theme', nativeTheme.shouldUseDarkColors)
+	}
+	nativeTheme.on('updated', tell)
+	window.webContents.on('did-finish-load', tell)
+	window.once('closed', () => nativeTheme.removeListener('updated', tell))
 }
 
 /** Shows the chooser over `parent` and answers with what the person pressed. */
@@ -130,6 +140,7 @@ export function showChooser(options: {
 			...(parent && !parent.isDestroyed() ? { parent } : {}),
 			modal: Boolean(parent && !parent.isDestroyed()),
 			show: false,
+			useContentSize: true,
 			width: CHOOSER_WIDTH,
 			height: CHOOSER_HEIGHT,
 			frame: false,
@@ -150,6 +161,7 @@ export function showChooser(options: {
 			if (settled) return
 			settled = true
 			ipcMain.removeListener('recording:chooser-answer', listener)
+			ipcMain.removeListener('recording:chooser-size', resize)
 			protection.remove(window)
 			if (!window.isDestroyed()) window.destroy()
 			resolve(answer)
@@ -161,6 +173,16 @@ export function showChooser(options: {
 			if (accepted) settle(accepted)
 		}
 		ipcMain.on('recording:chooser-answer', listener)
+		// The page measures its own content and asks for that height, so nothing is cut off.
+		const resize = (event: Electron.IpcMainEvent, height: unknown) => {
+			if (event.sender !== window.webContents || window.isDestroyed()) return
+			if (typeof height !== 'number' || !Number.isFinite(height)) return
+			window.setContentSize(
+				CHOOSER_WIDTH,
+				Math.min(CHOOSER_MAX_HEIGHT, Math.max(CHOOSER_MIN_HEIGHT, Math.ceil(height))),
+			)
+		}
+		ipcMain.on('recording:chooser-size', resize)
 		window.webContents.on('before-input-event', (event, input) => {
 			if (input.type === 'keyDown' && input.key === 'Escape') {
 				event.preventDefault()

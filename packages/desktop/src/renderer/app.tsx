@@ -257,6 +257,7 @@ import { projectStage } from './project-stage.js'
 import { ProjectConnecting, ProjectFolderMissing, ProjectOpenError } from './project-views.js'
 import { ProviderNameContext } from './provider-name-context.js'
 import { quickEntryReadyToSend } from './quick-entry-ready.js'
+import { RecordingReview } from './record-review.js'
 import { RenameConversationDialog } from './rename-conversation-dialog.js'
 import { RestoreSkeleton } from './restore-skeleton.js'
 import { retryableReply } from './retry-reply.js'
@@ -325,6 +326,7 @@ import { usePalComputerSetup } from './use-pal-computer-setup.js'
 import { usePalOperatorMessages } from './use-pal-operator-messages.js'
 import { usePalStarts } from './use-pal-starts.js'
 import { usePullRequest } from './use-pull-request.js'
+import { useRecording } from './use-recording.js'
 import { useTranscriptScroll } from './use-transcript-scroll.js'
 import { useUndoKept } from './use-undo-kept.js'
 import { useBargeIn, useSpokenReplies, useVoiceInput } from './use-voice-input.js'
@@ -5522,6 +5524,32 @@ export function App({
 			window.removeEventListener(OPEN_SKILLS_EVENT, openSkills)
 		}
 	}, [act])
+	// Record your screen: whether the Skills Add menu offers it, and the recording waiting above the box.
+	const recording = useRecording(api, {
+		onMessage: (text) => notify(text, { tone: 'warning' }),
+		// A finished recording is shown over a conversation's message box, so leave a page for it.
+		onReview: () => {
+			if (palsPage) setPalsPage(false)
+			if (railSection !== null) setRailSection(null)
+		},
+	})
+	const startRecording = async () => {
+		// The chooser says where the recording goes once it is sent: the model this project uses.
+		let provider = 'the model you have chosen'
+		const forProject = project?.trusted && project.status === 'ready' ? projectId : undefined
+		if (forProject) {
+			try {
+				const view = await api.providers(forProject)
+				const picked = view.selected
+				const label = view.available.find((entry) => entry.id === picked?.id)
+				if (picked && label)
+					provider = `${label.label} ${picked.model ?? label.defaultModel}`.trim()
+			} catch {
+				// The generic wording stands.
+			}
+		}
+		await recording.start(provider)
+	}
 	// A toast about a program that is behind opens Settings ▸ Updates in the pane that was focused last.
 	const engineUpdates = useEngineUpdates()
 	useEffect(
@@ -7800,6 +7828,7 @@ export function App({
 							requestAddConnector()
 							openSettings('tools', 'mcpServers')
 						}}
+						onRecordScreen={recording.available ? () => void act(startRecording) : undefined}
 					/>
 				)}
 				{palsPage && (
@@ -8430,6 +8459,23 @@ export function App({
 													),
 											}
 										: undefined
+								}
+								topSlot={
+									recording.review ? (
+										<RecordingReview
+											view={recording.review}
+											onEdit={(change) => void act(() => recording.edit(change))}
+											onDiscard={() => void act(recording.discard)}
+											onSend={async (note) => {
+												const sent = await recording.send(draftOwner, note)
+												changeDraft(
+													draftOwner,
+													draft.trim() ? `${draft}\n\n${sent.text}` : sent.text,
+												)
+												await attached.reload(draftOwner)
+											}}
+										/>
+									) : undefined
 								}
 								attachments={attached.files}
 								attachmentsBusy={attached.busy}

@@ -194,6 +194,33 @@ describe('the chooser', () => {
 	})
 })
 
+describe('narration', () => {
+	it('opens the window’s microphone for a recording with voice and closes it when it ends', async () => {
+		const t = rig({}, true)
+		t.setAnswer({ type: 'start', displayId: 'd1', voice: true, microphone: 'm1' })
+		await t.controller.begin({ provider: 'X' })
+		expect(t.notices).toContainEqual({ type: 'narration', on: true, microphone: 'm1' })
+		await t.scheduler.advance(1_000)
+		await t.controller.act('done')
+		expect(t.notices).toContainEqual({ type: 'narration', on: false, microphone: 'm1' })
+	})
+
+	it('never opens it for a recording without voice', async () => {
+		const t = rig({}, true)
+		await t.controller.begin({ provider: 'X' })
+		await t.controller.act('done')
+		expect(t.notices.some((notice) => notice.type === 'narration')).toBe(false)
+	})
+
+	it('goes on without voice when the window loses the microphone', async () => {
+		const t = rig({}, true)
+		t.setAnswer({ type: 'start', displayId: 'd1', voice: true, microphone: '' })
+		await t.controller.begin({ provider: 'X' })
+		t.controller.narrationLost()
+		expect(t.controller.state).toBe('running')
+	})
+})
+
 describe('review, send and discard', () => {
 	async function recorded() {
 		const t = rig()

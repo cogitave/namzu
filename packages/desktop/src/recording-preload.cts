@@ -17,8 +17,14 @@ type PillAction =
 	| { type: 'reconnect' }
 
 contextBridge.exposeInMainWorld('recording', {
+	onTheme: (listener: (dark: boolean) => void) => {
+		ipcRenderer.on('recording:theme', (_event, dark: unknown) => listener(dark === true))
+	},
 	onChooser: (listener: (init: unknown) => void) => {
 		ipcRenderer.on('recording:chooser', (_event, init: unknown) => listener(init))
+	},
+	size: (height: number) => {
+		ipcRenderer.send('recording:chooser-size', height)
 	},
 	answer: (answer: ChooserAnswer) => {
 		ipcRenderer.send('recording:chooser-answer', answer)

@@ -63,9 +63,9 @@ export class ScriptedWatch implements WatchSource {
 		return { controls: true }
 	}
 	async poll() {
-		// One batch every ten polls, so steps are spread over the recording.
+		// One batch every three polls, so steps are spread over the recording.
 		this.step++
-		const batch = this.step % 10 === 0 ? this.script[this.step / 10 - 1] : undefined
+		const batch = this.step % 3 === 0 ? this.script[this.step / 3 - 1] : undefined
 		return { events: batch ?? [], dropped: 0 }
 	}
 	async stop() {}

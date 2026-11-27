@@ -1801,14 +1801,14 @@ export const SCREEN_RECORDING_POINTS: readonly string[] = [
 	'Password fields are never recorded. Recording pauses while one has focus, and a password manager’s window pauses it too.',
 	'Keystrokes are never captured. Text is read from ordinary fields when you leave them, never key by key.',
 	'Namzu’s own windows are hidden from the pictures while recording.',
-	'Voice narration is turned into text on this computer. Only the text is kept; the sound is not.',
+	'Voice narration understands Turkish. It is turned into text on this computer, and only the text is kept; the sound is not.',
 	'To remove the permission, turn the switch below off: Record your screen disappears from Customize.',
 ]
 
 function PrivacySection({ settings }: SettingsPageProps) {
 	return (
 		<div className="settings-privacy">
-			<h2 className="settings-section-title">Screen recording</h2>
+			<h2 className="settings-subtitle">Screen recording</h2>
 			<ul className="settings-privacy-list">
 				{SCREEN_RECORDING_POINTS.map((point) => (
 					<li key={point}>{point}</li>

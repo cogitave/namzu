@@ -1529,13 +1529,18 @@ input.settings-config-number {
 	flex-direction: column;
 	gap: 12px;
 }
+.settings-privacy > .settings-subtitle {
+	margin-bottom: 0;
+}
 .settings-privacy-list {
 	margin: 0;
-	padding-left: 18px;
-	display: flex;
-	flex-direction: column;
-	gap: 6px;
+	padding-left: 20px;
+	list-style: disc;
 	color: var(--foreground);
 	font-size: var(--text-small);
 	line-height: var(--leading-small);
+}
+
+.settings-privacy-list > li + li {
+	margin-top: 6px;
 }
