@@ -1,5 +1,5 @@
-import { readdirSync, realpathSync } from 'node:fs'
-import { isAbsolute, join, relative, sep } from 'node:path'
+import { readdirSync, realpathSync, statSync } from 'node:fs'
+import { basename, dirname, isAbsolute, join, relative, sep } from 'node:path'
 import { discoverAllPluginDirs, loadPluginManifest, resolveWithinReal } from '@namzu/sdk'
 
 import type { PluginConfig, PluginScope } from '../../config/schema.js'
@@ -14,6 +14,15 @@ export interface PluginFileDir {
 	readonly plugin: string
 	/** Canonical absolute folder, inside the plugin's own folder. */
 	readonly dir: string
+	/**
+	 * Set when the plugin named one file rather than a folder: the file's name
+	 * without `.md`. Only that file of `dir` is the plugin's.
+	 */
+	readonly only?: string
+	/** The plugin's own folder, for `${NAMZU_PLUGIN_ROOT}` in the file's text. */
+	readonly root?: string
+	/** The plugin was read through the common plugin layout. */
+	readonly commonLayout?: boolean
 }
 
 /** What the plugins on disk contribute as plain markdown files. */
@@ -32,7 +41,7 @@ export const EMPTY_PLUGIN_FILE_SOURCES: PluginFileSources = Object.freeze({
 
 /** What one declared folder resolves to: inside the plugin, outside it, or not there. */
 export type PluginFileDirResolution =
-	| { readonly kind: 'inside'; readonly dir: string }
+	| { readonly kind: 'inside'; readonly dir: string; readonly only?: string }
 	| { readonly kind: 'outside' }
 	| { readonly kind: 'missing' }
 
@@ -47,6 +56,15 @@ export function resolvePluginFileDir(rootDir: string, rel: string): PluginFileDi
 		const within = relative(realpathSync(rootDir), real)
 		if (within === '..' || within.startsWith(`..${sep}`) || isAbsolute(within)) {
 			return { kind: 'outside' }
+		}
+		// One markdown file named directly: its folder, and which file in it.
+		if (statSync(real).isFile()) {
+			if (!real.toLowerCase().endsWith('.md')) return { kind: 'missing' }
+			return {
+				kind: 'inside',
+				dir: dirname(real),
+				only: basename(real).slice(0, -'.md'.length),
+			}
 		}
 		return { kind: 'inside', dir: real }
 	} catch {
@@ -64,13 +82,24 @@ export function resolvePluginFileDirs(
 	plugin: string,
 	rootDir: string,
 	declared: readonly string[] | undefined,
-): { readonly dirs: readonly PluginFileDir[]; readonly problems: readonly string[] } {
+	layout?: 'common',
+): {
+	readonly dirs: readonly PluginFileDir[]
+	readonly problems: readonly string[]
+} {
 	const dirs: PluginFileDir[] = []
 	const problems: string[] = []
 	for (const rel of declared ?? []) {
 		const found = resolvePluginFileDir(rootDir, rel)
-		if (found.kind === 'inside') dirs.push({ plugin, dir: found.dir })
-		else if (found.kind === 'outside') {
+		if (found.kind === 'inside') {
+			dirs.push({
+				plugin,
+				dir: found.dir,
+				root: rootDir,
+				...(layout === 'common' ? { commonLayout: true } : {}),
+				...(found.only !== undefined ? { only: found.only } : {}),
+			})
+		} else if (found.kind === 'outside') {
 			problems.push(
 				`Plugin "${plugin}": "${rel}" leads outside the plugin folder, so it is not used. ${checkHint(rootDir)}`,
 			)
@@ -81,12 +110,13 @@ export function resolvePluginFileDirs(
 	return { dirs, problems }
 }
 
-/** The `.md` file names (without the extension) a folder holds, sorted. */
-export function listMarkdownNames(dir: string): string[] {
+/** The `.md` file names (without the extension) a folder holds, sorted; just `only` when one file was named. */
+export function listMarkdownNames(dir: string, only?: string): string[] {
 	try {
 		return readdirSync(dir, { withFileTypes: true })
 			.filter((entry) => entry.isFile() && entry.name.endsWith('.md'))
 			.map((entry) => entry.name.slice(0, -'.md'.length))
+			.filter((name) => only === undefined || name === only)
 			.sort()
 	} catch {
 		return []
@@ -139,8 +169,8 @@ export async function readPluginFileSources(options: {
 			const rootDir = await resolveWithinReal(authority, dir)
 			const manifest = await loadPluginManifest(rootDir, { skillsSupported: true })
 			if (!settings.read({ rootDir, name: manifest.name })) continue
-			const c = resolvePluginFileDirs(manifest.name, rootDir, manifest.commands)
-			const a = resolvePluginFileDirs(manifest.name, rootDir, manifest.agents)
+			const c = resolvePluginFileDirs(manifest.name, rootDir, manifest.commands, manifest.layout)
+			const a = resolvePluginFileDirs(manifest.name, rootDir, manifest.agents, manifest.layout)
 			commands.push(...c.dirs)
 			agents.push(...a.dirs)
 			problems.push(...c.problems, ...a.problems)

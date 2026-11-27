@@ -40,7 +40,13 @@
 import { readFileSync, readdirSync, realpathSync } from 'node:fs'
 import { platform } from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
-import { InlineShellError, findInlineShell, parseFrontmatter, substituteEscaped } from '@namzu/sdk'
+import {
+	InlineShellError,
+	expandPluginRootText,
+	findInlineShell,
+	parseFrontmatter,
+	substituteEscaped,
+} from '@namzu/sdk'
 import type { SkillsConfig } from '../config/schema.js'
 import { CHECK_HINT } from '../integrations/plugins/check-hint.js'
 import { namzuHomePath } from '../integrations/state/home.js'
@@ -59,6 +65,8 @@ export interface UserCommand {
 	readonly source: UserCommandSource
 	/** What the composer shows after `/<name> ` (`argument-hint`). */
 	readonly argumentHint?: string
+	/** A command of a plugin read through the common plugin layout: `/<plugin>:<command>` also names it. */
+	readonly commonLayout?: true
 	/** For a command that is a skill: the `hooks` block it carries, attached when the person runs it. */
 	readonly hooksSource?: string
 	/**
@@ -167,12 +175,19 @@ function readCommandsFrom(
 	source: UserCommandSource,
 	/** A plugin's name: the command is then `/<plugin>__<file>`. */
 	plugin?: string,
+	/** One file of `dir` (its name without `.md`) when a plugin named a file, not a folder. */
+	only?: string,
+	/** The plugin's folder, put in for `${NAMZU_PLUGIN_ROOT}` in the command's text. */
+	pluginRoot?: string,
+	/** The plugin was read through the common plugin layout. */
+	commonLayout?: boolean,
 ): UserCommand[] {
 	let files: string[]
 	try {
 		files = readdirSync(dir, { withFileTypes: true })
 			.filter((e) => e.isFile() && e.name.endsWith('.md'))
 			.map((e) => e.name)
+			.filter((file) => only === undefined || file === `${only}.md`)
 	} catch {
 		// No directory is not an error: most projects define no commands.
 		return []
@@ -189,7 +204,16 @@ function readCommandsFrom(
 			continue
 		}
 
-		const command = parseCommandText(raw, path, name, source)
+		const parsed = parseCommandText(raw, path, name, source)
+		const expanded =
+			pluginRoot !== undefined && parsed.template !== ''
+				? {
+						...parsed,
+						template: expandPluginRootText(parsed.template, pluginRoot),
+					}
+				: parsed
+		const command: UserCommand =
+			commonLayout === true ? { ...expanded, commonLayout: true } : expanded
 		// A plugin's command that cannot be used says where its author can see why.
 		out.push(
 			plugin !== undefined && command.problem
@@ -229,7 +253,13 @@ export function discoverUserCommands(
 		 * named `<plugin>__<file>`, so a plugin cannot take another command's
 		 * name; the user's and project's own files still shadow a plugin's.
 		 */
-		pluginCommandDirs?: readonly { readonly plugin: string; readonly dir: string }[]
+		pluginCommandDirs?: readonly {
+			readonly plugin: string
+			readonly dir: string
+			readonly only?: string
+			readonly root?: string
+			readonly commonLayout?: boolean
+		}[]
 	} = {},
 ): UserCommand[] {
 	const reserved = new Set(opts.reserved ?? [])
@@ -247,7 +277,15 @@ export function discoverUserCommands(
 	const byName = new Map<string, UserCommand>()
 	for (const c of skillCommands(opts)) byName.set(c.name, c) // a command file shadows a skill
 	for (const source of opts.pluginCommandDirs ?? []) {
-		for (const c of readCommandsFrom(source.dir, 'plugin', source.plugin)) byName.set(c.name, c)
+		for (const c of readCommandsFrom(
+			source.dir,
+			'plugin',
+			source.plugin,
+			source.only,
+			source.root,
+			source.commonLayout,
+		))
+			byName.set(c.name, c)
 	}
 	for (const c of user) byName.set(c.name, c)
 	for (const c of project) byName.set(c.name, c) // project wins
@@ -259,6 +297,24 @@ export function discoverUserCommands(
 				: c,
 		)
 		.sort((a, b) => a.name.localeCompare(b.name))
+}
+
+/**
+ * The command a typed name means. An exact name wins; otherwise
+ * `<plugin>:<command>` finds `<plugin>__<command>` when that command came from
+ * a plugin read through the common plugin layout, so the plugin's own
+ * documentation works as written.
+ */
+export function findUserCommand(
+	commands: readonly UserCommand[],
+	name: string,
+): UserCommand | undefined {
+	const exact = commands.find((command) => command.name === name)
+	if (exact !== undefined) return exact
+	const at = name.indexOf(':')
+	if (at <= 0 || at === name.length - 1) return undefined
+	const spelled = `${name.slice(0, at)}__${name.slice(at + 1)}`
+	return commands.find((command) => command.name === spelled && command.commonLayout === true)
 }
 
 /** Where the template's first line says the skill's folder goes; never a name a skill author writes. */
@@ -409,7 +465,7 @@ export function expandHeadlessCommand(
 		skillCommands: 'declared',
 		reserved: [...builtins],
 	})
-	const found = commands.find((c) => c.name === name)
+	const found = findUserCommand(commands, name)
 	if (!found) return { kind: 'unchanged', prompt }
 
 	const expanded = expandCommand(found, rest.join(' '))

@@ -2,12 +2,18 @@ export {
 	assertEnableable,
 	discoverPlugins,
 	loadPluginManifest,
+	loadPluginManifestWithFindings,
 	discoverAllPluginDirs,
 	parsePluginManifestText,
 } from './loader.js'
 export { definePlugin } from './define.js'
 export type { DefinedPlugin, DefinePluginOptions } from './define.js'
-export type { PluginDiscoveryOptions, PluginEnablementCapabilities } from './loader.js'
+export type {
+	LoadedPluginManifest,
+	PluginDiscoveryOptions,
+	PluginEnablementCapabilities,
+} from './loader.js'
+export * from './common-layout/index.js'
 export {
 	boundCompactionSummary,
 	boundHookContext,

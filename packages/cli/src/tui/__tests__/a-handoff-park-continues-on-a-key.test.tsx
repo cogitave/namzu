@@ -14,16 +14,28 @@ import type { AgentEvent, AgentSession, ResumePausedParams } from '../agent.js'
 import { PAUSED_TURN_LINES } from '../turn-interruption.js'
 import type { TuiContext } from '../types.js'
 
-const PREFS: Preferences = { version: 3, providers: [{ id: 'openai' }], subagents: { active: [] } }
+const PREFS: Preferences = {
+	version: 3,
+	providers: [{ id: 'openai' }],
+	subagents: { active: [] },
+}
 const CONVERSATION = '0ac90d46-4041-4402-8bc7-89c9a8c75f73'
 const PARKED = '3b0329bb-f60a-48dc-9552-1b386c52cfe8'
 const REASON = 'Sign in to example.test in the browser window'
 
 const facts = vi.hoisted(() => ({ paused: false, scheduled: false }))
 
-vi.mock('../../integrations/trust/store.js', () => ({ isTrusted: () => true, trustDir: () => {} }))
-vi.mock('../../integrations/updates.js', () => ({ checkUpdates: async () => [] }))
-vi.mock('../../user-commands/store.js', () => ({ discoverUserCommands: () => [] }))
+vi.mock('../../integrations/trust/store.js', () => ({
+	isTrusted: () => true,
+	trustDir: () => {},
+}))
+vi.mock('../../integrations/updates.js', () => ({
+	checkUpdates: async () => [],
+}))
+vi.mock('../../user-commands/store.js', async (importOriginal) => ({
+	...(await importOriginal<typeof import('../../user-commands/store.js')>()),
+	discoverUserCommands: () => [],
+}))
 vi.mock('../../integrations/sessions/store.js', () => ({
 	activeConversationTurn: async () => (facts.paused ? { turnId: PARKED, paused: true } : undefined),
 	unansweredReviewPark: async () => undefined,
@@ -93,7 +105,12 @@ vi.mock('../agent.js', async (importOriginal) => {
 		createAgentSession: async (): Promise<AgentSession> =>
 			({
 				hasProvider: true,
-				sandbox: { unconfined: true, enforced: [], required: [], workspace: 'host' },
+				sandbox: {
+					unconfined: true,
+					enforced: [],
+					required: [],
+					workspace: 'host',
+				},
 				compact: async () => null,
 				providerSummary: 'a-provider',
 				modelSummary: 'a-model',
@@ -123,7 +140,11 @@ vi.mock('../agent.js', async (importOriginal) => {
 									handoff: {
 										kind: 'human-required',
 										reason: REASON,
-										detail: { tool: 'browser', cause: 'sign-in', origin: 'https://example.test' },
+										detail: {
+											tool: 'browser',
+											cause: 'sign-in',
+											origin: 'https://example.test',
+										},
 									},
 								} as AgentEvent)
 							: ({ kind: 'done' } as AgentEvent)

@@ -69,6 +69,13 @@ export interface PluginFolders {
 	readonly root: string
 	/** The folder kept for the plugin's data, under the Namzu home and never inside `root`. */
 	readonly dataDir: string
+	/**
+	 * Set for a plugin read through the common plugin layout: its hooks also
+	 * get the three compatibility names in their environment, so a script the
+	 * hook starts finds its folders under the names it was written for. A Namzu
+	 * plugin's environment is not widened.
+	 */
+	readonly layout?: 'common'
 }
 
 /** Whether a variable name stands for a plugin folder by its ending. */
