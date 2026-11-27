@@ -121,6 +121,13 @@ export function skillChips(skill: SkillCatalogEntryView): string[] {
 	return [...(skill.plugin ? [skill.plugin] : []), ...(state ? [state] : [])]
 }
 
+/**
+ * When a skill was last changed, for people: a built-in skill is a file of the program itself, so
+ * its time says when Namzu was installed, which is no news about the skill.
+ */
+export const skillUpdatedAt = (skill: SkillCatalogEntryView): string | undefined =>
+	skill.place === 'built-in' ? undefined : skill.updatedAt
+
 /** `place · description`, the second line of a row. */
 export function skillSubline(skill: SkillCatalogEntryView): string {
 	const place = skill.plugin ? 'plugin' : skill.place
@@ -236,6 +243,12 @@ export function fileTree(files: readonly { path: string }[]): FileTreeNode[] {
 /** The file opened first: SKILL.md when there is one, otherwise the first file. */
 export function firstFile(files: readonly { path: string }[]): string | undefined {
 	return (files.find((file) => file.path === 'SKILL.md') ?? files[0])?.path
+}
+
+/** A file's text without the settings block at its top (`---` to `---`), which reads as noise once rendered. */
+export function withoutFrontMatter(text: string): string {
+	const match = /^---\r?\n[\s\S]*?\r?\n---[ \t]*(?:\r?\n|$)/.exec(text)
+	return match ? text.slice(match[0].length).replace(/^\s*\n/, '') : text
 }
 
 export const isMarkdownPath = (path: string): boolean => /\.(md|markdown)$/i.test(path)

@@ -16,6 +16,8 @@ import {
 	skillLocation,
 	skillStateNote,
 	skillSubline,
+	skillUpdatedAt,
+	withoutFrontMatter,
 } from './customize-model.js'
 import {
 	Chip,
@@ -87,7 +89,9 @@ export function SkillsList({
 										</span>
 										<span className="customize-row-sub">{skillSubline(skill)}</span>
 									</span>
-									<span className="customize-row-time">{shortUpdated(skill.updatedAt, now)}</span>
+									<span className="customize-row-time">
+										{shortUpdated(skillUpdatedAt(skill), now)}
+									</span>
 								</button>
 								{skillHasMenu(skill) && (
 									<MoreMenu
@@ -153,7 +157,7 @@ export function SkillDetail({
 }) {
 	const on = skill.state !== 'off'
 	const note = switchDisabled ?? skillStateNote(skill.state)
-	const updated = longUpdated(skill.updatedAt, now)
+	const updated = longUpdated(skillUpdatedAt(skill), now)
 	const showContents = Boolean(contents) && skill.fileCount > 0
 	const shown: SkillDetailTab = showContents ? tab : 'overview'
 	const menu = skillHasMenu(skill)
@@ -362,7 +366,7 @@ export function SkillContentsView({
 					) : text === undefined ? (
 						<p className="customize-muted">{path ? 'Reading the file…' : 'No files.'}</p>
 					) : markdown && !source ? (
-						<MarkdownContent text={text} settled />
+						<MarkdownContent text={withoutFrontMatter(text)} settled />
 					) : (
 						<pre className="customize-source">{text}</pre>
 					)}

@@ -18,7 +18,9 @@ import {
 	skillLocation,
 	skillStateNote,
 	skillSubline,
+	skillUpdatedAt,
 	sortSkills,
+	withoutFrontMatter,
 } from './customize-model.js'
 
 const NOW = Date.parse('2026-11-27T12:00:00Z')
@@ -107,6 +109,10 @@ describe('row words', () => {
 })
 
 describe('times', () => {
+	it('gives a built-in skill no time', () => {
+		expect(skillUpdatedAt(skill({ updatedAt: day(1) }))).toBe(day(1))
+		expect(skillUpdatedAt(skill({ place: 'built-in', updatedAt: day(1) }))).toBeUndefined()
+	})
 	it('is "3d ago" for a week and a date after that', () => {
 		expect(shortUpdated(day(3), NOW)).toBe('3d ago')
 		expect(shortUpdated(day(0.2), NOW)).toBe('today')
@@ -158,6 +164,14 @@ describe('file tree', () => {
 		expect(firstFile([])).toBeUndefined()
 		expect(isMarkdownPath('x/README.md')).toBe(true)
 		expect(isMarkdownPath('run.sh')).toBe(false)
+	})
+})
+
+describe('front matter', () => {
+	it('is left out of a rendered file, and only at the top', () => {
+		expect(withoutFrontMatter('---\nname: a\n---\n# Title\n')).toBe('# Title\n')
+		expect(withoutFrontMatter('# Title\n\n---\nrule\n')).toBe('# Title\n\n---\nrule\n')
+		expect(withoutFrontMatter('---\nunclosed\n# Title')).toBe('---\nunclosed\n# Title')
 	})
 })
 

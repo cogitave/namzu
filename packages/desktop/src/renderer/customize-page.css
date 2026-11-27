@@ -51,7 +51,10 @@
 	cursor: pointer;
 	transition: background-color 150ms var(--motion-ease), color 150ms var(--motion-ease);
 }
-.customize-tab:hover,
+.customize-tab:hover {
+	background: var(--sidebar-row-hover);
+	color: var(--foreground);
+}
 .customize-tab[data-active] {
 	background: var(--sidebar-row-active);
 	color: var(--foreground);
@@ -148,8 +151,11 @@
 	width: 14px;
 	height: 14px;
 }
-.customize-add:hover {
+.customize-add:hover,
+.customize-add.customize-add[data-popup-open] {
 	background: color-mix(in srgb, var(--foreground) 88%, var(--background));
+	color: var(--background);
+	opacity: 1;
 }
 .customize-panel {
 	outline: none;
@@ -285,7 +291,7 @@
 	font-size: var(--text-small);
 	white-space: nowrap;
 }
-.customize-more {
+.customize-row > .customize-more {
 	position: absolute;
 	top: 50%;
 	right: 0;
@@ -375,8 +381,9 @@
 	cursor: pointer;
 }
 .customize-status-ok {
-	display: inline-grid;
-	place-items: center;
+	display: inline-flex;
+	align-items: center;
+	vertical-align: middle;
 	color: var(--update-foreground);
 }
 .customize-status-ok svg {
@@ -708,10 +715,6 @@
 	}
 	.customize-contents {
 		grid-template-columns: 160px minmax(0, 1fr);
-	}
-	.customize-table th:nth-child(3),
-	.customize-table td:nth-child(3) {
-		display: none;
 	}
 }
 @keyframes customize-arrive {

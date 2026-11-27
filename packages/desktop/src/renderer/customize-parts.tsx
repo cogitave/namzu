@@ -1,6 +1,6 @@
 import { Menu } from '@base-ui/react/menu'
 import { Tabs } from '@base-ui/react/tabs'
-import type { ComponentType, ReactNode, SVGProps } from 'react'
+import { type ComponentType, type ReactNode, type SVGProps, useEffect, useRef } from 'react'
 import {
 	CUSTOMIZE_TABS,
 	type CustomizeTab,
@@ -259,21 +259,23 @@ export function DetailFrame({
 	onEscape?: () => void
 	children: ReactNode
 }) {
+	const back = useRef(onEscape ?? onBack)
+	back.current = onEscape ?? onBack
+	// Escape goes back from anywhere on the page, unless a menu or a dialog is open and takes it first.
+	useEffect(() => {
+		const key = (event: KeyboardEvent) => {
+			if (event.key !== 'Escape' || event.defaultPrevented || event.isComposing) return
+			const target = event.target instanceof Element ? event.target : undefined
+			if (target?.closest('[role="dialog"], [role="menu"], [data-slot="popover-popup"]')) return
+			if (document.querySelector('[role="menu"], [role="dialog"]')) return
+			event.preventDefault()
+			back.current()
+		}
+		document.addEventListener('keydown', key)
+		return () => document.removeEventListener('keydown', key)
+	}, [])
 	return (
-		<section
-			className="customize-detail"
-			aria-label={`${title} details`}
-			tabIndex={-1}
-			onKeyDown={(event) => {
-				if (event.key !== 'Escape' || event.defaultPrevented || event.nativeEvent.isComposing)
-					return
-				const target = event.target instanceof Element ? event.target : undefined
-				if (target?.closest('[role="dialog"], [role="menu"], [data-slot="popover-popup"]')) return
-				event.preventDefault()
-				event.stopPropagation()
-				;(onEscape ?? onBack)()
-			}}
-		>
+		<section className="customize-detail" aria-label={`${title} details`}>
 			<button type="button" className="customize-back" onClick={onBack}>
 				<span aria-hidden="true">←</span>
 				{backLabel}
