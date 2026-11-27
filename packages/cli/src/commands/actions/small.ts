@@ -218,6 +218,53 @@ export const PLUGIN_ACTIONS: readonly ActionHelp[] = [
 		flags: [{ flag: '--json', description: 'Print one JSON report on standard output.' }],
 		example: 'namzu plugin validate ./my-plugin --json',
 	},
+	{
+		path: ['list'],
+		summary: 'List the installed plugins that apply here: id, version, scope, on or off.',
+		flags: [
+			{ flag: '--cwd <dir>', description: 'The folder whose project plugins are meant.' },
+			{ flag: '--json', description: 'Print one JSON object on standard output.' },
+		],
+		example: 'namzu plugin list --json',
+	},
+	{
+		path: ['details'],
+		operands: '<id>',
+		summary: 'Show one installed plugin: what it brings, its record, who turned it on, its data.',
+		flags: [
+			{ flag: '--cwd <dir>', description: 'The folder whose project plugins are meant.' },
+			{ flag: '--json', description: 'Print one JSON object on standard output.' },
+		],
+		example: 'namzu plugin details ledger@team-tools',
+	},
+	{
+		path: ['enable'],
+		operands: '<id>',
+		summary: 'Record a yes for an installed plugin; it takes effect in new conversations.',
+		flags: [
+			{
+				flag: '--scope <user|project|local>',
+				description: 'The record to act on and the file it is written to.',
+			},
+			{ flag: '--cwd <dir>', description: 'The folder whose project plugins are meant.' },
+			{ flag: '--json', description: 'Print one JSON object on standard output.' },
+		],
+		example: 'namzu plugin enable ledger@team-tools --scope user',
+	},
+	{
+		path: ['disable'],
+		operands: '<id>',
+		summary: 'Record a no for an installed plugin; it stays installed.',
+		flags: [
+			{
+				flag: '--scope <user|project|local>',
+				description: 'The record to act on and the file it is written to.',
+			},
+			{ flag: '--cwd <dir>', description: 'The folder whose project plugins are meant.' },
+			{ flag: '--json', description: 'Print one JSON object on standard output.' },
+		],
+		example: 'namzu plugin disable ledger@team-tools',
+	},
 ]
 
 export const GITHUB_ACTIONS: readonly ActionHelp[] = [

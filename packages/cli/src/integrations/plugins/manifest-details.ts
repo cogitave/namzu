@@ -21,15 +21,23 @@ const DESCRIPTION_MAX = 1_024
  * Reads the manifest and each shipped skill's `SKILL.md` inside the plugin folder. Nothing runs: no
  * module is imported and no server is started. A file that cannot be read leaves that part out.
  */
-export async function readPluginManifestDetails(rootDir: string): Promise<PluginManifestDetails> {
+export async function readPluginManifestDetails(
+	rootDir: string,
+	/** A manifest already read (a plugin in the common layout has none to read from `plugin.json`). */
+	given?: ReturnType<typeof parsePluginManifestText>,
+): Promise<PluginManifestDetails> {
 	const file = join(rootDir, PLUGIN_MANIFEST_FILENAME)
 	let manifest: ReturnType<typeof parsePluginManifestText>
 	let updatedAt: string | undefined
-	try {
-		manifest = parsePluginManifestText(await readFile(file, 'utf8'))
-		updatedAt = (await stat(file)).mtime.toISOString()
-	} catch {
-		return {}
+	if (given) {
+		manifest = given
+	} else {
+		try {
+			manifest = parsePluginManifestText(await readFile(file, 'utf8'))
+			updatedAt = (await stat(file)).mtime.toISOString()
+		} catch {
+			return {}
+		}
 	}
 	const skills: { name: string; description: string }[] = []
 	for (const path of (manifest.skills ?? []).slice(0, MAX_DETAIL_ITEMS)) {

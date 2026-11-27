@@ -29,6 +29,7 @@ import {
 import { hookIdentity } from '../../config/hook-layers.js'
 import { ConfigValueError, readPluginHookEntries } from '../../config/load.js'
 import type { HookEntry, HooksConfig, PluginScope } from '../../config/schema.js'
+import { installedPluginDataFolder } from './records.js'
 
 /** The file a plugin moved from elsewhere keeps its entries in. */
 export const CONVENTIONAL_HOOKS_FILE = 'hooks/hooks.json'
@@ -76,8 +77,15 @@ export function pluginHookSource(name: string): string {
  */
 export function pluginDataDir(
 	home: string,
-	plugin: { readonly name: string; readonly scope: PluginScope; readonly rootDir: string },
+	plugin: {
+		readonly name: string
+		readonly scope: PluginScope
+		readonly rootDir: string
+		/** `<plugin>@<marketplace>` of a plugin that has an install record: its data is `plugins/data/<id>/`. */
+		readonly installedId?: string
+	},
 ): string {
+	if (plugin.installedId !== undefined) return installedPluginDataFolder(home, plugin.installedId)
 	const base = join(home, 'plugin-data')
 	if (plugin.scope === 'project') {
 		const key = createHash('sha256').update(plugin.rootDir).digest('hex').slice(0, 12)
