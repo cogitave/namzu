@@ -1,6 +1,8 @@
 # Documentation update log
 
 ## 2026-11-27
+- **Creation** [Customize in Desktop](cli/desktop-customize.md): one Customize page replaces the Plugins page and its own sidebar. Tabs Skills, Connectors and Plugins; a Customize button beside Extensions and Settings in the rail and the sidebar's foot; `/plugins` opens it on Plugins, `/mcp` and the composer's tool-server link on Connectors, the saved-skill card's link ("Open in Customize") on Skills. A skill opens to Overview and Contents (a read-only file tree and viewer) with a switch that writes `skills.disabled`, as Settings does; a plugin opens to Overview, Skills and Connectors. There is no Yours/Discover switch, no install, update or remove for plugins and no Remove for skills, because Namzu has no catalogue and no such verbs. `.changeset/desktop-customize-page.md` (`@namzu/desktop` patch).
+- **Update** [Desktop](cli/desktop.md): the Settings row Plugins, Desktop app, opens Customize on Plugins; the foot of the Settings and Customize pages carries Home.
 - **Update** [Desktop host methods](cli/desktop.md), [Desktop contract](sdk/kernel-facts.md#the-desktop-contract): three new host methods, `namzu/skills/catalog` (every skill with place, state, update time, file count and use), `namzu/skills/files` and `namzu/skills/read_file` (a skill folder's files and one text file of it, never leaving the folder), under the new optional group `skillsCatalog`; `namzu/plugins/list` entries gain `skills`, `servers`, `author` and `updatedAt` read from the manifest. `.changeset/cli-customize-host-methods.md`.
 
 ## 2026-11-26
