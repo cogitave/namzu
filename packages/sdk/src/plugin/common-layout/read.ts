@@ -1103,7 +1103,9 @@ async function readMerged(
 		hookFiles.length > 0 ||
 		inlineHooks ||
 		servers.local.length > 0 ||
-		servers.remote.length > 0
+		servers.remote.length > 0 ||
+		// A remote server that needs setup is listed with its reason, so a plugin with nothing else still loads.
+		out.findings.some((f) => f.code === 'mcp-needs-setup' && f.server?.kind === 'remote')
 	if (!usable) {
 		const only = [
 			...NOT_USED_FIELDS.filter((field) => m[field] !== undefined),

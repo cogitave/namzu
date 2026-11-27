@@ -21,6 +21,13 @@ export interface LayoutFinding {
 	readonly message: string
 	/** The file inside the plugin the finding is about, when it names one. */
 	readonly path?: string
+	/**
+	 * Set on a `mcp-needs-setup` finding: which tool server it is about and
+	 * whether that server starts a program (`local`) or is reached over the
+	 * network (`remote`), so a host can list a remote server that is not usable
+	 * yet without parsing the message.
+	 */
+	readonly server?: { readonly name: string; readonly kind: 'local' | 'remote' }
 }
 
 /** Where the manifest of a read came from. */

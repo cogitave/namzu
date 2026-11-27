@@ -109,12 +109,13 @@ class Reader {
 		this.add({ level: 'refused', code, field: `mcpServers.${name}`, message })
 	}
 
-	private needsSetup(name: string, needs: readonly string[]): void {
+	private needsSetup(name: string, needs: readonly string[], kind: 'local' | 'remote'): void {
 		this.add({
 			level: 'notUsed',
 			code: 'mcp-needs-setup',
 			field: `mcpServers.${name}`,
 			message: `${name} needs setup: ${needs.join('; ')}. It is not started.`,
+			server: { name, kind },
 		})
 	}
 
@@ -240,7 +241,7 @@ class Reader {
 			connectTimeoutMs = spec.connectTimeoutMs
 		}
 		if (needs.length > 0) {
-			this.needsSetup(name, [...new Set(needs)])
+			this.needsSetup(name, [...new Set(needs)], 'local')
 			return
 		}
 		this.local.push({
@@ -261,7 +262,7 @@ class Reader {
 	private readRemote(name: string, spec: Record<string, unknown>, type: string | undefined): void {
 		const url = this.expand(spec.url as string, 'url', name, 'none')
 		if (url.needs.length > 0) {
-			this.needsSetup(name, url.needs)
+			this.needsSetup(name, url.needs, 'remote')
 			return
 		}
 		let parsed: URL
@@ -306,7 +307,7 @@ class Reader {
 				headers[key] = expanded.text
 			}
 			if (needs.length > 0) {
-				this.needsSetup(name, [...new Set(needs)])
+				this.needsSetup(name, [...new Set(needs)], 'remote')
 				return
 			}
 		}
@@ -321,7 +322,7 @@ class Reader {
 			level: 'notUsed',
 			code: 'mcp-server-remote',
 			field: `mcpServers.${name}`,
-			message: `${name} is a remote server at ${parsed.origin}${parsed.pathname === '/' ? '' : parsed.pathname}. It is read and listed, and it is not started yet.`,
+			message: `${name} is a remote server at ${parsed.origin}${parsed.pathname === '/' ? '' : parsed.pathname}. It connects only after you approve it.`,
 		})
 	}
 }
