@@ -57,6 +57,28 @@ accepts to be exactly the parts this command reports no error for. The two
 place the loader's answer cannot be reproduced without running code (a module's
 exports) is named in that test.
 
+## A plugin in the common plugin layout
+
+A folder with no `plugin.json` is read in [the common plugin layout](../sdk/common-plugin-layout.md):
+its own manifest, a root `SKILL.md`, or only the conventional folders (`skills/`,
+`commands/`, `agents/`, `hooks/`, a root servers file). The command reports what
+the reader would do, with the same exit statuses:
+
+- a plugin-level refusal (a bad name, a path that leaves the folder, nothing
+  usable, too many skills or servers, an unmet dependency, an `engines` or
+  `platforms` that does not fit) is an **error**;
+- an entry the reader refuses (one skill, one server, one hooks file) is a
+  **warning** that says that entry is dropped and the plugin loads without it;
+- something Namzu has no place for (themes, settings, a remote server that is not
+  started yet, a folder it does not read) is a **warning** that says the plugin
+  still loads;
+- harmless ignored keys and what is used are not problems; they are in the
+  `layout` object of `--json`.
+
+A folder with both a `plugin.json` and the common manifest is checked as the
+`plugin.json`, with the warning `manifest-both`. A folder with neither still
+reports `manifest-missing`.
+
 ## Levels
 
 - **error**: the loader refuses the plugin or skips a part. A plugin with an error does not
@@ -120,6 +142,10 @@ same exit status. Messages about a wrong command line go to standard error.
 - `folder` is the absolute folder checked.
 - `status` is `clean`, `warnings`, `errors` or `unreadable`. With `unreadable`
   the report has a `readError` string and empty `parts` and `problems`.
+- `layout` is present only when the folder was read in the common plugin layout:
+  `source` (`manifest`, `sidecar`, `single-skill` or `conventional`) and
+  `findings`, every finding with `level` (`used`, `ignored`, `notUsed` or
+  `refused`), `code`, `field`, `message` and, when a file is meant, `path`.
 - `plugin` has `name` and `version` when the manifest is readable enough to say
   them, and is `{}` otherwise.
 - `parts` lists what was found. `kind` is `manifest`, `tool`, `hook`, `skill`,
@@ -153,6 +179,9 @@ same exit status. Messages about a wrong command line go to standard error.
 | `hook-entries-note` | warning | A key beside `hooks` in a hooks file, or a setting of an entry that is read but not acted on. |
 | `mcp-command-outside`, `mcp-arg-outside`, `mcp-duplicate-server` | warning | An MCP server command or argument that points outside the folder, two servers with one name. Never started or looked at. |
 | `entries-truncated` | warning | A folder held more than 500 markdown files. |
+| `not-a-plugin`, `root-not-directory`, `name-invalid`, `dependency-unmet`, `path-escapes`, `too-many-skills`, `too-many-commands`, `too-many-agents`, `too-many-servers`, `nothing-used`, `manifest-invalid` | error | A folder read in the common plugin layout that cannot load as a whole; see [the layout page](../sdk/common-plugin-layout.md#findings). |
+| `skill-invalid`, `inline-text-unsupported`, `path-missing`, `hooks-modules-refused`, `hooks-file-missing`, `hooks-file-invalid`, `mcp-server-both`, `mcp-url-invalid`, `mcp-type-unsupported`, `mcp-command-escapes`, `mcp-name-invalid`, `mcp-file-missing`, `mcp-file-invalid` | warning | One entry of a plugin in the common layout is dropped; the plugin loads without it. |
+| `component-unsupported`, `user-config-unsupported`, `folder-shadowed-by-manifest`, `mcp-server-remote`, `mcp-needs-setup`, `manifest-both` | warning | Something the common layout has that Namzu does not use, a folder the manifest shadows, a remote server that is read and not started, a server that needs setup, or two manifests in one folder. |
 
 New codes may be added within version 1.
 

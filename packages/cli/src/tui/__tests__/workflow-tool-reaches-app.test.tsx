@@ -138,7 +138,8 @@ vi.mock('../../integrations/trust/store.js', () => ({
 vi.mock('../../integrations/updates.js', () => ({
 	checkUpdates: async () => [],
 }))
-vi.mock('../../user-commands/store.js', () => ({
+vi.mock('../../user-commands/store.js', async (importOriginal) => ({
+	...(await importOriginal<typeof import('../../user-commands/store.js')>()),
 	discoverUserCommands: () => [],
 }))
 vi.mock('../../integrations/sessions/store.js', () => ({

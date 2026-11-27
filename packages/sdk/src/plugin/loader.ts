@@ -12,6 +12,9 @@ import { toErrorMessage } from '../utils/error.js'
 import { SCOPE_ATTRIBUTE } from '../utils/log/types.js'
 import { type Logger, resolveLogger } from '../utils/logger.js'
 import { VERSION } from '../version.js'
+import { COMMON_MANIFEST_DIR, COMMON_MANIFEST_FILE } from './common-layout-names.js'
+import { readCommonLayout } from './common-layout/read.js'
+import type { CommonLayoutOptions, LayoutFinding } from './common-layout/types.js'
 import { type PluginHostFacts, assertCompatible } from './compat.js'
 
 /**
@@ -29,7 +32,9 @@ export async function discoverPlugins(parentDir: string, log?: Logger): Promise<
 	// it. Without a `log`, discovery emits nothing (`resolveLogger` is
 	// `NOOP_LOGGER`), which is the deliberate default rather than a fallback
 	// to somebody else's stream.
-	const logger = resolveLogger(log).child({ [SCOPE_ATTRIBUTE]: 'plugin/loader' })
+	const logger = resolveLogger(log).child({
+		[SCOPE_ATTRIBUTE]: 'plugin/loader',
+	})
 	const dirs: string[] = []
 
 	try {
@@ -52,54 +57,120 @@ export async function discoverPlugins(parentDir: string, log?: Logger): Promise<
 			// directory listed is not the directory loaded.
 			const s = await lstat(fullPath)
 			if (s.isSymbolicLink()) {
-				logger.warn('Refusing a symlinked plugin directory', { 'namzu.plugin.path': fullPath })
+				logger.warn('Refusing a symlinked plugin directory', {
+					'namzu.plugin.path': fullPath,
+				})
 				continue
 			}
 			if (!s.isDirectory()) continue
 
-			const manifestPath = join(fullPath, PLUGIN_MANIFEST_FILENAME)
-			try {
-				const manifest = await lstat(manifestPath)
-				if (manifest.isSymbolicLink() || !manifest.isFile()) {
-					logger.warn('Refusing a non-regular plugin manifest', {
-						'namzu.plugin.path': fullPath,
-						'namzu.plugin.manifest_path': manifestPath,
-					})
-					continue
+			// Namzu's own manifest first, then the common layout's. Either must be a
+			// regular file in a regular folder; a folder with neither is not a plugin.
+			let admitted = false
+			for (const manifestPath of [
+				join(fullPath, PLUGIN_MANIFEST_FILENAME),
+				join(fullPath, COMMON_MANIFEST_DIR, COMMON_MANIFEST_FILE),
+			]) {
+				try {
+					const manifest = await lstat(manifestPath)
+					if (manifest.isSymbolicLink() || !manifest.isFile()) {
+						logger.warn('Refusing a non-regular plugin manifest', {
+							'namzu.plugin.path': fullPath,
+							'namzu.plugin.manifest_path': manifestPath,
+						})
+						continue
+					}
+					if (manifestPath !== join(fullPath, PLUGIN_MANIFEST_FILENAME)) {
+						const folder = await lstat(join(fullPath, COMMON_MANIFEST_DIR))
+						if (folder.isSymbolicLink() || !folder.isDirectory()) {
+							logger.warn('Refusing a non-regular plugin manifest folder', {
+								'namzu.plugin.path': fullPath,
+							})
+							continue
+						}
+					}
+					admitted = true
+					break
+				} catch {
+					// No manifest at this path — try the next
 				}
-				dirs.push(fullPath)
-			} catch {
-				// No manifest in this directory — skip
 			}
+			if (admitted) dirs.push(fullPath)
 		}
 	} catch {
-		logger.debug('Plugins directory not found', { 'namzu.plugin.parent_dir': parentDir })
+		logger.debug('Plugins directory not found', {
+			'namzu.plugin.parent_dir': parentDir,
+		})
 	}
 
 	return dirs
 }
 
 /**
+ * What a plugin folder read through the loader holds: the manifest to admit,
+ * and, for a folder in the common plugin layout, what the reader found.
+ */
+export interface LoadedPluginManifest {
+	readonly manifest: PluginManifest
+	/** Findings of the common-layout reader; empty for a Namzu `plugin.json`. */
+	readonly findings: readonly LayoutFinding[]
+}
+
+/**
  * Reads and validates a plugin manifest from a plugin directory.
  * Throws on invalid manifest (fail fast).
+ *
+ * A folder with Namzu's own `plugin.json` is read as before. Without one, the
+ * folder is read in the common plugin layout (its own manifest, or only its
+ * conventional folders), and a refused plugin throws with the reason.
  */
 export async function loadPluginManifest(
 	pluginDir: string,
 	capabilities: PluginEnablementCapabilities = {},
 ): Promise<PluginManifest> {
+	return (await loadPluginManifestWithFindings(pluginDir, capabilities)).manifest
+}
+
+/** {@link loadPluginManifest}, and what the common-layout reader found. */
+/**
+ * A folder read in the common plugin layout that Namzu refuses (nothing usable,
+ * an unmet dependency, a bad name). A host can report it and carry on loading
+ * the other plugins, unlike a malformed Namzu manifest.
+ */
+export class PluginLayoutRefusedError extends Error {
+	override readonly name = 'PluginLayoutRefusedError'
+}
+
+export async function loadPluginManifestWithFindings(
+	pluginDir: string,
+	capabilities: PluginEnablementCapabilities = {},
+): Promise<LoadedPluginManifest> {
 	const root = await lstat(pluginDir)
 	if (root.isSymbolicLink() || !root.isDirectory()) {
 		throw new Error(`Plugin root must be a regular directory: ${pluginDir}`)
 	}
 	const manifestPath = join(pluginDir, PLUGIN_MANIFEST_FILENAME)
-	const manifestEntry = await lstat(manifestPath)
+	const manifestEntry = await lstat(manifestPath).catch((error: NodeJS.ErrnoException) => {
+		if (error.code === 'ENOENT') return undefined
+		throw error
+	})
+	if (manifestEntry === undefined) {
+		const read = await readCommonLayout(pluginDir, capabilities.commonLayout)
+		if (read.refusal !== undefined || read.manifest === undefined) {
+			throw new PluginLayoutRefusedError(
+				`Plugin at ${pluginDir} was not loaded: ${read.refusal?.message ?? 'there is no manifest here.'}`,
+			)
+		}
+		assertEnableable(read.manifest, capabilities)
+		return { manifest: read.manifest, findings: read.findings }
+	}
 	if (manifestEntry.isSymbolicLink() || !manifestEntry.isFile()) {
 		throw new Error(`Plugin manifest must be a regular file, not a symlink: ${manifestPath}`)
 	}
 	const raw = await readFile(manifestPath, 'utf-8')
 	const manifest = parsePluginManifestText(raw)
 	assertEnableable(manifest, capabilities)
-	return manifest
+	return { manifest, findings: [] }
 }
 
 /**
@@ -209,6 +280,12 @@ export interface PluginEnablementCapabilities extends PluginHostFacts {
 	 * nowhere.
 	 */
 	readonly skillsSupported?: boolean
+	/**
+	 * Options for the common-layout reader, used when the folder has no
+	 * `plugin.json`. `entrySidecar` belongs to a caller that holds an install
+	 * record for the folder; a discovered folder never passes it.
+	 */
+	readonly commonLayout?: CommonLayoutOptions
 }
 
 export function assertEnableable(
@@ -294,7 +371,9 @@ export async function discoverAllPluginDirs(
 ): Promise<{ project: string[]; user: string[] }> {
 	// Resolved here too — see discoverPlugins above for why module scope
 	// froze this logger's level, and its very reference, at import time.
-	const logger = resolveLogger(options?.log).child({ [SCOPE_ATTRIBUTE]: 'plugin/loader' })
+	const logger = resolveLogger(options?.log).child({
+		[SCOPE_ATTRIBUTE]: 'plugin/loader',
+	})
 	if (options?.enabled === false || options?.autoDiscovery === false) {
 		logger.debug('Plugin discovery skipped', {
 			'namzu.plugin.enabled': options.enabled,

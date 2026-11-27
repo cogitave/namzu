@@ -108,6 +108,11 @@
 import { spawn } from 'node:child_process'
 import { constants, accessSync, mkdirSync, statSync } from 'node:fs'
 import { basename, delimiter } from 'node:path'
+import {
+	COMMON_DATA_VARIABLE,
+	COMMON_PROJECT_VARIABLE,
+	COMMON_ROOT_VARIABLE,
+} from './common-layout-names.js'
 
 import { decodedCommands, decomposeCommandLine } from '../authorization/command-line.js'
 import {
@@ -1010,6 +1015,13 @@ export function runShellHook(
 		NAMZU_PROJECT_DIR: projectDir,
 		...(input.plugin !== undefined
 			? { NAMZU_PLUGIN_ROOT: input.plugin.root, NAMZU_PLUGIN_DATA: input.plugin.dataDir }
+			: {}),
+		...(input.plugin?.layout === 'common'
+			? {
+					[COMMON_ROOT_VARIABLE]: input.plugin.root,
+					[COMMON_DATA_VARIABLE]: input.plugin.dataDir,
+					[COMMON_PROJECT_VARIABLE]: projectDir,
+				}
 			: {}),
 		...(input.turnId !== undefined ? { NAMZU_TURN_ID: input.turnId } : {}),
 		...(input.envFile !== undefined ? { NAMZU_ENV_FILE: input.envFile } : {}),

@@ -35,6 +35,15 @@ export const MAX_PERSONAS_PER_PLUGIN = 5
 export const MAX_COMMAND_DIRS_PER_PLUGIN = 10
 export const MAX_AGENT_DIRS_PER_PLUGIN = 10
 
+/** Limits for a plugin read in the common plugin layout, which ships larger plugins. */
+export const COMMON_LAYOUT_MAX_MCP_SERVERS = 16
+export const COMMON_LAYOUT_MAX_SKILLS = 64
+export const COMMON_LAYOUT_MAX_COMMANDS = 64
+export const COMMON_LAYOUT_MAX_AGENTS = 64
+/** A plugin folder over either of these is refused. */
+export const COMMON_LAYOUT_MAX_FILES = 20_000
+export const COMMON_LAYOUT_MAX_BYTES = 256 * 1024 * 1024
+
 /** Hook execution */
 export const HOOK_TIMEOUT_MS = 600_000
 
