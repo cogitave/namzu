@@ -272,14 +272,14 @@ a list of them. A `.mcpb` or `.dxt` bundle is ignored.
 | Entry | Result |
 |---|---|
 | `command` (with `args`, `env`), no `type` or `type: "stdio"` | A local server, started while the plugin is on. Other keys (`cwd`, `timeout`) are ignored per key. |
-| `url`, with `type` `http`, `sse` or `streamable-http`, or alone | A remote server: parsed, listed in `manifest.remoteMcpServers`, and **not started**. Nothing connects to it yet. `headers` may name `${VAR}`, which stays as written. |
+| `url`, with `type` `http`, `sse` or `streamable-http`, or alone | A remote server: parsed and listed in `manifest.remoteMcpServers`. The reader never connects. A host connects it only after the person approves that server (the CLI: the `plugins` section of `mcp-approvals.json`, keyed by plugin id and server name, tied to address, headers and transport) and only while the plugin is on. `headers` may name `${VAR}`, which stays as written and is read when it connects; sign-in uses the host's saved sign-in store. |
 | `command` and `url` | Refused for that server (`mcp-server-both`). |
 | Neither | Ignored (`mcp-server-empty`). |
 
 Path names are expanded in `command`, `args`, `env`, `url` and `headers`. In an
 `env` value only, a bare `${VAR}` is read from the environment. An unset
 variable, a `${VAR}` anywhere else, or a path name with no folder marks the
-server `needs setup` and it is not started (`mcp-needs-setup`). Any other
+server `needs setup` and it is not started (`mcp-needs-setup`; the finding's `server` field says whether it is `local` or `remote`, and a plugin whose only content is such a remote server still loads and lists it). Any other
 `$NAME`, backtick or `%NAME%` is left as written and reported
 (`mcp-text-left-as-is`). A relative `command` with `..` is refused for that
 server. An address must be `http` or `https` and hold no user name or password.

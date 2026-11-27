@@ -421,6 +421,18 @@ function same(a: unknown, b: unknown): boolean {
 	return JSON.stringify(a) === JSON.stringify(b)
 }
 
+/** What names a surface row apart from an edited copy of itself, or `undefined` for a row with no name. */
+function rowIdentity(json: string): string | undefined {
+	try {
+		const row = JSON.parse(json) as Record<string, unknown>
+		if (typeof row.path === 'string') return `path:${row.path}`
+		if (typeof row.name === 'string') return `name:${String(row.kind ?? '')}:${row.name}`
+	} catch {
+		// Not a row we can name.
+	}
+	return undefined
+}
+
 /** What changed between two surfaces, in words, for an update's preview. */
 export function surfaceChanges(before: PluginSurface, after: PluginSurface): string[] {
 	const out: string[] = []
@@ -436,11 +448,26 @@ export function surfaceChanges(before: PluginSurface, after: PluginSurface): str
 	for (const key of Object.keys(label) as (keyof PluginSurface & string)[]) {
 		const a = (before[key] as readonly unknown[]).map((item) => JSON.stringify(item))
 		const b = (after[key] as readonly unknown[]).map((item) => JSON.stringify(item))
-		const added = b.filter((item) => !a.includes(item)).length
-		const removed = a.filter((item) => !b.includes(item)).length
-		if (added > 0) out.push(`${added} new ${label[key]}${added === 1 ? '' : 's'}`)
-		if (removed > 0)
-			out.push(`${removed} ${label[key]}${removed === 1 ? '' : 's'} removed or changed`)
+		const added = b.filter((item) => !a.includes(item))
+		const removed = a.filter((item) => !b.includes(item))
+		// A row whose identity (path, or kind and name) is on both sides was edited, not added.
+		const ids = (items: readonly string[]): Set<string> =>
+			new Set(items.map(rowIdentity).filter((id): id is string => id !== undefined))
+		const addedIds = ids(added)
+		const removedIds = ids(removed)
+		const changed = added.filter((item) => {
+			const id = rowIdentity(item)
+			return id !== undefined && removedIds.has(id)
+		}).length
+		const fresh = added.length - changed
+		const gone = removed.filter((item) => {
+			const id = rowIdentity(item)
+			return id === undefined || !addedIds.has(id)
+		}).length
+		const noun = (count: number): string => `${label[key]}${count === 1 ? '' : 's'}`
+		if (fresh > 0) out.push(`${fresh} new ${noun(fresh)}`)
+		if (changed > 0) out.push(`${changed} ${noun(changed)} changed`)
+		if (gone > 0) out.push(`${gone} ${noun(gone)} removed`)
 	}
 	if (!same(before.unpinnedDownload, after.unpinnedDownload)) out.push('download pinning changed')
 	return out

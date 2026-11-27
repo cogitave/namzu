@@ -663,6 +663,27 @@ describe('servers', () => {
 		expect(find(read, 'mcp-needs-setup', 'mcpServers.dflt')?.message).toContain('headers.A')
 	})
 
+	it('names which kind of server needs setup, and a plugin with only such a remote server still loads', async () => {
+		const root = folder('onlyremote', {
+			[COMMON_MCP_FILE]: {
+				api: { url: 'https://mcp.example.com/a', headers: { A: 'Bearer ${NOPE}' } },
+			},
+		})
+		const read = await readCommonLayout(root, options)
+		expect(read.refusal).toBeUndefined()
+		expect(find(read, 'mcp-needs-setup', 'mcpServers.api')?.server).toMatchObject({
+			name: 'api',
+			kind: 'remote',
+			target: 'https://mcp.example.com/a',
+		})
+		const local = folder('onlylocal', {
+			[COMMON_MCP_FILE]: { db: { command: 'x', env: { A: '${MISSING}' } }, ok: { command: 'y' } },
+		})
+		expect(
+			find(await readCommonLayout(local, options), 'mcp-needs-setup', 'mcpServers.db')?.server,
+		).toMatchObject({ name: 'db', kind: 'local', target: 'x' })
+	})
+
 	it('refuses an entry that names both forms, a bad address and an unknown type, and the plugin loads without them', async () => {
 		const root = folder('ref', {
 			[COMMON_MCP_FILE]: {

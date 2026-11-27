@@ -206,6 +206,7 @@ export const pluginCommand: CommandDef = {
 				namzuHome: namzuHomePath(),
 				isTrusted: (dir: string) => isTrusted(dir),
 				loadingOn: ctx.config.plugins?.enabled === true,
+				blockedMarketplaces: ctx.config.plugins?.blockedMarketplaces ?? [],
 				interactive,
 				ask: askYesNo,
 				now: () => new Date(),

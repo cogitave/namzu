@@ -16,7 +16,11 @@ import { checkSetting, readSettings, writeSetting } from '../config/desktop-sett
 import { loadConfig } from '../config/load.js'
 import type { SkillsConfig } from '../config/schema.js'
 import { userConfigPath } from '../config/user-config.js'
-import { approveListedMcpServers, listMcpServers } from '../integrations/mcp/server-listing.js'
+import {
+	approveListedAnyMcpServers,
+	listAllMcpServers,
+	pluginConfigFor,
+} from '../integrations/mcp/all-servers.js'
 import {
 	checkUserMcpServerSave,
 	listEntryForUserMcpServer,
@@ -1775,9 +1779,10 @@ export function createDesktopHostExtensions(
 				throw new Error('Invalid tool servers request.')
 			// A folder nobody trusted reads none of its own files.
 			if (!isTrusted(cwd) || pal()) return { servers: [] }
-			return listMcpServers({
+			return listAllMcpServers({
 				cwd,
 				live: runtime.mcpStatus?.(cwd) ?? { connected: [], failed: [] },
+				plugins: pluginConfigFor(cwd),
 			})
 		},
 		/** Which browser the engine would drive here, for the Connected browsers table; launches nothing. */
@@ -1955,7 +1960,14 @@ export function createDesktopHostExtensions(
 				const row = (item && typeof item === 'object' ? item : {}) as Record<string, unknown>
 				return { name: text(row, 'name', 64), fingerprint: text(row, 'fingerprint', 128) }
 			})
-			return { approved: approveListedMcpServers(cwd, checked) }
+			const approved = await approveListedAnyMcpServers({
+				cwd,
+				plugins: pluginConfigFor(cwd),
+				shown: checked,
+			})
+			// A plugin server just approved starts in the conversations that are open now.
+			runtime.syncPluginServers?.(cwd)
+			return { approved }
 		},
 		'namzu/project/pr': async (params: Record<string, unknown> = {}) => {
 			if (

@@ -284,6 +284,7 @@ export type ConnectorStatus =
 	| { kind: 'connected' }
 	| { kind: 'approve' }
 	| { kind: 'failed'; reason?: string }
+	| { kind: 'setup'; reason?: string }
 	| { kind: 'idle' }
 
 export interface ConnectorRowModel {
@@ -299,6 +300,7 @@ const SOURCE: Record<McpServerView['origin'], string> = {
 	'your-config': 'Your own settings',
 	'this-project': 'This project’s settings',
 	'project-file': '.mcp.json in this project',
+	plugin: 'Plugin',
 }
 
 const isAddress = (detail: string | undefined): boolean =>
@@ -313,14 +315,21 @@ export function connectorRow(server: McpServerView): ConnectorRowModel {
 				? { kind: 'approve' }
 				: server.state === 'failed'
 					? { kind: 'failed', ...(server.reason ? { reason: server.reason } : {}) }
-					: { kind: 'idle' }
+					: server.state === 'needs-setup'
+						? { kind: 'setup', ...(server.reason ? { reason: server.reason } : {}) }
+						: { kind: 'idle' }
 	return {
 		name: server.name,
 		type: isAddress(server.detail) ? 'Remote' : 'Local',
-		source: SOURCE[server.origin],
+		source:
+			server.origin === 'plugin' && server.plugin
+				? `Plugin ${server.plugin}`
+				: SOURCE[server.origin],
 		status,
 		title:
-			status.kind === 'failed' && status.reason ? `${server.name}: ${status.reason}` : server.name,
+			(status.kind === 'failed' || status.kind === 'setup') && status.reason
+				? `${server.name}: ${status.reason}`
+				: server.name,
 	}
 }
 

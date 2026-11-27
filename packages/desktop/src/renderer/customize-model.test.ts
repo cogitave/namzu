@@ -225,6 +225,30 @@ describe('connectors', () => {
 		expect(failed.status).toEqual({ kind: 'failed', reason: 'No answer.' })
 		expect(failed.title).toBe('d: No answer.')
 	})
+	it('labels a plugin’s remote server with the plugin, offers Approve while it waits and says when it needs setup', () => {
+		const waiting = connectorRow({
+			name: 'ledger-api',
+			origin: 'plugin',
+			plugin: 'ledger',
+			state: 'waiting',
+			detail: 'https://mcp.example.com',
+			fingerprint: 'f',
+		})
+		expect(waiting).toMatchObject({
+			type: 'Remote',
+			source: 'Plugin ledger',
+			status: { kind: 'approve' },
+		})
+		const setup = connectorRow({
+			name: 'ledger-two',
+			origin: 'plugin',
+			plugin: 'ledger',
+			state: 'needs-setup',
+			reason: 'TOKEN is not set',
+		})
+		expect(setup.status).toEqual({ kind: 'setup', reason: 'TOKEN is not set' })
+		expect(setup.title).toBe('ledger-two: TOKEN is not set')
+	})
 	it('falls back to the person’s own servers when no project is open', () => {
 		expect(connectorRows(undefined, [{ name: 'x', kind: 'address' }])).toMatchObject([
 			{ name: 'x', type: 'Remote', source: 'Your own settings' },

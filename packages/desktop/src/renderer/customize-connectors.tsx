@@ -36,6 +36,12 @@ function StatusCell({
 					Failed
 				</span>
 			)
+		case 'setup':
+			return (
+				<span className="customize-status-failed" title={row.status.reason}>
+					Needs setup
+				</span>
+			)
 		default:
 			return <span className="customize-muted">—</span>
 	}
