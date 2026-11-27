@@ -252,7 +252,6 @@ test("Record your screen: the menu, the chooser, the pill, the review, Send and 
 		await w.page.getByRole("navigation", { name: "Main navigation" }).getByRole("button", { name: "Customize" }).click({ timeout: T });
 		await page.getByRole("button", { name: "Add" }).click({ timeout: T });
 		await expect(w.page.getByRole("menuitem", { name: "Create with Namzu" })).toBeVisible({ timeout: T });
-		console.error("availability after the switch:", JSON.stringify(await w.page.evaluate(async () => ({ a: await window.namzu.recordingAvailability(), s: (await window.namzu.settings()).screenRecording }))));
 		await expect(w.page.getByRole("menuitem", { name: "Record your screen" })).toHaveCount(0, { timeout: T });
 
 		assert.deepEqual(world.faults, [], "the renderer raised no uncaught errors");

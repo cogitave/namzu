@@ -136,6 +136,7 @@
 .recording-review-cut {
 	margin: 0;
 	padding-left: 18px;
+	list-style: disc;
 	color: var(--muted-foreground);
 }
 .recording-review-error {
