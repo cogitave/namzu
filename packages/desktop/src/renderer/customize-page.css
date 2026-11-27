@@ -20,8 +20,8 @@
 .customize-title {
 	margin: 0 0 24px;
 	font-family: var(--font-document);
-	font-size: 28px;
-	line-height: 36px;
+	font-size: var(--text-display);
+	line-height: var(--leading-display);
 	font-weight: 400;
 	letter-spacing: -0.01em;
 }
@@ -139,7 +139,7 @@
 	height: 28px;
 	padding: 0 10px 0 8px;
 	border: 0;
-	border-radius: 8px;
+	border-radius: var(--radius-control);
 	background: var(--foreground);
 	color: var(--background);
 	font: inherit;
@@ -206,7 +206,7 @@
 	padding: 0 44px 0 0;
 	box-sizing: border-box;
 	border: 0;
-	border-radius: 8px;
+	border-radius: var(--radius-control);
 	background: transparent;
 	color: inherit;
 	font: inherit;
@@ -224,7 +224,7 @@
 	width: 36px;
 	height: 36px;
 	border: 1px solid var(--border);
-	border-radius: 9px;
+	border-radius: var(--radius-control);
 	background: var(--surface-raised);
 	color: var(--muted-foreground);
 }
@@ -235,7 +235,7 @@
 .customize-tile[data-size="44"] {
 	width: 44px;
 	height: 44px;
-	border-radius: 11px;
+	border-radius: var(--radius-card);
 }
 .customize-tile[data-size="44"] svg {
 	width: 20px;
@@ -272,10 +272,10 @@
 	text-overflow: ellipsis;
 	white-space: nowrap;
 	padding: 0 7px;
-	border-radius: 6px;
+	border-radius: var(--radius-chip);
 	background: var(--sidebar-row-active);
 	color: var(--muted-foreground);
-	font-size: 11px;
+	font-size: var(--text-caption);
 	line-height: 18px;
 }
 .customize-row-sub {
@@ -405,7 +405,7 @@
 	margin: 0 0 20px;
 	padding: 2px 4px;
 	border: 0;
-	border-radius: 6px;
+	border-radius: var(--radius-chip);
 	background: transparent;
 	color: var(--foreground);
 	font: inherit;
@@ -428,8 +428,8 @@
 .customize-detail-copy h2 {
 	margin: 0;
 	overflow-wrap: anywhere;
-	font-size: 18px;
-	line-height: 24px;
+	font-size: var(--text-heading);
+	line-height: var(--leading-heading);
 	font-weight: 600;
 }
 .customize-detail-copy p {
@@ -558,7 +558,7 @@
 .customize-card {
 	padding: 14px 16px;
 	border: 1px solid var(--border);
-	border-radius: 12px;
+	border-radius: var(--radius-card);
 	background: var(--surface-raised);
 }
 .customize-card .customize-label {
@@ -596,7 +596,7 @@
 	grid-template-columns: 220px minmax(0, 1fr);
 	min-height: 360px;
 	border: 1px solid var(--border);
-	border-radius: 12px;
+	border-radius: var(--radius-card);
 	overflow: hidden;
 }
 .customize-tree {
@@ -618,7 +618,7 @@
 	height: 28px;
 	padding-inline-end: 8px;
 	border: 0;
-	border-radius: 6px;
+	border-radius: var(--radius-chip);
 	background: transparent;
 	color: var(--foreground);
 	font: inherit;
@@ -675,7 +675,7 @@
 	height: 24px;
 	padding: 0;
 	border: 0;
-	border-radius: 6px;
+	border-radius: var(--radius-chip);
 	background: transparent;
 	color: var(--muted-foreground);
 	cursor: pointer;

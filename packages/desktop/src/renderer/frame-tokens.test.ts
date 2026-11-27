@@ -200,11 +200,7 @@ describe('the frame tokens', () => {
 })
 
 /** Frame tokens that are computed from the pinned ones. */
-const DERIVED = [
-	'--frame-label-start',
-	'--frame-foot-start',
-	'--frame-dock-rest',
-]
+const DERIVED = ['--frame-label-start', '--frame-foot-start', '--frame-dock-rest']
 
 /** [file, selector, property, the token the value must read]. */
 const READS: ReadonlyArray<readonly [string, string, string, string]> = [
