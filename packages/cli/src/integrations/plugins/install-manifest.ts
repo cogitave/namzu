@@ -119,6 +119,13 @@ function within(outer: string, inner: string): boolean {
 	return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel))
 }
 
+/** Whether `path` really lies strictly under the plugin cache (links followed). */
+export function isInsidePluginCache(home: string, path: string): boolean {
+	const cache = realOrNothing(pluginCacheFolder(home))
+	const real = realOrNothing(path)
+	return cache !== undefined && real !== undefined && real !== cache && within(cache, real)
+}
+
 function realOrNothing(path: string): string | undefined {
 	try {
 		return realpathSync.native(path)
@@ -144,6 +151,39 @@ export function isConfigFile(path: string): boolean {
 	return lower === 'skill.md' || parts.slice(0, -1).some((part) => CONFIG_FOLDERS.has(part))
 }
 
+const PROGRAM_EXTENSIONS = new Set([
+	'.js',
+	'.mjs',
+	'.cjs',
+	'.sh',
+	'.ps1',
+	'.bat',
+	'.cmd',
+	'.py',
+	'.rb',
+	'.pl',
+	'.ts',
+	'.mts',
+	'.cts',
+	'.tsx',
+	'.jsx',
+	'.php',
+	'.lua',
+	'.vbs',
+	'.exe',
+	'.jar',
+	'.wasm',
+])
+
+/** Whether a file can run or configure running, by its path and mode. */
+export function isExecutablePath(path: string, mode: number): boolean {
+	if (isConfigFile(path)) return true
+	if (path.startsWith('hooks/') || path.startsWith('bin/')) return true
+	if ((mode & 0o111) !== 0) return true
+	const dot = path.lastIndexOf('.')
+	return dot >= 0 && PROGRAM_EXTENSIONS.has(path.slice(dot).toLowerCase())
+}
+
 /** Every file or link under `root` that {@link isConfigFile} names and the manifest does not list. */
 function unlistedConfigFile(root: string, listed: ReadonlySet<string>): string | undefined {
 	const walk = (dir: string, prefix: string): string | undefined => {
@@ -158,7 +198,15 @@ function unlistedConfigFile(root: string, listed: ReadonlySet<string>): string |
 			if (entry.isDirectory()) {
 				const found = walk(join(dir, entry.name), rel)
 				if (found !== undefined) return found
-			} else if (isConfigFile(rel) && !listed.has(rel)) return rel
+			} else if (!listed.has(rel)) {
+				let mode = 0
+				try {
+					mode = lstatSync(join(dir, entry.name)).mode
+				} catch {
+					return rel
+				}
+				if (isExecutablePath(rel, mode)) return rel
+			}
 		}
 		return undefined
 	}
