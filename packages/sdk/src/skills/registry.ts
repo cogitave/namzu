@@ -11,6 +11,7 @@ import {
 import { SCOPE_ATTRIBUTE } from '../utils/log/types.js'
 import { type Logger, resolveLogger } from '../utils/logger.js'
 
+import { expandPluginRootText } from '../plugin/common-layout/paths.js'
 import { SKILL_FILENAME, discoverSkills, loadSkill } from './loader.js'
 
 /** Two skills claiming one registered name. */
@@ -205,7 +206,14 @@ export class SkillRegistry {
 		// registry the registered one, which is the divergence this re-keying
 		// exists to prevent, reintroduced one line below the comment saying
 		// so.
-		const rekeyed: Skill = { ...result.skill, metadata: { ...result.skill.metadata, name } }
+		const rekeyed: Skill = {
+			...result.skill,
+			...(result.skill.body !== undefined && existing.pluginRoot !== undefined
+				? { body: expandPluginRootText(result.skill.body, existing.pluginRoot) }
+				: {}),
+			...(existing.pluginRoot !== undefined ? { pluginRoot: existing.pluginRoot } : {}),
+			metadata: { ...result.skill.metadata, name },
+		}
 		this.skills.set(name, rekeyed)
 		await this.stamp(name, existing.dirPath)
 		return { ...result, skill: rekeyed }

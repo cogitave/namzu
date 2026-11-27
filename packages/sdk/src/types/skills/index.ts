@@ -133,6 +133,13 @@ export interface Skill {
 	body?: string
 
 	dirPath: string
+
+	/**
+	 * The folder of the plugin that contributed this skill. Set by the plugin
+	 * lifecycle; the registry puts it in for `\${NAMZU_PLUGIN_ROOT}` (and the
+	 * common layout's spelling of it) when the body is read.
+	 */
+	pluginRoot?: string
 }
 
 export type SkillDisclosureLevel = 'metadata' | 'full' | 'assets'

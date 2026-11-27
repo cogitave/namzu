@@ -34,15 +34,16 @@ import type {
 	PluginManifest,
 	PluginScope,
 } from '../types/plugin/index.js'
-import { assertPluginHookEvent } from '../types/plugin/index.js'
+import { PluginManifestSchema, assertPluginHookEvent } from '../types/plugin/index.js'
 import type { SessionEvent } from '../types/session/index.js'
 import type { ToolDefinition } from '../types/tool/index.js'
 import { toErrorMessage } from '../utils/error.js'
 import { generatePluginId } from '../utils/id.js'
 import { SCOPE_ATTRIBUTE } from '../utils/log/types.js'
 import type { Logger } from '../utils/logger.js'
+import type { LayoutFinding } from './common-layout/types.js'
 import { type DefinedPlugin, definePlugin } from './define.js'
-import { assertEnableable, loadPluginManifest } from './loader.js'
+import { assertEnableable, loadPluginManifestWithFindings } from './loader.js'
 
 interface PluginContributionRecord {
 	toolNames: string[]
@@ -62,6 +63,8 @@ interface PluginAdmission {
 	readonly rootDir: string
 	readonly installedAt: number
 	readonly inCode?: DefinedPlugin
+	/** What the common-layout reader found when the manifest came from that layout. */
+	readonly findings?: readonly LayoutFinding[]
 }
 
 const DEFAULT_PLUGIN_MCP_CONNECT_TIMEOUT_MS = 10_000
@@ -174,6 +177,14 @@ function immutableManifest(manifest: PluginDefinition['manifest']): PluginDefini
 				: {}),
 		}),
 	)
+	const remoteMcpServers = manifest.remoteMcpServers?.map((server) =>
+		Object.freeze({
+			name: server.name,
+			url: server.url,
+			...(server.transport !== undefined ? { transport: server.transport } : {}),
+			...(server.headers ? { headers: Object.freeze({ ...server.headers }) } : {}),
+		}),
+	)
 	return Object.freeze({
 		name: manifest.name,
 		version: manifest.version,
@@ -187,10 +198,14 @@ function immutableManifest(manifest: PluginDefinition['manifest']): PluginDefini
 			? { hookEntries: Object.freeze(structuredClone(manifest.hookEntries)) }
 			: {}),
 		...(mcpServers ? { mcpServers: Object.freeze(mcpServers) } : {}),
+		...(remoteMcpServers ? { remoteMcpServers: Object.freeze(remoteMcpServers) } : {}),
 		...(manifest.connectors ? { connectors: Object.freeze([...manifest.connectors]) } : {}),
 		...(manifest.personas ? { personas: Object.freeze([...manifest.personas]) } : {}),
 		...(manifest.commands ? { commands: Object.freeze([...manifest.commands]) } : {}),
 		...(manifest.agents ? { agents: Object.freeze([...manifest.agents]) } : {}),
+		...(manifest.platforms ? { platforms: Object.freeze([...manifest.platforms]) } : {}),
+		...(manifest.engines ? { engines: Object.freeze({ ...manifest.engines }) } : {}),
+		...(manifest.layout !== undefined ? { layout: manifest.layout } : {}),
 	})
 }
 
@@ -218,6 +233,21 @@ export interface PluginLifecycleManagerConfig {
 	skillRegistry?: SkillRegistry
 	log: Logger
 	hookTimeoutMs?: number
+	/**
+	 * The data and project folders a plugin's server configuration may name
+	 * (`${NAMZU_PLUGIN_DATA}`, `${NAMZU_PROJECT_DIR}` and their layout-compatible
+	 * spellings). Read for a plugin in the common layout. Absent, the project
+	 * folder is the project scope's root and the data folder is not known, so a
+	 * server that names it is reported and not started.
+	 */
+	pathValues?: (plugin: {
+		readonly name: string
+		readonly scope: PluginScope
+		readonly rootDir: string
+	}) => {
+		readonly data?: string
+		readonly project?: string
+	}
 	/**
 	 * Hooks a host reads for a plugin when it is enabled, beyond the JavaScript
 	 * modules its manifest lists (shell, http and prompt entries a plugin ships,
@@ -316,6 +346,7 @@ export class PluginLifecycleManager {
 	private pluginAdmissions: Map<PluginId, PluginAdmission> = new Map()
 	private hookTimeoutMs: number
 	private readonly hooksFor: PluginLifecycleManagerConfig['hooksFor']
+	private readonly pathValues: PluginLifecycleManagerConfig['pathValues']
 	private readonly configRegistry: ConfigRegistry | undefined
 	private readonly scopeRoots: Readonly<Record<PluginScope, string>>
 	private log: Logger
@@ -343,6 +374,7 @@ export class PluginLifecycleManager {
 		this.scopeRoots = Object.freeze({ ...config.scopeRoots })
 		this.hookTimeoutMs = config.hookTimeoutMs ?? HOOK_TIMEOUT_MS
 		this.hooksFor = config.hooksFor
+		this.pathValues = config.pathValues
 		this.configRegistry = config.configRegistry
 		this.mcpToolPolicies = config.mcpToolPolicies
 		this.onMCPToolDrift = config.onMCPToolDrift
@@ -598,7 +630,16 @@ export class PluginLifecycleManager {
 	async install(
 		pluginDir: string,
 		scope: PluginScope,
-		options: { readonly authorityRoot?: string } = {},
+		options: {
+			readonly authorityRoot?: string
+			/**
+			 * A manifest the caller already read (a marketplace install reads the
+			 * folder with its install record). It is validated again here and the
+			 * folder is still resolved inside the authority root; only the reading
+			 * is skipped.
+			 */
+			readonly manifestSource?: { readonly manifest: PluginManifest }
+		} = {},
 	): Promise<PluginDefinition> {
 		// Admission and enable read the same constructor-owned capability. The
 		// loader defaults this to false for direct callers; a manager that really
@@ -607,11 +648,11 @@ export class PluginLifecycleManager {
 			options.authorityRoot ?? this.scopeRoots[scope],
 			pluginDir,
 		)
-		const manifest = immutableManifest(
-			await loadPluginManifest(rootDir, {
-				skillsSupported: Boolean(this.skillRegistry),
-			}),
-		)
+		const loaded = options.manifestSource
+			? await this.admitGivenManifest(options.manifestSource.manifest)
+			: await this.readManifest(rootDir, scope)
+		const manifest = immutableManifest(loaded.manifest)
+		const findings = loaded.findings
 
 		const existing = this.pluginRegistry.findByName(manifest.name)
 		if (existing) {
@@ -625,6 +666,7 @@ export class PluginLifecycleManager {
 			scope,
 			rootDir,
 			installedAt: Date.now(),
+			...(findings.length > 0 ? { findings } : {}),
 		})
 		const definition = this.definitionFrom(admission, 'installed')
 
@@ -647,6 +689,48 @@ export class PluginLifecycleManager {
 		})
 
 		return definition
+	}
+
+	/** The manifest of a folder, read as Namzu's own or in the common layout. */
+	private async readManifest(
+		rootDir: string,
+		scope: PluginScope,
+	): Promise<{
+		readonly manifest: PluginManifest
+		readonly findings: readonly LayoutFinding[]
+	}> {
+		const pathValues = this.pathValues
+		return loadPluginManifestWithFindings(rootDir, {
+			skillsSupported: Boolean(this.skillRegistry),
+			commonLayout: {
+				installedIds: new Set(this.pluginRegistry.getAll().map((plugin) => plugin.manifest.name)),
+				paths: (name) => ({
+					project: this.scopeRoots.project,
+					...(pathValues?.({ name, scope, rootDir }) ?? {}),
+				}),
+			},
+		})
+	}
+
+	private async admitGivenManifest(given: PluginManifest): Promise<{
+		readonly manifest: PluginManifest
+		readonly findings: readonly LayoutFinding[]
+	}> {
+		const parsed = PluginManifestSchema.parse(given)
+		const manifest: PluginManifest =
+			given.layout === 'common' ? { ...parsed, layout: 'common' } : parsed
+		assertEnableable(manifest, {
+			skillsSupported: Boolean(this.skillRegistry),
+		})
+		return { manifest, findings: [] }
+	}
+
+	/**
+	 * What the common-layout reader found for a plugin read from that layout
+	 * (empty for any other). Notes only: nothing here changes what loads.
+	 */
+	layoutFindings(pluginId: PluginId): readonly LayoutFinding[] {
+		return this.pluginAdmissions.get(pluginId)?.findings ?? []
 	}
 
 	/** Register a host-authored plugin without reading a manifest or importing modules. */
@@ -714,11 +798,7 @@ export class PluginLifecycleManager {
 
 	private async readLegacyAdmission(plugin: PluginDefinition): Promise<PluginAdmission> {
 		const rootDir = await resolveWithinReal(this.scopeRoots[plugin.scope], plugin.rootDir)
-		const manifest = immutableManifest(
-			await loadPluginManifest(rootDir, {
-				skillsSupported: Boolean(this.skillRegistry),
-			}),
-		)
+		const manifest = immutableManifest((await this.readManifest(rootDir, plugin.scope)).manifest)
 		if (manifest.name !== plugin.manifest.name) {
 			throw new Error(
 				`Plugin registry record "${plugin.id}" names "${plugin.manifest.name}", but its admitted manifest names "${manifest.name}". Reinstall the plugin from its declared scope root.`,
@@ -865,6 +945,7 @@ export class PluginLifecycleManager {
 					const namespacedName = manifest.name + PLUGIN_NAMESPACE_SEPARATOR + skill.metadata.name
 					skillRegistry.add(namespacedName, {
 						...skill,
+						pluginRoot: admission.rootDir,
 						metadata: { ...skill.metadata, name: namespacedName },
 					})
 					contributions.skillNames.push(namespacedName)

@@ -28,12 +28,12 @@ export const PLUGIN_NAME_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 /** Per-plugin contribution limits */
 export const MAX_TOOLS_PER_PLUGIN = 50
 export const MAX_HOOKS_PER_PLUGIN = 20
-export const MAX_MCP_SERVERS_PER_PLUGIN = 5
-export const MAX_SKILLS_PER_PLUGIN = 20
+export const MAX_MCP_SERVERS_PER_PLUGIN = 16
+export const MAX_SKILLS_PER_PLUGIN = 64
 export const MAX_CONNECTORS_PER_PLUGIN = 10
 export const MAX_PERSONAS_PER_PLUGIN = 5
-export const MAX_COMMAND_DIRS_PER_PLUGIN = 10
-export const MAX_AGENT_DIRS_PER_PLUGIN = 10
+export const MAX_COMMAND_DIRS_PER_PLUGIN = 64
+export const MAX_AGENT_DIRS_PER_PLUGIN = 64
 
 /** Hook execution */
 export const HOOK_TIMEOUT_MS = 600_000

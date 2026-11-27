@@ -308,6 +308,11 @@ const WIRE_VALUE_FILES = [
 	// each client calls an overload. Naming them is the interoperability,
 	// exactly like a model-id table.
 	'packages/sdk/src/provider/errors.ts',
+	// The one file of compatibility literals for the common plugin layout: the
+	// manifest folder and the variable names that layout spells in its own words,
+	// which Namzu reads so a folder written for it runs here. Deleting them would
+	// delete the feature; every other file says "the common plugin layout".
+	'packages/sdk/src/plugin/common-layout-names.ts',
 	'packages/sdk/src/types/provider/config.ts',
 	'packages/sdk/src/types/computer-use/index.ts',
 	'packages/sdk/src/tools/builtins/computer-use.ts',

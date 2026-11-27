@@ -902,6 +902,19 @@ export interface PluginMCPServerConfig {
 	readonly connectTimeoutMs?: number
 }
 
+/**
+ * A server a plugin reaches over the network instead of starting. It is read
+ * and reported; nothing connects to it yet, and the plugin file holds no
+ * secret (a header value may name an environment variable as `${NAME}`).
+ */
+export interface PluginRemoteMCPServerConfig {
+	readonly name: string
+	readonly url: string
+	/** Absent means `http`. */
+	readonly transport?: 'http' | 'sse'
+	readonly headers?: Readonly<Record<string, string>>
+}
+
 // ---------------------------------------------------------------------------
 // Plugin manifest — validated at load time
 // ---------------------------------------------------------------------------
@@ -928,6 +941,8 @@ export interface PluginManifest {
 	 */
 	readonly hookEntries?: Readonly<Record<string, unknown>>
 	readonly mcpServers?: readonly PluginMCPServerConfig[]
+	/** Servers reached over the network: read and reported, never started by the lifecycle. */
+	readonly remoteMcpServers?: readonly PluginRemoteMCPServerConfig[]
 	readonly connectors?: readonly string[]
 	readonly personas?: readonly string[]
 	/**
@@ -946,6 +961,11 @@ export interface PluginManifest {
 	readonly platforms?: readonly string[]
 	/** Runtime versions the plugin supports. Absent means any. */
 	readonly engines?: { readonly namzu?: string }
+	/**
+	 * Which layout the manifest was read from. Set only by the common-layout
+	 * reader, never by the schema: a `plugin.json` cannot claim it.
+	 */
+	readonly layout?: 'common'
 }
 
 export const PluginMCPServerConfigSchema = z
@@ -955,6 +975,15 @@ export const PluginMCPServerConfigSchema = z
 		args: z.array(z.string()).optional(),
 		env: z.record(z.string(), z.string()).optional(),
 		connectTimeoutMs: z.number().int().positive().max(3_600_000).optional(),
+	})
+	.strict()
+
+export const PluginRemoteMCPServerConfigSchema = z
+	.object({
+		name: z.string().min(1),
+		url: z.string().min(1).max(2048),
+		transport: z.enum(['http', 'sse']).optional(),
+		headers: z.record(z.string(), z.string()).optional(),
 	})
 	.strict()
 
@@ -983,6 +1012,10 @@ export const PluginManifestSchema = z.object({
 	hooks: z.array(z.string()).max(MAX_HOOKS_PER_PLUGIN).optional(),
 	hookEntries: z.record(z.string(), z.unknown()).optional(),
 	mcpServers: z.array(PluginMCPServerConfigSchema).max(MAX_MCP_SERVERS_PER_PLUGIN).optional(),
+	remoteMcpServers: z
+		.array(PluginRemoteMCPServerConfigSchema)
+		.max(MAX_MCP_SERVERS_PER_PLUGIN)
+		.optional(),
 	connectors: z.array(z.string()).max(MAX_CONNECTORS_PER_PLUGIN).optional(),
 	personas: z.array(z.string()).max(MAX_PERSONAS_PER_PLUGIN).optional(),
 	commands: z.array(PluginRelativeDirSchema).max(MAX_COMMAND_DIRS_PER_PLUGIN).optional(),

@@ -846,6 +846,21 @@ export {
 	worktreeHookVerdict,
 	worktreeHookPrinted,
 	WORKTREE_HOOK_SHOWN_CHARS,
+	expandPluginPaths,
+	expandPluginRootText,
+	findCommonLayoutRoot,
+	loadPluginManifestWithFindings,
+	readCommonLayout,
+} from './plugin/index.js'
+export type {
+	CommonLayoutOptions,
+	CommonLayoutRead,
+	CommonLayoutSource,
+	ExpandedPaths,
+	LayoutFinding,
+	LayoutFindingLevel,
+	LoadedPluginManifest,
+	PluginPathValues,
 } from './plugin/index.js'
 export type { DefinedPlugin, DefinePluginOptions } from './plugin/define.js'
 
@@ -1480,6 +1495,7 @@ export {
 	assertPluginStatus,
 	PluginManifestSchema,
 	PluginMCPServerConfigSchema,
+	PluginRemoteMCPServerConfigSchema,
 	RENAMED_PLUGIN_HOOK_EVENTS,
 } from './types/plugin/index.js'
 export { toMemoryCandidate } from './types/session/memory-promotion.js'
