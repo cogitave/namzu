@@ -93,8 +93,9 @@ listed and are not started yet, and a plugin in this layout may hold up to 64 sk
 and 16 servers. A hand-placed folder Namzu refuses is reported and the other
 plugins still load. What Namzu has no place for (themes, settings, saved options) is said
 once at launch; `namzu plugin validate` shows the whole report. The full rules
-are in [the common plugin layout](../sdk/common-plugin-layout.md). There is no
-install command for these plugins yet: you place the folder.
+are in [the common plugin layout](../sdk/common-plugin-layout.md). You can place
+the folder yourself, or install it from a folder, an archive or a local
+marketplace with `namzu plugin install`; see [Install plugins](plugin-install.md).
 
 ### Hook entries
 
@@ -206,10 +207,12 @@ still apply. Refused manifests stop plugin startup and roll back already loaded
 contributions. A failed or timed-out MCP handshake starts bounded transport
 shutdown before rollback completes. The shipped stdio transport escalates to
 process termination if its child does not exit. This menu does not install
-plugins or download a marketplace. Plugins that were installed on this computer
-(they have an install record) load as a third source and are managed with
-`namzu plugin list`, `details`, `enable` and `disable`; see
-[Installed plugins](plugin-records.md).
+plugins. `namzu plugin install` does, from a folder, an archive or a marketplace
+that is a folder or a file on this computer (nothing is downloaded yet); see
+[Install plugins](plugin-install.md). Plugins that were installed on this
+computer (they have an install record) load as a third source and are managed
+with `namzu plugin list`, `details`, `enable`, `disable`, `update` and
+`uninstall`; see [Installed plugins](plugin-records.md).
 
 ## Installed plugins
 
@@ -298,9 +301,10 @@ is not kept writes nothing. The record is best effort: it is replaced whole
 without a lock, so two conversations loading skills at the same moment can lose
 one of the two uses.
 
-There is no Discover or Marketplaces tab and no favorites: Namzu reads plugins
-only from `.namzu/plugins` and `~/.namzu/plugins` and has no catalog or remote
-source to list, and nothing yet gives a favorite a meaning. Tool servers are not
+There is no Discover or Marketplaces tab and no favorites: this screen lists
+what the conversation has, and installing and marketplaces are the
+`namzu plugin` commands ([Install plugins](plugin-install.md)); nothing yet
+gives a favorite a meaning. Tool servers are not
 grouped by scope because a connected server does not carry where it was
 configured.
 

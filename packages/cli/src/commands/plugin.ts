@@ -1,5 +1,6 @@
 import { resolve } from 'node:path'
 
+import { planSettingChange } from '../config/setting-cli.js'
 import { namzuHomePath } from '../integrations/state/home.js'
 import { isTrusted } from '../integrations/trust/store.js'
 
@@ -9,8 +10,17 @@ import {
 	validatePluginFolder,
 } from '../integrations/plugins/validate.js'
 import { createFormatter } from '../output/index.js'
+import { askYesNo } from '../schedule/commands/confirm-prompt.js'
 import { terminalDisplayText } from '../tui/terminal-display.js'
 import { PLUGIN_ACTIONS } from './actions/small.js'
+import {
+	MARKETPLACE_VERBS,
+	PLUGIN_INSTALL_HELP,
+	PLUGIN_INSTALL_VERBS,
+	type PluginInstallVerb,
+	runMarketplace,
+	runPluginInstall,
+} from './plugin-install.js'
 import {
 	PLUGIN_RECORD_HELP,
 	PLUGIN_RECORD_VERBS,
@@ -35,6 +45,7 @@ export const PLUGIN_VALIDATE_EXIT = {
 const HELP = [
 	'Usage: namzu plugin validate [--json] [--] [path]',
 	'       namzu plugin list | details <id> | enable <id> | disable <id>   (installed plugins)',
+	'       namzu plugin install | uninstall | update | prune | marketplace   (see below)',
 	'',
 	'Check a plugin folder (default: the current folder) and every part it carries,',
 	'without running anything from it: no hook, MCP server, command or script is',
@@ -58,6 +69,8 @@ const HELP = [
 	'  64  the command line is wrong',
 	'',
 	PLUGIN_RECORD_HELP,
+	'',
+	PLUGIN_INSTALL_HELP,
 ].join('\n')
 
 interface ParsedArgs {
@@ -75,7 +88,7 @@ function parseArgs(rawArgs: readonly string[]): ParsedArgs {
 			error:
 				sub === undefined
 					? 'plugin needs a subcommand: validate, list, details, enable or disable. Run `namzu plugin --help`.'
-					: `unknown plugin subcommand: ${sub}. The ones there are: validate, ${PLUGIN_RECORD_VERBS.join(', ')}.`,
+					: `unknown plugin subcommand: ${sub}. The ones there are: validate, ${PLUGIN_RECORD_VERBS.join(', ')}, ${PLUGIN_INSTALL_VERBS.join(', ')}, marketplace (${MARKETPLACE_VERBS.join(', ')}).`,
 		}
 	}
 	let json = false
@@ -141,21 +154,38 @@ export function renderPluginReport(report: PluginValidationReport): string {
 
 export const pluginCommand: CommandDef = {
 	name: 'plugin',
-	description: 'Check a plugin folder, and list, inspect and turn on or off installed plugins',
+	description:
+		'Check a plugin folder, install plugins from folders and files, and list, inspect, update and remove them',
 	passThrough: true,
 	help: HELP,
 	actions: PLUGIN_ACTIONS,
 	handler: async ({ ctx, rawArgs }) => {
 		const verb = rawArgs[0]
-		if ((PLUGIN_RECORD_VERBS as readonly string[]).includes(verb ?? '')) {
-			return runPluginRecords(verb as PluginRecordVerb, rawArgs.slice(1), {
-				out: (text) => process.stdout.write(text),
-				err: (text) => process.stderr.write(text),
+		const isMarketplace = verb === 'marketplace'
+		const isRecord = (PLUGIN_RECORD_VERBS as readonly string[]).includes(verb ?? '')
+		const isInstall = (PLUGIN_INSTALL_VERBS as readonly string[]).includes(verb ?? '')
+		if (isRecord || isInstall || isMarketplace) {
+			const interactive = process.stdin.isTTY === true && process.stderr.isTTY === true
+			const deps = {
+				out: (text: string) => process.stdout.write(text),
+				err: (text: string) => process.stderr.write(text),
 				cwd: () => process.cwd(),
 				namzuHome: namzuHomePath(),
-				isTrusted: (dir) => isTrusted(dir),
+				isTrusted: (dir: string) => isTrusted(dir),
 				loadingOn: ctx.config.plugins?.enabled === true,
-			})
+				interactive,
+				ask: askYesNo,
+				now: () => new Date(),
+				enableLoading: () => {
+					const plan = planSettingChange('plugins.enabled', 'true')
+					if (!plan.ok) throw new Error(plan.error)
+					return plan.apply()
+				},
+			}
+			if (isRecord) return runPluginRecords(verb as PluginRecordVerb, rawArgs.slice(1), deps)
+			return isMarketplace
+				? runMarketplace(rawArgs.slice(1), deps)
+				: runPluginInstall(verb as PluginInstallVerb, rawArgs.slice(1), deps)
 		}
 		const args = parseArgs(rawArgs)
 		if (args.error) {
