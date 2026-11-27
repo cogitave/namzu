@@ -1777,6 +1777,11 @@ function register(): void {
 	})
 	handle('existingFolders', (paths: unknown) => existingFolders(paths))
 	handle('installedSkills', (projectId?: string) => operator.installedSkills(projectId))
+	handle('skillCatalog', (projectId?: string) => operator.skillCatalog(projectId))
+	handle('skillFiles', (name: unknown, projectId?: string) => operator.skillFiles(name, projectId))
+	handle('skillFile', (name: unknown, path: unknown, projectId?: string) =>
+		operator.skillFile(name, path, projectId),
+	)
 	handle('engineBrowser', () => operator.engineBrowser())
 	handle('standingInstructions', () => operator.standingInstructions())
 	handle('saveStandingInstructions', (text: unknown, revision: unknown) =>

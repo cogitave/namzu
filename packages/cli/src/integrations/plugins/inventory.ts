@@ -2,10 +2,11 @@ import { basename } from 'node:path'
 import { discoverAllPluginDirs, loadPluginManifest, resolveWithinReal } from '@namzu/sdk'
 import type { PluginConfig, PluginScope } from '../../config/schema.js'
 import { resolveNamzuHome } from '../state/home.js'
+import { type PluginManifestDetails, readPluginManifestDetails } from './manifest-details.js'
 import type { CliPluginRuntime } from './runtime.js'
 import { PluginSettingsStore } from './settings.js'
 
-export interface PluginInventoryEntry {
+export interface PluginInventoryEntry extends PluginManifestDetails {
 	readonly name: string
 	readonly version: string
 	readonly description: string
@@ -42,8 +43,13 @@ export async function readPluginInventory({
 }): Promise<PluginInventoryView> {
 	if (runtime) {
 		const loaded = runtime.list()
+		const shown = loaded.slice(0, MAX_PLUGINS)
+		const details = await Promise.all(
+			shown.map((plugin) => readPluginManifestDetails(plugin.rootDir)),
+		)
 		return {
-			plugins: loaded.slice(0, MAX_PLUGINS).map((plugin) => ({
+			plugins: shown.map((plugin, index) => ({
+				...details[index],
 				name: text(plugin.name),
 				version: text(plugin.version),
 				description: text(plugin.description),
@@ -110,6 +116,7 @@ export async function readPluginInventory({
 				startupError = 'This plugin’s saved startup settings could not be read.'
 			}
 			plugins.push({
+				...(await readPluginManifestDetails(rootDir)),
 				name: text(manifest.name),
 				version: text(manifest.version),
 				description: text(manifest.description),

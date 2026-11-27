@@ -13,6 +13,8 @@ import {
 	isEntityId,
 } from '@namzu/sdk'
 import { checkSetting, readSettings, writeSetting } from '../config/desktop-settings.js'
+import { loadConfig } from '../config/load.js'
+import type { SkillsConfig } from '../config/schema.js'
 import { userConfigPath } from '../config/user-config.js'
 import { approveListedMcpServers, listMcpServers } from '../integrations/mcp/server-listing.js'
 import {
@@ -82,6 +84,12 @@ import { palPublicAssistantText } from '../pals/public-transcript.js'
 import { createPal, deletePal, getPal, listPals, palAtWorkspace, updatePal } from '../pals/store.js'
 import { canonicalProjectPath } from '../permissions/canonical-project.js'
 import { isPermissionMode } from '../permissions/mode.js'
+import {
+	type CatalogPlugin,
+	buildSkillCatalog,
+	readSkillFile,
+	skillFiles,
+} from '../skills/desktop-catalog.js'
 import { ANSWER_QUESTION_METHOD } from './acp-desktop-question.js'
 import type { CliHarnessRuntime } from './acp-harness.js'
 import type { CliAcpRuntime } from './acp.js'
@@ -921,6 +929,30 @@ export function createDesktopHostExtensions(
 ) {
 	const cwd = canonicalProjectPath(directory)
 	const pal = () => palAtWorkspace(cwd)
+	/** What the skill catalog reads: the project's skills and settings only once the folder is trusted. */
+	const catalogOptions = async () => {
+		const trusted = isTrusted(cwd)
+		let config: SkillsConfig | undefined
+		let plugins: readonly CatalogPlugin[] | undefined
+		if (trusted) {
+			try {
+				config = loadConfig({ cwd }).skills
+			} catch {
+				// A settings file that cannot be read leaves every skill on.
+			}
+			try {
+				plugins = (await runtime.plugins(cwd)).plugins
+			} catch {
+				// Plugins that cannot be listed add no skills.
+			}
+		}
+		return {
+			cwd,
+			includeProject: trusted,
+			...(config ? { config } : {}),
+			...(plugins ? { plugins } : {}),
+		}
+	}
 	const withState = async <T>(
 		run: (state: Awaited<ReturnType<typeof openSessions>>) => Promise<T>,
 	): Promise<T> => {
@@ -1775,6 +1807,44 @@ export function createDesktopHostExtensions(
 				throw new Error('Invalid skills request.')
 			const { listInstalledSkills } = await import('../skills/installed-list.js')
 			return { skills: listInstalledSkills({ cwd, includeProject: isTrusted(cwd) && !pal() }) }
+		},
+		/** Every skill with what the Customize page shows of it: state, place, time, use. Reads files, runs nothing. */
+		'namzu/skills/catalog': async (params: Record<string, unknown> = {}) => {
+			if (
+				!params ||
+				typeof params !== 'object' ||
+				Array.isArray(params) ||
+				Object.keys(params).length > 0
+			)
+				throw new Error('Invalid skills request.')
+			if (pal()) throw new Error('Pals do not read the host skills.')
+			return { skills: buildSkillCatalog(await catalogOptions()) }
+		},
+		/** The files in one skill's folder: relative paths and sizes, at most 200. */
+		'namzu/skills/files': async (params: Record<string, unknown>) => {
+			if (
+				!params ||
+				typeof params !== 'object' ||
+				Object.keys(params).some((key) => key !== 'name')
+			)
+				throw new Error('Invalid skill files request.')
+			if (pal()) throw new Error('Pals do not read the host skills.')
+			return { files: skillFiles(text(params, 'name', 200), await catalogOptions()) }
+		},
+		/** One text file of a skill's folder, up to 256 KiB. */
+		'namzu/skills/read_file': async (params: Record<string, unknown>) => {
+			if (
+				!params ||
+				typeof params !== 'object' ||
+				Object.keys(params).some((key) => key !== 'name' && key !== 'path')
+			)
+				throw new Error('Invalid skill file request.')
+			if (pal()) throw new Error('Pals do not read the host skills.')
+			return readSkillFile(
+				text(params, 'name', 200),
+				text(params, 'path', 512),
+				await catalogOptions(),
+			)
 		},
 		/** The tool servers in the user's own config file, as the Settings form edits them. */
 		'namzu/mcp/user-servers': async (params: Record<string, unknown> = {}) => {
