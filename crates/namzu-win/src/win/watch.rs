@@ -23,7 +23,7 @@
 use namzu_win_core::tree::control_type_name;
 use namzu_win_core::watch::{
     Phase, RawWatch, WatchConfig, WatchKind, WatchPollReply, WatchQueue, WatchStartRequest,
-    is_edit_role,
+    control_key, is_edit_role, is_secure,
 };
 use namzu_win_core::window_id;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -99,7 +99,8 @@ fn read(element: &IUIAutomationElement, kind: WatchKind, phase: Option<Phase>) -
             .map(|t| control_type_name(t.0).to_owned())
             .ok();
         let name = element.CurrentName().map(|n| n.to_string()).ok();
-        let secure = element.CurrentIsPassword().is_ok_and(|b| b.as_bool());
+        // Fails closed: an unanswered query is treated as a password field.
+        let secure = is_secure(element.CurrentIsPassword().map(|b| b.as_bool()).ok());
         let pid = element.CurrentProcessId().map_or(0, |p| p as u32);
         let own = element
             .CurrentNativeWindowHandle()
@@ -142,12 +143,15 @@ fn read(element: &IUIAutomationElement, kind: WatchKind, phase: Option<Phase>) -
                         .ok()
                 })
                 .flatten();
-        let key = format!(
-            "{pid}/{}/{automation_id}/{}/{}",
-            own.map_or(0, enumerate::hwnd_value),
-            role.as_deref().unwrap_or(""),
-            name.as_deref().unwrap_or("")
-        );
+        let key = (kind == WatchKind::Value).then(|| {
+            control_key(&[
+                &pid.to_string(),
+                &own.map_or(0, enumerate::hwnd_value).to_string(),
+                &automation_id,
+                role.as_deref().unwrap_or(""),
+                name.as_deref().unwrap_or(""),
+            ])
+        });
         RawWatch {
             kind: Some(kind),
             t_ms: 0,
@@ -159,7 +163,7 @@ fn read(element: &IUIAutomationElement, kind: WatchKind, phase: Option<Phase>) -
             window,
             process,
             window_id,
-            key: Some(key),
+            key,
         }
     }
 }
@@ -266,6 +270,7 @@ pub struct Watch {
     pub controls: bool,
     pub foreground: bool,
     pub kinds: Vec<WatchKind>,
+    pub config: WatchConfig,
 }
 
 /// The queued events since the last poll.
@@ -284,6 +289,7 @@ impl Watch {
     pub fn start(request: &WatchStartRequest) -> Option<Watch> {
         let config = request.config();
         let kinds = config.kinds.clone();
+        let config_kept = config.clone();
         *state() = Some(State {
             queue: WatchQueue::new(config.clone()),
             epoch: Instant::now(),
@@ -301,6 +307,7 @@ impl Watch {
                     controls: ready.1,
                     foreground: ready.2,
                     kinds,
+                    config: config_kept,
                 });
             }
             _ => (0, false, false),

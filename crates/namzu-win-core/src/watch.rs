@@ -223,6 +223,27 @@ pub fn is_edit_role(role: &str) -> bool {
     role == "Edit"
 }
 
+/// Whether a control is to be treated as a password field, given what the
+/// `IsPassword` query answered. Fails closed: only a definite "no" reads as
+/// not secure, so a provider that errors is never asked for its text.
+pub fn is_secure(answer: Option<bool>) -> bool {
+    answer != Some(false)
+}
+
+/// A fixed-size coalescing key for a control, from the parts that identify it.
+/// It is a hash so the queue's memory does not depend on how long a control's
+/// name is; two controls colliding would only merge two value events in one window.
+pub fn control_key(parts: &[&str]) -> String {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for part in parts {
+        for b in part.bytes().chain(std::iter::once(0u8)) {
+            h ^= u64::from(b);
+            h = h.wrapping_mul(0x0100_0000_01b3);
+        }
+    }
+    format!("{h:016x}")
+}
+
 /// At most `max` characters of `text`.
 pub fn cut(text: &str, max: usize) -> String {
     text.chars().take(max).collect()
@@ -311,10 +332,13 @@ impl WatchQueue {
             self.dropped += 1;
             return false;
         }
-        self.queue.push_back(Queued {
-            event,
-            key: raw.key,
-        });
+        // The key only serves the merge of value events; no other kind keeps one.
+        let key = if kind == WatchKind::Value {
+            raw.key
+        } else {
+            None
+        };
+        self.queue.push_back(Queued { event, key });
         true
     }
 
@@ -435,6 +459,31 @@ mod tests {
         assert_eq!(e.value, None);
         let json = serde_json::to_string(e).unwrap();
         assert!(!json.contains("hunter2"), "{json}");
+    }
+
+    #[test]
+    fn an_unanswered_password_query_counts_as_secure() {
+        assert!(!is_secure(Some(false)));
+        assert!(is_secure(Some(true)));
+        assert!(is_secure(None));
+    }
+
+    #[test]
+    fn a_control_key_is_fixed_size_and_tells_controls_apart() {
+        let huge = "x".repeat(1_000_000);
+        assert_eq!(control_key(&["1", &huge]).len(), 16);
+        assert_ne!(control_key(&["1", "a"]), control_key(&["1", "b"]));
+        assert_ne!(control_key(&["ab", "c"]), control_key(&["a", "bc"]));
+        assert_eq!(control_key(&["1", "a"]), control_key(&["1", "a"]));
+    }
+
+    #[test]
+    fn only_non_value_events_keep_no_key() {
+        let mut q = WatchQueue::new(WatchConfig::default());
+        let mut r = raw(WatchKind::Focus, 0);
+        r.key = Some("k".into());
+        assert!(q.record(r));
+        assert!(q.queue[0].key.is_none());
     }
 
     #[test]

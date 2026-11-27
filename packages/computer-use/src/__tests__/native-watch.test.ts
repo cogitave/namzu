@@ -137,6 +137,27 @@ describe('watch replies', () => {
 		).toThrow(NativeProtocolError)
 	})
 
+	it('holds a helper to the caps and to where a value may appear', () => {
+		const bad = (e: Record<string, unknown>) =>
+			expect(() => decodeReply('watch.poll', poll([{ tMs: 1, ...e }]))).toThrow(NativeProtocolError)
+		bad({ kind: 'focus', role: 'Edit', value: 'text' })
+		bad({ kind: 'value', value: 'x'.repeat(201) })
+		bad({ kind: 'focus', name: 'x'.repeat(81) })
+		bad({ kind: 'invoke', phase: 'open' })
+		expect(() =>
+			decodeReply(
+				'watch.poll',
+				poll(Array.from({ length: 2001 }, () => ({ kind: 'focus', tMs: 1 }))),
+			),
+		).toThrow(NativeProtocolError)
+		expect(() =>
+			decodeReply(
+				'watch.start',
+				JSON.stringify({ id: 1, ok: true, controls: true, foreground: true, kinds: [] }),
+			),
+		).toThrow(NativeProtocolError)
+	})
+
 	it('has no kind for a key or a mouse button', () => {
 		for (const kind of ['key', 'keystroke', 'keyboard', 'click', 'mouse', 'button']) {
 			expect(() => decodeReply('watch.poll', poll([{ kind, tMs: 1 }]))).toThrow(NativeProtocolError)

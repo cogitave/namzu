@@ -915,6 +915,12 @@ impl Inner {
     fn watch_start(&self, r: &WatchStartRequest) -> Result<ReplyBody, WireError> {
         let mut slot = locked(&self.watch);
         if let Some(running) = slot.as_ref() {
+            if running.config != r.config() {
+                return Err(err(
+                    ErrorCode::BadRequest,
+                    "a watch is already running with other settings; send watch.stop first",
+                ));
+            }
             return Ok(ReplyBody::WatchStart(WatchStartReply {
                 controls: running.controls,
                 foreground: running.foreground,
@@ -923,6 +929,13 @@ impl Inner {
         }
         let started = watch::Watch::start(r)
             .ok_or_else(|| err(ErrorCode::Internal, "the watch thread did not start"))?;
+        if !started.controls && !started.foreground {
+            started.stop();
+            return Err(err(
+                ErrorCode::Unsupported,
+                "neither UI Automation nor the foreground event could be subscribed to",
+            ));
+        }
         let reply = WatchStartReply {
             controls: started.controls,
             foreground: started.foreground,

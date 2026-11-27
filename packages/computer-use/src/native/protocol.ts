@@ -941,6 +941,18 @@ function watchEvent(v: unknown, path: string): NativeWatchEvent {
 	const secure = optBool(o, 'secure', path)
 	if (secure !== undefined) out.secure = secure
 	if (o.phase !== undefined) out.phase = oneOf(o.phase, ['open', 'close'] as const, `${path}.phase`)
+	const cap = (key: 'name' | 'value' | 'window' | 'process', max: number) => {
+		const t = out[key]
+		if (t !== undefined && [...t].length > max) bad(`${path}.${key}`, `at most ${max} characters`)
+	}
+	cap('name', 80)
+	cap('value', 200)
+	cap('window', 120)
+	cap('process', 80)
+	if (out.value !== undefined && out.kind !== 'value')
+		bad(`${path}.value`, 'present only on value events')
+	if (out.phase !== undefined && out.kind !== 'menu' && out.kind !== 'window')
+		bad(`${path}.phase`, 'present only on menu and window events')
 	// A password field never carries its text, whatever a helper sent.
 	if (out.secure === true && out.value !== undefined)
 		bad(`${path}.value`, 'absent for a secure field')
@@ -988,21 +1000,25 @@ function body(op: NativeOp, o: Obj): NativeReplyBodies[NativeOp] {
 			}
 		case 'monitor.poll':
 			return monitorPoll(o)
-		case 'watch.start':
+		case 'watch.start': {
+			const kinds = arr(o, 'kinds', 'watch.start').map((k, i) =>
+				watchKind(k, `watch.start.kinds[${i}]`),
+			)
+			if (kinds.length === 0) bad('watch.start.kinds', 'not empty')
 			return {
 				controls: bool(o, 'controls', 'watch.start'),
 				foreground: bool(o, 'foreground', 'watch.start'),
-				kinds: arr(o, 'kinds', 'watch.start').map((k, i) =>
-					watchKind(k, `watch.start.kinds[${i}]`),
-				),
+				kinds,
 			}
-		case 'watch.poll':
+		}
+		case 'watch.poll': {
+			const events = arr(o, 'events', 'watch.poll')
+			if (events.length > 2000) bad('watch.poll.events', 'at most 2000 events')
 			return {
-				events: arr(o, 'events', 'watch.poll').map((e, i) =>
-					watchEvent(e, `watch.poll.events[${i}]`),
-				),
+				events: events.map((e, i) => watchEvent(e, `watch.poll.events[${i}]`)),
 				dropped: int(o, 'dropped', 'watch.poll'),
 			}
+		}
 		case 'presence.act':
 			return {
 				cursorWindow: int(o, 'cursorWindow', 'presence.act'),
