@@ -1,7 +1,8 @@
 //! The Windows backend: the calls behind `windows`, `displays`, `snapshot`,
 //! `identity`, `resolve`, `seq`, `wait_change`, `act`, `input`, `capture`,
 //! `foreground.get`, `foreground.set`, `lease.begin`, `lease.end`,
-//! `monitor.start`, `monitor.stop`, `monitor.poll`, `presence.act` and
+//! `monitor.start`, `monitor.stop`, `monitor.poll`, `watch.start`, `watch.stop`,
+//! `watch.poll`, `presence.act` and
 //! `presence.hide`.
 //!
 //! Three kinds of thread cooperate. The reader (the loop in `lib.rs`) answers
@@ -25,6 +26,7 @@ mod presence;
 mod proc;
 mod sendinput;
 mod uia;
+mod watch;
 
 use crate::BuildInfo;
 use crate::backend::{Backend, Responder, SharedResponder};
@@ -51,6 +53,7 @@ use namzu_win_core::protocol::{
 };
 use namzu_win_core::refs::{self, RefTable};
 use namzu_win_core::tree;
+use namzu_win_core::watch::{WatchPollRequest, WatchStartReply, WatchStartRequest};
 use namzu_win_core::window_id;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -108,6 +111,8 @@ struct Inner {
     lease: Mutex<Option<Lease>>,
     /// The raw-input and foreground watcher, while `monitor.start` has run.
     monitor: Mutex<Option<monitor::Monitor>>,
+    /// The UI Automation and foreground watcher, while `watch.start` has run.
+    watch: Mutex<Option<watch::Watch>>,
     /// The overlay's thread, started by the first `presence.act`.
     presence: Mutex<Option<presence::Presence>>,
     /// The helper's own sending, so its input is not taken for a person's.
@@ -221,6 +226,7 @@ impl WinBackend {
                 io: SerialExecutor::new(uia::init_thread),
                 lease: Mutex::new(None),
                 monitor: Mutex::new(None),
+                watch: Mutex::new(None),
                 presence: Mutex::new(None),
                 own: Mutex::new(None),
                 captures: AtomicU64::new(0),
@@ -906,6 +912,56 @@ impl Inner {
         Ok(ReplyBody::MonitorPoll(monitor::poll(r.since)))
     }
 
+    fn watch_start(&self, r: &WatchStartRequest) -> Result<ReplyBody, WireError> {
+        let mut slot = locked(&self.watch);
+        if let Some(running) = slot.as_ref() {
+            if running.config != r.config() {
+                return Err(err(
+                    ErrorCode::BadRequest,
+                    "a watch is already running with other settings; send watch.stop first",
+                ));
+            }
+            return Ok(ReplyBody::WatchStart(WatchStartReply {
+                controls: running.controls,
+                foreground: running.foreground,
+                kinds: running.kinds.clone(),
+            }));
+        }
+        let started = watch::Watch::start(r)
+            .ok_or_else(|| err(ErrorCode::Internal, "the watch thread did not start"))?;
+        if !started.controls && !started.foreground {
+            started.stop();
+            return Err(err(
+                ErrorCode::Unsupported,
+                "neither UI Automation nor the foreground event could be subscribed to",
+            ));
+        }
+        let reply = WatchStartReply {
+            controls: started.controls,
+            foreground: started.foreground,
+            kinds: started.kinds.clone(),
+        };
+        *slot = Some(started);
+        Ok(ReplyBody::WatchStart(reply))
+    }
+
+    fn watch_stop(&self) {
+        let taken = locked(&self.watch).take();
+        if let Some(w) = taken {
+            w.stop();
+        }
+    }
+
+    fn watch_poll(&self, _r: &WatchPollRequest) -> Result<ReplyBody, WireError> {
+        if locked(&self.watch).is_none() {
+            return Err(err(
+                ErrorCode::BadRequest,
+                "the watch is not running; send watch.start first",
+            ));
+        }
+        Ok(ReplyBody::WatchPoll(watch::poll()))
+    }
+
     fn presence_act(&self, r: &PresenceActRequest) -> Result<ReplyBody, WireError> {
         let (window, _) = window_of(&r.window_id)?;
         let mut slot = locked(&self.presence);
@@ -1084,6 +1140,7 @@ impl Backend for WinBackend {
             "lease",
             "monitor",
             "rawinput",
+            "watch",
             "presence",
             "uia",
             "hooks",
@@ -1280,6 +1337,18 @@ impl Backend for WinBackend {
                 let reply = inner.monitor_poll(&r);
                 responder.send(reply);
             }
+            Request::WatchStart(r) => {
+                let reply = inner.watch_start(&r);
+                responder.send(reply);
+            }
+            Request::WatchStop => {
+                inner.watch_stop();
+                responder.ok(ReplyBody::Ack);
+            }
+            Request::WatchPoll(r) => {
+                let reply = inner.watch_poll(&r);
+                responder.send(reply);
+            }
             Request::PresenceAct(r) => {
                 submit_io(
                     inner,
@@ -1317,6 +1386,7 @@ impl Backend for WinBackend {
             let _ = self.inner.end_lease(true, false, true);
         }
         self.inner.monitor_stop();
+        self.inner.watch_stop();
         let overlay = locked(&self.inner.presence).take();
         if let Some(overlay) = overlay {
             overlay.stop();
