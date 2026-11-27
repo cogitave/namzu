@@ -55,6 +55,8 @@ export interface ScannedCall {
 	readonly line: number
 	/** False when Namzu has no such call; calling it throws. */
 	readonly supported: boolean
+	/** The call sits only in hooks Namzu does not run, so it is never made. */
+	readonly neverRuns?: boolean
 }
 
 /** What the worker runs: every file of the module, rewritten to run as a script. */
@@ -234,6 +236,18 @@ function extensionOf(path: string): string {
 	return index < 0 ? '' : path.slice(index).toLowerCase()
 }
 
+/** Names a script uses to climb from an object to the constructors behind it. */
+const REACHING_NAMES: ReadonlySet<string> = new Set([
+	'constructor',
+	'__proto__',
+	'__defineGetter__',
+	'__defineSetter__',
+	'__lookupGetter__',
+	'__lookupSetter__',
+	'getPrototypeOf',
+	'setPrototypeOf',
+])
+
 function walk(
 	node: AnyNode,
 	enter: (node: AnyNode, parents: AnyNode[]) => void,
@@ -317,6 +331,15 @@ interface ScanState {
 	readonly refusals: ScanRefusal[]
 	readonly hooks: ScannedHook[]
 	readonly calls: ScannedCall[]
+	/** Where each call starts, in the order of `calls`. */
+	readonly callStarts: { readonly file: string; readonly start: number }[]
+	/** The bodies of the hooks declared in place, and whether Namzu runs the event they hook. */
+	readonly hookBodies: {
+		readonly file: string
+		readonly start: number
+		readonly end: number
+		readonly runs: boolean
+	}[]
 	readonly envNames: Set<string>
 	readonly analyses: Map<string, FileAnalysis>
 	readonly rewritten: Map<string, string>
@@ -325,7 +348,9 @@ interface ScanState {
 
 function refuse(state: ScanState, file: string, node: AnyNode | number, message: string): void {
 	const line = typeof node === 'number' ? node : (node.loc?.start.line ?? 1)
-	state.refusals.push({ file, line, message })
+	// The refusal carries its file and line already; a message that opens with the file says it twice.
+	const bare = message.startsWith(`${file}: `) ? message.slice(file.length + 2) : message
+	state.refusals.push({ file, line, message: bare })
 }
 
 function resolveImport(state: ScanState, fromRel: string, specifier: string): string | undefined {
@@ -435,6 +460,7 @@ function capabilityUse(state: ScanState, rel: string, node: AnyNode, parents: An
 		line: node.loc?.start.line ?? 1,
 		supported,
 	})
+	state.callStarts.push({ file: rel, start: node.start })
 	if (noun === 'env' && member === 'get' && supported) {
 		const name = stringValue(great.arguments[0] as AnyNode | undefined)
 		if (name === undefined) {
@@ -609,6 +635,23 @@ function analyseFile(state: ScanState, rel: string, isEntry: boolean, queue: str
 			)
 			return
 		}
+		if (node.type === 'MemberExpression') {
+			const property = node.property as AnyNode
+			const written =
+				!node.computed && property.type === 'Identifier'
+					? (property.name as string)
+					: node.computed && property.type === 'Literal' && typeof property.value === 'string'
+						? (property.value as string)
+						: undefined
+			if (written !== undefined && REACHING_NAMES.has(written)) {
+				refuse(
+					state,
+					rel,
+					node,
+					`${rel}: .${written} is how a script reaches the functions behind the objects it is given; a hooks module does not use it`,
+				)
+			}
+		}
 		if (node.type !== 'Identifier') {
 			if (
 				node.type === 'CallExpression' &&
@@ -731,6 +774,19 @@ function registration(
 			`${rel}: the hook passed to on("${pattern}") is not a function declared at the top of this file (a function declaration, or a const bound to a function), nor imported from one of the module's own files`,
 		)
 		return
+	}
+	const body = isFunctionNode(hook)
+		? hook
+		: hook.type === 'Identifier'
+			? functions.get(hook.name)
+			: undefined
+	if (body !== undefined) {
+		state.hookBodies.push({
+			file: rel,
+			start: body.start,
+			end: body.end,
+			runs: resolved.runs.length > 0,
+		})
 	}
 	const matcher = args.length === 3
 	if (!matcher) {
@@ -900,6 +956,8 @@ export function scanHookModule(root: string, entry: string): HookModuleScan {
 		refusals: [],
 		hooks: [],
 		calls: [],
+		callStarts: [],
+		hookBodies: [],
 		envNames: new Set(),
 		analyses: new Map(),
 		rewritten: new Map(),
@@ -925,11 +983,20 @@ export function scanHookModule(root: string, entry: string): HookModuleScan {
 		}
 		program = { entry: entryRel, files }
 	}
+	const calls = state.calls.map((call, index) => {
+		const at = state.callStarts[index]
+		if (at === undefined) return call
+		const inside = state.hookBodies.filter(
+			(body) => body.file === at.file && body.start <= at.start && at.start < body.end,
+		)
+		const neverRuns = inside.length > 0 && inside.every((body) => !body.runs)
+		return neverRuns ? { ...call, neverRuns } : call
+	})
 	return {
 		entry: entryRel,
 		files: [...state.analyses.keys()],
 		hooks: state.hooks,
-		calls: state.calls,
+		calls,
 		envNames: [...state.envNames].sort(),
 		refusals: state.refusals,
 		...(program !== undefined ? { program } : {}),

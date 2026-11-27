@@ -36,7 +36,12 @@ export function summarizeHookModule(scan: HookModuleScan): HookModuleSummary {
 	}
 	const supportedCalls = scan.calls.filter((call) => call.supported).map((call) => call.call)
 	for (const call of scan.calls) {
-		if (!call.supported) notUsed.push(`${call.call} is not available in Namzu; calling it throws.`)
+		if (call.supported) continue
+		notUsed.push(
+			call.neverRuns === true
+				? `${call.call} is not available in Namzu; the hook that calls it is not run, so it is never called.`
+				: `${call.call} is not available in Namzu; calling it throws.`,
+		)
 	}
 	const uses = (prefix: string): boolean => supportedCalls.some((call) => call.startsWith(prefix))
 	return {

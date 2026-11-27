@@ -27,6 +27,12 @@ import { HOOK_WORKER_SOURCE } from './worker-source.js'
 
 /** What a hook has to answer in, as the module is told by `next.budget`. */
 export const HOOK_MODULE_BUDGET_MS = 10_000
+/**
+ * The most time one dispatch may take in all, calls on `$` included, as a
+ * multiple of the budget. The budget itself stands still while a call is
+ * outstanding; this is what keeps a chain of calls from holding a hook open.
+ */
+export const HOOK_MODULE_CEILING_FACTOR = 6
 /** How long a `.catch` has to answer once its hook overran. */
 export const HOOK_MODULE_CATCH_MS = 1_000
 
@@ -129,6 +135,8 @@ interface Pending {
 	remaining: number
 	startedAt: number
 	timer: unknown
+	/** Fires when the dispatch has taken too long in all, whatever the hook is waiting on. */
+	ceiling: unknown
 	phase: 'budget' | 'grace'
 	paused: boolean
 }
@@ -320,7 +328,18 @@ export async function startHookModule(options: StartHookModuleOptions): Promise<
 		if (entry === undefined) return
 		pending.delete(id)
 		clock.clearTimeout(entry.timer)
+		clock.clearTimeout(entry.ceiling)
 		entry.resolve(outcome)
+		// Nothing is waiting on a program the module started any more.
+		if (pending.size === 0) bridge.endProcesses()
+	}
+	/** A cancelled dispatch whose worker has not answered yet: it is ended if it stays silent. */
+	const abandoned = new Map<number, unknown>()
+	const forgetAbandoned = (id: number): void => {
+		const timer = abandoned.get(id)
+		if (timer === undefined) return
+		abandoned.delete(id)
+		clock.clearTimeout(timer)
 	}
 
 	const armTimer = (id: number): void => {
@@ -367,7 +386,9 @@ export async function startHookModule(options: StartHookModuleOptions): Promise<
 		ready = undefined
 		if (current === undefined) return
 		for (const id of [...pending.keys()]) settle(id, { kind: 'failed', message: reason })
+		for (const id of [...abandoned.keys()]) forgetAbandoned(id)
 		outstandingCalls = 0
+		bridge.endProcesses()
 		try {
 			await current.terminate()
 		} catch {
@@ -384,6 +405,7 @@ export async function startHookModule(options: StartHookModuleOptions): Promise<
 					loaded?.(incoming.error !== undefined ? String(incoming.error) : incoming.registrations)
 					return
 				case 'result':
+					forgetAbandoned(incoming.id)
 					settle(
 						incoming.id,
 						incoming.ok
@@ -517,6 +539,14 @@ export async function startHookModule(options: StartHookModuleOptions): Promise<
 				remaining: budgetMs,
 				startedAt: clock.now(),
 				timer: undefined,
+				ceiling: clock.setTimeout(() => {
+					if (!pending.has(id)) return
+					settle(id, {
+						kind: 'failed',
+						message: `exceeded ${budgetMs * HOOK_MODULE_CEILING_FACTOR}ms in all, the time spent in calls included`,
+					})
+					void endWorker('the hooks worker was ended after a hook held its dispatch open')
+				}, budgetMs * HOOK_MODULE_CEILING_FACTOR),
 				phase: 'budget',
 				paused: outstandingCalls > 0,
 			}
@@ -528,6 +558,14 @@ export async function startHookModule(options: StartHookModuleOptions): Promise<
 					if (!pending.has(id)) return
 					transport?.post({ t: 'abort', id })
 					settle(id, { kind: 'failed', message: 'the turn was cancelled' })
+					// A hook stuck in a loop never answers: if the worker is silent for the grace, it is ended.
+					abandoned.set(
+						id,
+						clock.setTimeout(() => {
+							abandoned.delete(id)
+							void endWorker('the hooks worker was ended after a cancelled hook did not stop')
+						}, catchMs),
+					)
 				},
 				{ once: true },
 			)

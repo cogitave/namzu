@@ -115,6 +115,12 @@ export interface PluginLayoutReport {
 export interface HooksModuleReport {
 	/** The module, relative to the plugin. */
 	readonly entry: string
+	/**
+	 * `runs`: it loads and runs in a worker. `refused`: the scan refused it and it does not
+	 * load. `empty`: it registers nothing Namzu runs, so it does not load either.
+	 */
+	readonly status: 'runs' | 'refused' | 'empty'
+	/** Why it is refused, one line each; empty unless `status` is `refused`. */
 	/** One line per thing it does, ready to show. */
 	readonly lines: readonly string[]
 	readonly summary: HookModuleSummary
@@ -163,13 +169,17 @@ function readHooksModule(root: string): HooksModuleReport | undefined {
 	if (located.kind !== 'found') return undefined
 	const scan = scanHookModule(root, located.entry)
 	const summary = summarizeHookModule(scan)
+	const status =
+		scan.refusals.length > 0 ? 'refused' : summary.events.length === 0 ? 'empty' : 'runs'
 	return {
 		entry: located.entry,
+		status,
 		lines: hookModuleConsentLines(summary),
 		summary,
 		hooks: scan.hooks.map((hook) => ({
 			pattern: hook.pattern,
-			runs: hook.runs.length > 0,
+			// A module that does not load runs none of its hooks.
+			runs: status === 'runs' && hook.runs.length > 0,
 			matcher: hook.matcher,
 			catches: hook.catches,
 			file: hook.file,
@@ -494,8 +504,10 @@ const NOT_USED_BY_CODE: Readonly<Record<string, string>> = {
 	'folder-shadowed-by-manifest': 'The files in that folder are skipped; the plugin still loads.',
 	'mcp-server-remote': 'It is listed and not started yet; the plugin still loads.',
 	'mcp-needs-setup': 'It is not started until that is set up; the plugin still loads.',
+	'hooks-module-not-loaded': 'The module is not loaded; the plugin still loads.',
 }
 const DROPPED = 'That entry is dropped; the plugin loads without it.'
+const MODULE_NOT_RUN = 'The module does not run; the plugin loads without it.'
 
 /** The part a finding belongs to, by the field and file it names. */
 function partOf(finding: LayoutFinding, c: Collector): string {
@@ -547,7 +559,9 @@ function checkCommonLayout(read: CommonLayoutRead, c: Collector): void {
 			consequence: whole
 				? REFUSED
 				: finding.level === 'refused'
-					? DROPPED
+					? finding.code === 'hooks-module-scan-refused'
+						? MODULE_NOT_RUN
+						: DROPPED
 					: (NOT_USED_BY_CODE[finding.code] ?? NOT_USED),
 		})
 	}

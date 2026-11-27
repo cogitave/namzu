@@ -90,9 +90,24 @@ hooks module hooks/mod.js runs in an isolated worker when the plugin is on:
   hooks UserPromptSubmit
   runs commands
   hooks  classic.UserPromptSubmit  hooks/mod.js:3
-  not used  classic.tool.call ...
+  not used  tool.call  hooks/mod.js:5
   calls  $.process.run
 ```
+
+A module the scan refuses is not described as running:
+
+```text
+warning  hooks/mod.js:3  "PreToolUse" is not an event ...
+         The module does not run; the plugin loads without it.
+hooks module hooks/mod.js is not run:
+  hooks/mod.js:3: "PreToolUse" is not an event ...
+```
+
+A module that registers only patterns Namzu does not run (`tool.call`, `ui.*`)
+is reported as `is not loaded: it registers nothing Namzu runs`. A warning that
+names a pattern or a call is printed once. In `--json`, `hooksModule.status` is
+`runs`, `refused` or `empty`, and `hooks[].runs` is false for every hook of a
+module that does not load.
 
 The first lines are the ones the trust screen and an install prompt show: the
 events it hooks (the names the module spells), and whether it runs commands,

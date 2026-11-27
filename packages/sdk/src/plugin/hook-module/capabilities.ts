@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process'
+import { type ChildProcess, spawn } from 'node:child_process'
 import {
 	closeSync,
 	lstatSync,
@@ -46,7 +46,32 @@ export interface CapabilityBridgeOptions {
 export interface CapabilityBridge {
 	/** Answer one call on `$`. A throw is the call's rejection. */
 	call(noun: string, method: string, args: readonly unknown[]): Promise<unknown>
+	/** End every program a module started that is still running. */
+	endProcesses(): void
 }
+
+/** What a program a module starts inherits of the host's environment, besides names the module reads. */
+const CHILD_ENVIRONMENT = [
+	'PATH',
+	'HOME',
+	'USER',
+	'LOGNAME',
+	'SHELL',
+	'LANG',
+	'LANGUAGE',
+	'TZ',
+	'TERM',
+	'TMPDIR',
+	'TEMP',
+	'TMP',
+	'SystemRoot',
+	'SYSTEMROOT',
+	'USERPROFILE',
+	'APPDATA',
+	'LOCALAPPDATA',
+	'PATHEXT',
+	'COMSPEC',
+]
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return value !== null && typeof value === 'object' && !Array.isArray(value)
@@ -81,6 +106,7 @@ export function createCapabilityBridge(options: CapabilityBridgeOptions): Capabi
 	const project = resolve(options.projectDir)
 	const environment = options.environment ?? process.env
 	const fetchImpl = options.fetch ?? fetch
+	const children = new Set<ChildProcess>()
 
 	/** The path a read may open: lexically and really inside the plugin or the project. */
 	const readable = (path: unknown, missingOk = false): { path: string; exists: boolean } => {
@@ -286,9 +312,19 @@ export function createCapabilityBridge(options: CapabilityBridgeOptions): Capabi
 		if (typeof timeoutMs !== 'number' || !(timeoutMs > 0)) {
 			return Promise.reject(new Error('timeoutMs is a number of milliseconds'))
 		}
+		// Not the whole environment: a program a module starts gets the basics and the variables the
+		// module reads by name, so a key kept in the environment does not travel to whatever it runs.
 		const env: Record<string, string> = {}
-		for (const [key, value] of Object.entries(environment))
-			if (value !== undefined) env[key] = value
+		for (const [key, value] of Object.entries(environment)) {
+			if (value === undefined) continue
+			if (
+				CHILD_ENVIRONMENT.includes(key) ||
+				key.startsWith('LC_') ||
+				options.envNames.includes(key)
+			) {
+				env[key] = value
+			}
+		}
 		if (isRecord(spec.env)) {
 			for (const [key, value] of Object.entries(spec.env)) {
 				if (typeof value === 'string') env[key] = value
@@ -306,6 +342,9 @@ export function createCapabilityBridge(options: CapabilityBridgeOptions): Capabi
 				windowsHide: true,
 				stdio: ['pipe', 'pipe', 'pipe'],
 			})
+			children.add(child)
+			child.on('close', () => children.delete(child))
+			child.on('error', () => children.delete(child))
 			const out: Buffer[] = []
 			const err: Buffer[] = []
 			let outSize = 0
@@ -404,6 +443,16 @@ export function createCapabilityBridge(options: CapabilityBridgeOptions): Capabi
 	}
 
 	return {
+		endProcesses() {
+			for (const child of children) {
+				try {
+					child.kill('SIGKILL')
+				} catch {
+					// Already gone.
+				}
+			}
+			children.clear()
+		},
 		async call(noun, method, args) {
 			switch (`${noun}.${method}`) {
 				case 'fs.read':

@@ -148,11 +148,18 @@ export function register(on, options) {
 
 A module in the common layout is **isolated**: it runs in a `worker_threads`
 Worker of its own, one per plugin, inside a `node:vm` context that has the
-language's builtins, a few web classes (`URL`, `TextEncoder`, `AbortController`
-and the like) and `console`, and no `require`, no `process`, no timers and no
-network. This is a guard against a module reaching things by accident, not a
-sandbox against one written to escape (a context shares the worker's heap); what
-bounds a module is that the person is told what it does first (the trust screen
+language's builtins and `console`, and no `require`, no `process`, no timers, no
+network and no web classes (`URL`, `TextEncoder` and `AbortController` are not
+there). Nothing the worker made is handed to the module: `$`, `console`, the
+event, `next`, its signal and the errors it catches are made by a script that
+runs inside the context, and the worker talks to it in text only, so no object
+the module can reach has the worker's `Function` behind its `constructor`. The
+context has no prototype on its sandbox and cannot make code from text, the
+worker's own function constructors throw, and the scan refuses the names a
+script climbs to a constructor with (`constructor`, `__proto__`,
+`getPrototypeOf` and the like). This is a worker thread, not a process
+boundary, and it is not a promise against a flaw in V8 itself; what bounds a
+module is that the person is told what it does first (the trust screen
 and `namzu plugin validate` list its events and whether it runs commands, reads
 files or uses the network) and that `plugins.enabled` and the person's saved yes
 decide whether the plugin is on at all. A Namzu plugin's own `hooks` modules
@@ -211,7 +218,9 @@ them. An answer of the wrong shape is a failure. `sessionTitle`,
 ignored.
 
 **Budgets and failure.** A dispatch has 10 seconds of the module's own time (the
-clock stops while it waits on a call on `$`); past it the hook is told through
+clock stops while it waits on a call on `$`, but a dispatch may take no more than
+six times the budget, 60 seconds, in all, and the worker is ended at that point
+and the programs it started are killed); past the budget the hook is told through
 `next.signal`, its `.catch` has one more second to answer, and then the dispatch
 fails. A throw, an answer of the wrong shape and returning nothing also fail,
 unless the hook's `.catch` answers. A failure is closed in the event's own way:
@@ -219,7 +228,9 @@ on `pre_tool_use` the hook's result is `error` and the call is refused with the
 reason, on `pre_skill_shell_command` the command is refused, and on every other
 event the answer is `continue` with a notice. (The other engine treats a failed
 hook as absent; Namzu refuses the guarded call instead.) A worker that does not
-answer within the grace is ended and starts again on the next event. A module
+answer within the grace is ended and starts again on the next event. When a turn
+is cancelled the hook is told, and a worker that has not answered a second later
+(a hook stuck in a loop) is ended the same way. A module
 that throws as it loads or registers nothing is unloaded with a message, once;
 other plugins keep running.
 
@@ -227,8 +238,12 @@ other plugins keep running.
 `keys` (JSON in `hook-module-store.json` in the plugin's data folder, 1 MiB at
 most); `$.fs.read`, `exists`, `stat` and `list` (inside the plugin folder and the
 project, through links resolved, 4 MiB a read); `$.process.run(argv, init)` (an
-argument list, never a shell, in the project folder, 30 seconds by default and 10
-minutes at most, 4 MiB of each output; the listing says "runs commands");
+argument list, never a shell line, in the project folder, 30 seconds by default and
+10 minutes at most, 4 MiB of each output; the program gets the basic environment
+(`PATH`, `HOME`, locale, temporary folder) and the variables the module reads with
+`$.env.get`, not the rest of Namzu's environment, and is killed when the
+dispatch ends; the listing says "runs commands", and a module that runs `sh` has
+a shell like any program has);
 `$.env.get('NAME')` (only a name written out as a string literal); `$.ui.log` and
 `$.http.fetch` (through the host; the listing says "uses the network"). Every
 other noun or method (`$.tool`, `$.fs.write`, `$.session`, ...) is listed by the

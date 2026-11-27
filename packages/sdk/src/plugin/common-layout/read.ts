@@ -263,6 +263,16 @@ function noteHookModule(root: string, out: Collector): void {
 			message: line,
 		})
 	}
+	if (summary.events.length === 0) {
+		out.add({
+			level: 'notUsed',
+			code: 'hooks-module-not-loaded',
+			field: 'hooks',
+			path: located.entry,
+			message: `${located.entry} is not loaded: it registers nothing Namzu runs.`,
+		})
+		return
+	}
 	out.add({
 		level: 'used',
 		code: 'hooks-module-used',

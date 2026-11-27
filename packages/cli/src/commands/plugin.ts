@@ -121,10 +121,19 @@ export function renderPluginReport(report: PluginValidationReport): string {
 	}
 	if (report.hooksModule !== undefined) {
 		const module = report.hooksModule
-		lines.push(
-			`hooks module ${oneLine(module.entry)} runs in an isolated worker when the plugin is on:`,
-		)
-		for (const line of module.lines) lines.push(`  ${oneLine(line)}`)
+		if (module.status === 'refused') {
+			lines.push(`hooks module ${oneLine(module.entry)} is not run:`)
+			for (const line of module.summary.refused) lines.push(`  ${oneLine(line)}`)
+		} else if (module.status === 'empty') {
+			lines.push(
+				`hooks module ${oneLine(module.entry)} is not loaded: it registers nothing Namzu runs.`,
+			)
+		} else {
+			lines.push(
+				`hooks module ${oneLine(module.entry)} runs in an isolated worker when the plugin is on:`,
+			)
+			for (const line of module.lines) lines.push(`  ${oneLine(line)}`)
+		}
 		for (const hook of module.hooks) {
 			const flags = [hook.matcher ? 'with a matcher' : '', hook.catches ? 'with .catch' : '']
 				.filter((flag) => flag !== '')
@@ -135,7 +144,11 @@ export function renderPluginReport(report: PluginValidationReport): string {
 		}
 		const calls = [...new Set(module.calls.map((call) => call.call))]
 		if (calls.length > 0) lines.push(`  calls  ${calls.map(oneLine).join(', ')}`)
-		for (const line of module.summary.notUsed) lines.push(`  not used  ${oneLine(line)}`)
+		// A warning above already says it once.
+		for (const line of module.summary.notUsed) {
+			if (report.problems.some((problem) => problem.message === line)) continue
+			lines.push(`  not used  ${oneLine(line)}`)
+		}
 	}
 	const parts = `${report.parts.length} ${report.parts.length === 1 ? 'part' : 'parts'}`
 	const { errors, warnings } = report.summary

@@ -194,11 +194,47 @@ describe('what the person is told before a module runs', () => {
 			'hooks module hooks/mod.js runs in an isolated worker when the plugin is on:',
 		)
 		expect(text).toContain('  runs commands')
-		expect(text).toContain(
-			'  not used  Namzu runs classic.* hooks from modules; tool.call is not available.',
-		)
+		// Said once, as a warning, not again in the module's block.
+		expect(
+			text.split('Namzu runs classic.* hooks from modules; tool.call is not available.'),
+		).toHaveLength(2)
 		expect(text).toContain('calls  $.process.run')
 		expect(report.problems.some((problem) => problem.code === 'hooks-module-not-used')).toBe(true)
+	})
+
+	it('says a refused module is not run, in the text and in the JSON, and names its file once', async () => {
+		const dir = make('slip', {
+			[MANIFEST]: { name: 'slip' },
+			'hooks/hooks.json': { modules: ['./mod.js'] },
+			'hooks/mod.js': `export function register(on) {\n\ton('PreToolUse', () => ({}))\n}\n`,
+		})
+		const report = await validatePluginFolder(dir)
+		expect(report.hooksModule?.status).toBe('refused')
+		expect(report.hooksModule?.hooks.every((hook) => !hook.runs)).toBe(true)
+		const text = renderPluginReport(report)
+		expect(text).toContain('hooks module hooks/mod.js is not run:')
+		expect(text).not.toContain('runs in an isolated worker')
+		expect(text).not.toContain('runs commands')
+		expect(text).not.toContain('hooks/mod.js:2: hooks/mod.js')
+		expect(text).toContain('The module does not run; the plugin loads without it.')
+	})
+
+	it('says a module that registers nothing Namzu runs is not loaded', async () => {
+		const dir = make('idle', {
+			[MANIFEST]: { name: 'idle' },
+			'hooks/hooks.json': { modules: ['./mod.js'] },
+			'hooks/mod.js': `export function register(on) {\n\ton('tool.call', ($, e, next) => next(e))\n}\n`,
+		})
+		const report = await validatePluginFolder(dir)
+		expect(report.hooksModule?.status).toBe('empty')
+		const text = renderPluginReport(report)
+		expect(text).toContain(
+			'hooks module hooks/mod.js is not loaded: it registers nothing Namzu runs.',
+		)
+		expect(text).not.toContain('runs in an isolated worker')
+		expect(report.layout?.findings.some((finding) => finding.code === 'hooks-module-used')).toBe(
+			false,
+		)
 	})
 
 	it('reports two modules as a refusal of the second, and a module with a bad import as an error line', async () => {

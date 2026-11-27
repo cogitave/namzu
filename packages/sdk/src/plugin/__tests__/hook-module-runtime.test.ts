@@ -529,13 +529,91 @@ describe('the budget of a dispatch', () => {
 		world.advance(6_000)
 		world.reply({ t: 'call', cid: 1, noun: 'env', method: 'get', args: ['X'] })
 		// The call is refused (no variable was named in the source), and it was outstanding while time passed.
-		world.advance(60_000)
+		world.advance(40_000)
 		await vi.waitFor(() => expect(world.sent.some((m) => m.t === 'call-result')).toBe(true))
 		expect(world.sent.some((m) => m.t === 'overrun')).toBe(false)
 		world.advance(3_999)
 		expect(world.sent.some((m) => m.t === 'overrun')).toBe(false)
 		world.reply({ t: 'result', id: dispatchId, ok: true, value: {}, failures: [] })
 		expect(one(await dispatched)).toEqual({ action: 'continue' })
+	})
+
+	it('ends a dispatch that spends more than six budgets in all, calls included', async () => {
+		const world = fakes()
+		const { handle } = await start(
+			{ 'hooks/mod.js': `export function register(on) { on('classic.PreToolUse', () => ({})) }` },
+			{ clock: world.clock, transport: world.transport },
+		)
+		const manager = managerFor(handle)
+		const dispatched = manager.executeHooks('pre_tool_use', {
+			sessionId: SESSION,
+			toolName: 'bash',
+			toolInput: {},
+		})
+		await vi.waitFor(() => expect(world.sent.some((m) => m.t === 'dispatch')).toBe(true))
+		// A call the module keeps outstanding stops the budget, but not the ceiling.
+		world.reply({ t: 'call', cid: 1, noun: 'env', method: 'get', args: ['X'] })
+		world.advance(59_999)
+		expect(world.terminated()).toBe(0)
+		world.advance(1)
+		const result = one(await dispatched) as { action: string; message: string }
+		expect(result.action).toBe('error')
+		expect(result.message).toContain('exceeded 60000ms in all')
+		expect(world.terminated()).toBe(1)
+	})
+
+	it('ends the worker of a cancelled hook that does not answer within the grace', async () => {
+		const world = fakes()
+		const { handle } = await start(
+			{ 'hooks/mod.js': `export function register(on) { on('classic.PreToolUse', () => ({})) }` },
+			{ clock: world.clock, transport: world.transport },
+		)
+		const controller = new AbortController()
+		const pending = handle.hooks[0]?.handler({
+			pluginId: 'p' as PluginId,
+			event: 'pre_tool_use',
+			sessionId: SESSION,
+			toolName: 'bash',
+			toolInput: {},
+			signal: controller.signal,
+		})
+		await vi.waitFor(() => expect(world.sent.some((m) => m.t === 'dispatch')).toBe(true))
+		controller.abort()
+		await pending
+		world.advance(999)
+		expect(world.terminated()).toBe(0)
+		world.advance(1)
+		expect(world.terminated()).toBe(1)
+	})
+
+	it('leaves the worker of a cancelled hook alone when it answers within the grace', async () => {
+		const world = fakes()
+		const { handle } = await start(
+			{ 'hooks/mod.js': `export function register(on) { on('classic.PreToolUse', () => ({})) }` },
+			{ clock: world.clock, transport: world.transport },
+		)
+		const controller = new AbortController()
+		const pending = handle.hooks[0]?.handler({
+			pluginId: 'p' as PluginId,
+			event: 'pre_tool_use',
+			sessionId: SESSION,
+			toolName: 'bash',
+			toolInput: {},
+			signal: controller.signal,
+		})
+		await vi.waitFor(() => expect(world.sent.some((m) => m.t === 'dispatch')).toBe(true))
+		const dispatchId = world.sent.find((m) => m.t === 'dispatch').id
+		controller.abort()
+		await pending
+		world.reply({
+			t: 'result',
+			id: dispatchId,
+			ok: false,
+			message: 'the turn was cancelled',
+			failures: [],
+		})
+		world.advance(5_000)
+		expect(world.terminated()).toBe(0)
 	})
 
 	it('stops waiting for a hook when the turn is cancelled', async () => {
@@ -590,6 +668,59 @@ export function register(on) {
 			out.push(typeof require, typeof process, typeof setTimeout, typeof fetch, typeof module, typeof Buffer, typeof WebSocket)
 		`)
 		expect(text.split('|')).toEqual(Array(7).fill('undefined'))
+	})
+
+	it('is handed nothing of the worker: no function behind a given object makes code', async () => {
+		// Spelled in pieces so the scan does not refuse it: this is what a hostile module would do.
+		const { text } = await probe(`
+			const k = 'constr' + 'uctor'
+			const proto = Reflect['getPrototype' + 'Of']
+			const reach = (get) => {
+				try {
+					const f = get()
+					return typeof f === 'function' ? String(f('return typeof process')()) : 'no function'
+				} catch (error) {
+					return 'blocked'
+				}
+			}
+			out.push(reach(() => console.log[k]))
+			out.push(reach(() => e[k][k]))
+			out.push(reach(() => proto(async () => {})[k]))
+			out.push(reach(() => globalThis[k][k]))
+		`)
+		expect(text.split('|')).toHaveLength(4)
+		expect(text).not.toContain('object')
+	})
+
+	it('has none of the web classes of the worker', async () => {
+		const { text } = await probe(`
+			out.push(typeof AbortController, typeof URL, typeof TextEncoder, typeof structuredClone)
+		`)
+		expect(text.split('|')).toEqual(Array(4).fill('undefined'))
+	})
+
+	it('starts a program with the basic environment and the names it reads, not the rest', async () => {
+		const folders = await start(
+			{
+				'hooks/mod.js': `
+export function register(on) {
+	on('classic.UserPromptSubmit', async ($) => {
+		const named = await $.env.get('NAMZU_TEST_VARIABLE')
+		const ran = await $.process.run([${JSON.stringify(process.execPath)}, '-e', 'console.log([process.env.NAMZU_SECRET_KEY, process.env.NAMZU_TEST_VARIABLE, process.env.LANG].join(","))'])
+		return { additionalContext: [named + '|' + ran.stdout.trim()] }
+	})
+}
+`,
+			},
+			{ environment: { NAMZU_SECRET_KEY: 'hidden', NAMZU_TEST_VARIABLE: 'seen', LANG: 'C' } },
+		)
+		const result = one(
+			await managerFor(folders.handle).executeHooks('user_prompt_submit', {
+				sessionId: SESSION,
+				prompt: 'x',
+			}),
+		)
+		expect((result as { text: string }).text).toBe('seen|,seen,C')
 	})
 
 	it('cannot be changed through its globals or its intrinsics', async () => {

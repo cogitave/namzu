@@ -234,6 +234,21 @@ describe('what refuses a module', () => {
 		expect(inside.refusals).toEqual([])
 	})
 
+	it('refuses the names a script climbs to a constructor with, written out', () => {
+		for (const written of [
+			'console.log.constructor',
+			"e['constructor']",
+			'e.__proto__',
+			'Object.getPrototypeOf(e)',
+			'Reflect.setPrototypeOf(e, null)',
+		]) {
+			const result = scan(
+				`export function register(on) { on('classic.PreToolUse', ($, e) => ({ x: ${written} })) }`,
+			)
+			expect(refused(result).join(' ')).toContain('reaches the functions behind')
+		}
+	})
+
 	it('refuses an import of anything but its own files', () => {
 		const result = scan(
 			`import { readFileSync } from 'node:fs'\nexport function register(on) { on('classic.Stop', () => ({})) }`,
