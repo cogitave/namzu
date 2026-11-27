@@ -17,6 +17,7 @@ import {
 import type { HooksSwitch } from '../../config/hook-layers.js'
 import type { HookEntry, HooksConfig, PluginConfig, PluginScope } from '../../config/schema.js'
 import { cliLogger } from '../../logging.js'
+import { type PluginRemoteServer, remoteServersOfPlugin } from '../mcp/plugin-remote.js'
 import { resolveNamzuHome } from '../state/home.js'
 import { isTrusted } from '../trust/store.js'
 import { recordLayerPath, setEnabledPlugin } from './enabled-records.js'
@@ -114,6 +115,16 @@ export interface CliPluginRuntime {
 	})[]
 	/** The lines the launch says once about those problems; each call returns what is new. */
 	takePluginHookWarnings(): string[]
+	/**
+	 * The remote tool servers of the installed plugins loaded here, on or off, with
+	 * the ones that need setup. Nothing in the runtime connects to them: the
+	 * session's remote host does, after the person's approval and while the plugin is on.
+	 */
+	remoteServers(): readonly PluginRemoteServer[]
+	/** Whether the installed plugin with this id (`<plugin>@<marketplace>`) is on right now. */
+	isInstalledOn(installId: string): boolean
+	/** Called after a plugin was turned on or off in this session. Returns the unsubscribe. */
+	onEnabledChange(listener: () => void): () => void
 	setEnabled(name: string, enabled: boolean): Promise<void>
 	rememberState(name: string): Promise<void>
 	close(): Promise<void>
@@ -375,11 +386,15 @@ export async function createCliPluginRuntime(
 	const installed: Awaited<ReturnType<PluginLifecycleManager['install']>>[] = []
 	const installedInfo = new Map<string, { id: string; scope: 'user' | 'project' | 'local' }>()
 	const installedSkipped: { id: string | undefined; message: string }[] = []
+	const remoteServers: PluginRemoteServer[] = []
+	const enabledListeners = new Set<() => void>()
 	// What the common plugin layout reader left out or refused, said once per plugin.
 	const noteLayoutFindings = (
 		plugin: Awaited<ReturnType<PluginLifecycleManager['install']>>,
 	): void => {
 		for (const finding of manager.layoutFindings(plugin.id)) {
+			// A remote server waits for the person's approval; that is listed, not a warning.
+			if (finding.code === 'mcp-server-remote') continue
 			if (finding.level === 'notUsed' || finding.level === 'refused') {
 				warningLines.push(`Plugin ${plugin.manifest.name}: ${finding.message}`)
 			}
@@ -451,9 +466,17 @@ export async function createCliPluginRuntime(
 					...(manifestSource ? { manifestSource } : {}),
 				})
 				for (const finding of findings) {
+					if (finding.code === 'mcp-server-remote') continue
 					if (finding.level === 'notUsed' || finding.level === 'refused')
 						warningLines.push(`Plugin ${plugin.manifest.name}: ${finding.message}`)
 				}
+				remoteServers.push(
+					...remoteServersOfPlugin(
+						{ id: candidate.id, name: candidate.name },
+						plugin.manifest,
+						findings,
+					),
+				)
 			} catch (error) {
 				installedIdByRoot.delete(candidate.installPath)
 				skip(message(error))
@@ -661,6 +684,18 @@ export async function createCliPluginRuntime(
 			} finally {
 				mutation = undefined
 			}
+			for (const listener of [...enabledListeners]) listener()
+		},
+		remoteServers: () => remoteServers,
+		isInstalledOn(installId) {
+			for (const plugin of plugins.getAll()) {
+				if (installedInfo.get(plugin.id)?.id === installId) return plugin.status === 'enabled'
+			}
+			return false
+		},
+		onEnabledChange(listener) {
+			enabledListeners.add(listener)
+			return () => enabledListeners.delete(listener)
 		},
 		async rememberState(name) {
 			if (closed) throw new Error('Plugin runtime is closed.')

@@ -107,6 +107,44 @@ It is read exactly when `namzu.config.json` is, which is after you have trusted 
 
 For one run, `namzu exec --mcp-config <file>` (also with `--json`) adds the servers in that file, which has the same shape. The option repeats; a later file wins over an earlier one and over the config for a server of the same name. A missing or unreadable file stops the run with a usage error naming it. A value that starts with `{` is the JSON itself, and `--strict-mcp-config` uses only the servers given this way. The interactive `namzu` and `namzu resume` take both options too ([Launch flags](launch-flags.md#--mcp-config-and---strict-mcp-config)).
 
+## Remote servers of installed plugins
+
+A plugin in the [common layout](../sdk/common-plugin-layout.md) can declare servers
+reached by `url`. They never connect when the plugin is installed or loaded. They
+use the same approval file as a project's `.mcp.json`, in its own section:
+`mcp-approvals.json` holds `plugins: { "<plugin>@<marketplace>": { "<server>": "<fingerprint>" } }`
+beside `folders`. The answer is for one plugin and one server, so the same address
+under another plugin asks again; it is tied to the whole entry (address, headers and
+transport), so a plugin update that changes any of them asks again; a file that
+cannot be read approves nothing.
+
+`namzu mcp servers` lists every tool server the folder knows, each with where it
+comes from and one state: `waiting for approval`, `ready` (approved, not started by a
+conversation yet), `connected`, `failed`, or `needs setup`. A plugin's server shows
+the source `Plugin <name>` and is named `<plugin>-<server>`. Plugins must be on
+(`plugins.enabled`) and the plugin itself turned on; a plugin that is turned off
+lists nothing and disconnects its servers at once, and turning it on starts the ones
+you approved.
+
+`namzu mcp approve [name...]` approves plugin servers by that name too (all waiting
+servers, project and plugin, when no name is given) and says which address each one
+reaches and which environment variables its headers read. The same environment rule as
+the other servers holds: only a bare `${VAR}` in a header value is read, at connect
+time. An unset variable, or a `${VAR}` in the address or anywhere else that is not
+expanded, marks the server `needs setup` with the reason, and it cannot be approved
+until that is fixed. The six folder names (`${CLAUDE_PLUGIN_ROOT}`,
+`${NAMZU_PLUGIN_ROOT}`, `${CLAUDE_PLUGIN_DATA}`, `${NAMZU_PLUGIN_DATA}`,
+`${CLAUDE_PROJECT_DIR}`, `${NAMZU_PROJECT_DIR}`) are replaced when the plugin is read.
+
+When the server answers with a sign-in challenge, the saved sign-in of the shared
+store is used, and `namzu mcp login <name>` takes the same name; the plugin file holds
+no secret. A server that does not answer is shown `failed` and never stops the
+conversation. Only plugins installed from a record are covered: a hand-placed folder
+or a `--plugin-dir` folder lists its remote servers in `namzu plugin validate` and
+does not connect them. In Desktop they appear in the Connectors table with the
+source `Plugin <name>` and an **Approve** button
+([host methods](desktop.md)).
+
 ## One entry
 
 ```json

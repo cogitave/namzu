@@ -516,7 +516,7 @@ export async function validatePluginFolder(folder: string): Promise<PluginValida
 const NOT_USED = 'Namzu has no use for it; the plugin still loads.'
 const NOT_USED_BY_CODE: Readonly<Record<string, string>> = {
 	'folder-shadowed-by-manifest': 'The files in that folder are skipped; the plugin still loads.',
-	'mcp-server-remote': 'It is listed and not started yet; the plugin still loads.',
+	'mcp-server-remote': 'It connects only after you approve it; the plugin still loads.',
 	'mcp-needs-setup': 'It is not started until that is set up; the plugin still loads.',
 	'hooks-module-not-loaded': 'The module is not loaded; the plugin still loads.',
 }

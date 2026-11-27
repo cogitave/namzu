@@ -5,19 +5,21 @@ import type { FailedMcpServer } from './servers.js'
 import { readUserMcpServers, summarizeUserMcpServer } from './user-config.js'
 
 /** Where a tool server is defined, as the person would name it. */
-export type McpServerOrigin = 'your-config' | 'this-project' | 'project-file'
+export type McpServerOrigin = 'your-config' | 'this-project' | 'project-file' | 'plugin'
 
 /**
  * What is known about one server right now. `idle` means it is configured and approved and no
  * conversation in this project has started it yet; Namzu starts servers with the first conversation.
  */
-export type McpServerState = 'connected' | 'waiting' | 'failed' | 'idle'
+export type McpServerState = 'connected' | 'waiting' | 'failed' | 'idle' | 'needs-setup'
 
 export interface McpServerRow {
 	readonly name: string
 	readonly origin: McpServerOrigin
 	readonly state: McpServerState
-	/** Why a server failed, phrased for one line. Only on `failed`. */
+	/** The plugin a server comes from, for the source "Plugin <name>". Only on origin `plugin`. */
+	readonly plugin?: string
+	/** Why a server failed or needs setup, phrased for one line. Only on `failed` and `needs-setup`. */
 	readonly reason?: string
 	/** What it starts or reaches: a command name or a web origin, never arguments, headers or secrets. */
 	readonly detail?: string

@@ -3,9 +3,18 @@ import { resolve } from 'node:path'
 import { loadConfig, pendingProjectMcpServers } from '../config/load.js'
 import { userConfigPath } from '../config/user-config.js'
 import { EXIT_BAD_CONFIG, EXIT_FAIL, EXIT_OK, EXIT_UNTRUSTED, EXIT_USAGE } from '../exit-codes.js'
+import { listAllMcpServers } from '../integrations/mcp/all-servers.js'
 import { clearMcpOAuthCredentials, isSecureMcpOAuthUrl } from '../integrations/mcp/oauth-store.js'
 import {
+	type PluginRemoteServer,
+	headerVariablesOf,
+	pluginServerApproved,
+	readFolderRemoteServers,
+} from '../integrations/mcp/plugin-remote.js'
+import {
 	approveProjectMcpServers,
+	approveShownPluginMcpServers,
+	fingerprintMcpServer,
 	startNewMcpApprovals,
 } from '../integrations/mcp/project-approval.js'
 import {
@@ -39,12 +48,14 @@ import { loginMcpServer } from './mcp-oauth-login.js'
 import type { CommandContext, CommandDef } from './types.js'
 
 const HELP = [
-	'Usage: namzu mcp <list|get|add|remove|approve|test|login|logout|serve> [arguments]',
+	'Usage: namzu mcp <list|servers|get|add|remove|approve|test|login|logout|serve> [arguments]',
 	'',
 	'Manage tool servers in your user config (~/.namzu/config.yaml) or in this',
 	"project's .mcp.json. Project and managed config can override user entries.",
 	'',
 	'  namzu mcp list',
+	'  namzu mcp servers    Every tool server this project knows, where it comes from and its state',
+	"                       (your own, the project's .mcp.json, and installed plugins' remote servers)",
 	'  namzu mcp get <name>',
 	"  namzu mcp add <name> --url <http-url> [-H 'NAME: Bearer \u0024{ENV_VAR}']",
 	"  namzu mcp add -t http <name> <http-url> [-H 'NAME: Bearer \u0024{ENV_VAR}']",
@@ -58,7 +69,8 @@ const HELP = [
 	'                                 read the value from your environment when the server starts',
 	'      -H, --header "NAME: value" header for an HTTP server; repeat. The value must be',
 	'                                 \u0024{ENV_VAR} or Bearer \u0024{ENV_VAR}; literal secrets are refused',
-	"  namzu mcp approve [name...] [--new-list]    Start this project's .mcp.json servers (all when no name);",
+	"  namzu mcp approve [name...] [--new-list]    Start this project's .mcp.json servers and the remote servers",
+	'      of installed plugins (all when no name; a plugin server is named as namzu mcp servers shows it);',
 	'      --new-list starts a new approvals list when ~/.namzu/mcp-approvals.json cannot be read',
 	'      (the old one is kept in ~/.namzu/backups/)',
 	'  namzu mcp test <name> [--trust]    Check the effective server and its tools',
@@ -81,6 +93,7 @@ type McpScope = 'user' | 'project'
 
 type McpAction =
 	| { readonly kind: 'list' }
+	| { readonly kind: 'servers' }
 	| { readonly kind: 'get'; readonly name: string }
 	| { readonly kind: 'remove'; readonly name: string; readonly scope: McpScope }
 	| { readonly kind: 'serve'; readonly args: readonly string[] }
@@ -101,26 +114,41 @@ type McpAction =
 	| { readonly kind: 'approve'; readonly names: readonly string[]; readonly newList: boolean }
 	| { readonly kind: 'error'; readonly message: string }
 
-/** Answer yes for the servers this project's `.mcp.json` declares, as it reads now. */
-function approveProjectServers(
+/** What a person is told a plugin's remote server would reach and send, before it starts. */
+function pluginServerLine(server: PluginRemoteServer): string {
+	const variables = headerVariablesOf(server)
+	return `  ${oneLine(server.runtimeName)}: ${oneLine(server.detail ?? 'invalid entry')} (plugin ${oneLine(server.pluginName)}${
+		variables.length > 0 ? `; sends headers read from ${variables.map(oneLine).join(', ')}` : ''
+	})`
+}
+
+/** Answer yes for the servers this project's `.mcp.json` and its installed plugins declare, as they read now. */
+async function approveProjectServers(
 	names: readonly string[],
 	newList: boolean,
 	ctx: CommandContext,
-): number {
+): Promise<number> {
 	try {
 		const cwd = process.cwd()
+		const home = resolveNamzuHome()
 		// Asked for by name: the old list's bytes are kept and read back before it is replaced.
-		const kept = newList ? startNewMcpApprovals(resolveNamzuHome()) : undefined
+		const kept = newList ? startNewMcpApprovals(home) : undefined
 		const started = kept
 			? `Started a new tool server approvals list; the old one is kept in ${oneLine(kept)}.`
 			: undefined
 		const { declared, pending } = pendingProjectMcpServers({ cwd })
-		const known = Object.keys(declared)
+		// A plugin's remote server of the same name as one of the project's is the project's.
+		const plugin = (
+			await readFolderRemoteServers({ cwd, plugins: loadConfig({ cwd }).plugins })
+		).servers.filter((server) => !Object.hasOwn(declared, server.runtimeName))
+		const startable = plugin.filter((server) => server.entry !== undefined)
+		const pluginPending = startable.filter((server) => !pluginServerApproved(home, server))
+		const known = [...Object.keys(declared), ...plugin.map((server) => server.runtimeName)]
 		if (known.length === 0) {
 			ctx.formatter.print({
 				approved: [],
 				...(kept ? { keptAt: kept } : {}),
-				text: [started, "This project's .mcp.json declares no tool servers."]
+				text: [started, "This project's .mcp.json and its plugins declare no tool servers."]
 					.filter(Boolean)
 					.join('\n'),
 			})
@@ -129,23 +157,58 @@ function approveProjectServers(
 		const missing = names.filter((name) => !known.includes(name))
 		if (missing.length > 0) {
 			ctx.formatter.error({
-				message: `.mcp.json has no tool server named ${missing.map(oneLine).join(', ')}.`,
+				message: `No tool server named ${missing.map(oneLine).join(', ')} in .mcp.json or in an installed plugin.`,
 			})
 			return EXIT_USAGE
 		}
-		const chosen = names.length > 0 ? names : pending
+		const needSetup = plugin.filter(
+			(server) => server.needsSetup !== undefined && names.includes(server.runtimeName),
+		)
+		if (needSetup.length > 0) {
+			ctx.formatter.error({
+				message: needSetup
+					.map(
+						(server) =>
+							`${oneLine(server.runtimeName)} needs setup: ${oneLine(server.needsSetup ?? '')}.`,
+					)
+					.join('\n'),
+			})
+			return EXIT_USAGE
+		}
+		const chosen =
+			names.length > 0 ? names : [...pending, ...pluginPending.map((s) => s.runtimeName)]
 		if (chosen.length === 0) {
 			ctx.formatter.print({
 				approved: [],
 				...(kept ? { keptAt: kept } : {}),
-				text: [started, 'Every tool server in .mcp.json is already approved.']
+				text: [
+					started,
+					'Every tool server in .mcp.json and in installed plugins is already approved.',
+				]
 					.filter(Boolean)
 					.join('\n'),
 			})
 			return EXIT_OK
 		}
-		const approved = approveProjectMcpServers(resolveNamzuHome(), cwd, declared, chosen)
+		const chosenProject = chosen.filter((name) => Object.hasOwn(declared, name))
+		const chosenPlugin = startable.filter((server) => chosen.includes(server.runtimeName))
+		const approved: string[] = []
+		if (chosenProject.length > 0)
+			approved.push(...approveProjectMcpServers(home, cwd, declared, chosenProject))
+		if (chosenPlugin.length > 0) {
+			approveShownPluginMcpServers(
+				home,
+				chosenPlugin.map((server) => ({
+					pluginId: server.pluginId,
+					server: server.server,
+					fingerprint: fingerprintMcpServer(server.entry),
+				})),
+			)
+			approved.push(...chosenPlugin.map((server) => server.runtimeName))
+		}
 		const lines = approved.map((name) => {
+			const fromPlugin = chosenPlugin.find((server) => server.runtimeName === name)
+			if (fromPlugin) return pluginServerLine(fromPlugin)
 			const entry = declared[name] as { command?: string; url?: string }
 			return `  ${oneLine(name)}: ${oneLine(entry.command ?? entry.url ?? 'invalid entry')}`
 		})
@@ -162,6 +225,58 @@ function approveProjectServers(
 	} catch (error) {
 		ctx.formatter.error({
 			message: error instanceof Error ? oneLine(error.message) : 'Could not read .mcp.json.',
+		})
+		return EXIT_BAD_CONFIG
+	}
+}
+
+const STATE_WORDS: Readonly<Record<string, string>> = {
+	connected: 'connected',
+	waiting: 'waiting for approval',
+	failed: 'failed',
+	idle: 'ready',
+	'needs-setup': 'needs setup',
+}
+
+/** Every tool server this folder knows, with where it comes from and its state. */
+async function listAllServers(ctx: CommandContext): Promise<number> {
+	try {
+		const cwd = process.cwd()
+		const listing = await listAllMcpServers({
+			cwd,
+			live: { connected: [], failed: [] },
+			plugins: loadConfig({ profile: ctx.selectedProfile, cwd }).plugins,
+		})
+		if (listing.error) {
+			ctx.formatter.error({ message: oneLine(listing.error) })
+			return EXIT_BAD_CONFIG
+		}
+		const source = (row: (typeof listing.servers)[number]): string =>
+			row.origin === 'plugin'
+				? `Plugin ${oneLine(row.plugin ?? '')}`
+				: row.origin === 'project-file'
+					? '.mcp.json in this project'
+					: row.origin === 'this-project'
+						? "this project's settings"
+						: 'your own settings'
+		const lines =
+			listing.servers.length === 0
+				? ['No tool servers are configured.']
+				: listing.servers.map(
+						(row) =>
+							`  ${oneLine(row.name)}: ${source(row)}; ${STATE_WORDS[row.state] ?? row.state}${row.reason ? ` (${oneLine(row.reason)})` : ''}${row.detail ? `; ${oneLine(row.detail)}` : ''}`,
+					)
+		ctx.formatter.print({
+			servers: listing.servers.map(({ fingerprint: _print, ...row }) => ({
+				...row,
+				source: source(row),
+			})),
+			text: ['Tool servers:', ...lines].join('\n'),
+		})
+		return EXIT_OK
+	} catch (error) {
+		ctx.formatter.error({
+			message: error instanceof Error ? oneLine(error.message) : 'Could not read the tool servers.',
 		})
 		return EXIT_BAD_CONFIG
 	}
@@ -195,6 +310,7 @@ export const mcpCommand: CommandDef = {
 			})
 		}
 		if (action.kind === 'approve') return approveProjectServers(action.names, action.newList, ctx)
+		if (action.kind === 'servers') return listAllServers(ctx)
 		if (action.kind === 'test') {
 			return testMcpServer(action.name, action.trust, ctx)
 		}
@@ -203,7 +319,16 @@ export const mcpCommand: CommandDef = {
 				// `mcp` uses a recovery context so list/add/remove can repair a
 				// broken config. Login and logout need the effective server entry,
 				// including a project/profile override, so load it only here.
-				const spec = loadConfig({ profile: ctx.selectedProfile }).mcpServers?.[action.name]
+				const configured = loadConfig({ profile: ctx.selectedProfile }).mcpServers?.[action.name]
+				// A plugin's remote server signs in through the same store, under the name `namzu mcp servers` shows.
+				const spec =
+					configured ??
+					(
+						await readFolderRemoteServers({
+							cwd: process.cwd(),
+							plugins: loadConfig({ profile: ctx.selectedProfile }).plugins,
+						})
+					).servers.find((server) => server.runtimeName === action.name)?.spec
 				if (!spec || !spec.url || spec.command) {
 					ctx.formatter.error({
 						message: `MCP server "${oneLine(action.name)}" must be a configured HTTP server to use OAuth.`,
@@ -665,6 +790,7 @@ function parseMcpAction(args: readonly string[]): McpAction {
 			: { kind: 'approve', names, newList }
 	}
 	if (verb === 'list' && args.length === 1) return { kind: 'list' }
+	if (verb === 'servers' && args.length === 1) return { kind: 'servers' }
 	if (verb === 'logout' && args.length === 2 && name && !name.startsWith('-')) {
 		return { kind: 'logout', name }
 	}
