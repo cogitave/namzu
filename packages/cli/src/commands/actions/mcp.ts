@@ -12,6 +12,12 @@ export const MCP_ACTIONS: readonly ActionHelp[] = [
 		example: 'namzu mcp list',
 	},
 	{
+		path: ['servers'],
+		summary:
+			'List every tool server this project knows: yours, the project’s, and installed plugins’ remote servers, with their state.',
+		example: 'namzu mcp servers',
+	},
+	{
 		path: ['get'],
 		operands: '<name>',
 		summary: 'Show one tool server’s effective settings, with secret values hidden.',
@@ -49,7 +55,8 @@ export const MCP_ACTIONS: readonly ActionHelp[] = [
 	{
 		path: ['approve'],
 		operands: '[name...]',
-		summary: 'Start this project’s .mcp.json servers (all when no name is given).',
+		summary:
+			'Start this project’s .mcp.json servers and installed plugins’ remote servers (all when no name is given).',
 		flags: [
 			{
 				flag: '--new-list',

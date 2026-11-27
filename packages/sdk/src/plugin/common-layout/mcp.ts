@@ -341,7 +341,7 @@ class Reader {
 			level: 'notUsed',
 			code: 'mcp-server-remote',
 			field: `mcpServers.${name}`,
-			message: `${name} is a remote server at ${parsed.origin}${parsed.pathname === '/' ? '' : parsed.pathname}. It is read and listed, and it is not started yet.`,
+			message: `${name} is a remote server at ${parsed.origin}${parsed.pathname === '/' ? '' : parsed.pathname}. It connects only after you approve it.`,
 		})
 	}
 }

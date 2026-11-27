@@ -26,6 +26,7 @@ export const TOOL_SERVER_STATE_WORDS: Record<McpServerState, string> = {
 	waiting: 'Needs approval',
 	failed: 'Failed',
 	idle: 'Not started',
+	'needs-setup': 'Needs setup',
 }
 
 export interface AddMenuPlugins {

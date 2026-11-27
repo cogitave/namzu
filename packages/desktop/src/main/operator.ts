@@ -451,8 +451,8 @@ function withoutPin(view: ConversationView): ConversationView {
 /** Each project returns at most this many conversations for one search. */
 const CONVERSATION_SEARCH_LIMIT = 20
 
-const MCP_ORIGINS = ['your-config', 'this-project', 'project-file']
-const MCP_STATES = ['connected', 'waiting', 'failed', 'idle']
+const MCP_ORIGINS = ['your-config', 'this-project', 'project-file', 'plugin']
+const MCP_STATES = ['connected', 'waiting', 'failed', 'idle', 'needs-setup']
 
 function readSearchHits(value: unknown): ConversationSearchHit[] {
 	const hits = (value as { hits?: unknown } | null)?.hits
@@ -486,6 +486,7 @@ function readMcpServers(value: unknown): McpServersView | null {
 			typeof field === 'string' && field ? withoutControls(field).slice(0, max) : undefined
 		const reason = text(row.reason, 300)
 		const detail = text(row.detail, 200)
+		const plugin = row.origin === 'plugin' ? text(row.plugin, 64) : undefined
 		const fingerprint = text(row.fingerprint, 128)
 		rows.push({
 			name: row.name,
@@ -493,6 +494,7 @@ function readMcpServers(value: unknown): McpServersView | null {
 			state: row.state as McpServersView['servers'][number]['state'],
 			...(reason ? { reason } : {}),
 			...(detail ? { detail } : {}),
+			...(plugin ? { plugin } : {}),
 			...(fingerprint && row.state === 'waiting' ? { fingerprint } : {}),
 		})
 	}

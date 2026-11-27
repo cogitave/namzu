@@ -310,6 +310,8 @@ type AcpLiveSession = Pick<
 	| 'errorHint'
 	| 'mcpFailed'
 	| 'mcpStatus'
+	| 'syncPluginServers'
+	| 'pluginRemoteStatus'
 	| 'send'
 	| 'close'
 	| 'presenter'
@@ -596,6 +598,8 @@ export interface CliAcpRuntime {
 			readonly config?: string
 		}[]
 	}
+	/** Start the plugin remote servers the person just approved, in this project's open conversations. */
+	syncPluginServers?(cwd: string): void
 	setPluginEnabled(
 		sessionId: string,
 		name: string,
@@ -2203,12 +2207,30 @@ export function createCliAcpRuntime(
 		mcpStatus: (requestedCwd) => {
 			const connected = new Set<string>()
 			const key = mcpKey(requestedCwd)
+			const pluginFailed = new Map<string, string>()
 			for (const record of records.values()) {
 				if (mcpKey(record.cwd) !== key) continue
 				for (const server of record.session.mcpStatus?.().connected ?? [])
 					connected.add(server.name)
+				// A plugin's remote server that did not answer: shown as failed, and it never
+				// refuses the conversation (it is not in `mcpFailed`).
+				const remote = record.session.pluginRemoteStatus?.()
+				for (const name of remote?.connected ?? []) connected.add(name)
+				for (const item of remote?.failed ?? []) pluginFailed.set(item.name, item.reason)
 			}
-			return { connected: [...connected], failed: mcpFailures.get(key) ?? [] }
+			return {
+				connected: [...connected],
+				failed: [
+					...(mcpFailures.get(key) ?? []),
+					...[...pluginFailed].map(([name, reason]) => ({ name, reason })),
+				],
+			}
+		},
+		syncPluginServers: (requestedCwd) => {
+			const key = mcpKey(requestedCwd)
+			for (const record of records.values()) {
+				if (mcpKey(record.cwd) === key) record.session.syncPluginServers?.()
+			}
 		},
 		setPluginEnabled: async (sessionId, name, enabled, cwd) => {
 			if (

@@ -9,7 +9,14 @@
  * that changes is pending again.
  *
  * Kept in `<namzu home>/mcp-approvals.json`, beside the folder-trust list:
- * `{ "version": 1, "folders": { "<folder>": { "<server>": "<fingerprint>" } } }`.
+ * `{ "version": 1, "folders": { "<folder>": { "<server>": "<fingerprint>" } },
+ * "plugins": { "<plugin id>": { "<server>": "<fingerprint>" } } }`.
+ *
+ * `plugins` holds the answers for the remote servers an installed plugin
+ * declares. They are keyed by the plugin's id and the server's own name, not by
+ * folder: the plugin was installed by the person, and the answer is about what
+ * that server's url, headers and transport said. The same fingerprint rule
+ * applies, so a plugin update that changes any of them asks again.
  */
 
 import { createHash } from 'node:crypto'
@@ -42,6 +49,7 @@ type ApprovalRead =
 	| {
 			readonly state: 'ok'
 			readonly folders: Readonly<Record<string, Readonly<Record<string, string>>>>
+			readonly plugins: Readonly<Record<string, Readonly<Record<string, string>>>>
 			readonly raw: Readonly<Record<string, unknown>>
 	  }
 	| { readonly state: 'unreadable'; readonly reason: string }
@@ -100,16 +108,29 @@ function readApprovals(namzuHome: string): ApprovalRead {
 		return { state: 'unreadable', reason: `version ${String(version)} is newer than this Namzu` }
 	if (parsed.folders !== undefined && !isRecord(parsed.folders))
 		return { state: 'unreadable', reason: 'its "folders" entry is not a mapping' }
-	const folders: Record<string, Record<string, string>> = {}
-	for (const [folder, servers] of Object.entries(parsed.folders ?? {})) {
+	if (parsed.plugins !== undefined && !isRecord(parsed.plugins))
+		return { state: 'unreadable', reason: 'its "plugins" entry is not a mapping' }
+	return {
+		state: 'ok',
+		folders: answersOf(parsed.folders),
+		plugins: answersOf(parsed.plugins),
+		raw: parsed,
+	}
+}
+
+/** `{ key: { server: fingerprint } }` as understood; an entry that is not text is left out. */
+function answersOf(section: unknown): Record<string, Record<string, string>> {
+	const out: Record<string, Record<string, string>> = {}
+	if (!isRecord(section)) return out
+	for (const [key, servers] of Object.entries(section)) {
 		if (!isRecord(servers)) continue
 		const kept: Record<string, string> = {}
 		for (const [name, print] of Object.entries(servers)) {
 			if (typeof print === 'string') kept[name] = print
 		}
-		folders[folder] = kept
+		out[key] = kept
 	}
-	return { state: 'ok', folders, raw: parsed }
+	return out
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -194,6 +215,16 @@ function recordApprovals(
 	cwd: string,
 	prints: Readonly<Record<string, string>>,
 ): readonly string[] {
+	return recordIn(namzuHome, 'folders', folderKey(cwd), prints)
+}
+
+/** Write `prints` under `section[key]`, keeping everything else in the file as it was. */
+function recordIn(
+	namzuHome: string,
+	section: 'folders' | 'plugins',
+	key: string,
+	prints: Readonly<Record<string, string>>,
+): readonly string[] {
 	const chosen = Object.keys(prints)
 	if (chosen.length === 0) return []
 	const path = mcpApprovalsPath(namzuHome)
@@ -202,15 +233,60 @@ function recordApprovals(
 		if (read.state === 'unreadable')
 			throw unreadableStateFile(path, read.reason, namzuHome, NEW_APPROVALS_LIST_REMEDY)
 		const raw = read.state === 'ok' ? read.raw : {}
-		const rawFolders = isRecord(raw.folders) ? raw.folders : {}
-		const key = folderKey(cwd)
-		const current = rawFolders[key]
-		const folder: Record<string, unknown> = isRecord(current) ? { ...current } : {}
-		for (const name of chosen) folder[name] = prints[name] as string
-		const next = { ...raw, version: FILE_VERSION, folders: { ...rawFolders, [key]: folder } }
+		const rawSection = isRecord(raw[section]) ? (raw[section] as Record<string, unknown>) : {}
+		const current = rawSection[key]
+		const entry: Record<string, unknown> = isRecord(current) ? { ...current } : {}
+		for (const name of chosen) entry[name] = prints[name] as string
+		const next = { ...raw, version: FILE_VERSION, [section]: { ...rawSection, [key]: entry } }
 		saveStateFile(path, `${JSON.stringify(next, null, 2)}\n`, { home: namzuHome })
 	})
 	return chosen
+}
+
+/** One remote server a plugin declares, as the approval sees it. */
+export interface PluginRemoteApprovalEntry {
+	/** `<plugin>@<marketplace>`. */
+	readonly pluginId: string
+	/** The server's own name in the plugin. */
+	readonly server: string
+	/** What the fingerprint is taken of: url, headers and transport. */
+	readonly entry: unknown
+}
+
+/** Whether the person approved this plugin server as it reads now. */
+export function isPluginRemoteApproved(
+	namzuHome: string,
+	item: PluginRemoteApprovalEntry,
+): boolean {
+	// An unreadable file approves nothing: every server waits, none starts unasked.
+	const read = readApprovals(namzuHome)
+	if (read.state !== 'ok') return false
+	return read.plugins[item.pluginId]?.[item.server] === fingerprintMcpServer(item.entry)
+}
+
+/**
+ * Record the person's approval of the plugin servers they were shown, each as the
+ * fingerprint taken when the screen was built. A server whose url, headers or
+ * transport changed after that is not covered: it asks again.
+ */
+export function approveShownPluginMcpServers(
+	namzuHome: string,
+	shown: readonly {
+		readonly pluginId: string
+		readonly server: string
+		readonly fingerprint: string
+	}[],
+): readonly string[] {
+	const byPlugin = new Map<string, Record<string, string>>()
+	for (const { pluginId, server, fingerprint } of shown) {
+		byPlugin.set(pluginId, { ...(byPlugin.get(pluginId) ?? {}), [server]: fingerprint })
+	}
+	const done: string[] = []
+	for (const [pluginId, prints] of byPlugin) {
+		for (const server of recordIn(namzuHome, 'plugins', pluginId, prints))
+			done.push(`${pluginId}/${server}`)
+	}
+	return done
 }
 
 /**
