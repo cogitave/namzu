@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
 	OTHER_FILE_SYSTEM_MESSAGE,
 	PLUGIN_PATH_FILE_MAX_BYTES,
+	type PluginPathHead,
 	SKILL_PATH_FILE_MAX_BYTES,
 	type SkillPathStat,
 	checkPluginPath,
@@ -133,7 +134,7 @@ describe('the path registry', () => {
 })
 
 describe('plugin paths', () => {
-	const zipHead = async () => Uint8Array.from([0x50, 0x4b, 3, 4])
+	const zipHead: PluginPathHead = async () => Uint8Array.from([0x50, 0x4b, 3, 4])
 	const plugins: Record<string, Entry> = {
 		'/p/a.zip': { kind: 'file' },
 		'/p/b.plugin': { kind: 'file' },
