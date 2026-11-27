@@ -9,6 +9,8 @@ import {
 	attachShellHooks,
 	createShellHook,
 	discoverAllPluginDirs,
+	locateHookModule,
+	startHookModule,
 } from '@namzu/sdk'
 
 import type { HooksSwitch } from '../../config/hook-layers.js'
@@ -241,6 +243,29 @@ export async function createCliPluginRuntime(
 		}),
 		log,
 		...(config?.hookTimeoutMs !== undefined ? { hookTimeoutMs: config.hookTimeoutMs } : {}),
+		// The hooks module a plugin in the common layout ships runs in a worker of its own, for as
+		// long as the plugin is on. The same switch that leaves its hook entries listed and unattached
+		// leaves its module unstarted; a module that cannot load is said once and runs nothing.
+		hookModuleFor: async (plugin) => {
+			if (plugin.manifest.layout !== 'common' || hooksSwitch !== undefined) return undefined
+			const dataDir = pluginDataDir(userRoot, {
+				name: plugin.manifest.name,
+				scope: plugin.scope,
+				rootDir: plugin.rootDir,
+			})
+			if (dataDirOverlapsPlugin(dataDir, plugin.rootDir)) return undefined
+			const located = locateHookModule(plugin.rootDir)
+			if (located.kind !== 'found') return undefined
+			const handle = await startHookModule({
+				plugin: { name: plugin.manifest.name, root: plugin.rootDir, dataDir },
+				entry: located.entry,
+				projectDir: cwd,
+				shell: shellOptions,
+				log,
+				onUnload: (why) => warningLines.push(`Plugin ${plugin.manifest.name}: ${why}`),
+			})
+			return { hooks: handle.hooks, dispose: () => handle.dispose() }
+		},
 		hooksFor: (plugin): readonly PluginHookDefinition[] => {
 			const read = readPluginHookEntriesOf(plugin)
 			const name = plugin.manifest.name
@@ -454,9 +479,17 @@ export async function createCliPluginRuntime(
 							.map((skill) => skill.metadata.name)
 							.filter((name) => name.startsWith(prefix))
 							.sort(),
-						hookModules: (plugin.manifest.hooks ?? []).filter(
-							(path) => !path.toLowerCase().endsWith('.json'),
-						),
+						hookModules: [
+							...(plugin.manifest.hooks ?? []).filter(
+								(path) => !path.toLowerCase().endsWith('.json'),
+							),
+							...(plugin.manifest.layout === 'common'
+								? (() => {
+										const located = locateHookModule(plugin.rootDir)
+										return located.kind === 'found' ? [located.entry] : []
+									})()
+								: []),
+						],
 						hookEntries: readPluginHookEntriesOf(plugin).count,
 						mcpServers: (plugin.manifest.mcpServers ?? []).map((server) => server.name),
 						commands: resolvePluginFileDirs(

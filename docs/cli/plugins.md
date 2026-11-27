@@ -96,6 +96,33 @@ once at launch; `namzu plugin validate` shows the whole report. The full rules
 are in [the common plugin layout](../sdk/common-plugin-layout.md). There is no
 install command for these plugins yet: you place the folder.
 
+### Hooks modules (common layout)
+
+A plugin in the common layout may name one hooks module in `hooks/hooks.json`
+(`"modules": ["./mod.js"]`, the path relative to the hooks file). Namzu runs it
+in an isolated worker while the plugin is on and stops it the moment the plugin
+is turned off or the session ends; the SDK page [hooks modules](../sdk/common-plugin-layout.md#hooks-modules)
+has the API, the limits and what is refused. What you see before it runs:
+
+- **The trust screen** for a project folder lists it among the hooks the folder
+  runs without asking, as `hooks module (plugin <name>): hooks/mod.js runs in an
+  isolated worker: hooks PreToolUse, Stop; runs commands; uses the network`, or
+  says the module is not run and why.
+- **`namzu plugin validate`** prints the same lines, each pattern and each call
+  ([a hooks module](plugin-validate.md#a-hooks-module)).
+- **`plugins.enabled`** and your saved yes for the plugin still decide whether
+  the plugin is on at all; a module never starts before both. A hooks switch
+  that leaves plugin hook entries listed and not attached (`disableHooks`,
+  `hooksManagedOnly`) leaves the module unstarted too.
+
+A module that cannot load (refused by the scan, throws as it registers,
+registers nothing that runs here) is said once at launch as `Plugin <name>:
+hooks module <file> not loaded: <reason>`, and the plugin's other parts keep
+loading. A hook of a module that fails refuses the tool call it guards (on
+`pre_tool_use`), with the reason, instead of letting the call through. A plugin
+that ships only `.js` hooks under its own `plugin.json` is unchanged: those
+modules run in the process, not in a worker.
+
 ### Hook entries
 
 A plugin can ship shell, http and prompt hook entries beside its JavaScript hook

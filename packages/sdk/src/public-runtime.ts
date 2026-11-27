@@ -851,6 +851,12 @@ export {
 	findCommonLayoutRoot,
 	loadPluginManifestWithFindings,
 	readCommonLayout,
+	hookModuleConsentEntry,
+	hookModuleConsentLines,
+	locateHookModule,
+	scanHookModule,
+	startHookModule,
+	summarizeHookModule,
 } from './plugin/index.js'
 export type {
 	CommonLayoutOptions,
@@ -859,8 +865,17 @@ export type {
 	ExpandedPaths,
 	LayoutFinding,
 	LayoutFindingLevel,
+	HookModuleConsentEntry,
+	HookModuleHandle,
+	HookModuleLocation,
+	HookModuleScan,
+	HookModuleSummary,
 	LoadedPluginManifest,
 	PluginPathValues,
+	ScanRefusal,
+	ScannedCall,
+	ScannedHook,
+	StartHookModuleOptions,
 } from './plugin/index.js'
 export type { DefinedPlugin, DefinePluginOptions } from './plugin/define.js'
 

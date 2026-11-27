@@ -109,6 +109,8 @@ export interface StartHookModuleOptions {
 	readonly transport?: HookModuleTransportFactory
 	readonly environment?: Readonly<Record<string, string | undefined>>
 	readonly fetch?: typeof fetch
+	/** Called once, with the reason, when the module stops running for any cause but being disposed. */
+	readonly onUnload?: (message: string) => void
 }
 
 export interface HookModuleHandle {
@@ -269,6 +271,7 @@ export async function startHookModule(options: StartHookModuleOptions): Promise<
 		status = 'unloaded'
 		message = why
 		log.warn('Hooks module not loaded', { ...attrs, 'namzu.hook_module.reason': why })
+		options.onUnload?.(why)
 	}
 	const unloaded = (why: string): HookModuleHandle => {
 		unload(why)

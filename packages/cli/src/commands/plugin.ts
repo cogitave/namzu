@@ -30,6 +30,8 @@ const HELP = [
 	'without running anything from it: no hook, MCP server, command or script is',
 	'started, no module is imported and nothing is fetched. Files are read inside',
 	'the folder only; a reference that leaves it is reported and not followed.',
+	'A hooks module is read, not run: the report lists the events it hooks, the',
+	'calls it makes, and whether it runs commands, reads files or uses the network.',
 	'',
 	'Each problem names the file, the line when it is known, what is wrong and what',
 	'the loader would do about it. An error is something that makes the loader',
@@ -116,6 +118,24 @@ export function renderPluginReport(report: PluginValidationReport): string {
 			`${problem.level === 'error' ? 'error  ' : 'warning'}  ${where ? `${where}  ` : ''}${oneLine(problem.message)}`,
 		)
 		lines.push(`         ${oneLine(problem.consequence)}`)
+	}
+	if (report.hooksModule !== undefined) {
+		const module = report.hooksModule
+		lines.push(
+			`hooks module ${oneLine(module.entry)} runs in an isolated worker when the plugin is on:`,
+		)
+		for (const line of module.lines) lines.push(`  ${oneLine(line)}`)
+		for (const hook of module.hooks) {
+			const flags = [hook.matcher ? 'with a matcher' : '', hook.catches ? 'with .catch' : '']
+				.filter((flag) => flag !== '')
+				.join(', ')
+			lines.push(
+				`  ${hook.runs ? 'hooks' : 'not used'}  ${oneLine(hook.pattern)}${flags ? ` (${flags})` : ''}  ${oneLine(hook.file)}:${hook.line}`,
+			)
+		}
+		const calls = [...new Set(module.calls.map((call) => call.call))]
+		if (calls.length > 0) lines.push(`  calls  ${calls.map(oneLine).join(', ')}`)
+		for (const line of module.summary.notUsed) lines.push(`  not used  ${oneLine(line)}`)
 	}
 	const parts = `${report.parts.length} ${report.parts.length === 1 ? 'part' : 'parts'}`
 	const { errors, warnings } = report.summary

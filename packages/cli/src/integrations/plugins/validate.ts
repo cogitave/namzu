@@ -15,7 +15,9 @@
  * folder; a reference that leaves the folder is reported and not followed.
  * What that costs: a tool or hook module's exports are not checked (that takes
  * running it), so a module is checked for being a readable file inside the
- * folder and, as a warning, by what its text says.
+ * folder and, as a warning, by what its text says. The hooks module of a plugin
+ * in the common layout is parsed, never run: the report lists what it hooks and
+ * what it does (see {@link HooksModuleReport}).
  */
 
 import { constants, existsSync } from 'node:fs'
@@ -25,19 +27,24 @@ import { isAbsolute, join, relative, sep } from 'node:path'
 import {
 	AGENT_FILE_KEYS,
 	type CommonLayoutRead,
+	type HookModuleSummary,
 	type LayoutFinding,
 	PluginManifestSchema,
 	RENAMED_PLUGIN_HOOK_EVENTS,
 	SKILL_FRONTMATTER_KEYS,
 	assertEnableable,
 	assertPluginHookEvent,
+	hookModuleConsentLines,
 	isHookEntriesPath,
+	locateHookModule,
 	parseAgentMarkdown,
 	parsePluginManifestText,
 	parseSkillMarkdown,
 	readCommonLayout,
 	resolveWithinReal,
+	scanHookModule,
 	skillModelDescription,
+	summarizeHookModule,
 } from '@namzu/sdk'
 import { readSkillHooks } from '../../config/skill-hooks-reader.js'
 import { readAgentHooks } from '../subagents/agent-hooks.js'
@@ -100,6 +107,37 @@ export interface PluginLayoutReport {
 	readonly findings: readonly LayoutFinding[]
 }
 
+/**
+ * What the hooks module of a plugin in the common layout hooks and does, read
+ * from its source and never run. The same facts the trust screen and an install
+ * prompt show before the plugin is allowed to run it.
+ */
+export interface HooksModuleReport {
+	/** The module, relative to the plugin. */
+	readonly entry: string
+	/** One line per thing it does, ready to show. */
+	readonly lines: readonly string[]
+	readonly summary: HookModuleSummary
+	/** Each pattern it registers, and whether Namzu runs it. */
+	readonly hooks: readonly {
+		readonly pattern: string
+		readonly runs: boolean
+		readonly matcher: boolean
+		readonly catches: boolean
+		readonly file: string
+		readonly line: number
+	}[]
+	/** Each call it makes on `$`, and whether Namzu answers it. */
+	readonly calls: readonly {
+		readonly call: string
+		readonly supported: boolean
+		readonly file: string
+		readonly line: number
+	}[]
+	/** The files it is made of. */
+	readonly files: readonly string[]
+}
+
 export type PluginValidationStatus = 'clean' | 'warnings' | 'errors' | 'unreadable'
 
 export interface PluginValidationReport {
@@ -115,6 +153,36 @@ export interface PluginValidationReport {
 	readonly summary: { readonly errors: number; readonly warnings: number }
 	/** Present when the folder has no `plugin.json` and was read in the common plugin layout. */
 	readonly layout?: PluginLayoutReport
+	/** Present when the plugin names a hooks module: what the module hooks and does. */
+	readonly hooksModule?: HooksModuleReport
+}
+
+/** Read the hooks module a folder names, without running it, as the report lists it. */
+function readHooksModule(root: string): HooksModuleReport | undefined {
+	const located = locateHookModule(root)
+	if (located.kind !== 'found') return undefined
+	const scan = scanHookModule(root, located.entry)
+	const summary = summarizeHookModule(scan)
+	return {
+		entry: located.entry,
+		lines: hookModuleConsentLines(summary),
+		summary,
+		hooks: scan.hooks.map((hook) => ({
+			pattern: hook.pattern,
+			runs: hook.runs.length > 0,
+			matcher: hook.matcher,
+			catches: hook.catches,
+			file: hook.file,
+			line: hook.line,
+		})),
+		calls: scan.calls.map((call) => ({
+			call: call.call,
+			supported: call.supported,
+			file: call.file,
+			line: call.line,
+		})),
+		files: scan.files,
+	}
 }
 
 // --- reading --------------------------------------------------------------
@@ -391,6 +459,7 @@ export async function validatePluginFolder(folder: string): Promise<PluginValida
 	})
 	if (layout.source !== 'namzu' && layout.source !== 'none') {
 		checkCommonLayout(layout, c)
+		const hooksModule = readHooksModule(root)
 		return {
 			...c.finish(root, {
 				...(layout.manifest
@@ -398,6 +467,7 @@ export async function validatePluginFolder(folder: string): Promise<PluginValida
 					: {}),
 			}),
 			layout: { source: layout.source, findings: layout.findings },
+			...(hooksModule !== undefined ? { hooksModule } : {}),
 		}
 	}
 	if (layout.source === 'namzu') {
