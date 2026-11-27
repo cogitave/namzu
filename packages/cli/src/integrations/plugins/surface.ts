@@ -20,7 +20,10 @@ import {
 	type LayoutSetupServer,
 	type PluginManifest,
 	type PluginRemoteMCPServerConfig,
+	hookModuleConsentEntry,
 	isHookEntriesPath,
+	locateHookModule,
+	scanHookModule,
 } from '@namzu/sdk'
 
 import { readSkillHooks } from '../../config/skill-hooks-reader.js'
@@ -83,18 +86,26 @@ export interface SurfaceScript {
 	readonly exec: boolean
 }
 
+export interface SurfaceModule {
+	readonly path: string
+	readonly declares?: readonly string[]
+	readonly isolated?: boolean
+	readonly refused?: string
+}
+
 export interface PluginSurface {
 	readonly hooks: readonly SurfaceHook[]
 	readonly fileHooks: readonly SurfaceFileHook[]
 	readonly mcpLocal: readonly SurfaceLocalServer[]
 	readonly mcpRemote: readonly SurfaceRemoteServer[]
 	/**
-	 * JavaScript modules the manifest lists as hooks, which run inside the
-	 * session when the plugin is on. SEAM: a later change fills each row with
-	 * what the module declares (`surfaceEntry`); until then a row names the file
-	 * and that it runs in-process.
+	 * Hook modules. A module the manifest lists as hooks runs inside the session
+	 * and is not read before it runs. The hooks module a common-layout plugin
+	 * names in its hooks file runs in an isolated worker (`isolated`); its source
+	 * is scanned, and `declares` says what it hooks and reaches, or `refused` why
+	 * it will not run.
 	 */
-	readonly modules: readonly { readonly path: string; readonly declares?: readonly string[] }[]
+	readonly modules: readonly SurfaceModule[]
 	readonly allowedTools: readonly SurfaceAllowedTools[]
 	readonly scripts: readonly SurfaceScript[]
 	readonly unpinnedDownload: boolean
@@ -289,9 +300,11 @@ export function readSurface(input: SurfaceInput): SurfaceRead {
 		problems.push({ code: problem.code, file: problem.file, message: problem.message })
 	const hooks: SurfaceHook[] = hookRows(read.hooks).map((row) => ({ ...row }))
 
-	const modules = (manifest.hooks ?? [])
+	const modules: SurfaceModule[] = (manifest.hooks ?? [])
 		.filter((path) => !isHookEntriesPath(path))
 		.map((path) => ({ path }))
+	const isolated = isolatedModuleRow(root, manifest.name)
+	if (isolated !== undefined) modules.push(isolated)
 
 	const mcpLocal: SurfaceLocalServer[] = (manifest.mcpServers ?? []).map((server) => ({
 		name: server.name,
@@ -431,4 +444,24 @@ export function surfaceChanges(before: PluginSurface, after: PluginSurface): str
 	}
 	if (!same(before.unpinnedDownload, after.unpinnedDownload)) out.push('download pinning changed')
 	return out
+}
+
+/**
+ * The hooks module a plugin names in its hooks file, as the consent screen shows
+ * it: scanned, never run. A module the scan refuses is listed with the reason,
+ * since it will not run; the file is in the digest either way.
+ */
+function isolatedModuleRow(root: string, plugin: string): SurfaceModule | undefined {
+	const located = locateHookModule(root)
+	if (located.kind === 'refused')
+		return { path: located.hooksFile, isolated: true, refused: located.message }
+	if (located.kind !== 'found') return undefined
+	const scan = scanHookModule(root, located.entry)
+	if (scan.refusals.length > 0)
+		return { path: located.entry, isolated: true, refused: scan.refusals[0]?.message ?? 'refused' }
+	return {
+		path: located.entry,
+		isolated: true,
+		declares: hookModuleConsentEntry(plugin, scan).lines,
+	}
 }

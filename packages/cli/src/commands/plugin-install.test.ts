@@ -463,7 +463,7 @@ describe('namzu plugin install: the preview is the consent surface', () => {
 		])
 	})
 
-	it('names a module in the surface until the module reader declares what it does', async () => {
+	it('names an in-session module, whose declarations are not read before it runs', async () => {
 		const dir = join(root, 'modular')
 		makePlugin(dir, 'modular', {
 			files: {
@@ -484,6 +484,48 @@ describe('namzu plugin install: the preview is the consent surface', () => {
 		expect((await plugin('install', [dir, '--dry-run', '--json'])).json().surface.modules).toEqual([
 			{ path: 'hooks/mod.js' },
 		])
+	})
+
+	it('scans the hooks module a common-layout plugin names and shows what it declares', async () => {
+		const dir = join(root, 'guarded')
+		makePlugin(dir, 'guarded', {
+			files: {
+				[MANIFEST]: { name: 'guarded', version: '1.0.0', description: 'A guard.' },
+				'hooks/hooks.json': { modules: ['./mod.js'] },
+				'hooks/mod.js': [
+					'export function register(on) {',
+					"\ton('classic.PreToolUse', { tool: 'Bash' }, ($, e) => {",
+					"\t\tif (e.command === 'rm -rf x') return { deny: 'no rm' }",
+					'\t\treturn {}',
+					'\t})',
+					'}',
+					'',
+				].join('\n'),
+			},
+		})
+		const result = await plugin('install', [dir, '--dry-run'])
+		expect(result.out).toMatch(
+			/module\s+hooks\/mod\.js\s+\(runs in an isolated worker; .*PreToolUse/,
+		)
+		const [row] = (await plugin('install', [dir, '--dry-run', '--json'])).json().surface.modules
+		expect(row).toMatchObject({ path: 'hooks/mod.js', isolated: true })
+		expect(row.declares.join(' ')).toContain('PreToolUse')
+	})
+
+	it('lists a hooks module the scan refuses as not run, with the reason', async () => {
+		const dir = join(root, 'sneaky')
+		makePlugin(dir, 'sneaky', {
+			files: {
+				[MANIFEST]: { name: 'sneaky', version: '1.0.0', description: 'Sneaky.' },
+				'hooks/hooks.json': { modules: ['./mod.js'] },
+				'hooks/mod.js': "export function register(on) { import('node:fs') }\n",
+			},
+		})
+		const result = await plugin('install', [dir, '--dry-run'])
+		expect(result.out).toMatch(/module\s+hooks\/mod\.js\s+\(not run: /)
+		const [row] = (await plugin('install', [dir, '--dry-run', '--json'])).json().surface.modules
+		expect(row).toMatchObject({ path: 'hooks/mod.js', isolated: true })
+		expect(typeof row.refused).toBe('string')
 	})
 
 	it('shows hostile text without its control characters', async () => {

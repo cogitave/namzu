@@ -54,11 +54,15 @@ export function runsLines(surface: PluginSurface): string[] {
 		)
 	for (const module of surface.modules)
 		lines.push(
-			`    module    ${one(module.path)}  (JavaScript that runs inside the session${
-				module.declares !== undefined && module.declares.length > 0
-					? `; declares ${list(module.declares)}`
-					: '; what it declares is not read before it runs'
-			})`,
+			module.refused !== undefined
+				? `    module    ${one(module.path)}  (not run: ${one(module.refused)})`
+				: module.isolated === true
+					? `    module    ${one(module.path)}  (runs in an isolated worker${
+							module.declares !== undefined && module.declares.length > 0
+								? `; ${list(module.declares)}`
+								: ''
+						})`
+					: `    module    ${one(module.path)}  (JavaScript that runs inside the session; what it declares is not read before it runs)`,
 		)
 	for (const script of surface.scripts.slice(0, SCRIPTS_SHOWN))
 		lines.push(

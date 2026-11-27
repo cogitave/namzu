@@ -112,8 +112,10 @@ that a skill, command or agent file carries** in its front matter; **local
 servers** with command, arguments and the names of their environment variables;
 **remote servers** with the origin they reach and the environment variables a
 `${NAME}` in the address or a header would send (a server that needs a variable
-that is not set here is still listed); **modules**, the JavaScript a manifest
-lists as hooks, which run inside the session; **scripts**, meaning every file
+that is not set here is still listed); **modules**, both the JavaScript a
+manifest lists as hooks, which runs inside the session, and the hooks module a
+common-layout plugin names in its hooks file, which runs in an isolated worker;
+**scripts**, meaning every file
 with an execute bit, a program extension (`.js .mjs .cjs .sh .ps1 .bat .cmd .py
 .rb .pl`) or a place under `bin/` or `hooks/`; and the **tools a skill or command
 pre-approves**. What Namzu has no place for, and what it left out of a hooks
@@ -121,9 +123,13 @@ file or a skill, is listed too, so nobody assumes it runs. A name or command
 from the plugin is shown without its control characters. The first twelve
 scripts are shown; `--json` has all of them.
 
-For a module, the preview names the file and says that what it declares is not
-read before it runs. That line is the seam where a module's own declaration of
-what it does is shown, once modules say it.
+For a module a manifest lists as hooks, the preview names the file and says
+that what it declares is not read before it runs. For the hooks module of a
+common-layout plugin, the source is scanned (never run) and the preview says
+what it hooks and whether it runs commands, reads files or uses the network; a
+module the scan refuses is listed as not run, with the reason. In `--json` a row
+of `surface.modules` is `{ path, isolated?, declares?, refused? }`. See
+[Hooks modules](../sdk/common-plugin-layout.md#hooks-modules) for what such a module may do.
 
 A server that needs a variable which is not set here is still listed, marked
 `needs setup`, with the variables it would send; it is not started or connected
