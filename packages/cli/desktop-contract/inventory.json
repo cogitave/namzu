@@ -112,6 +112,22 @@
       "namzu/skills/create",
       "namzu/skills/remove"
     ],
+    "pluginsManage": [
+      "namzu/marketplaces/preview",
+      "namzu/marketplaces/add",
+      "namzu/marketplaces/list",
+      "namzu/marketplaces/remove",
+      "namzu/marketplaces/update",
+      "namzu/marketplaces/available",
+      "namzu/plugins/plan",
+      "namzu/plugins/stage",
+      "namzu/plugins/install",
+      "namzu/plugins/enable",
+      "namzu/plugins/update_check",
+      "namzu/plugins/update",
+      "namzu/plugins/uninstall",
+      "namzu/ops/cancel"
+    ],
     "browserStatus": [
       "namzu/browser/status"
     ],

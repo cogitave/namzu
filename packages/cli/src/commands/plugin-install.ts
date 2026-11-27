@@ -88,7 +88,7 @@ import {
 	samePath,
 	splitPluginId,
 } from '../integrations/plugins/records.js'
-import { isExecutablePath, surfaceChanges } from '../integrations/plugins/surface.js'
+import { compareUpdate } from '../integrations/plugins/update-compare.js'
 import {
 	type PluginRecordsDeps,
 	applicable,
@@ -715,24 +715,7 @@ async function runUpdate(deps: PluginInstallDeps, flags: Flags): Promise<number>
 			else deps.out(`${message}\n`)
 			return EXIT_OK
 		}
-		const before = recorded.manifest.surface as unknown as Parameters<typeof surfaceChanges>[0]
-		const changes = surfaceChanges(before, plan.surface)
-		// Nothing that runs changed: the same surface rows, and the only files that differ
-		// are manifests (a version bump) or files that cannot run and configure nothing.
-		const nothingRunsDifferently =
-			JSON.stringify(before) === JSON.stringify(plan.surface) &&
-			[...new Set([...Object.keys(plan.files), ...Object.keys(recorded.manifest.files)])]
-				.filter((path) => plan.files[path] !== recorded.manifest.files[path])
-				.every((path) => {
-					const base = path.split('/').pop() ?? path
-					if (base === 'plugin.json') return true
-					return (
-						!isExecutablePath(path, 0) &&
-						!plan.surface.scripts.some((script) => script.path === path)
-					)
-				})
-		const unchangedSurface =
-			recorded.manifest.surfaceSha256 === plan.digest || nothingRunsDifferently
+		const { changes, unchangedSurface } = compareUpdate(recorded.manifest, plan)
 		if (!unchangedSurface) {
 			const preview = renderInstallPreview(plan, {
 				scopeLine: '',
@@ -1024,7 +1007,7 @@ export async function runPluginInstall(
 // Marketplaces
 // ---------------------------------------------------------------------------
 
-const MARKETPLACE_NOTICE = [
+export const MARKETPLACE_NOTICE = [
 	'Plugins from a marketplace can run programs on this computer, with access to',
 	'your files. Namzu does not control this marketplace or its plugins, and its',
 	'owner can change them later. Add only marketplaces you trust.',
