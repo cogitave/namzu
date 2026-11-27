@@ -42,9 +42,11 @@ Groups in this order, each with a count: **This project**, **Yours**, **From plu
 **Name only**, **You only** or **Off** when the skill is not simply on), then `place · description`
 and the time it was last changed (**3d ago**, or **Nov 19** after a week; none for a built-in skill,
 whose file says only when Namzu was installed). **Off** rows show their name in the muted colour.
-The **⋯** menu holds **Turn off** or **Turn on**; a plugin's skill has no menu, because it follows
-its plugin. **Add** holds **Create with Namzu**, which starts the same conversation as Settings'
-*Create skill*. With no skill, the page says where to put one (`.namzu/skills/`,
+The **⋯** menu holds **Turn off** or **Turn on** and, for a skill of your own or the project's,
+**Remove** (see below); a plugin's skill has no menu, because it follows its plugin. **Add** holds
+**Upload skill**, **Create a skill** and **Create with Namzu**, which starts the same conversation
+as Settings' *Create skill*; an engine that cannot add skills hides the first two. There is no
+*Record your screen* entry. With no skill, the page says where to put one (`.namzu/skills/`,
 `~/.namzu/skills/`).
 
 Pressing a row opens the skill. The header has **Try in chat** (a new conversation with
@@ -69,7 +71,8 @@ A table: **Connector | Type | Source | Status**. The rows are the open project's
 (*Your own settings*, *This project's settings*, *.mcp.json in this project*). **Status** is a tick
 for connected, **Approve** for a server waiting for approval (the same approval as Settings, Tools),
 **Failed** with the reason in its tooltip, or a dash. A row opens Settings, Tools, on the tool
-servers; **Add**, **Add custom connector**, opens the same place with the add form open.
+servers; **Add**, **Add custom connector**, opens a dialog (see below) when the engine reads your
+own servers, and otherwise the same place with the add form open.
 
 ### Plugins
 
@@ -89,3 +92,66 @@ The page reaches the engine only through the host methods in the table of
 `namzu/plugins/list`, `namzu/mcp/servers` and `namzu/plugins/set_enabled`, behind the capability
 group `skillsCatalog`. Every answer is read through `shared/customize-protocol.ts`, which keeps the
 shape it expects, caps the counts and lengths and drops the rest.
+
+## Adding, making and removing: the page
+
+- **Upload skill** replaces the list with a page (**← Your skills**, **Upload a skill**, *Add a
+  skill to this computer.*). A drop zone (*Drag and drop skill files here, or browse. You can add
+  several at once.*) with **browse** (the file dialog) and **Choose a folder**, the two help lines
+  about `.md` and `.zip` or `.skill` files, **Where to save** (**Yours** or **This project**; the
+  second is off, with the reason, until a trusted folder is open), the line *Each skill is checked
+  when you add it...*, **Upload** (off until something valid is chosen, with the hint *Choose a
+  file to continue.*) and **Cancel**. Choosing files stages them: one card per file with the name,
+  the description, `3 files · 12 KB`, chips (**Runs commands**, **Uses tools: shell**, **Has
+  hooks**), what it can run or pre-approve, what was changed or left out, a refusal in words when
+  it cannot be added, and **Remove from list**. A name that the chosen place already holds shows a
+  checkbox *Replaces your skill "x"* that must be ticked; a skill that can run something shows *I
+  trust what it can run* that must be ticked, because the engine refuses it otherwise. Upload
+  answers with a toast (*Added 2 skills. They are available from your next message.*), or keeps
+  the failed cards with the engine's reason on each.
+- **Create a skill** is a dialog: **Skill name** (the folder name derived from it shows under it
+  and is what is saved: lower case, words joined by dashes), **Description** with a counter
+  (`n/1024`; XML tags are refused), **Instructions** (monospace; a leading `---` is flagged) and
+  **Where to save**. **Create** stays off until the name and description are valid. A name that is
+  taken says *You already have a skill named "x".* and offers **Replace**. On success the new skill
+  opens. No model is involved. There is no attached-files list: an optional **Add file** (extra files beside `SKILL.md`) was left out on purpose, and `namzu/skills/create` takes no files; a skill with extra files is added with **Upload skill**. Whatever keeps **Create** off is written beside it (*Add a valid name and description before saving.*, *Write what the skill should do.*, the length limit, XML tags), and a disabled primary button is drawn flat and muted so it does not read as live.
+- **Remove** in a row's menu (user and project skills only) asks **Remove skill?** with *"x" will
+  be removed from this computer. A copy is kept in Namzu's backups, so you can put it back.* and
+  moves the folder to the backups.
+- **Add custom connector** is a dialog: **Name**, **MCP server URL** (https, or http on this
+  computer), **Authentication** (**No sign-in**, **Sign in when asked**, or **Header** with a name
+  and a value written as an environment reference such as `Bearer ${EXAMPLE_TOKEN}`; a literal
+  value is not accepted, so no secret is typed or stored), the notice about trusting developers,
+  **Cancel** and **Save**. **Save** stays off until the form is valid, and the reason sits beside it (*Name the connector.*, the address and header rules); once a field has been visited its own problem shows under it. Escape, the backdrop and the X wait while a request runs, as **Cancel** does. It saves through `namzu/mcp/save-user-server`. The server is one of your
+  own settings, so its row reads *Remote*, *Your own settings* and a dash; nothing waits for an
+  approval. Toasts from this page show over it (the page used to hide the notice area with the
+  conversation).
+- The two dialogs and the page follow the page's own parts; the end-to-end run
+  `e2e/ux-customize-actions.test.mjs` drives them with a test hook (`NAMZU_E2E_SKILL_PICK`, a JSON
+  list of paths the file dialog would return, never read by a packaged app).
+
+## Adding, making and removing skills (engine and app plumbing)
+
+The page's Add and Remove actions (above) rest on four host methods in the group `skillsManage`
+(`namzu/skills/stage`, `install`, `create`, `remove`, in the table of [Desktop](desktop.md)), all
+built on the same modules as [`namzu skills add`, `create` and `remove`](skills-add.md). A method
+refuses a Pal, takes exact keys with length caps, and refuses `scope: project` and `tier: project`
+for a folder nobody trusted. An older engine lacks the group, so the page hides the entries it
+cannot serve: the catalog answer carries `canManage`, which main sets from the engine's `skillsManage` group, so an engine with the catalog but without the group hides them too. Success answers carry `It loads in new conversations.`, because a running
+conversation keeps what it loaded.
+
+- **Stage, then install.** `stage` reads and checks what the person chose and returns what each
+  item is, what it can run (`grants`), the scripts it ships and whether the name is already in use;
+  it writes nothing. The items stay in the host's memory for ten minutes (at most four stages, at most 64 MiB of unpacked files in one stage and 128 MiB across all stages; an item over the stage's total is an item with an error, and the oldest stage goes first when the total is passed), and
+  `install` recomputes their digest before it writes, so the app can install only what the person
+  was shown.
+- **Which paths.** The app's main process opens the file dialog (`.skill`, `.zip`, `.md`) and a
+  separate Choose a folder dialog, or takes a drop whose path the preload reads with
+  `webUtils.getPathForFile`. It checks each path with `lstat` (a regular file of at most 30 MB, or a
+  folder, never a link; at most 20 at once) and remembers it for that window (the last 64). The page can name a
+  path only to take back one it was given, and may name it again for as long as the window lives, so adding a second file, removing a card or retrying after a partial failure stages the same paths again; a path it made up is refused before the engine is asked. A \\wsl$ path in a distribution other than the engine's is refused like any other file system.
+  The engine checks everything again. An engine on another file system gets a translated path, or
+  `This engine cannot read that file. Use a file on the engine's computer.`
+- **Connector headers.** The Add custom connector dialog saves through `namzu/mcp/save-user-server`
+  with `headers`: names and values that are environment references only (see [Desktop](desktop.md)).
+- **Consent follows the file.** The *I trust what it can run* tick is kept only for the same file (name, size, file count and description); choosing a different file of the same name asks again.

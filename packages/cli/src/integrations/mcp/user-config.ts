@@ -161,10 +161,44 @@ export interface UserMcpServerInput {
 	readonly command?: string
 	readonly args?: readonly string[]
 	readonly url?: string
+	/** Header name to a value that is an environment reference (`${EXAMPLE_TOKEN}`). Address only. */
+	readonly headers?: Readonly<Record<string, string>>
+}
+
+export const MCP_HEADERS_MAX = 20
+/** A header name: letters, digits and dashes. */
+export const MCP_HEADER_NAME = /^[A-Za-z0-9-]+$/
+/** A header value that is an environment reference, with or without `Bearer `, and nothing else. */
+export const MCP_HEADER_REFERENCE = /^(?:Bearer )?\$\{[A-Za-z_][A-Za-z0-9_]*\}$/
+export const MCP_HEADER_LITERAL_MESSAGE =
+	'A header value is written as an environment reference such as ${EXAMPLE_TOKEN}, so no secret is stored here.'
+
+/** The headers a person gave, checked: names plain, values environment references only. */
+export function checkUserMcpHeaders(
+	headers: Readonly<Record<string, string>>,
+): Readonly<Record<string, string>> {
+	const entries = Object.entries(headers)
+	if (entries.length > MCP_HEADERS_MAX) throw new Error(`Use at most ${MCP_HEADERS_MAX} headers.`)
+	const seen = new Set<string>()
+	const out: Record<string, string> = {}
+	for (const [rawName, rawValue] of entries) {
+		const name = rawName.trim()
+		if (name.length > 100 || !MCP_HEADER_NAME.test(name))
+			throw new Error(`"${rawName.slice(0, 40)}" cannot be a header name.`)
+		if (seen.has(name.toLowerCase())) throw new Error(`The header ${name} is listed twice.`)
+		seen.add(name.toLowerCase())
+		if (typeof rawValue !== 'string' || !MCP_HEADER_REFERENCE.test(rawValue.trim()))
+			throw new Error(MCP_HEADER_LITERAL_MESSAGE)
+		out[name] = rawValue.trim()
+	}
+	return out
 }
 
 export const MCP_NAME_RULE =
 	'A server name starts with a letter and uses only letters, digits, _ or -, up to 64 characters.'
+
+const isLocalHost = (hostname: string): boolean =>
+	['localhost', '127.0.0.1', '[::1]'].includes(hostname)
 
 /** Why an address cannot be a tool server's, in plain words; absent when it can. */
 export function mcpAddressProblem(url: string): string | undefined {
@@ -178,8 +212,7 @@ export function mcpAddressProblem(url: string): string | undefined {
 		return 'The address must start with http or https.'
 	if (parsed.username || parsed.password)
 		return 'Do not put a user name or password in the address.'
-	const remoteInsecure =
-		parsed.protocol === 'http:' && !['localhost', '127.0.0.1', '[::1]'].includes(parsed.hostname)
+	const remoteInsecure = parsed.protocol === 'http:' && !isLocalHost(parsed.hostname)
 	if (remoteInsecure && parsed.search)
 		return 'An address with a query needs https, or must point at this computer.'
 	return undefined
@@ -200,8 +233,18 @@ export function checkUserMcpServerInput(input: UserMcpServerInput): UserMcpServe
 		if (url.length > 2000) throw new Error('That address is too long.')
 		const problem = mcpAddressProblem(url)
 		if (problem) throw new Error(problem)
-		return { url }
+		const headers =
+			input.headers !== undefined && Object.keys(input.headers).length > 0
+				? checkUserMcpHeaders(input.headers)
+				: undefined
+		// A header travels with every request, so it never goes over plain http to another computer.
+		if (headers && new URL(url).protocol === 'http:' && !isLocalHost(new URL(url).hostname))
+			throw new Error('Headers need an https address, or one that points at this computer.')
+		// An empty set is kept as one: an edit reads it as "clear the headers".
+		return { url, ...(headers ? { headers } : input.headers !== undefined ? { headers: {} } : {}) }
 	}
+	if (input.headers !== undefined && Object.keys(input.headers).length > 0)
+		throw new Error('Headers go with an address, not a command.')
 	if (command.length > 2000) throw new Error('That command is too long.')
 	const args = (input.args ?? []).map((arg) => arg.trim()).filter((arg) => arg !== '')
 	if (args.some((arg) => arg.length > 2000)) throw new Error('An argument is too long.')
@@ -315,13 +358,21 @@ function saveCheckedServer(
 ): void {
 	const checked = checkUserMcpServerSave(mode, name, input, opts)
 	if (mode === 'add') {
-		addUserMcpServer(name, checked as McpServerSpec, opts)
+		const { headers, ...rest } = checked
+		const spec = headers && Object.keys(headers).length > 0 ? checked : rest
+		addUserMcpServer(name, spec as McpServerSpec, opts)
 		return
 	}
 	editUserConfigDocument((doc) => {
 		const at = ['mcpServers', name]
 		if (checked.url !== undefined) {
 			doc.setIn([...at, 'url'], checked.url)
+			// Omitted headers are kept (the Settings form never shows them); an empty set clears them.
+			if (checked.headers !== undefined) {
+				if (Object.keys(checked.headers).length > 0)
+					doc.setIn([...at, 'headers'], { ...checked.headers })
+				else doc.deleteIn([...at, 'headers'])
+			}
 			doc.deleteIn([...at, 'command'])
 			doc.deleteIn([...at, 'args'])
 			return
@@ -330,5 +381,7 @@ function saveCheckedServer(
 		if (checked.args && checked.args.length > 0) doc.setIn([...at, 'args'], [...checked.args])
 		else doc.deleteIn([...at, 'args'])
 		doc.deleteIn([...at, 'url'])
+		// Headers belong to an address; a command server keeps none.
+		doc.deleteIn([...at, 'headers'])
 	}, opts)
 }

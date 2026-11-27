@@ -2,8 +2,12 @@ import { describe, expect, it } from 'vitest'
 import {
 	readPluginManifestView,
 	readSkillCatalog,
+	readSkillCreate,
 	readSkillFileText,
 	readSkillFiles,
+	readSkillInstall,
+	readSkillRemove,
+	readSkillStage,
 	withManifestDetails,
 } from './customize-protocol.js'
 
@@ -133,5 +137,112 @@ describe('reading a plugin’s manifest fields', () => {
 			live: false,
 			plugins: [{ name: 'p', version: '1', author: 'A', servers: [{ name: 's' }] }],
 		})
+	})
+})
+
+describe('reading a skill stage', () => {
+	const item = {
+		fileName: 'weekly.md',
+		kind: 'file',
+		name: 'weekly-report',
+		description: 'Does a thing.',
+		files: 1,
+		bytes: 120,
+		findings: ['kept a key'],
+		grants: ['Runs commands: date'],
+		scripts: [],
+	}
+	const stage = { stageId: 's1', expiresAt: '2026-11-27T10:10:00.000Z', items: [item] }
+
+	it('keeps the known fields and drops the rest', () => {
+		const view = readSkillStage({
+			...stage,
+			secret: 1,
+			items: [{ ...item, path: '/home/x', collides: ['user', 'team', 'user', 'project'] }],
+		})
+		expect(view).toEqual({
+			...stage,
+			items: [{ ...item, collides: ['user', 'project'] }],
+		})
+	})
+
+	it('is null unless it has an id, a time and a list', () => {
+		expect(readSkillStage(null)).toBeNull()
+		expect(readSkillStage({ ...stage, stageId: '' })).toBeNull()
+		expect(readSkillStage({ ...stage, expiresAt: 'later' })).toBeNull()
+		expect(readSkillStage({ ...stage, items: 'x' })).toBeNull()
+	})
+
+	it('drops items without a name or kind, caps lines and items, and keeps an error', () => {
+		const view = readSkillStage({
+			...stage,
+			items: [
+				{ ...item, fileName: '' },
+				{ ...item, kind: 'link' },
+				{ fileName: 'bad.txt', kind: 'file', error: 'Not a skill.', findings: 'x' },
+				{ ...item, findings: Array.from({ length: 50 }, () => 'y'.repeat(500)) },
+				...Array.from({ length: 40 }, () => item),
+			],
+		})
+		expect(view?.items.length).toBe(18)
+		expect(view?.items[0]).toEqual({
+			fileName: 'bad.txt',
+			kind: 'file',
+			findings: [],
+			grants: [],
+			scripts: [],
+			error: 'Not a skill.',
+		})
+		expect(view?.items[1]?.findings.length).toBe(20)
+		expect(view?.items[1]?.findings[0]?.length).toBe(300)
+	})
+})
+
+describe('reading the answers to install, create and remove', () => {
+	it('keeps results with a known outcome', () => {
+		expect(
+			readSkillInstall({
+				note: 'It loads in new conversations.',
+				extra: 1,
+				results: [
+					{ name: 'a', outcome: 'added', path: '/p/SKILL.md', secret: 1 },
+					{ name: 'b', outcome: 'failed', error: 'Nope.' },
+					{ name: 'c', outcome: 'maybe' },
+					{ outcome: 'added' },
+				],
+			}),
+		).toEqual({
+			note: 'It loads in new conversations.',
+			results: [
+				{ name: 'a', outcome: 'added', path: '/p/SKILL.md' },
+				{ name: 'b', outcome: 'failed', error: 'Nope.' },
+			],
+		})
+		expect(readSkillInstall({})).toBeNull()
+	})
+
+	it('reads a create answer by its outcome', () => {
+		expect(readSkillCreate({ outcome: 'created', path: '/p', x: 1 })).toEqual({
+			outcome: 'created',
+			path: '/p',
+		})
+		expect(readSkillCreate({ outcome: 'exists', error: 'There.' })).toEqual({
+			outcome: 'exists',
+			error: 'There.',
+		})
+		expect(readSkillCreate({ outcome: 'done' })).toBeNull()
+		expect(readSkillCreate('x')).toBeNull()
+	})
+
+	it('reads a remove answer', () => {
+		expect(readSkillRemove({ outcome: 'removed', backup: '/b', x: 1 })).toEqual({
+			outcome: 'removed',
+			backup: '/b',
+		})
+		expect(readSkillRemove({ outcome: 'not-found', error: 'No skill.' })).toEqual({
+			outcome: 'not-found',
+			error: 'No skill.',
+		})
+		expect(readSkillRemove({})).toBeNull()
 	})
 })

@@ -28,6 +28,8 @@ export interface MenuEntry {
 	disabled?: boolean
 	title?: string
 	checked?: boolean
+	/** Drawn in the danger colour: it takes something away. */
+	danger?: boolean
 }
 
 function MenuItems({ items }: { items: readonly MenuEntry[] }) {
@@ -37,6 +39,7 @@ function MenuItems({ items }: { items: readonly MenuEntry[] }) {
 				<Menu.Item
 					key={item.label}
 					className="menu-item"
+					data-danger={item.danger || undefined}
 					disabled={item.disabled}
 					title={item.title}
 					onClick={item.onSelect}

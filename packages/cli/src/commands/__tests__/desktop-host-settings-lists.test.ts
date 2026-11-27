@@ -160,3 +160,63 @@ it('answers which browser the engine would drive, from the user file, and refuse
 		await owner.close()
 	}
 })
+
+it('takes headers as environment references only, through the host', async () => {
+	const owner = runtime()
+	const host = createDesktopHostExtensions(owner, cwd)
+	try {
+		await host['namzu/mcp/save-user-server']({
+			mode: 'add',
+			name: 'remote',
+			url: 'https://example.com/mcp',
+			headers: { 'X-Api-Key': '${EXAMPLE_TOKEN}' },
+		})
+		const servers = userDoc().mcpServers as Record<string, Record<string, unknown>>
+		expect(servers.remote?.headers).toEqual({ 'X-Api-Key': '${EXAMPLE_TOKEN}' })
+		await expect(
+			host['namzu/mcp/save-user-server']({
+				mode: 'add',
+				name: 'other',
+				url: 'https://example.com/mcp',
+				headers: { 'X-Api-Key': 'sk-live-abc' },
+			}),
+		).rejects.toThrow('environment reference')
+		await expect(
+			host['namzu/mcp/save-user-server']({
+				mode: 'add',
+				name: 'other',
+				url: 'https://example.com/mcp',
+				headers: ['x'],
+			}),
+		).rejects.toThrow('Headers are names')
+		await expect(
+			host['namzu/mcp/save-user-server']({
+				mode: 'add',
+				name: 'other',
+				url: 'https://example.com/mcp',
+				headers: { 'X-A': 5 },
+			}),
+		).rejects.toThrow('Headers are names')
+		const text = readFileSync(userFile(), 'utf8')
+		expect(text).not.toContain('sk-live-abc')
+	} finally {
+		await owner.close()
+	}
+})
+
+it('stages a skill file through the real host wiring: an ordinary folder is not taken for a Pal', async () => {
+	const file = join(root, 'notes.md')
+	writeFileSync(file, '---\nname: notes\ndescription: Keep notes.\n---\nBody.')
+	const owner = runtime()
+	const host = createDesktopHostExtensions(owner, cwd)
+	try {
+		const staged = (await host['namzu/skills/stage']({ paths: [file] })) as unknown as {
+			items: { name?: string; error?: string }[]
+		}
+		expect(staged.items).toHaveLength(1)
+		expect(staged.items[0]?.error).toBeUndefined()
+		expect(staged.items[0]?.name).toBe('notes')
+	} finally {
+		await owner.close?.()
+	}
+})

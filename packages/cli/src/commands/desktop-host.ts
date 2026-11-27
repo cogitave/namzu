@@ -106,6 +106,7 @@ import { createProjectChanges } from './desktop-host-changes.js'
 import { type ProjectGitState, capMarkdown, createProjectGit } from './desktop-host-header.js'
 import { createMemoryHost } from './desktop-host-memory.js'
 import { projectPr } from './desktop-host-pr.js'
+import { createDesktopSkillActions } from './desktop-host-skills.js'
 import { LIMITS_REFRESH_METHOD, type LimitsFeed } from './desktop-limits-feed.js'
 import { type SavedTurnOutcome, savedTurnOutcome } from './desktop-outcome-feed.js'
 import { storedContextReport } from './desktop-stored-context.js'
@@ -929,6 +930,11 @@ export function createDesktopHostExtensions(
 ) {
 	const cwd = canonicalProjectPath(directory)
 	const pal = () => palAtWorkspace(cwd)
+	const skillActions = createDesktopSkillActions({
+		cwd,
+		pal: () => Boolean(pal()),
+		isTrusted,
+	})
 	/** What the skill catalog reads: the project's skills and settings only once the folder is trusted. */
 	const catalogOptions = async () => {
 		const trusted = isTrusted(cwd)
@@ -1796,6 +1802,8 @@ export function createDesktopHostExtensions(
 				...(headless ? { headless } : {}),
 			})
 		},
+		/** Stage, install, create and remove skills for the Customize page. */
+		...skillActions.methods,
 		/** The skills this folder's engine finds, names and tiers only; reads files, runs nothing. */
 		'namzu/skills/list': async (params: Record<string, unknown> = {}) => {
 			if (
@@ -1867,7 +1875,7 @@ export function createDesktopHostExtensions(
 				!params ||
 				typeof params !== 'object' ||
 				Object.keys(params).some(
-					(key) => !['mode', 'name', 'command', 'args', 'url', 'dryRun'].includes(key),
+					(key) => !['mode', 'name', 'command', 'args', 'url', 'headers', 'dryRun'].includes(key),
 				)
 			)
 				throw new Error('Saving a tool server names only the server and what it runs or reaches.')
@@ -1881,10 +1889,21 @@ export function createDesktopHostExtensions(
 				throw new Error('The arguments are a list of words.')
 			if (params.dryRun !== undefined && typeof params.dryRun !== 'boolean')
 				throw new Error('dryRun is true or false.')
+			const headers = params.headers
+			if (
+				headers !== undefined &&
+				(typeof headers !== 'object' ||
+					headers === null ||
+					Array.isArray(headers) ||
+					Object.keys(headers).length > 20 ||
+					Object.values(headers).some((value) => typeof value !== 'string' || value.length > 200))
+			)
+				throw new Error('Headers are names with a value written as an environment reference.')
 			const input = {
 				...(typeof params.command === 'string' ? { command: params.command } : {}),
 				...(args ? { args: args as string[] } : {}),
 				...(typeof params.url === 'string' ? { url: params.url } : {}),
+				...(headers ? { headers: headers as Record<string, string> } : {}),
 			}
 			const name = text(params, 'name', 64)
 			// A dry run says whether the change would be taken, and writes nothing.

@@ -51,6 +51,7 @@ import {
 	SquareSplitVertical,
 	Trash2,
 	TriangleAlert,
+	Upload,
 	UserRound,
 } from 'lucide-react'
 import type { ComponentType, SVGProps } from 'react'
@@ -123,6 +124,7 @@ export const BlocksIcon = createOutlineIcon(Blocks)
 export const MessagesSquareIcon = createOutlineIcon(MessagesSquare)
 export const SettingsIcon = createOutlineIcon(Settings)
 export const PencilIcon = createOutlineIcon(Pencil)
+export const UploadIcon = createOutlineIcon(Upload)
 export const TrashIcon = createOutlineIcon(Trash2)
 export const FolderOpenIcon = createOutlineIcon(FolderOpen)
 export const FolderPlusIcon = createIcon([

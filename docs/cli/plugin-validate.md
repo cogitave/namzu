@@ -79,6 +79,53 @@ A folder with both a `plugin.json` and the common manifest is checked as the
 `plugin.json`, with the warning `manifest-both`. A folder with neither still
 reports `manifest-missing`.
 
+### A hooks module
+
+When `hooks/hooks.json` names a module in `modules`, the module and the files it
+imports by relative path are parsed and never run, and the text report lists what
+it will do before the plugin is ever enabled:
+
+```text
+hooks module hooks/mod.js runs in an isolated worker when the plugin is on:
+  hooks UserPromptSubmit
+  runs commands
+  hooks  classic.UserPromptSubmit  hooks/mod.js:3
+  not used  tool.call  hooks/mod.js:5
+  calls  $.process.run
+```
+
+A module the scan refuses is not described as running:
+
+```text
+warning  hooks/mod.js:3  "PreToolUse" is not an event ...
+         The module does not run; the plugin loads without it.
+hooks module hooks/mod.js is not run:
+  hooks/mod.js:3: "PreToolUse" is not an event ...
+```
+
+A module that registers only patterns Namzu does not run (`tool.call`, `ui.*`)
+is reported as `is not loaded: it registers nothing Namzu runs`. A warning that
+names a pattern or a call is printed once. In `--json`, `hooksModule.status` is
+`runs`, `refused` or `empty`, and `hooks[].runs` is false for every hook of a
+module that does not load.
+
+The first lines are the ones the trust screen and an install prompt show: the
+events it hooks (the names the module spells), and whether it runs commands,
+reads files, uses the network, keeps data or reads environment variables by
+name. Then each pattern it registers (`hooks` when Namzu runs it, `not used`
+when it names an event Namzu does not have) with whether it has a matcher or a
+`.catch`, and each call it makes on `$`. A module the scan refuses (a dynamic
+`import()`, a top-level `await`, an import of anything but its own files, an
+event name that is not a literal, an unknown event, a glob that selects no event,
+a `$` or `on` used other than at a call site, a syntax error) is a warning with
+the code `hooks-module-scan-refused`, naming file and line, and the plugin loads
+without the module. A call on `$` or a pattern Namzu has no place for is a
+warning with the code `hooks-module-not-used`. A second module in `modules` is
+`hooks-modules-refused`. In `--json` the same facts are the optional
+`hooksModule` object: `entry`, `lines`, `summary` (`events`, `runsCommands`,
+`readsFiles`, `usesNetwork`, `keepsData`, `readsEnvironment`, `notUsed`,
+`refused`), `hooks`, `calls` and `files`.
+
 ## Levels
 
 - **error**: the loader refuses the plugin or skips a part. A plugin with an error does not
@@ -181,8 +228,8 @@ same exit status. Messages about a wrong command line go to standard error.
 | `entries-truncated` | warning | A folder held more than 500 markdown files. |
 | `plugin-folder-reserved` | warning | The folder is named `cache`, `marketplaces` or `data` directly under a `plugins/` folder. Namzu keeps installed plugins and their data there, so discovery never scans such a folder and a hand-placed plugin in it is not loaded; rename it. |
 | `not-a-plugin`, `root-not-directory`, `name-invalid`, `dependency-unmet`, `path-escapes`, `too-many-skills`, `too-many-commands`, `too-many-agents`, `too-many-servers`, `nothing-used`, `manifest-invalid` | error | A folder read in the common plugin layout that cannot load as a whole; see [the layout page](../sdk/common-plugin-layout.md#findings). |
-| `skill-invalid`, `inline-text-unsupported`, `path-missing`, `hooks-modules-refused`, `hooks-file-missing`, `hooks-file-invalid`, `mcp-server-both`, `mcp-url-invalid`, `mcp-type-unsupported`, `mcp-command-escapes`, `mcp-name-invalid`, `mcp-file-missing`, `mcp-file-invalid` | warning | One entry of a plugin in the common layout is dropped; the plugin loads without it. |
-| `component-unsupported`, `user-config-unsupported`, `folder-shadowed-by-manifest`, `mcp-server-remote`, `mcp-needs-setup`, `manifest-both` | warning | Something the common layout has that Namzu does not use, a folder the manifest shadows, a remote server that is read and not started, a server that needs setup, or two manifests in one folder. |
+| `skill-invalid`, `inline-text-unsupported`, `path-missing`, `hooks-modules-refused`, `hooks-module-scan-refused`, `hooks-file-missing`, `hooks-file-invalid`, `mcp-server-both`, `mcp-url-invalid`, `mcp-type-unsupported`, `mcp-command-escapes`, `mcp-name-invalid`, `mcp-file-missing`, `mcp-file-invalid` | warning | One entry of a plugin in the common layout is dropped; the plugin loads without it. |
+| `hooks-module-not-used`, `component-unsupported`, `user-config-unsupported`, `folder-shadowed-by-manifest`, `mcp-server-remote`, `mcp-needs-setup`, `manifest-both` | warning | Something the common layout has that Namzu does not use (a pattern or a call in a hooks module included), a folder the manifest shadows, a remote server that is read and not started, a server that needs setup, or two manifests in one folder. |
 
 New codes may be added within version 1.
 

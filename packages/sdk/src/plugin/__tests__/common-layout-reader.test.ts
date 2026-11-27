@@ -482,7 +482,7 @@ describe('hooks', () => {
 		expect(Object.keys(read.manifest?.hookEntries ?? {})).toEqual(['PostToolUse'])
 	})
 
-	it('refuses a modules list for that file only, and ignores an unknown event', async () => {
+	it('reads a modules list in hooks/hooks.json, refusing the module that is not there, and ignores an unknown event', async () => {
 		const root = folder('mod', {
 			[MANIFEST]: { name: 'mod' },
 			'hooks/hooks.json': {
@@ -496,10 +496,11 @@ describe('hooks', () => {
 		})
 		const read = await readCommonLayout(root)
 		expect(read.refusal).toBeUndefined()
-		expect(find(read, 'hooks-modules-refused')).toMatchObject({
+		expect(find(read, 'hooks-module-scan-refused')).toMatchObject({
 			level: 'refused',
-			path: 'hooks/hooks.json',
+			path: 'hooks/m.js',
 		})
+		expect(find(read, 'hooks-modules-refused')).toBeUndefined()
 		expect(find(read, 'hook-event-unknown')?.message).toContain('"Mystery"')
 	})
 

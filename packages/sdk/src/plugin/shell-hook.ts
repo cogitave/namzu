@@ -2251,6 +2251,83 @@ async function runWorktreeHook(
  */
 let nextHookEnvSlot = 0
 
+/**
+ * What a hook is told about an event: the context the kernel dispatched, turned
+ * into the input every kind of hook reads. A command gets it as JSON on stdin,
+ * a module as its `e`.
+ */
+export function shellHookInputFor(
+	event: ShellHookEvent,
+	context: PluginHookContext,
+	options: ShellHookOptions,
+	extra: { readonly envFile?: string; readonly toolNames?: ShellHookToolNames } = {},
+): ShellHookInput {
+	const transcriptPath = options.transcriptPath?.(String(context.sessionId))
+	const permissionMode = options.permissionMode?.()
+	return {
+		event,
+		// A hook told the folder changed runs in the folder entered.
+		cwd: event === 'cwd_changed' && context.newCwd !== undefined ? context.newCwd : options.cwd,
+		...(extra.envFile !== undefined ? { envFile: extra.envFile } : {}),
+		...(context.filePath !== undefined ? { filePath: context.filePath } : {}),
+		...(context.change !== undefined ? { change: context.change } : {}),
+		...(context.oldCwd !== undefined ? { oldCwd: context.oldCwd } : {}),
+		...(context.newCwd !== undefined ? { newCwd: context.newCwd } : {}),
+		...(context.worktreeName !== undefined ? { worktreeName: context.worktreeName } : {}),
+		...(context.worktreeRoot !== undefined ? { worktreeRoot: context.worktreeRoot } : {}),
+		...(context.worktreeBaseRef !== undefined ? { worktreeBaseRef: context.worktreeBaseRef } : {}),
+		...(context.worktreePath !== undefined ? { worktreePath: context.worktreePath } : {}),
+		...(context.modelSwitch !== undefined ? { modelSwitch: context.modelSwitch } : {}),
+		...(context.elicitation !== undefined ? { elicitation: context.elicitation } : {}),
+		...(context.directory !== undefined ? { directory: context.directory } : {}),
+		...(context.directorySource !== undefined ? { directorySource: context.directorySource } : {}),
+		...(context.instructions !== undefined ? { instructions: context.instructions } : {}),
+		...(context.expansion !== undefined ? { expansion: context.expansion } : {}),
+		...(context.skillShell !== undefined ? { skillShell: context.skillShell } : {}),
+		...(context.task !== undefined ? { task: context.task } : {}),
+		...(context.teammateName !== undefined ? { teammateName: context.teammateName } : {}),
+		...(context.teamName !== undefined ? { teamName: context.teamName } : {}),
+		...(options.projectDir !== undefined ? { projectDir: options.projectDir } : {}),
+		...(options.plugin !== undefined ? { plugin: options.plugin } : {}),
+		sessionId: String(context.sessionId),
+		...(context.source !== undefined ? { sessionSource: context.source } : {}),
+		...(context.endReason !== undefined ? { endReason: context.endReason } : {}),
+		...(context.turnId !== undefined ? { turnId: String(context.turnId) } : {}),
+		...(context.parentSessionId !== undefined
+			? { parentSessionId: String(context.parentSessionId) }
+			: {}),
+		...(context.parentTurnId !== undefined ? { parentTurnId: String(context.parentTurnId) } : {}),
+		...(context.agentType !== undefined ? { agentType: context.agentType } : {}),
+		...(context.prompt !== undefined ? { prompt: context.prompt } : {}),
+		...(context.compaction !== undefined ? { compaction: context.compaction } : {}),
+		...(context.toolName !== undefined ? { toolName: context.toolName } : {}),
+		...(extra.toolNames !== undefined ? { toolNames: extra.toolNames } : {}),
+		...(context.toolCallId !== undefined ? { toolCallId: context.toolCallId } : {}),
+		...(context.toolInput !== undefined ? { toolInput: context.toolInput } : {}),
+		...(context.toolResult !== undefined
+			? {
+					toolResult: {
+						success: context.toolResult.success,
+						output: context.toolResult.output,
+						...(context.toolResult.error !== undefined ? { error: context.toolResult.error } : {}),
+					},
+				}
+			: {}),
+		...(context.toolCalls !== undefined ? { toolCalls: context.toolCalls } : {}),
+		...(context.reason !== undefined ? { reason: context.reason } : {}),
+		...(context.error !== undefined ? { error: context.error } : {}),
+		...(context.notification !== undefined ? { notification: context.notification } : {}),
+		...(context.stopHookActive === true ? { stopHookActive: true } : {}),
+		...(context.lastAssistantMessage !== undefined
+			? { lastAssistantMessage: context.lastAssistantMessage }
+			: {}),
+		...(transcriptPath !== undefined ? { transcriptPath } : {}),
+		...(permissionMode !== undefined ? { permissionMode } : {}),
+		...(options.extraEnv !== undefined ? { extraEnv: options.extraEnv } : {}),
+		...(options.skillRoot !== undefined ? { skillRoot: options.skillRoot } : {}),
+	}
+}
+
 /** One entry as a hook definition the lifecycle manager accepts. */
 export function createShellHook(
 	event: ShellHookEvent,
@@ -2355,8 +2432,6 @@ export function createShellHook(
 			}
 			if (entry.once === true && !doesTheWork) spent = true
 			options.onRun?.({ event })
-			const transcriptPath = options.transcriptPath?.(String(context.sessionId))
-			const permissionMode = options.permissionMode?.()
 			const envEvent =
 				event === 'session_start' || event === 'cwd_changed' || event === 'file_changed'
 					? event
@@ -2366,76 +2441,10 @@ export function createShellHook(
 				envEvent !== undefined && runsACommand
 					? options.hookEnv?.fileFor(envEvent, envSlot)
 					: undefined
-			const hookInput: ShellHookInput = {
-				event,
-				// A hook told the folder changed runs in the folder entered.
-				cwd: event === 'cwd_changed' && context.newCwd !== undefined ? context.newCwd : options.cwd,
+			const hookInput = shellHookInputFor(event, context, options, {
 				...(envFile !== undefined ? { envFile } : {}),
-				...(context.filePath !== undefined ? { filePath: context.filePath } : {}),
-				...(context.change !== undefined ? { change: context.change } : {}),
-				...(context.oldCwd !== undefined ? { oldCwd: context.oldCwd } : {}),
-				...(context.newCwd !== undefined ? { newCwd: context.newCwd } : {}),
-				...(context.worktreeName !== undefined ? { worktreeName: context.worktreeName } : {}),
-				...(context.worktreeRoot !== undefined ? { worktreeRoot: context.worktreeRoot } : {}),
-				...(context.worktreeBaseRef !== undefined
-					? { worktreeBaseRef: context.worktreeBaseRef }
-					: {}),
-				...(context.worktreePath !== undefined ? { worktreePath: context.worktreePath } : {}),
-				...(context.modelSwitch !== undefined ? { modelSwitch: context.modelSwitch } : {}),
-				...(context.elicitation !== undefined ? { elicitation: context.elicitation } : {}),
-				...(context.directory !== undefined ? { directory: context.directory } : {}),
-				...(context.directorySource !== undefined
-					? { directorySource: context.directorySource }
-					: {}),
-				...(context.instructions !== undefined ? { instructions: context.instructions } : {}),
-				...(context.expansion !== undefined ? { expansion: context.expansion } : {}),
-				...(context.skillShell !== undefined ? { skillShell: context.skillShell } : {}),
-				...(context.task !== undefined ? { task: context.task } : {}),
-				...(context.teammateName !== undefined ? { teammateName: context.teammateName } : {}),
-				...(context.teamName !== undefined ? { teamName: context.teamName } : {}),
-				...(options.projectDir !== undefined ? { projectDir: options.projectDir } : {}),
-				...(options.plugin !== undefined ? { plugin: options.plugin } : {}),
-				sessionId: String(context.sessionId),
-				...(context.source !== undefined ? { sessionSource: context.source } : {}),
-				...(context.endReason !== undefined ? { endReason: context.endReason } : {}),
-				...(context.turnId !== undefined ? { turnId: String(context.turnId) } : {}),
-				...(context.parentSessionId !== undefined
-					? { parentSessionId: String(context.parentSessionId) }
-					: {}),
-				...(context.parentTurnId !== undefined
-					? { parentTurnId: String(context.parentTurnId) }
-					: {}),
-				...(context.agentType !== undefined ? { agentType: context.agentType } : {}),
-				...(context.prompt !== undefined ? { prompt: context.prompt } : {}),
-				...(context.compaction !== undefined ? { compaction: context.compaction } : {}),
-				...(context.toolName !== undefined ? { toolName: context.toolName } : {}),
 				...(entry.toolNames !== undefined ? { toolNames: entry.toolNames } : {}),
-				...(context.toolCallId !== undefined ? { toolCallId: context.toolCallId } : {}),
-				...(context.toolInput !== undefined ? { toolInput: context.toolInput } : {}),
-				...(context.toolResult !== undefined
-					? {
-							toolResult: {
-								success: context.toolResult.success,
-								output: context.toolResult.output,
-								...(context.toolResult.error !== undefined
-									? { error: context.toolResult.error }
-									: {}),
-							},
-						}
-					: {}),
-				...(context.toolCalls !== undefined ? { toolCalls: context.toolCalls } : {}),
-				...(context.reason !== undefined ? { reason: context.reason } : {}),
-				...(context.error !== undefined ? { error: context.error } : {}),
-				...(context.notification !== undefined ? { notification: context.notification } : {}),
-				...(context.stopHookActive === true ? { stopHookActive: true } : {}),
-				...(context.lastAssistantMessage !== undefined
-					? { lastAssistantMessage: context.lastAssistantMessage }
-					: {}),
-				...(transcriptPath !== undefined ? { transcriptPath } : {}),
-				...(permissionMode !== undefined ? { permissionMode } : {}),
-				...(options.extraEnv !== undefined ? { extraEnv: options.extraEnv } : {}),
-				...(options.skillRoot !== undefined ? { skillRoot: options.skillRoot } : {}),
-			}
+			})
 			const verdictCall: ShellHookCall = {
 				...(context.toolName !== undefined ? { toolName: context.toolName } : {}),
 				...(context.toolInput !== undefined ? { toolInput: context.toolInput } : {}),

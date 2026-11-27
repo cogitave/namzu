@@ -106,6 +106,12 @@
       "namzu/skills/files",
       "namzu/skills/read_file"
     ],
+    "skillsManage": [
+      "namzu/skills/stage",
+      "namzu/skills/install",
+      "namzu/skills/create",
+      "namzu/skills/remove"
+    ],
     "browserStatus": [
       "namzu/browser/status"
     ],

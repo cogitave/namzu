@@ -58,6 +58,8 @@ interface PluginContributionRecord {
 	configReleases: Array<() => void>
 	/** Namespaced skill names, so rollback and disable can take them back. */
 	skillNames: string[]
+	/** Ends what a host started for the plugin (a hooks module's worker). */
+	disposers: Array<() => Promise<void> | void>
 }
 
 interface PluginAdmission {
@@ -267,6 +269,33 @@ export interface PluginLifecycleManagerConfig {
 		readonly scope: PluginScope
 	}) => readonly PluginHookDefinition[] | Promise<readonly PluginHookDefinition[]>
 	/**
+	 * The hooks module a plugin ships, when the host runs it. Called when the
+	 * plugin is enabled; the hooks it returns are attached beside the plugin's
+	 * others, and `dispose` is called when the plugin is disabled, uninstalled
+	 * or its enable is rolled back, so the module lives exactly as long as the
+	 * plugin is on. A module that cannot load answers with no hooks; it must not
+	 * throw for that, so one plugin's bad module does not stop the plugin's other
+	 * contributions. Not called for a plugin defined in code.
+	 */
+	hookModuleFor?: (plugin: {
+		readonly id: PluginId
+		readonly manifest: PluginManifest
+		readonly rootDir: string
+		readonly scope: PluginScope
+	}) =>
+		| {
+				readonly hooks: readonly PluginHookDefinition[]
+				readonly dispose: () => Promise<void> | void
+		  }
+		| undefined
+		| Promise<
+				| {
+						readonly hooks: readonly PluginHookDefinition[]
+						readonly dispose: () => Promise<void> | void
+				  }
+				| undefined
+		  >
+	/**
 	 * Where each MCP server's reconnect policy is registered, so an operator
 	 * can retune it while a turn is live.
 	 *
@@ -350,6 +379,7 @@ export class PluginLifecycleManager {
 	private pluginAdmissions: Map<PluginId, PluginAdmission> = new Map()
 	private hookTimeoutMs: number
 	private readonly hooksFor: PluginLifecycleManagerConfig['hooksFor']
+	private readonly hookModuleFor: PluginLifecycleManagerConfig['hookModuleFor']
 	private readonly pathValues: PluginLifecycleManagerConfig['pathValues']
 	private readonly configRegistry: ConfigRegistry | undefined
 	private readonly scopeRoots: Readonly<Record<PluginScope, string>>
@@ -378,6 +408,7 @@ export class PluginLifecycleManager {
 		this.scopeRoots = Object.freeze({ ...config.scopeRoots })
 		this.hookTimeoutMs = config.hookTimeoutMs ?? HOOK_TIMEOUT_MS
 		this.hooksFor = config.hooksFor
+		this.hookModuleFor = config.hookModuleFor
 		this.pathValues = config.pathValues
 		this.configRegistry = config.configRegistry
 		this.mcpToolPolicies = config.mcpToolPolicies
@@ -894,6 +925,7 @@ export class PluginLifecycleManager {
 			mcpNamesBySource: new Map(),
 			configReleases: [],
 			skillNames: [],
+			disposers: [],
 		}
 
 		try {
@@ -997,6 +1029,20 @@ export class PluginLifecycleManager {
 					scope: admission.scope,
 				})
 				for (const hook of shipped) this.addHook(pluginId, hook, true)
+			}
+
+			// The module the plugin ships, run in a worker of its own by the host.
+			if (!admission.inCode && this.hookModuleFor) {
+				const started = await this.hookModuleFor({
+					id: pluginId,
+					manifest,
+					rootDir: admission.rootDir,
+					scope: admission.scope,
+				})
+				if (started !== undefined) {
+					contributions.disposers.push(started.dispose)
+					for (const hook of started.hooks) this.registerHook(pluginId, hook)
+				}
 			}
 
 			// Start MCP servers and adapt their tools
@@ -1164,6 +1210,7 @@ export class PluginLifecycleManager {
 		contributions: PluginContributionRecord,
 	): Promise<void> {
 		await this.stopMcpContributions(contributions, 'rollback')
+		await this.runDisposers(contributions, 'rollback')
 		for (const name of contributions.toolNames) {
 			try {
 				this.removeContributedTool(name)
@@ -1188,6 +1235,22 @@ export class PluginLifecycleManager {
 			}
 		}
 		this.notifyHooksChanged()
+	}
+
+	private async runDisposers(
+		contributions: PluginContributionRecord,
+		operation: 'rollback' | 'disable',
+	): Promise<void> {
+		for (const dispose of contributions.disposers.splice(0)) {
+			try {
+				await dispose()
+			} catch (error) {
+				this.log.warn('Plugin disposer failed', {
+					'namzu.plugin.operation': operation,
+					'exception.message': toErrorMessage(error),
+				})
+			}
+		}
 	}
 
 	private async stopMcpContributions(
@@ -1248,6 +1311,7 @@ export class PluginLifecycleManager {
 		}
 
 		await this.stopMcpContributions(contributions, 'disable')
+		await this.runDisposers(contributions, 'disable')
 
 		// Unregister file-declared tools; MCP entries were removed above.
 		for (const name of contributions.toolNames) {
