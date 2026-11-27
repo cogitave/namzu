@@ -1904,7 +1904,7 @@ function register(): void {
 	handle('uninstallPlugin', (change: unknown, projectId?: string) =>
 		operator.uninstallPlugin(change, projectId),
 	)
-	handle('cancelOp', (opId: unknown) => operator.cancelOp(opId))
+	handle('cancelOp', (opId: unknown, projectId?: string) => operator.cancelOp(opId, projectId))
 	handle('engineBrowser', () => operator.engineBrowser())
 	handle('standingInstructions', () => operator.standingInstructions())
 	handle('saveStandingInstructions', (text: unknown, revision: unknown) =>

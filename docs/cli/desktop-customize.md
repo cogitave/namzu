@@ -182,6 +182,17 @@ what it cannot serve.
 - **Long steps.** A call may carry an `opId` the app chose. Progress arrives as the notification
   `namzu/ops/progress`, which main forwards as the event `op-progress`; `namzu/ops/cancel` stops the
   step at its next check, before it writes anything. A write that has started is not interrupted.
+  Each project has its own host, so `cancelOp(opId, projectId)` goes to the host the step ran on.
+  The page names every read with a fresh `opId` and cancels the one before it when the place
+  changes, on Cancel and when the page closes.
+- **The consent surface is never cut.** The view of `plan` and `update` carries every hook command,
+  server command, argument, address and variable name whole. A plugin with a runnable string over
+  2000 characters or more than 100 rows in a list is refused (`This plugin runs more than can be
+  shown in full here, so it was not read. Install it from the command line, which lists
+  everything.`); the page reads strings up to 2000 characters without a cut.
+- **Removing a marketplace** removes the plugins you installed from it for yourself and for this
+  folder. If one is installed for another folder, the call is refused before anything is written and
+  names it; remove it from that folder first.
 - **Which paths.** Main opens a plugin file dialog (`.zip` or `.plugin`) and a folder dialog, or takes
   a drop, through the same path registry as skills. A file passes only when `lstat` says it is a
   regular file of at most 200 MB whose first bytes are a zip signature; a link, another extension or
@@ -229,9 +240,12 @@ nothing, and the page then shows the old Plugins tab and **Create with Namzu** o
 - **The consent card** is what the **+** opens, and what **Upload plugin** shows after reading the
   file: **Install for** (**Yours** or **This project**; the second is off, with the reason, in a
   folder nobody trusted), the plugin's name and version, **This plugin adds** (skills, commands,
-  agents, tools it may use), **Runs on this computer** (each hook with its event and command, each
-  local server with its command and the names of the variables it would get, each remote server with
-  its address and what it would send, hook modules, scripts, an unpinned download), **Not used by
+  agents, tools it may use), **Runs on this computer** (what the command-line preview lists, at full
+  strength and with each command whole in monospace: each hook with its type, its event in words
+  (*Before a tool runs (Bash)*) and command, each local server with its command, the names of the
+  variables it would get and *needs setup*, each remote server with its address and what it would
+  send, each module with whether it is isolated and what it declares, each script with its size and
+  *executable*, an unpinned download), **Left out** (what the reader refused), **Not used by
   Namzu** (muted), the digest in small print, *Plugins run code on your computer, with access to your
   files. Install only what you trust.* and, when plugin loading is off, an unticked *Turn on plugin
   loading (needed for plugins to run)*. **Install** is the consent: it sends the digest of what was

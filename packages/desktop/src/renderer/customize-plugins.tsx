@@ -4,7 +4,13 @@ import type {
 	ComposerPluginInventory,
 	usePluginInventory,
 } from './composer-plugins.js'
-import { NO_PLUGINS, USE_SKILLS_NOTE, longUpdated, shortUpdated } from './customize-model.js'
+import {
+	NO_PLUGINS,
+	NO_PLUGINS_NOTE,
+	USE_SKILLS_NOTE,
+	longUpdated,
+	shortUpdated,
+} from './customize-model.js'
 import {
 	Chip,
 	DetailFrame,
@@ -33,7 +39,7 @@ type Inventory = ReturnType<typeof usePluginInventory>
 export const pluginIsOff = (plugin: ComposerPlugin, live: boolean): boolean =>
 	live ? plugin.status === 'disabled' : plugin.startupEnabled === false
 
-const pluginPlace = (plugin: ComposerPlugin) => (plugin.scope === 'user' ? 'user' : 'project')
+const pluginPlace = (plugin: ComposerPlugin) => (plugin.scope === 'user' ? 'Yours' : 'This project')
 
 /** Why a plugin cannot be switched now, in the words the old page used; nothing when it can. */
 export function pluginChangeNotice(view: ComposerPluginInventory | undefined): string | undefined {
@@ -125,6 +131,9 @@ function PluginGroupList({
 							key={`${plugin.scope}:${plugin.name}`}
 							className="customize-row"
 							data-off={off || undefined}
+							data-update={
+								(plugin.id && row?.actions.states[plugin.id]?.kind === 'available') || undefined
+							}
 						>
 							<button
 								type="button"
@@ -155,6 +164,17 @@ function PluginGroupList({
 								</span>
 								<span className="customize-row-time">{shortUpdated(plugin.updatedAt, now)}</span>
 							</button>
+							{plugin.id && row?.actions.states[plugin.id]?.kind === 'available' && (
+								<Button
+									variant="outline"
+									size="sm"
+									className="customize-row-update"
+									aria-label={`Update ${plugin.name}`}
+									onClick={() => void row.actions.update(plugin)}
+								>
+									Update
+								</Button>
+							)}
 							<MoreMenu
 								label={`Actions for ${plugin.name}`}
 								items={pluginEntries(plugin, view, inventory, row, onOpen)}
@@ -192,7 +212,16 @@ export function PluginsEmpty({
 	searching,
 	disabled,
 	onChooseSpace,
-}: { searching: boolean; disabled: boolean; onChooseSpace: () => void }) {
+	onAddMarketplace,
+	onUpload,
+}: {
+	searching: boolean
+	disabled: boolean
+	onChooseSpace: () => void
+	/** Where there is a way to add one: the two entries the Add menu has. */
+	onAddMarketplace?: () => void
+	onUpload?: () => void
+}) {
 	if (disabled)
 		return (
 			<EmptyState
@@ -205,7 +234,32 @@ export function PluginsEmpty({
 				Open a trusted project to see its installed plugins.
 			</EmptyState>
 		)
-	return <EmptyState>{searching ? 'No plugins match your search.' : NO_PLUGINS}</EmptyState>
+	if (searching) return <EmptyState>No plugins match your search.</EmptyState>
+	return (
+		<EmptyState
+			action={
+				<>
+					{(onAddMarketplace || onUpload) && (
+						<div className="customize-empty-actions">
+							{onAddMarketplace && (
+								<Button variant="outline" size="sm" onClick={onAddMarketplace}>
+									Add marketplace
+								</Button>
+							)}
+							{onUpload && (
+								<Button variant="outline" size="sm" onClick={onUpload}>
+									Upload plugin
+								</Button>
+							)}
+						</div>
+					)}
+					<p className="customize-footnote">{NO_PLUGINS_NOTE}</p>
+				</>
+			}
+		>
+			{NO_PLUGINS}
+		</EmptyState>
+	)
 }
 
 export type PluginDetailTab = 'overview' | 'skills' | 'connectors'
@@ -314,7 +368,7 @@ export function PluginDetail({
 							<dl className="customize-info">
 								<div>
 									<dt>Installation</dt>
-									<dd>{plugin.scope === 'user' ? 'Personal' : 'Project'}</dd>
+									<dd>{pluginPlace(plugin)}</dd>
 								</div>
 								{plugin.version && (
 									<div>

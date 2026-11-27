@@ -121,7 +121,12 @@ export function CustomizePage({
 	// The button that opened a dialog gets the focus back when it closes.
 	const opener = useRef<HTMLElement | null>(null)
 	const openDialog = (next: NonNullable<typeof dialog>) => {
-		opener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
+		// A menu entry goes away when chosen: the button that opened the menu is what gets the focus back.
+		const active = document.activeElement
+		opener.current =
+			active instanceof HTMLElement && active.getAttribute('role') !== 'menuitem'
+				? active
+				: document.querySelector<HTMLElement>('[aria-haspopup="menu"][aria-expanded="true"]')
 		setDialog(next)
 	}
 	const returnFocus = () => opener.current
@@ -406,6 +411,7 @@ export function CustomizePage({
 					description={TURN_OFF_BODY}
 					actionLabel="Turn off"
 					pendingLabel="Turning off…"
+					tone="default"
 					returnFocus={returnFocus}
 					onConfirm={() =>
 						pluginActions.setSaved((dialog as { turnOff: ComposerPlugin }).turnOff, false)
@@ -590,6 +596,10 @@ export function CustomizePage({
 													searching={query.trim() !== ''}
 													disabled={Boolean(disabled)}
 													onChooseSpace={onChooseSpace}
+													onAddMarketplace={
+														canManagePlugins ? () => openDialog('marketplace') : undefined
+													}
+													onUpload={canManagePlugins ? () => setUploadPlugin(true) : undefined}
 												/>
 											) : (
 												<p className="customize-muted">Loading plugins…</p>

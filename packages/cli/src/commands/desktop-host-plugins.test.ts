@@ -23,6 +23,7 @@ import {
 	PLUGIN_STAGE_TTL_MS,
 	PLUGIN_TRUST_MESSAGE,
 	createDesktopPluginActions,
+	surfaceView,
 } from './desktop-host-plugins.js'
 
 let root: string
@@ -197,6 +198,29 @@ describe('namzu/marketplaces', () => {
 		expect(existsSync(join(dir, 'plugins/ledger'))).toBe(true)
 	})
 
+	it('does not remove a marketplace while a plugin from it is installed in another folder', async () => {
+		const m = actions()
+		const dir = market()
+		await addMarket(m, dir)
+		const plan = await planOf(m, 'ledger@team', 'project')
+		await m.methods['namzu/plugins/install']({
+			planId: plan.planId,
+			digest: plan.digest,
+			scope: 'project',
+			consent: true,
+		})
+		// Seen from a different folder, that record belongs to the other one.
+		cwd = join(root, 'elsewhere')
+		mkdirSync(cwd, { recursive: true })
+		const other = actions()
+		expect(() =>
+			other.methods['namzu/marketplaces/remove']({ name: 'team', confirm: true }),
+		).toThrow('installed in another folder')
+		expect(
+			(other.methods['namzu/marketplaces/list']({}) as { marketplaces: unknown[] }).marketplaces,
+		).toHaveLength(1)
+	})
+
 	it('validates exact keys, names and scopes, and refuses a project place in an untrusted folder', async () => {
 		const m = actions()
 		const dir = market()
@@ -317,6 +341,33 @@ describe('namzu/plugins/plan and install', () => {
 			}),
 		).rejects.toThrow(PLUGIN_GONE_MESSAGE)
 		expect(readdirSync(join(home, '.namzu', 'plugins', '.staging'))).toEqual([])
+	})
+
+	it('shows a long command whole, and refuses a plugin it could only show cut', async () => {
+		const hookFor = (command: string) => ({
+			'hooks/hooks.json': {
+				hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command }] }] },
+			},
+		})
+		const long = `echo ${'a'.repeat(1200)} tail-end`
+		const m = actions()
+		await addMarket(m, market('team', '1.0.0', hookFor(long)))
+		const plan = await planOf(m)
+		expect(plan.surface.hooks[0]?.run).toBe(long)
+
+		const m2 = actions()
+		await addMarket(m2, market('big', '1.0.0', hookFor(`echo ${'b'.repeat(2100)}`)))
+		await expect(planOf(m2, 'ledger@big')).rejects.toThrow('more than can be shown in full')
+
+		// A list past its cap is refused too, not cut: the engine's own limits keep real plugins below it.
+		const hooks = Array.from({ length: 101 }, (_, i) => ({
+			event: 'pre_tool_use',
+			type: 'command',
+			run: `h${i}`,
+		}))
+		expect(() =>
+			surfaceView({ ...plan.surface, hooks } as unknown as Parameters<typeof surfaceView>[0]),
+		).toThrow('more than can be shown in full')
 	})
 
 	it('says loading is off when it is not turned on, and shows what a remote server would send', async () => {

@@ -226,7 +226,15 @@ test("Customize plugins: add a marketplace, discover, install, update, turn off,
 		await expect(dialog).toBeVisible({ timeout: T });
 		await expect(dialog).toContainText("Only add marketplaces you trust.");
 		await expect(dialog.getByRole("button", { name: "Add", exact: true })).toBeDisabled();
+		await expect(dialog).toContainText("Enter an address to continue.");
 		await shoot(w, "2-marketplace-empty");
+		// Escape closes the dialog and focus returns to the Add button that opened it.
+		await w.page.keyboard.press("Escape");
+		await expect(dialog).toHaveCount(0, { timeout: T });
+		await expect(page(w).getByRole("button", { name: "Add", exact: true })).toBeFocused({ timeout: T });
+		await page(w).getByRole("button", { name: "Add", exact: true }).click();
+		await w.page.getByRole("menuitem", { name: "Add marketplace" }).click();
+		await expect(dialog).toBeVisible({ timeout: T });
 		await dialog.getByLabel("URL").fill(market);
 		await expect(dialog.getByText(`Will add ${market}`)).toBeVisible({ timeout: T });
 		await shoot(w, "3-marketplace-filled");

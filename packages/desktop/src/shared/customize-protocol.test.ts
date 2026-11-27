@@ -428,6 +428,14 @@ describe('reading marketplace answers', () => {
 })
 
 describe('reading plugin answers', () => {
+	it('reads what runs whole, so a long command is not cut where the person says yes', () => {
+		const run = `echo ${'a'.repeat(1500)} tail-end`
+		const view = readPluginPlan({
+			...plan,
+			surface: { ...plan.surface, hooks: [{ event: 'pre_tool_use', type: 'command', run }] },
+		})
+		expect(view?.surface.hooks[0]?.run).toBe(run)
+	})
 	it('reads a plan with its surface and digest, and keeps names but never environment values', () => {
 		const view = readPluginPlan(plan)
 		expect(view?.digest).toBe(digest)

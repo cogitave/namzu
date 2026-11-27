@@ -171,13 +171,47 @@ describe('the consent sections', () => {
 		expect(sections.map((s) => s.id)).toEqual(['adds', 'runs', 'ignored'])
 		expect(sections[0]?.lines).toEqual(['Skills: deploy', 'Commands: ship'])
 		const runs = sections[1]?.lines.join('\n') ?? ''
-		expect(runs).toContain('Hook on PreToolUse (Bash): audit.sh')
-		expect(runs).toContain('Server books: node serve.js, with BOOKS_KEY')
+		expect(runs).toContain('Hook: Before a tool runs (Bash): audit.sh')
+		expect(runs).toContain('Server books (environment: BOOKS_KEY): node serve.js')
 		expect(runs).toContain(
-			'Server cloud at https://mcp.example.com, sends CLOUD_TOKEN, Authorization',
+			'Server cloud (asks you before it connects; would send $CLOUD_TOKEN; headers: Authorization): https://mcp.example.com',
 		)
-		expect(runs).toContain('3 scripts it ships (first 1 listed)')
+		expect(runs).toContain('Script (4 B, executable): a.sh')
+		expect(runs).toContain('and 2 more scripts it ships')
 		expect(sections[2]).toMatchObject({ muted: true, lines: ['extra.json is not used.'] })
+	})
+	it('shows what the command line shows: hook type, module isolation, needs setup, and what was left out', () => {
+		const sections = consentSections(
+			surface({
+				hooks: [{ event: 'session_start', type: 'prompt', run: 'say hi' }],
+				mcpLocal: [{ name: 'a', command: 'x', args: [], envNames: [], needsSetup: true }],
+				modules: [
+					{ path: 'm1.js', isolated: true, declares: ['network'] },
+					{ path: 'm2.js' },
+					{ path: 'm3.js', refused: 'no manifest' },
+				],
+			}),
+			undefined,
+			[{ level: 'refused', code: 'x', message: 'hooks.json entry 2 was left out.' }],
+		)
+		const runs = sections.find((s) => s.id === 'runs')?.lines.join('\n') ?? ''
+		expect(runs).toContain('Prompt hook: When a conversation starts: say hi')
+		expect(runs).toContain('needs setup: not started until its variables are set')
+		expect(runs).toContain('Module (runs in an isolated worker; network): m1.js')
+		expect(runs).toContain('Module (JavaScript that runs inside the session')
+		expect(runs).toContain('Module (not run: no manifest): m3.js')
+		expect(sections.find((s) => s.id === 'left')?.lines).toEqual([
+			'hooks.json entry 2 was left out.',
+		])
+	})
+	it('keeps a long command whole', () => {
+		const long = `node ${'a'.repeat(1500)} --tail-end`
+		const runs = consentSections(
+			surface({ mcpLocal: [{ name: 'a', command: 'node', args: [long.slice(5)], envNames: [] }] }),
+			undefined,
+			[],
+		)[0]
+		expect(runs?.rows[0]?.code).toContain('--tail-end')
 	})
 	it('has no section for what a plugin does not do', () => {
 		expect(consentSections(surface(), { skills: [], commands: [], agents: [] }, [])).toEqual([])

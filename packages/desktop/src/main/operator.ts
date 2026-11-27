@@ -1800,9 +1800,10 @@ export class Operator {
 		)
 	}
 	/** Stops a long step by the id the page named it with; false when nothing by that id was running. */
-	async cancelOp(opId: unknown): Promise<boolean> {
+	async cancelOp(opId: unknown, projectId?: unknown): Promise<boolean> {
 		if (typeof opId !== 'string' || !OP_ID_PATTERN.test(opId)) throw new Error('Invalid opId.')
-		const plugins = await this.pluginsManageClient(undefined)
+		// The step runs on the client it started on: a project's own host holds its ops.
+		const plugins = await this.pluginsManageClient(projectId)
 		if (!plugins) return false
 		return (
 			readOpCancel(await plugins.client.request('namzu/ops/cancel', { opId }))?.cancelled === true

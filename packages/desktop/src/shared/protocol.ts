@@ -1284,7 +1284,7 @@ export interface DesktopApi {
 		projectId?: string,
 	): Promise<PluginUninstallView | null>
 	/** Stops a long step by the id the app named it with. */
-	cancelOp?(opId: string): Promise<boolean>
+	cancelOp?(opId: string, projectId?: string): Promise<boolean>
 	/** Which browser the engine would drive on this computer, read without launching it; null where the engine cannot say. */
 	engineBrowser?(): Promise<EngineBrowserView | null>
 	/** The person's own instructions every conversation starts from; null where the engine cannot say. */

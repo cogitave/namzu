@@ -95,6 +95,8 @@ export const PLUGIN_LOADS_NEXT_NOTE = 'It loads in new conversations.'
 export const PLUGIN_PLACE_MESSAGE = 'Read it again for this place before installing.'
 
 const LINE_MAX = 300
+/** A runnable string longer than this is refused, never cut: the person must read all of it. */
+const RUN_MAX = 2000
 const LIST_MAX = 100
 const FINDINGS_MAX = 50
 const OP_ID = /^[A-Za-z0-9_-]{8,64}$/
@@ -211,6 +213,36 @@ function recomputeDigest(plan: InstallPlan): string | undefined {
 	}
 }
 
+/**
+ * Refuses to plan when the consent view could not show everything that runs: a list past its cap
+ * or a runnable string past RUN_MAX. Cutting it would hide the tail from the person who says yes.
+ */
+function assertViewable(surface: InstallPlan['surface']): void {
+	const runnable: string[] = []
+	for (const h of surface.hooks) runnable.push(h.event, h.matcher ?? '', h.run, h.from ?? '')
+	for (const h of surface.fileHooks) runnable.push(h.name, h.event, h.run)
+	for (const m of surface.mcpLocal)
+		runnable.push(m.name, m.command, ...m.args, ...Object.keys(m.env))
+	for (const m of surface.mcpRemote) runnable.push(m.name, m.origin, ...m.sendsEnv, ...m.headers)
+	for (const m of surface.modules) runnable.push(m.path, ...(m.declares ?? []), m.refused ?? '')
+	for (const r of surface.allowedTools) runnable.push(r.name, ...r.tools)
+	const lists = [
+		surface.hooks,
+		surface.fileHooks,
+		surface.mcpLocal,
+		surface.mcpRemote,
+		surface.modules,
+		surface.allowedTools,
+	]
+	const tooMany = lists.some((l) => l.length > LIST_MAX)
+	const tooLong = runnable.some((v) => v.length > RUN_MAX)
+	if (tooMany || tooLong)
+		throw new PlanRefusal(
+			64,
+			'This plugin runs more than can be shown in full here, so it was not read. Install it from the command line, which lists everything.',
+		)
+}
+
 export interface PluginSurfaceView {
 	hooks: { event: string; matcher?: string; type: string; run: string; from?: string }[]
 	fileHooks: { kind: string; name: string; event: string; type: string; run: string }[]
@@ -241,31 +273,33 @@ export interface PluginSurfaceView {
  * environment is named, never valued: a value the plugin wrote may be a secret.
  */
 export function surfaceView(surface: InstallPlan['surface']): PluginSurfaceView {
-	const text = (value: string) => line(value)
-	const names = (values: readonly string[]) => values.slice(0, LIST_MAX).map(text)
+	assertViewable(surface)
+	// Runnable text is shown whole: assertViewable refused anything that would need cutting.
+	const text = (value: string) => value
+	const names = (values: readonly string[]) => values.map(text)
 	return {
-		hooks: surface.hooks.slice(0, LIST_MAX).map((hook) => ({
+		hooks: surface.hooks.map((hook) => ({
 			event: text(hook.event),
 			...(hook.matcher !== undefined ? { matcher: text(hook.matcher) } : {}),
 			type: hook.type,
 			run: text(hook.run),
 			...(hook.from !== undefined ? { from: text(hook.from) } : {}),
 		})),
-		fileHooks: surface.fileHooks.slice(0, LIST_MAX).map((hook) => ({
+		fileHooks: surface.fileHooks.map((hook) => ({
 			kind: hook.kind,
 			name: text(hook.name),
 			event: text(hook.event),
 			type: hook.type,
 			run: text(hook.run),
 		})),
-		mcpLocal: surface.mcpLocal.slice(0, LIST_MAX).map((server) => ({
+		mcpLocal: surface.mcpLocal.map((server) => ({
 			name: text(server.name),
 			command: text(server.command),
 			args: names(server.args),
 			envNames: names(Object.keys(server.env)),
 			...(server.needsSetup ? { needsSetup: true as const } : {}),
 		})),
-		mcpRemote: surface.mcpRemote.slice(0, LIST_MAX).map((server) => ({
+		mcpRemote: surface.mcpRemote.map((server) => ({
 			name: text(server.name),
 			origin: text(server.origin),
 			transport: server.transport,
@@ -273,13 +307,13 @@ export function surfaceView(surface: InstallPlan['surface']): PluginSurfaceView 
 			headers: names(server.headers),
 			...(server.needsSetup ? { needsSetup: true as const } : {}),
 		})),
-		modules: surface.modules.slice(0, LIST_MAX).map((module) => ({
+		modules: surface.modules.map((module) => ({
 			path: text(module.path),
 			...(module.declares !== undefined ? { declares: names(module.declares) } : {}),
 			...(module.isolated !== undefined ? { isolated: module.isolated } : {}),
 			...(module.refused !== undefined ? { refused: text(module.refused) } : {}),
 		})),
-		allowedTools: surface.allowedTools.slice(0, LIST_MAX).map((row) => ({
+		allowedTools: surface.allowedTools.map((row) => ({
 			kind: row.kind,
 			name: text(row.name),
 			tools: names(row.tools),
@@ -629,6 +663,23 @@ export function createDesktopPluginActions(deps: PluginActionDeps) {
 			if (trusted()) layers.push('project', 'local')
 			try {
 				const removedPlugins: string[] = []
+				const here = resolve(effectiveCwd())
+				const inOtherFolders: string[] = []
+				const isMine = (record: { scope: RecordScope; projectPath?: string }): boolean =>
+					record.scope === 'user' ||
+					(trusted() && record.projectPath !== undefined && resolve(record.projectPath) === here)
+				for (const [id, records] of installed.plugins)
+					if (splitPluginId(id).marketplace === name)
+						for (const record of records)
+							if (!isMine(record)) inOtherFolders.push(`${id} (${record.scope})`)
+				// Another folder's settings are not written from here: say so before anything is removed.
+				if (inOtherFolders.length > 0)
+					throw new PlanRefusal(
+						64,
+						line(
+							`${inOtherFolders.length === 1 ? 'A plugin' : 'Plugins'} from it ${inOtherFolders.length === 1 ? 'is' : 'are'} installed in another folder (${inOtherFolders.slice(0, 5).join(', ')}). Remove ${inOtherFolders.length === 1 ? 'it' : 'them'} there first.`,
+						),
+					)
 				for (const [id, records] of installed.plugins) {
 					if (splitPluginId(id).marketplace !== name) continue
 					for (const record of records) {
@@ -651,7 +702,11 @@ export function createDesktopPluginActions(deps: PluginActionDeps) {
 					if (read.state !== 'unreadable' && read.marketplaces.has(name))
 						removeExtraKnownMarketplace(path, home, name)
 				}
-				return { outcome: 'removed' as const, name, removedPlugins: removedPlugins.map(line) }
+				return {
+					outcome: 'removed' as const,
+					name,
+					removedPlugins: removedPlugins.map(line),
+				}
 			} catch (error) {
 				rethrow(error)
 			}

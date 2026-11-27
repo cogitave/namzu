@@ -5508,6 +5508,8 @@ export function App({
 	const openSettingsRef = useRef(openSettings)
 	openSettingsRef.current = openSettings
 	// Settings > Skills > New skill: a new conversation that opens with the skill request in its box.
+	const sessionIdRef = useRef(sessionId)
+	sessionIdRef.current = sessionId
 	const newConversationRef = useRef(newConversation)
 	newConversationRef.current = newConversation
 	useEffect(() => {
@@ -5520,8 +5522,30 @@ export function App({
 		const openSkills = () => openCustomizeRef.current('skills')
 		// Plugins, Add, Create with Namzu: the request waits in the box, unsent.
 		const startPlugin = () => {
-			pendingSeed.current = NEW_PLUGIN_PROMPT
 			setSettingsOpen(false)
+			// An empty conversation with nothing typed in it takes the request, so no second tab is left behind.
+			const current = sessionIdRef.current
+			const empty = current ? threadsRef.current[current] : undefined
+			if (
+				current &&
+				empty &&
+				empty.messages.length === 0 &&
+				!empty.running &&
+				!draftsRef.current[current]?.trim()
+			) {
+				draftsRef.current[current] = NEW_PLUGIN_PROMPT
+				setDrafts((all) => ({ ...all, [current]: NEW_PLUGIN_PROMPT }))
+				void api.saveDraft(current, NEW_PLUGIN_PROMPT).catch(() => undefined)
+				setConversationSelection(null)
+				setPalScreen(undefined)
+				setRailSection(null)
+				setPalsPage(false)
+				setSideOpen(false)
+				setJobsOpen(false)
+				requestAnimationFrame(() => input.current?.focus())
+				return
+			}
+			pendingSeed.current = NEW_PLUGIN_PROMPT
 			void act(newConversationRef.current)
 		}
 		window.addEventListener(NEW_SKILL_EVENT, start)
@@ -5532,7 +5556,7 @@ export function App({
 			window.removeEventListener(NEW_SKILL_EVENT, start)
 			window.removeEventListener(OPEN_SKILLS_EVENT, openSkills)
 		}
-	}, [act])
+	}, [act, api])
 	// A toast about a program that is behind opens Settings ▸ Updates in the pane that was focused last.
 	const engineUpdates = useEngineUpdates()
 	useEffect(

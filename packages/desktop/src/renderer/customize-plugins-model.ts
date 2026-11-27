@@ -28,6 +28,7 @@ export const PLUGIN_DROP_TEXT = 'Drag and drop a plugin file here, or browse.'
 export const PLUGIN_UPLOAD_HELP =
 	'The archive must contain a plugin manifest (for the common layout, .claude-plugin/plugin.json), or a top-level SKILL.md.'
 export const PLUGIN_UPLOAD_HINT = 'Choose a file to continue.'
+export const MARKETPLACE_READY_HINT = 'Enter an address to continue.'
 export const PLUGIN_RUNS_WARNING =
 	'Plugins run code on your computer, with access to your files. Install only what you trust.'
 export const PLUGIN_LOADING_LABEL = 'Turn on plugin loading (needed for plugins to run)'
@@ -68,14 +69,23 @@ export const marketplaceLetter = (name: string): string =>
 
 /** `team-tools · 14 plugins · from /path`, as the Marketplaces row's second line. */
 export function marketplaceSub(row: MarketplaceRowView, updated: string): string {
-	const parts = [
-		row.plugins === null
-			? 'Not read yet'
-			: `${row.plugins} ${row.plugins === 1 ? 'plugin' : 'plugins'}`,
-		row.source,
-	]
-	if (updated) parts.push(`updated ${updated}`)
-	return parts.join(' · ')
+	const { count, source, updated: when } = marketplaceSubParts(row, updated)
+	return [count, source, when].filter(Boolean).join(' · ')
+}
+
+/** The three pieces of that line, so the page can keep the count and the freshness whole and shorten only the address. */
+export function marketplaceSubParts(
+	row: MarketplaceRowView,
+	updated: string,
+): { count: string; source: string; updated: string } {
+	return {
+		count:
+			row.plugins === null
+				? 'Not read yet'
+				: `${row.plugins} ${row.plugins === 1 ? 'plugin' : 'plugins'}`,
+		source: row.source,
+		updated: updated ? `updated ${updated}` : '',
+	}
 }
 
 /** A group heading for the plugins Namzu installed, by the marketplace each came from. */
@@ -171,14 +181,66 @@ export const TURN_OFF_BODY =
 export const installedFrom = (plugins: readonly ComposerPlugin[], marketplace: string): string[] =>
 	plugins.filter((p) => p.marketplace === marketplace).map((p) => p.name)
 
+export interface ConsentRow {
+	text: string
+	/** What would run, shown whole in monospace beside the text. */
+	code?: string
+}
+
 export interface ConsentSection {
-	id: 'adds' | 'runs' | 'ignored' | 'tools'
+	id: 'adds' | 'runs' | 'left' | 'ignored' | 'tools'
 	title: string
 	muted?: boolean
+	/** Each row as one plain sentence: the text the person says yes to. */
 	lines: string[]
+	/** The same rows with the runnable part apart, for the page to set in monospace. */
+	rows: ConsentRow[]
 }
 
 const joinList = (items: readonly string[]): string => items.join(', ')
+
+const EVENT_WORDS: Record<string, string> = {
+	PreToolUse: 'Before a tool runs',
+	PostToolUse: 'After a tool runs',
+	SessionStart: 'When a conversation starts',
+	SessionEnd: 'When a conversation ends',
+	UserPromptSubmit: 'When you send a message',
+	Stop: 'When a turn ends',
+}
+
+/** An event name in words: the known ones by their sense, the rest spaced out. */
+export function eventWords(event: string): string {
+	const pascal = event.replace(/(^|_)([a-z])/g, (_m, _u, c: string) => c.toUpperCase())
+	const known = EVENT_WORDS[pascal]
+	if (known) return known
+	const spaced = event
+		.replace(/([a-z])([A-Z])/g, '$1 $2')
+		.replace(/_/g, ' ')
+		.toLowerCase()
+	return `On ${spaced}`
+}
+
+const sizeWords = (bytes: number): string =>
+	bytes < 1024
+		? `${bytes} B`
+		: bytes < 1024 * 1024
+			? `${Math.round(bytes / 1024)} KB`
+			: `${(bytes / 1024 / 1024).toFixed(1)} MB`
+
+const row = (text: string, code?: string): ConsentRow => (code ? { text, code } : { text })
+const asLine = (item: ConsentRow): string => (item.code ? `${item.text}: ${item.code}` : item.text)
+const section = (
+	id: ConsentSection['id'],
+	title: string,
+	rows: ConsentRow[],
+	muted?: boolean,
+): ConsentSection => ({
+	id,
+	title,
+	rows,
+	lines: rows.map(asLine),
+	...(muted ? { muted: true } : {}),
+})
 
 /** What a plugin adds, runs and ignores, each as plain lines: the text the person says yes to. */
 export function consentSections(
@@ -187,45 +249,89 @@ export function consentSections(
 	findings: PluginPlanView['findings'],
 ): ConsentSection[] {
 	const sections: ConsentSection[] = []
-	const adds: string[] = []
+	const adds: ConsentRow[] = []
 	if (components) {
-		if (components.skills.length) adds.push(`Skills: ${joinList(components.skills)}`)
-		if (components.commands.length) adds.push(`Commands: ${joinList(components.commands)}`)
-		if (components.agents.length) adds.push(`Agents: ${joinList(components.agents)}`)
+		if (components.skills.length) adds.push(row(`Skills: ${joinList(components.skills)}`))
+		if (components.commands.length) adds.push(row(`Commands: ${joinList(components.commands)}`))
+		if (components.agents.length) adds.push(row(`Agents: ${joinList(components.agents)}`))
 	}
 	for (const tools of surface.allowedTools)
-		adds.push(`${tools.name} may use ${tools.tools.length ? joinList(tools.tools) : 'no tools'}`)
-	if (adds.length) sections.push({ id: 'adds', title: 'This plugin adds', lines: adds })
+		adds.push(
+			row(`${tools.name} may use ${tools.tools.length ? joinList(tools.tools) : 'no tools'}`),
+		)
+	if (adds.length) sections.push(section('adds', 'This plugin adds', adds))
 
-	const runs: string[] = []
+	const runs: ConsentRow[] = []
+	const kind = (type: string) =>
+		type === 'command' ? '' : `${type[0]?.toUpperCase()}${type.slice(1)} `
 	for (const hook of surface.hooks)
-		runs.push(`Hook on ${hook.event}${hook.matcher ? ` (${hook.matcher})` : ''}: ${hook.run}`)
+		runs.push(
+			row(
+				`${kind(hook.type)}${kind(hook.type) ? 'hook' : 'Hook'}: ${eventWords(hook.event)}${hook.matcher ? ` (${hook.matcher})` : ''}`,
+				hook.run,
+			),
+		)
 	for (const hook of surface.fileHooks)
-		runs.push(`${hook.kind} ${hook.name}, hook on ${hook.event}: ${hook.run}`)
+		runs.push(
+			row(
+				`${kind(hook.type)}${kind(hook.type) ? 'hook' : 'Hook'} in ${hook.kind} ${hook.name}: ${eventWords(hook.event)}`,
+				hook.run,
+			),
+		)
 	for (const server of surface.mcpLocal) {
-		const env = server.envNames.length ? `, with ${joinList(server.envNames)}` : ''
-		runs.push(`Server ${server.name}: ${[server.command, ...server.args].join(' ')}${env}`)
+		const notes = [
+			server.envNames.length ? `environment: ${joinList(server.envNames)}` : '',
+			server.needsSetup ? 'needs setup: not started until its variables are set' : '',
+		].filter(Boolean)
+		runs.push(
+			row(
+				`Server ${server.name}${notes.length ? ` (${notes.join('; ')})` : ''}`,
+				[server.command, ...server.args].join(' '),
+			),
+		)
 	}
 	for (const server of surface.mcpRemote) {
-		const sends = [...server.sendsEnv, ...server.headers]
-		runs.push(
-			`Server ${server.name} at ${server.origin}${sends.length ? `, sends ${joinList(sends)}` : ''}`,
-		)
+		const notes = ['asks you before it connects']
+		if (server.sendsEnv.length)
+			notes.push(`would send ${server.sendsEnv.map((name) => `$${name}`).join(', ')}`)
+		if (server.headers.length) notes.push(`headers: ${joinList(server.headers)}`)
+		if (server.needsSetup) notes.push('needs setup')
+		runs.push(row(`Server ${server.name} (${notes.join('; ')})`, server.origin))
 	}
-	for (const module of surface.modules)
+	for (const module of surface.modules) {
+		if (module.refused !== undefined)
+			runs.push(row(`Module (not run: ${module.refused})`, module.path))
+		else if (module.isolated === true)
+			runs.push(
+				row(
+					`Module (runs in an isolated worker${module.declares?.length ? `; ${joinList(module.declares)}` : ''})`,
+					module.path,
+				),
+			)
+		else
+			runs.push(
+				row(
+					'Module (JavaScript that runs inside the session; what it declares is not read before it runs)',
+					module.path,
+				),
+			)
+	}
+	for (const script of surface.scripts)
 		runs.push(
-			module.refused ? `${module.path} (refused: ${module.refused})` : `Module ${module.path}`,
+			row(`Script (${sizeWords(script.bytes)}${script.exec ? ', executable' : ''})`, script.path),
 		)
-	if (surface.scriptsTotal > 0)
-		runs.push(
-			`${surface.scriptsTotal} ${surface.scriptsTotal === 1 ? 'script' : 'scripts'} it ships${surface.scripts.length < surface.scriptsTotal ? ` (first ${surface.scripts.length} listed)` : ''}`,
-		)
-	if (surface.unpinnedDownload) runs.push('It downloads code that is not pinned to one version.')
-	if (runs.length) sections.push({ id: 'runs', title: 'Runs on this computer', lines: runs })
+	if (surface.scriptsTotal > surface.scripts.length)
+		runs.push(row(`and ${surface.scriptsTotal - surface.scripts.length} more scripts it ships`))
+	if (surface.unpinnedDownload)
+		runs.push(row('It downloads code that is not pinned to one version.'))
+	if (runs.length) sections.push(section('runs', 'Runs on this computer', runs))
 
-	const ignored = findings.filter((f) => f.level === 'ignored').map((f) => f.message)
-	if (ignored.length)
-		sections.push({ id: 'ignored', title: 'Not used by Namzu', muted: true, lines: ignored })
+	const left = findings.filter((f) => f.level === 'refused').map((f) => row(f.message))
+	if (left.length) sections.push(section('left', 'Left out', left))
+	const ignored = findings
+		.filter((f) => f.level === 'ignored' || f.level === 'notUsed')
+		.map((f) => row(f.message))
+	if (ignored.length) sections.push(section('ignored', 'Not used by Namzu', ignored, true))
 	return sections
 }
 

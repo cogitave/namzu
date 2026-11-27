@@ -639,6 +639,11 @@ export function readMarketplaceAvailable(value: unknown): MarketplaceAvailableVi
 	return { marketplace, plugins, warnings: textList(row.warnings, PLUGIN_FINDINGS_MAX) }
 }
 
+/** What runs is read whole: the host refuses to send what is longer, so a cut here would hide a tail. */
+export const PLUGIN_RUN_MAX = 2000
+const runLine = (value: unknown): string | undefined =>
+	typeof value === 'string' && value.length > 0 ? value.slice(0, PLUGIN_RUN_MAX) : undefined
+
 /** The consent surface: every kind of thing a plugin runs on this computer. */
 export interface PluginSurfaceView {
 	hooks: { event: string; matcher?: string; type: string; run: string; from?: string }[]
@@ -665,6 +670,14 @@ export interface PluginSurfaceView {
 	unpinnedDownload: boolean
 }
 
+const runList = (value: unknown): string[] =>
+	Array.isArray(value)
+		? value
+				.filter((item): item is string => typeof item === 'string' && item.length > 0)
+				.slice(0, PLUGIN_LIST_MAX)
+				.map((item) => item.slice(0, PLUGIN_RUN_MAX))
+		: []
+
 function rows<T>(value: unknown, each: (item: Record<string, unknown>) => T | undefined): T[] {
 	const out: T[] = []
 	if (!Array.isArray(value)) return out
@@ -681,68 +694,68 @@ export function readPluginSurface(value: unknown): PluginSurfaceView | null {
 	if (!row) return null
 	return {
 		hooks: rows(row.hooks, (item) => {
-			const event = line(item.event)
+			const event = runLine(item.event)
 			const type = short(item.type, 20)
-			const run = line(item.run)
+			const run = runLine(item.run)
 			if (!event || !type || run === undefined) return undefined
-			const matcher = line(item.matcher)
-			const from = line(item.from)
+			const matcher = runLine(item.matcher)
+			const from = runLine(item.from)
 			return { event, ...(matcher ? { matcher } : {}), type, run, ...(from ? { from } : {}) }
 		}),
 		fileHooks: rows(row.fileHooks, (item) => {
 			const kind = short(item.kind, 20)
-			const name = line(item.name)
-			const event = line(item.event)
+			const name = runLine(item.name)
+			const event = runLine(item.event)
 			const type = short(item.type, 20)
-			const run = line(item.run)
+			const run = runLine(item.run)
 			if (!kind || !name || !event || !type || run === undefined) return undefined
 			return { kind, name, event, type, run }
 		}),
 		mcpLocal: rows(row.mcpLocal, (item) => {
-			const name = line(item.name)
-			const command = line(item.command)
+			const name = runLine(item.name)
+			const command = runLine(item.command)
 			if (!name || !command) return undefined
 			return {
 				name,
 				command,
-				args: textList(item.args),
-				envNames: textList(item.envNames),
+				args: runList(item.args),
+				envNames: runList(item.envNames),
 				...(item.needsSetup === true ? { needsSetup: true as const } : {}),
 			}
 		}),
 		mcpRemote: rows(row.mcpRemote, (item) => {
-			const name = line(item.name)
-			const origin = line(item.origin)
+			const name = runLine(item.name)
+			const origin = runLine(item.origin)
 			const transport = short(item.transport, 20)
 			if (!name || !origin || !transport) return undefined
 			return {
 				name,
 				origin,
 				transport,
-				sendsEnv: textList(item.sendsEnv),
-				headers: textList(item.headers),
+				sendsEnv: runList(item.sendsEnv),
+				headers: runList(item.headers),
 				...(item.needsSetup === true ? { needsSetup: true as const } : {}),
 			}
 		}),
 		modules: rows(row.modules, (item) => {
-			const path = line(item.path)
+			const path = runLine(item.path)
 			if (!path) return undefined
-			const refused = line(item.refused)
+			const refused = runLine(item.refused)
 			return {
 				path,
-				...(Array.isArray(item.declares) ? { declares: textList(item.declares) } : {}),
+				...(Array.isArray(item.declares) ? { declares: runList(item.declares) } : {}),
 				...(typeof item.isolated === 'boolean' ? { isolated: item.isolated } : {}),
 				...(refused ? { refused } : {}),
 			}
 		}),
 		allowedTools: rows(row.allowedTools, (item) => {
 			const kind = short(item.kind, 20)
-			const name = line(item.name)
+			const name = runLine(item.name)
 			if (!kind || !name) return undefined
-			return { kind, name, tools: textList(item.tools) }
+			return { kind, name, tools: runList(item.tools) }
 		}),
 		scripts: rows(row.scripts, (item) => {
-			const path = line(item.path)
+			const path = runLine(item.path)
 			const bytes = count(item.bytes, Number.MAX_SAFE_INTEGER)
 			if (!path || bytes === undefined) return undefined
 			return { path, bytes, exec: item.exec === true }

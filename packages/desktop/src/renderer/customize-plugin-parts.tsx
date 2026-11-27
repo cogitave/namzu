@@ -1,9 +1,10 @@
-import { useEffect, useId, useMemo, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import type {
 	MarketplaceAvailableView,
 	MarketplaceListView,
 	MarketplacePluginView,
 	MarketplacePreviewView,
+	MarketplaceRowView,
 	PluginPlanView,
 	PluginUpdateView,
 	SkillPathChoiceView,
@@ -17,6 +18,7 @@ import {
 	type ConsentSection,
 	DELETE_DATA_LABEL,
 	MARKETPLACE_NOTICE,
+	MARKETPLACE_READY_HINT,
 	MARKETPLACE_URL_HELP,
 	MARKETPLACE_URL_PLACEHOLDER,
 	PHASE_WORDS,
@@ -31,6 +33,7 @@ import {
 	consentSections,
 	marketplaceLetter,
 	marketplaceSub,
+	marketplaceSubParts,
 	newOpId,
 	previewLine,
 	removeMarketplaceBody,
@@ -122,8 +125,16 @@ export function ConsentCard({
 				>
 					<h4 className="customize-consent-title">{section.title}</h4>
 					<ul>
-						{section.lines.map((line) => (
-							<li key={line}>{line}</li>
+						{section.rows.map((item) => (
+							<li key={`${item.text}\u0000${item.code ?? ''}`}>
+								{item.text}
+								{item.code !== undefined && (
+									<>
+										{': '}
+										<code className="customize-consent-code">{item.code}</code>
+									</>
+								)}
+							</li>
 						))}
 					</ul>
 				</section>
@@ -182,16 +193,23 @@ export function ConsentFlow({
 	const [reading, setReading] = useState(true)
 	const [busy, setBusyState] = useState(false)
 	const [enableLoading, setEnableLoading] = useState(false)
-	const opId = useMemo(() => newOpId('plan'), [])
+	const [opId, setOpId] = useState<string>()
 	const phase = useOpPhase(api, reading ? opId : undefined)
 	const latest = useRef(0)
 	const live = useRef(true)
+	const running = useRef<string | undefined>(undefined)
 	useEffect(() => {
 		live.current = true
 		return () => {
 			live.current = false
+			// A read still going holds a staging folder: stop it with the page.
+			if (running.current) void apiRef.current.cancelOp?.(running.current, projectIdRef.current)
 		}
 	}, [])
+	const projectIdRef = useRef(projectId)
+	projectIdRef.current = projectId
+	const apiRef = useRef(api)
+	apiRef.current = api
 	const setBusy = (value: boolean) => {
 		setBusyState(value)
 		onBusy?.(value)
@@ -205,12 +223,17 @@ export function ConsentFlow({
 			return
 		}
 		const mine = ++latest.current
+		// The read of the earlier place is stopped; this one has an id of its own.
+		if (running.current) void api.cancelOp?.(running.current, projectIdRef.current)
+		const id = newOpId('plan')
+		running.current = id
+		setOpId(id)
 		setPlan(undefined)
 		setError(undefined)
 		setReading(true)
 		void (async () => {
 			try {
-				const answer = await api.planPlugin?.({ ...source, scope, opId }, projectId)
+				const answer = await api.planPlugin?.({ ...source, scope, opId: id }, projectId)
 				if (!live.current || latest.current !== mine) return
 				if (!answer) setError('Update Namzu to add plugins from here.')
 				else setPlan(answer)
@@ -218,10 +241,11 @@ export function ConsentFlow({
 				if (live.current && latest.current === mine)
 					setError(plainErrorText(failure, 'read the plugin'))
 			} finally {
+				if (running.current === id) running.current = undefined
 				if (live.current && latest.current === mine) setReading(false)
 			}
 		})()
-	}, [api, key, scope, projectId, opId])
+	}, [api, key, scope, projectId])
 
 	const install = async () => {
 		if (!plan || busy || plan.installed || !api.installPlugin) return
@@ -437,14 +461,21 @@ export function UploadPluginPage({
 	const [problem, setProblem] = useState<string>()
 	const [reading, setReading] = useState(false)
 	const [over, setOver] = useState(false)
-	const opId = useMemo(() => newOpId('stage'), [])
+	const [opId, setOpId] = useState<string>()
 	const phase = useOpPhase(api, reading ? opId : undefined)
 	const live = useRef(true)
 	const latest = useRef(0)
+	const running = useRef<string | undefined>(undefined)
+	const apiRef = useRef(api)
+	apiRef.current = api
+	const projectIdRef = useRef(projectId)
+	projectIdRef.current = projectId
 	useEffect(() => {
 		live.current = true
 		return () => {
 			live.current = false
+			// A read still going holds a staging folder: stop it with the page.
+			if (running.current) void apiRef.current.cancelOp?.(running.current, projectIdRef.current)
 		}
 	}, [])
 
@@ -463,9 +494,13 @@ export function UploadPluginPage({
 			setProblem('Update Namzu to add plugins from here.')
 			return
 		}
+		if (running.current) void api.cancelOp?.(running.current, projectId)
+		const id = newOpId('stage')
+		running.current = id
+		setOpId(id)
 		setReading(true)
 		try {
-			const answer = await api.stagePlugin(choice.path, opId, projectId)
+			const answer = await api.stagePlugin(choice.path, id, projectId)
 			if (!live.current || latest.current !== mine) return
 			if (!answer) setProblem('Update Namzu to add plugins from here.')
 			else setStageId(answer.stageId)
@@ -473,6 +508,7 @@ export function UploadPluginPage({
 			if (live.current && latest.current === mine)
 				setProblem(plainErrorText(failure, 'read the plugin'))
 		} finally {
+			if (running.current === id) running.current = undefined
 			if (live.current && latest.current === mine) setReading(false)
 		}
 	}
@@ -484,6 +520,15 @@ export function UploadPluginPage({
 			setProblem(plainErrorText(failure, 'choose the file'))
 		}
 	}
+	const clearPick = () => {
+		latest.current += 1
+		if (running.current) void api.cancelOp?.(running.current, projectId)
+		running.current = undefined
+		setPicked(undefined)
+		setStageId(undefined)
+		setProblem(undefined)
+		setReading(false)
+	}
 	const [before, after] = PLUGIN_DROP_TEXT.split('browse')
 	return (
 		<DetailFrame
@@ -494,7 +539,7 @@ export function UploadPluginPage({
 			subtitle={PLUGIN_UPLOAD_SUBTITLE}
 		>
 			<div className="customize-upload">
-				<Notice>{PLUGIN_UPLOAD_NOTICE}</Notice>
+				{!stageId && <Notice>{PLUGIN_UPLOAD_NOTICE}</Notice>}
 				<h3 className="customize-field-label" id="plugin-file-label">
 					Plugin file
 				</h3>
@@ -502,6 +547,7 @@ export function UploadPluginPage({
 					className="customize-drop"
 					aria-labelledby="plugin-file-label"
 					data-over={over || undefined}
+					data-picked={picked && !problem ? true : undefined}
 					onDragOver={(event) => {
 						event.preventDefault()
 						setOver(true)
@@ -540,11 +586,21 @@ export function UploadPluginPage({
 				</section>
 				<p className="customize-hint">{PLUGIN_UPLOAD_HELP}</p>
 				{picked && !problem && (
-					<output className="customize-hint">
-						{reading
-							? `${phase ? PHASE_WORDS[phase] : 'Reading'} ${picked.fileName}`
-							: picked.fileName}
-					</output>
+					<div className="customize-picked">
+						<output className="customize-chip">
+							{reading
+								? `${phase ? PHASE_WORDS[phase] : 'Reading'} ${picked.fileName}`
+								: picked.fileName}
+						</output>
+						<button
+							type="button"
+							className="customize-link"
+							aria-label={`Remove ${picked.fileName}`}
+							onClick={clearPick}
+						>
+							Remove
+						</button>
+					</div>
 				)}
 				{problem && (
 					<p className="customize-error" role="alert">
@@ -670,7 +726,7 @@ export function AddMarketplaceForm({
 		}
 	}
 	const cancel = () => {
-		if (pending && opId) void api.cancelOp?.(opId)
+		if (pending && opId) void api.cancelOp?.(opId, projectId)
 		else onClose()
 	}
 	const folder = async () => {
@@ -743,6 +799,9 @@ export function AddMarketplaceForm({
 				<Button type="button" variant="outline" onClick={cancel}>
 					Cancel
 				</Button>
+				{!ready && !pending && (
+					<span className="customize-hint customize-dialog-hint">{MARKETPLACE_READY_HINT}</span>
+				)}
 				<Button type="submit" className="customize-primary" disabled={!ready || pending}>
 					{pending ? 'Adding…' : 'Add'}
 				</Button>
@@ -888,6 +947,21 @@ export function RemoveMarketplaceDialog({
 // Lists
 // ---------------------------------------------------------------------------
 
+/** `2 plugins · /path · updated today`: the address gives way first when the row is narrow. */
+function MarketSub({ market, updated }: { market: MarketplaceRowView; updated: string }) {
+	const parts = marketplaceSubParts(market, updated)
+	return (
+		<span
+			className="customize-row-sub customize-market-sub"
+			title={marketplaceSub(market, updated)}
+		>
+			<span className="customize-market-count">{parts.count}</span>
+			<span className="customize-market-source">{parts.source}</span>
+			{parts.updated && <span className="customize-market-count">{parts.updated}</span>}
+		</span>
+	)
+}
+
 /** The small Marketplaces list below the installed plugins. */
 export function MarketplacesList({
 	view,
@@ -918,9 +992,13 @@ export function MarketplacesList({
 									{market.installed > 0 && <Chip>{`${market.installed} installed`}</Chip>}
 									{market.problem && <Chip tone="off">Needs attention</Chip>}
 								</span>
-								<span className="customize-row-sub" title={market.source}>
-									{market.problem ?? marketplaceSub(market, longUpdated(market.lastUpdated, now))}
-								</span>
+								{market.problem ? (
+									<span className="customize-row-sub" title={market.source}>
+										{market.problem}
+									</span>
+								) : (
+									<MarketSub market={market} updated={longUpdated(market.lastUpdated, now)} />
+								)}
 							</span>
 							{updating === market.name && (
 								<LoaderCircleIcon className="animate-spin" aria-label="Updating" />
