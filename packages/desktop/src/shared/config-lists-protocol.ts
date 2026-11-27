@@ -115,6 +115,8 @@ export interface UserMcpServerChange {
 	command?: string
 	args?: string[]
 	url?: string
+	/** Header name to an environment reference such as `${EXAMPLE_TOKEN}`; an address only. */
+	headers?: Record<string, string>
 }
 
 export type UserMcpServerResult =
@@ -148,12 +150,26 @@ export function readUserMcpServerChange(raw: unknown): UserMcpServerChange {
 		throw new Error(
 			`The command and its arguments are longer than ${COMMAND_LINE_LIMIT} characters. Use a shorter command line, or edit the file.`,
 		)
+	let headers: Record<string, string> | undefined
+	if (row.headers !== undefined) {
+		const held = record(row.headers)
+		if (
+			!held ||
+			Object.keys(held).length > 20 ||
+			Object.entries(held).some(
+				([key, value]) => key.length > 100 || typeof value !== 'string' || value.length > 200,
+			)
+		)
+			throw new Error('Check the headers.')
+		headers = { ...(held as Record<string, string>) }
+	}
 	return {
 		mode: row.mode,
 		name,
 		...(typeof row.command === 'string' ? { command: row.command } : {}),
 		...(Array.isArray(row.args) ? { args: row.args as string[] } : {}),
 		...(typeof row.url === 'string' ? { url: row.url } : {}),
+		...(headers && Object.keys(headers).length > 0 ? { headers } : {}),
 	}
 }
 

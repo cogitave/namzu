@@ -29,6 +29,7 @@ export const SKILL_CATALOG_MAX = 500
 export const SKILL_FILES_MAX = 200
 export const SKILL_DESCRIPTION_MAX = 1_024
 export const SKILL_FILE_TEXT_MAX = 256 * 1024
+export const SKILL_NAME_MAX = 64
 
 /** How a skill is offered: to everyone, to the person only, by name only, or not at all. */
 export type SkillCatalogState = 'on' | 'name-only' | 'user-only' | 'off'
@@ -55,6 +56,8 @@ export interface SkillCatalogEntryView {
 
 export interface SkillCatalogView {
 	skills: SkillCatalogEntryView[]
+	/** The engine can add, make and remove skills; set by main, absent from an older answer. */
+	canManage?: boolean
 }
 
 export function readSkillCatalog(value: unknown): SkillCatalogView {
@@ -191,3 +194,184 @@ export function withManifestDetails<T extends { plugins: readonly unknown[] }>(v
 		}),
 	}
 }
+
+export const SKILL_STAGE_ITEMS_MAX = 20
+export const SKILL_STAGE_LINES_MAX = 20
+const LINE_MAX = 300
+
+/** Where a skill goes. */
+export type SkillScope = 'user' | 'project'
+const scopeOf = (value: unknown): SkillScope | undefined =>
+	value === 'user' || value === 'project' ? value : undefined
+
+/** One thing the person chose: the path goes back to `stageSkills`; with `error` it cannot be added. */
+export interface SkillPathChoiceView {
+	fileName: string
+	path?: string
+	kind?: 'file' | 'folder'
+	error?: string
+}
+
+/** One thing the person chose to add, as the engine read it and before anything is written. */
+export interface SkillStageItemView {
+	fileName: string
+	kind: 'file' | 'folder'
+	name?: string
+	description?: string
+	files?: number
+	bytes?: number
+	/** What was kept, changed or left out. */
+	findings: string[]
+	/** What it can run or pre-approve; shown before a yes. */
+	grants: string[]
+	scripts: string[]
+	/** The places that already hold a skill of this name. */
+	collides?: SkillScope[]
+	error?: string
+}
+
+export interface SkillStageView {
+	stageId: string
+	expiresAt: string
+	items: SkillStageItemView[]
+}
+
+const lines = (value: unknown, max = SKILL_STAGE_LINES_MAX): string[] =>
+	Array.isArray(value)
+		? value
+				.filter((item): item is string => typeof item === 'string' && item.length > 0)
+				.slice(0, max)
+				.map((item) => item.slice(0, LINE_MAX))
+		: []
+
+/** The engine's answer to staging, or null when it is not the shape asked for. */
+export function readSkillStage(value: unknown): SkillStageView | null {
+	const row = record(value)
+	const stageId = short(row?.stageId, 100)
+	const expiresAt = isoTime(row?.expiresAt)
+	if (!row || !stageId || !expiresAt || !Array.isArray(row.items)) return null
+	const items: SkillStageItemView[] = []
+	for (const raw of row.items.slice(0, SKILL_STAGE_ITEMS_MAX)) {
+		const item = record(raw)
+		const fileName = short(item?.fileName, 300)
+		const kind = item?.kind === 'file' || item?.kind === 'folder' ? item.kind : undefined
+		if (!item || !fileName || !kind) continue
+		const name = short(item.name, SKILL_NAME_MAX)
+		const description =
+			typeof item.description === 'string'
+				? item.description.slice(0, SKILL_DESCRIPTION_MAX)
+				: undefined
+		const files = count(item.files, SKILL_FILES_MAX * 3)
+		const bytes = count(item.bytes, Number.MAX_SAFE_INTEGER)
+		const collides = Array.isArray(item.collides)
+			? [...new Set(item.collides.map(scopeOf).filter((s): s is SkillScope => s !== undefined))]
+			: []
+		const error = short(item.error, LINE_MAX)
+		items.push({
+			fileName,
+			kind,
+			...(name ? { name } : {}),
+			...(description !== undefined ? { description } : {}),
+			...(files !== undefined ? { files } : {}),
+			...(bytes !== undefined ? { bytes } : {}),
+			findings: lines(item.findings),
+			grants: lines(item.grants),
+			scripts: lines(item.scripts, 50),
+			...(collides.length > 0 ? { collides } : {}),
+			...(error ? { error } : {}),
+		})
+	}
+	return { stageId, expiresAt, items }
+}
+
+export interface SkillInstallResultView {
+	name: string
+	outcome: 'added' | 'replaced' | 'failed'
+	path?: string
+	error?: string
+}
+
+export interface SkillInstallView {
+	results: SkillInstallResultView[]
+	note?: string
+}
+
+export function readSkillInstall(value: unknown): SkillInstallView | null {
+	const row = record(value)
+	if (!row || !Array.isArray(row.results)) return null
+	const results: SkillInstallResultView[] = []
+	for (const raw of row.results.slice(0, SKILL_STAGE_ITEMS_MAX)) {
+		const item = record(raw)
+		const name = short(item?.name, 200)
+		const outcome =
+			item?.outcome === 'added' || item?.outcome === 'replaced' || item?.outcome === 'failed'
+				? item.outcome
+				: undefined
+		if (!item || !name || !outcome) continue
+		const path = short(item.path, 1024)
+		const error = short(item.error, LINE_MAX)
+		results.push({
+			name,
+			outcome,
+			...(path ? { path } : {}),
+			...(error ? { error } : {}),
+		})
+	}
+	const note = short(row.note, LINE_MAX)
+	return { results, ...(note ? { note } : {}) }
+}
+
+export interface SkillCreateView {
+	outcome: 'created' | 'exists' | 'failed'
+	path?: string
+	error?: string
+	note?: string
+}
+
+export function readSkillCreate(value: unknown): SkillCreateView | null {
+	const row = record(value)
+	const outcome =
+		row?.outcome === 'created' || row?.outcome === 'exists' || row?.outcome === 'failed'
+			? row.outcome
+			: undefined
+	if (!row || !outcome) return null
+	const path = short(row.path, 1024)
+	const error = short(row.error, LINE_MAX)
+	const note = short(row.note, LINE_MAX)
+	return {
+		outcome,
+		...(path ? { path } : {}),
+		...(error ? { error } : {}),
+		...(note ? { note } : {}),
+	}
+}
+
+export interface SkillRemoveView {
+	/** `removed`, or why not: `refused`, `unsafe`, `not-found`, `failed`... */
+	outcome: string
+	backup?: string
+	error?: string
+}
+
+export function readSkillRemove(value: unknown): SkillRemoveView | null {
+	const row = record(value)
+	const outcome = short(row?.outcome, 40)
+	if (!row || !outcome) return null
+	const backup = short(row.backup, 1024)
+	const error = short(row.error, LINE_MAX)
+	return {
+		outcome,
+		...(backup ? { backup } : {}),
+		...(error ? { error } : {}),
+	}
+}
+
+/** What a skill the person writes in a form may hold, as the engine also checks it. */
+export const SKILL_FORM_LIMITS = {
+	name: SKILL_NAME_MAX,
+	description: SKILL_DESCRIPTION_MAX,
+	instructions: 64 * 1024,
+} as const
+
+/** The staged paths the app may ask the engine to read at once. */
+export const SKILL_ADD_PATHS_MAX = 20

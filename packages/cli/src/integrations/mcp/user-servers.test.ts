@@ -7,6 +7,7 @@ import { parse } from 'yaml'
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 import { userConfigPath } from '../../config/user-config.js'
 import {
+	MCP_HEADER_LITERAL_MESSAGE,
 	MCP_NAME_RULE,
 	checkUserMcpServerSave,
 	mcpAddressProblem,
@@ -134,10 +135,8 @@ describe('editing a tool server keeps what the form does not show', () => {
 			cwd: '/work',
 		})
 		saveUserMcpServer('edit', 'remote', { command: 'run' }, opts())
-		expect(servers().remote).toEqual({
-			command: 'run',
-			headers: { Authorization: 'Bearer ${API_TOKEN}' },
-		})
+		// Headers belong to an address, so none are left on a command.
+		expect(servers().remote).toEqual({ command: 'run' })
 	})
 
 	it('refuses to edit what does not exist or cannot be read as a server', () => {
@@ -190,5 +189,88 @@ describe('reading the user file for the form', () => {
 
 	it('is empty with no file', () => {
 		expect(readUserMcpServerForms(opts())).toEqual([])
+	})
+})
+
+describe('headers on an address', () => {
+	it('writes a header whose value is an environment reference, with or without a short prefix', () => {
+		saveUserMcpServer(
+			'add',
+			'remote',
+			{
+				url: 'https://example.com/mcp',
+				headers: { 'X-Api-Key': '${EXAMPLE_TOKEN}', Authorization: 'Bearer ${EXAMPLE_TOKEN}' },
+			},
+			opts(),
+		)
+		expect(servers().remote).toEqual({
+			url: 'https://example.com/mcp',
+			headers: { 'X-Api-Key': '${EXAMPLE_TOKEN}', Authorization: 'Bearer ${EXAMPLE_TOKEN}' },
+		})
+	})
+
+	it('refuses a literal value, so no secret is stored', () => {
+		for (const value of ['sk-live-abc123', 'Bearer abc', '${A}${B}', '${A} tail', '', '$A'])
+			expect(() =>
+				saveUserMcpServer(
+					'add',
+					'remote',
+					{ url: 'https://example.com/mcp', headers: { 'X-Api-Key': value } },
+					opts(),
+				),
+			).toThrow(MCP_HEADER_LITERAL_MESSAGE)
+	})
+
+	it('refuses odd names, duplicates by case, too many, headers on a command, and http beyond this computer', () => {
+		const url = 'https://example.com/mcp'
+		const ref = '${T}'
+		expect(() =>
+			saveUserMcpServer('add', 'a', { url, headers: { 'bad name': ref } }, opts()),
+		).toThrow('cannot be a header name')
+		expect(() =>
+			saveUserMcpServer('add', 'a', { url, headers: { 'X-A': ref, 'x-a': ref } }, opts()),
+		).toThrow('listed twice')
+		const many = Object.fromEntries(Array.from({ length: 21 }, (_, i) => [`H${i}`, ref]))
+		expect(() => saveUserMcpServer('add', 'a', { url, headers: many }, opts())).toThrow(
+			'at most 20',
+		)
+		expect(() =>
+			saveUserMcpServer('add', 'a', { command: 'x', headers: { 'X-A': ref } }, opts()),
+		).toThrow('Headers go with an address')
+		expect(() =>
+			saveUserMcpServer(
+				'add',
+				'a',
+				{ url: 'http://example.com/mcp', headers: { 'X-A': ref } },
+				opts(),
+			),
+		).toThrow('Headers need an https address')
+		saveUserMcpServer(
+			'add',
+			'local',
+			{ url: 'http://localhost:3000/mcp', headers: { 'X-A': ref } },
+			opts(),
+		)
+		expect(servers().local?.headers).toEqual({ 'X-A': ref })
+	})
+
+	it('replaces the headers of an address on edit and keeps them when none are given', () => {
+		saveUserMcpServer(
+			'add',
+			'remote',
+			{ url: 'https://example.com/mcp', headers: { 'X-A': '${A}' } },
+			opts(),
+		)
+		saveUserMcpServer('edit', 'remote', { url: 'https://example.com/v2' }, opts())
+		expect(servers().remote).toEqual({ url: 'https://example.com/v2', headers: { 'X-A': '${A}' } })
+		saveUserMcpServer(
+			'edit',
+			'remote',
+			{ url: 'https://example.com/v2', headers: { 'X-B': '${B}' } },
+			opts(),
+		)
+		expect(servers().remote?.headers).toEqual({ 'X-B': '${B}' })
+		saveUserMcpServer('edit', 'remote', { url: 'https://example.com/v2', headers: {} }, opts())
+		expect(servers().remote).toEqual({ url: 'https://example.com/v2' })
 	})
 })

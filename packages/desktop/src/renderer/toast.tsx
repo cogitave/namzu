@@ -32,7 +32,9 @@ function PaneViewport({ pane }: { pane: RefObject<HTMLElement | null> }) {
 	const [lane, setLane] = useState<Element | null>(null)
 	// The lane comes and goes with the page, so look again after every render.
 	useLayoutEffect(() => {
-		const found = pane.current?.querySelector('.conversation-lane') ?? null
+		const laneElement = pane.current?.querySelector('.conversation-lane') ?? null
+		// A lane that is not on screen (a page such as Customize covers it) would hide the toast with it.
+		const found = laneElement && laneElement.getClientRects().length > 0 ? laneElement : null
 		const next = found ?? pane.current ?? null
 		setHost((current) => (current === next ? current : next))
 		setLane((current) => (current === found ? current : found))

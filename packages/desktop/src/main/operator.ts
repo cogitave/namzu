@@ -43,11 +43,19 @@ import {
 import { QUESTION_TOOL } from '../shared/conversation-status.js'
 import {
 	type SkillCatalogView,
+	type SkillCreateView,
 	type SkillFileTextView,
 	type SkillFilesView,
+	type SkillInstallView,
+	type SkillRemoveView,
+	type SkillStageView,
 	readSkillCatalog,
+	readSkillCreate,
 	readSkillFileText,
 	readSkillFiles,
+	readSkillInstall,
+	readSkillRemove,
+	readSkillStage,
 	withManifestDetails,
 } from '../shared/customize-protocol.js'
 import { EXTENSION_BRIDGE_METHODS, readStateEvent } from '../shared/extensions-view.js'
@@ -1378,7 +1386,9 @@ export class Operator {
 		const skills = await this.skillsClient(projectId)
 		if (!skills) return null
 		const result = await skills.client.request('namzu/skills/catalog', {})
-		return skills.current() ? readSkillCatalog(result) : null
+		return skills.current()
+			? { ...readSkillCatalog(result), canManage: skills.client.supportsSkillsManage() }
+			: null
 	}
 	/** The files in one skill's folder. */
 	async skillFiles(name: unknown, projectId?: unknown): Promise<SkillFilesView | null> {
@@ -1403,6 +1413,87 @@ export class Operator {
 		if (!skills) return null
 		const result = await skills.client.request('namzu/skills/read_file', { name, path })
 		return skills.current() ? readSkillFileText(result) : null
+	}
+	/** The client that adds, makes and removes skills, or null when the engine cannot. */
+	private async skillsManageClient(
+		projectId: unknown,
+	): Promise<{ client: RuntimeClient; current: () => boolean } | null> {
+		const project =
+			projectId === undefined || projectId === null ? undefined : this.project(projectId)
+		const client = project && !project.view.palId ? project.client : await this.registry(false)
+		if (!client.supportsSkillsManage()) return null
+		return {
+			client,
+			current: () =>
+				!project ||
+				project.view.palId !== undefined ||
+				this.projects.get(project.view.id) === project,
+		}
+	}
+	/**
+	 * Reads what the person chose and says what each would do; writes nothing. The paths come from
+	 * main's registry, never from the page. Null where the engine cannot.
+	 */
+	async stageSkills(paths: string[], projectId?: unknown): Promise<SkillStageView | null> {
+		const skills = await this.skillsManageClient(projectId)
+		if (!skills) return null
+		const result = await skills.client.request('namzu/skills/stage', { paths })
+		return skills.current() ? readSkillStage(result) : null
+	}
+	/** Writes the staged skills the person said yes to. */
+	async installSkills(change: unknown, projectId?: unknown): Promise<SkillInstallView | null> {
+		const row = change && typeof change === 'object' ? (change as Record<string, unknown>) : {}
+		if (
+			typeof row.stageId !== 'string' ||
+			(row.scope !== 'user' && row.scope !== 'project') ||
+			Object.keys(row).some((key) => !['stageId', 'scope', 'replace', 'accept'].includes(key))
+		)
+			throw new Error('Invalid skill install.')
+		const skills = await this.skillsManageClient(projectId)
+		if (!skills) return null
+		const result = await skills.client.request('namzu/skills/install', {
+			stageId: row.stageId,
+			scope: row.scope,
+			replace: row.replace ?? [],
+			accept: row.accept ?? [],
+		})
+		return skills.current() ? readSkillInstall(result) : null
+	}
+	/** Makes a skill from the form's three fields. */
+	async createSkill(change: unknown, projectId?: unknown): Promise<SkillCreateView | null> {
+		const row = change && typeof change === 'object' ? (change as Record<string, unknown>) : {}
+		if (
+			typeof row.name !== 'string' ||
+			typeof row.description !== 'string' ||
+			typeof row.instructions !== 'string' ||
+			(row.scope !== 'user' && row.scope !== 'project') ||
+			(row.replace !== undefined && typeof row.replace !== 'boolean') ||
+			Object.keys(row).some(
+				(key) => !['name', 'description', 'instructions', 'scope', 'replace'].includes(key),
+			)
+		)
+			throw new Error('Invalid skill.')
+		const skills = await this.skillsManageClient(projectId)
+		if (!skills) return null
+		const result = await skills.client.request('namzu/skills/create', row)
+		return skills.current() ? readSkillCreate(result) : null
+	}
+	/** Moves a skill the person added into the engine's backups folder. */
+	async removeSkill(
+		name: unknown,
+		tier: unknown,
+		projectId?: unknown,
+	): Promise<SkillRemoveView | null> {
+		if (typeof name !== 'string' || !name.trim() || name.length > 200)
+			throw new Error('Invalid skill name.')
+		if (tier !== 'user' && tier !== 'project') throw new Error('Invalid skill place.')
+		const skills = await this.skillsManageClient(projectId)
+		if (!skills) return null
+		const result = await skills.client.request('namzu/skills/remove', {
+			name,
+			tier,
+		})
+		return skills.current() ? readSkillRemove(result) : null
 	}
 	private async instructionsHost(): Promise<RuntimeClient> {
 		const client = await this.registry(false)

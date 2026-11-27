@@ -16,6 +16,8 @@ export interface CustomizeSkills {
 	rows?: SkillRowModel[]
 	/** The engine has no catalog: only names and places are known. */
 	basic: boolean
+	/** The engine can add, make and remove skills. */
+	canManage: boolean
 	error?: string
 	reload: () => void
 }
@@ -31,8 +33,14 @@ export function useCustomizeSkills(
 	disabled: unknown,
 	active: boolean,
 ): CustomizeSkills {
-	const [state, setState] = useState<{ rows?: SkillRowModel[]; basic: boolean; error?: string }>({
+	const [state, setState] = useState<{
+		rows?: SkillRowModel[]
+		basic: boolean
+		canManage: boolean
+		error?: string
+	}>({
 		basic: false,
+		canManage: false,
 	})
 	const latest = useRef(0)
 	const disabledRef = useRef(disabled)
@@ -44,11 +52,17 @@ export function useCustomizeSkills(
 			const catalog: SkillCatalogView | null | undefined = api.skillCatalog
 				? await api.skillCatalog(projectId)
 				: null
-			if (catalog) return { rows: catalog.skills as SkillRowModel[], basic: false }
+			if (catalog)
+				return {
+					rows: catalog.skills as SkillRowModel[],
+					basic: false,
+					canManage: catalog.canManage === true,
+				}
 			const installed = api.installedSkills ? await api.installedSkills(projectId) : null
 			return {
 				rows: installed ? basicSkillRows(installed.skills, disabledRef.current) : [],
 				basic: true,
+				canManage: false,
 			}
 		}
 		read().then(

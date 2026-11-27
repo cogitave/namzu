@@ -50,6 +50,26 @@ describe('reading the user’s tool servers', () => {
 	})
 })
 
+describe('headers in a change from the window', () => {
+	const base = { mode: 'add', name: 'n', url: 'https://e.com/mcp' }
+	it('passes a small map of strings on for the engine to check', () => {
+		expect(
+			readUserMcpServerChange({ ...base, headers: { Authorization: 'Bearer ${T}' } }).headers,
+		).toEqual({ Authorization: 'Bearer ${T}' })
+		expect(readUserMcpServerChange({ ...base, headers: {} }).headers).toBeUndefined()
+	})
+	it('refuses a map that is too big or not strings', () => {
+		expect(() => readUserMcpServerChange({ ...base, headers: { A: 1 } })).toThrow()
+		expect(() => readUserMcpServerChange({ ...base, headers: ['A'] })).toThrow()
+		expect(() =>
+			readUserMcpServerChange({
+				...base,
+				headers: Object.fromEntries(Array.from({ length: 21 }, (_, i) => [`H${i}`, 'x'])),
+			}),
+		).toThrow()
+	})
+})
+
 describe('reading a change from the window', () => {
 	it('takes a command with arguments or an address, and refuses any other shape', () => {
 		expect(
@@ -60,7 +80,7 @@ describe('reading a change from the window', () => {
 			name: 'n',
 			url: 'https://e.com',
 		})
-		// Variables and headers can never be sent through here.
+		// Variables can never be sent through here; headers only as the engine checks them.
 		expect(
 			readUserMcpServerChange({ mode: 'add', name: 'n', command: 'x', env: { A: 'b' } }),
 		).toEqual({ mode: 'add', name: 'n', command: 'x' })

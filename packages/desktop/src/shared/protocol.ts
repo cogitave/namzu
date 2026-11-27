@@ -25,7 +25,17 @@ import type {
 	ConfigSettingsView,
 } from './config-settings-protocol.js'
 import type { ContextReport } from './context-protocol.js'
-import type { SkillCatalogView, SkillFileTextView, SkillFilesView } from './customize-protocol.js'
+import type {
+	SkillCatalogView,
+	SkillCreateView,
+	SkillFileTextView,
+	SkillFilesView,
+	SkillInstallView,
+	SkillPathChoiceView,
+	SkillRemoveView,
+	SkillScope,
+	SkillStageView,
+} from './customize-protocol.js'
 import type { EngineDeliveryView } from './engine-delivery-protocol.js'
 import type {
 	EngineUpdateAnnouncement,
@@ -1149,6 +1159,37 @@ export interface DesktopApi {
 	skillFiles?(name: string, projectId?: string): Promise<SkillFilesView | null>
 	/** One text file of a skill's folder, up to 256 KiB; null where the engine cannot say. */
 	skillFile?(name: string, path: string, projectId?: string): Promise<SkillFileTextView | null>
+	/** The file dialog for skills (.skill, .zip, .md); what was chosen, registered for staging. Empty when cancelled. */
+	chooseSkillFiles?(): Promise<SkillPathChoiceView[]>
+	/** The folder dialog for a skill folder. */
+	chooseSkillFolder?(): Promise<SkillPathChoiceView[]>
+	/** Files dropped on the page, by the paths the preload read from them; registered after a check. */
+	dropSkillFiles?(files: File[]): Promise<SkillPathChoiceView[]>
+	/** Reads what was chosen and says what each would do; nothing is written. Null where the engine cannot. */
+	stageSkills?(paths: string[], projectId?: string): Promise<SkillStageView | null>
+	/** Writes the staged skills the person said yes to, replacing and accepting only the names listed. */
+	installSkills?(
+		change: {
+			stageId: string
+			scope: SkillScope
+			replace?: string[]
+			accept?: string[]
+		},
+		projectId?: string,
+	): Promise<SkillInstallView | null>
+	/** Makes a skill from a name, a description and instructions. */
+	createSkill?(
+		change: {
+			name: string
+			description: string
+			instructions: string
+			scope: SkillScope
+			replace?: boolean
+		},
+		projectId?: string,
+	): Promise<SkillCreateView | null>
+	/** Moves a skill the person added into the backups folder. */
+	removeSkill?(name: string, tier: SkillScope, projectId?: string): Promise<SkillRemoveView | null>
 	/** Which browser the engine would drive on this computer, read without launching it; null where the engine cannot say. */
 	engineBrowser?(): Promise<EngineBrowserView | null>
 	/** The person's own instructions every conversation starts from; null where the engine cannot say. */

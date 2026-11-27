@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron'
+import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type { BrowserPaneState } from './shared/browser-pane.js'
 import type { EngineDeliveryView } from './shared/engine-delivery-protocol.js'
 import type { EngineUpdateNotice, EngineUpdatesState } from './shared/engine-update-protocol.js'
@@ -113,6 +113,21 @@ const api: DesktopApi = {
 	skillCatalog: (projectId) => invoke('skillCatalog', projectId),
 	skillFiles: (name, projectId) => invoke('skillFiles', name, projectId),
 	skillFile: (name, path, projectId) => invoke('skillFile', name, path, projectId),
+	chooseSkillFiles: () => invoke('chooseSkillFiles'),
+	chooseSkillFolder: () => invoke('chooseSkillFolder'),
+	// The path of a dropped file is read here, where Electron allows it; main registers it after its own check.
+	dropSkillFiles: (files) =>
+		invoke(
+			'dropSkillFiles',
+			Array.from(files)
+				.slice(0, 20)
+				.map((file) => webUtils.getPathForFile(file))
+				.filter((path) => path.length > 0),
+		),
+	stageSkills: (paths, projectId) => invoke('stageSkills', paths, projectId),
+	installSkills: (change, projectId) => invoke('installSkills', change, projectId),
+	createSkill: (change, projectId) => invoke('createSkill', change, projectId),
+	removeSkill: (name, tier, projectId) => invoke('removeSkill', name, tier, projectId),
 	engineBrowser: () => invoke('engineBrowser'),
 	standingInstructions: () => invoke('standingInstructions'),
 	saveStandingInstructions: (text, revision) => invoke('saveStandingInstructions', text, revision),

@@ -141,6 +141,11 @@ export class RuntimeClient extends EventEmitter {
 	supportsSkillsCatalog(): boolean {
 		return this.skillsCatalog
 	}
+	private skillsManage = false
+	/** A host that predates adding skills does not list stage, install, create and remove. */
+	supportsSkillsManage(): boolean {
+		return this.skillsManage
+	}
 	private browserStatus = false
 	/** A host that predates the browser status does not list `namzu/browser/status`. */
 	supportsBrowserStatus(): boolean {
@@ -425,6 +430,7 @@ export class RuntimeClient extends EventEmitter {
 		this.userMcpServers = offers('userMcpServers')
 		this.skillsList = offers('skillsList')
 		this.skillsCatalog = offers('skillsCatalog')
+		this.skillsManage = offers('skillsManage')
 		this.browserStatus = offers('browserStatus')
 		this.hooksView = offers('hooksView')
 		this.standingInstructions = offers('standingInstructions')
