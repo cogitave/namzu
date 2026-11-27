@@ -39,9 +39,10 @@ $NAMZU_HOME/
 Every file is read and written through the same rules as the other small state
 files: one change at a time under a lock, a recovery copy of the file as it was
 first, and no overwrite of a file that exists but does not read. A file that
-cannot be read stops what needs it with a sentence naming the file, keeps its
-bytes in `$NAMZU_HOME/backups/<file>.corrupted.<time>` and names the newest
-recovery copy; nothing is removed. A key Namzu does not know is kept as it was
+cannot be read stops what needs it with a sentence naming the file and the
+reason, and nothing is changed or removed. The `plugin` commands never write a
+`.corrupted` copy of such a file and have no way to start a new list: fix the file
+or move it away, then run the command again. A key Namzu does not know is kept as it was
 written when a record changes. An entry that is not a record is reported and left
 in the file; it never stops the others.
 
@@ -87,8 +88,12 @@ does not load:
 ledger changed on disk after you accepted it, so it did not load. Reinstall it to review it again.
 ```
 
-Only that plugin is stopped. A file that is not executable (a skill's text, say)
-is not checked.
+Only that plugin is stopped. The plugin folder is also walked: every file that
+can configure what runs must be listed in `executable`, so a file added after
+install, or left out of the list, stops the plugin too. Those are every `.json`
+file, every `SKILL.md` (its front matter can attach hooks and pre-approve
+tools) and every `.md` file in an `agents`, `commands` or `skills` folder. Other
+files (a README, an image) are not checked.
 
 ## Turning an installed plugin on
 
@@ -140,14 +145,19 @@ hand-placed scan and before `--plugin-dir` folders:
    with its install sidecar, which is read nowhere else.
 5. A plugin that fails any step is skipped and reported at launch and by
    `namzu plugin list`; the others load. A name already used by a hand-placed
-   plugin or a `--plugin-dir` folder keeps the plugin that holds it; between two
-   installed plugins with one name the one installed first is loaded.
+   plugin (also a disabled one) or a `--plugin-dir` folder keeps the plugin that
+   holds it; between two installed plugins with one name the one installed first is
+   loaded. `list`, `details` and `enable` report the clash with hand-placed
+   plugins and with installed ones as `blocked`; a `--plugin-dir` folder of one
+   launch is not known to them.
 
 `NAMZU_PLUGIN_ROOT` is the cache folder and `NAMZU_PLUGIN_DATA` is
 `$NAMZU_HOME/plugins/data/<id>/`. In a session, **Keep enabled/disabled after
 restart** writes the answer for you in `$NAMZU_HOME/settings.json` for a user
 install, and in `.namzu/settings.local.json` for a project or local install, so a
-shared file is never edited by a toggle. Command and agent files of a plugin that
+shared file is never edited by a toggle. If this computer's file for the folder
+or the shared file still says the opposite for a user install, the answer is
+written to this computer's file as well, so it holds on the next start. Command and agent files of a plugin that
 is on reach the session like those of any other plugin.
 
 ## Trust screen
@@ -172,16 +182,16 @@ several the command exits 64 and names them. `--cwd` is the folder whose project
 plugins are meant (default: here). Nothing here runs a plugin or fetches anything.
 
 - **`list`** shows the plugins that apply here: id, version, scope, `on`, `off` or
-  `blocked` (changed on disk, or unreadable), and how many things need a look. It
+  `blocked` (changed on disk, unreadable, or its name is already used by another plugin), and how many things need a look. It
   also lists plugins this folder asks for that are not installed, marketplaces
   it declares, and files that did not read. `--json` prints
   `{ command, cwd, trusted, loading, plugins[], asked[], declaredMarketplaces[], problems[], notice? }`;
   each plugin has `id`, `name`, `marketplace`, `version`, `scope`, `projectPath?`,
   `enabled`, `enabledBy` (`user`, `project`, `local` or `null`), `state`,
-  `attention`, `problem?`, `layout` and `installPath`.
-- **`details`** shows one plugin: its description, the skills, commands, agents
-  and servers it brings by their exact names (`<plugin>__<name>`), its record, who
-  turned it on, its origin marketplace, the executable files and surface digest, the
+  `attention`, `problem?`, `source` (the marketplace's source when this computer knows it, else `null`), `layout` and `installPath`.
+- **`details`** shows one plugin: its description, the skills, commands, agents,
+  hooks (event and number of entries) and servers it brings by their exact names (`<plugin>__<name>`), its record, who
+  turned it on, its origin marketplace (`origin` in `--json` is the marketplace's source, else what the install manifest says it came from), the executable files and surface digest, the
   consent record and its data folder with size. `--json` adds `verification`,
   `records[]`, `surface`, `consent`, `data` and `inventory`.
 - **`enable`** and **`disable`** record a yes or a no. Without `--scope` the answer
@@ -189,7 +199,7 @@ plugins are meant (default: here). Nothing here runs a plugin or fetches anythin
   folder (`settings.local.json`, "off for me") for a project or local plugin;
   `--scope project` edits the shared `.namzu/settings.json` and `--scope local`
   or `user` the matching file. They say so when the answer is already recorded,
-  when a higher layer still decides, and when `plugins.enabled` is off so the
+  when a higher layer still decides, when the plugin is blocked and will not load, and when `plugins.enabled` is off so the
   plugin will not run. It takes effect in new conversations. `--json` prints
   `{ command, outcome (enabled, disabled, unchanged or failed), id, scope, message, effective, loading, notes? }`.
 

@@ -5,13 +5,16 @@
  * local servers, remote origins, modules, pre-approved tools) and one digest
  * over all of it.
  *
- * At every load the runtime hashes the executable files again. A file that is
- * not what was accepted stops that plugin, and only that plugin. Nothing that
- * has no matching record and manifest loads from the plugin cache.
+ * At every load the runtime hashes the executable files again, and walks the
+ * plugin folder for a file that decides what runs but is not listed (any JSON
+ * file, a skill, an agent or a command): one added after install, or left out
+ * by the installer, stops the plugin too. A file that is not what was accepted
+ * stops that plugin, and only that plugin. Nothing that has no matching record
+ * and manifest loads from the plugin cache.
  */
 
 import { createHash } from 'node:crypto'
-import { lstatSync, readFileSync, realpathSync } from 'node:fs'
+import { lstatSync, readFileSync, readdirSync, realpathSync } from 'node:fs'
 import { isAbsolute, join, relative, resolve, sep } from 'node:path'
 
 import { isRecord, readJsonObject } from './json-state.js'
@@ -124,9 +127,48 @@ function realOrNothing(path: string): string | undefined {
 	}
 }
 
+const CONFIG_FOLDERS = new Set(['agents', 'commands', 'skills'])
+
 /**
- * Whether the installed copy is what was accepted. Reads only the executable
- * files the manifest names; a folder outside the plugin cache, a missing or
+ * A file that can configure what runs: any JSON file (manifests, hook entries,
+ * server lists), a skill's `SKILL.md` (its front matter can attach hooks and
+ * pre-approve tools), and any markdown file in an agents, commands or skills
+ * folder. Such a file must be in the install manifest's executable list.
+ */
+export function isConfigFile(path: string): boolean {
+	const parts = path.split('/')
+	const name = parts[parts.length - 1] ?? ''
+	const lower = name.toLowerCase()
+	if (lower.endsWith('.json')) return true
+	if (!lower.endsWith('.md')) return false
+	return lower === 'skill.md' || parts.slice(0, -1).some((part) => CONFIG_FOLDERS.has(part))
+}
+
+/** Every file or link under `root` that {@link isConfigFile} names and the manifest does not list. */
+function unlistedConfigFile(root: string, listed: ReadonlySet<string>): string | undefined {
+	const walk = (dir: string, prefix: string): string | undefined => {
+		let entries: import('node:fs').Dirent[]
+		try {
+			entries = readdirSync(dir, { withFileTypes: true })
+		} catch {
+			return prefix === '' ? undefined : prefix
+		}
+		for (const entry of entries) {
+			const rel = prefix === '' ? entry.name : `${prefix}/${entry.name}`
+			if (entry.isDirectory()) {
+				const found = walk(join(dir, entry.name), rel)
+				if (found !== undefined) return found
+			} else if (isConfigFile(rel) && !listed.has(rel)) return rel
+		}
+		return undefined
+	}
+	return walk(root, '')
+}
+
+/**
+ * Whether the installed copy is what was accepted. Hashes the executable
+ * files the manifest names and fails closed on a configuration file it does
+ * not list; a folder outside the plugin cache, a missing or
  * unreadable manifest, a digest that does not match what was recorded, a file
  * that is missing, a link or whose hash differs all fail with the same
  * sentence a person can act on: install it again to review it again.
@@ -182,5 +224,7 @@ export function verifyInstalledCopy(
 			return changed
 		}
 	}
+	// A file added after install, or left out of the list, is not what was accepted.
+	if (unlistedConfigFile(root, new Set(manifest.executable)) !== undefined) return changed
 	return { ok: true }
 }

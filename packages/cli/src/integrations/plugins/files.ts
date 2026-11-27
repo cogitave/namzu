@@ -189,6 +189,8 @@ export async function readPluginFileSources(options: {
 		try {
 			const rootDir = await resolveWithinReal(authority, dir)
 			const manifest = await loadPluginManifest(rootDir, { skillsSupported: true })
+			// A disabled plugin still holds its name, as it does in the runtime.
+			names.add(manifest.name)
 			if (!settings.read({ rootDir, name: manifest.name })) return
 			take(manifest, rootDir)
 		} catch (error) {

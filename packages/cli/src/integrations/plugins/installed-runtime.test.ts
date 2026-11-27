@@ -193,6 +193,28 @@ describe('who says on, across the three layers', () => {
 		expect(state).toEqual({ a: 'disabled', b: 'enabled', c: 'enabled' })
 	})
 
+	it('also writes this computer’s file when it would undo a user-scope toggle', async () => {
+		installFixture(home, { id: 'u@m' })
+		on('user', 'u@m')
+		on('local', 'u@m') // this computer's file says yes and outranks the user file
+		const runtime = await start()
+		await runtime.setEnabled('u', false)
+		await runtime.rememberState('u')
+		const local = JSON.parse(readFileSync(recordLayerPath('local', { home, cwd }), 'utf8'))
+		expect(local.enabledPlugins['u@m']).toBe(false)
+		const again = await start()
+		expect(again.list().find((p) => p.name === 'u')?.status).toBe('disabled')
+	})
+
+	it('says so when a hand-placed plugin folder has a reserved name', async () => {
+		writeFiles(join(home, 'plugins', 'data'), {
+			'plugin.json': { name: 'odd', version: '1.0.0', description: 'Odd.' },
+		})
+		const runtime = await start()
+		expect(names(runtime)).not.toContain('odd')
+		expect(runtime.takePluginHookWarnings().join('\n')).toContain('named for Namzu')
+	})
+
 	it('remembers a toggle in the user file for a user install and in the local file for a folder install', async () => {
 		installFixture(home, { id: 'u@m' })
 		installFixture(home, { id: 'p@m', scope: 'project', projectPath: cwd })

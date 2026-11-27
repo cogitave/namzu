@@ -15,6 +15,8 @@
 import { lstatSync, readdirSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 
+import { discoverAllPluginDirs, loadPluginManifest } from '@namzu/sdk'
+
 import { EXIT_FAIL, EXIT_NOINPUT, EXIT_OK, EXIT_UNTRUSTED, EXIT_USAGE } from '../exit-codes.js'
 import {
 	type EnabledAnswer,
@@ -24,6 +26,7 @@ import {
 	setEnabledPlugin,
 } from '../integrations/plugins/enabled-records.js'
 import { listMarkdownNames, resolvePluginFileDirs } from '../integrations/plugins/files.js'
+import { readPluginHookEntriesOf } from '../integrations/plugins/hook-entries.js'
 import {
 	readInstallManifest,
 	verifyInstalledCopy,
@@ -42,6 +45,7 @@ import {
 	installedPluginDataFolder,
 	installedPluginsPath,
 	isPluginId,
+	isReservedPluginDir,
 	readInstalledPlugins,
 	readKnownMarketplaces,
 	realPathOrResolved,
@@ -269,6 +273,59 @@ function candidateFor(
 	}
 }
 
+const CLASH_ALLOWED_SCOPES = ['project', 'user'] as const
+
+/**
+ * The installed plugins the runtime will skip because another plugin already
+ * holds their name: a hand-placed plugin found by discovery, or an installed
+ * plugin that was installed earlier. Same order and rule as the loader; the
+ * `--plugin-dir` folders of one launch are not known here. Keyed by plugin id,
+ * with the sentence the loader prints.
+ */
+async function nameClashes(
+	deps: PluginRecordsDeps,
+	ctx: Context,
+	plugins: ReadonlyMap<string, readonly InstallRecord[]>,
+): Promise<Map<string, string>> {
+	const names = new Set<string>()
+	try {
+		const discovered = await discoverAllPluginDirs(ctx.cwd, {
+			enabled: true,
+			autoDiscovery: true,
+			allowedScopes: CLASH_ALLOWED_SCOPES,
+			userRoot: deps.namzuHome,
+		})
+		for (const scope of CLASH_ALLOWED_SCOPES)
+			for (const dir of discovered[scope]) {
+				if (scope === 'user' && isReservedPluginDir(deps.namzuHome, dir)) continue
+				try {
+					names.add((await loadPluginManifest(dir, { skillsSupported: true })).name)
+				} catch {
+					// A folder that does not read holds no name.
+				}
+			}
+	} catch {
+		// Discovery failing leaves only the installed plugins to compare.
+	}
+	const candidates: { id: string; at: string }[] = []
+	for (const [id, records] of plugins) {
+		const chosen = applicable(records, ctx.cwd, ctx.trusted).here[0]
+		if (chosen === undefined) continue
+		if (!verifyInstalledCopy(deps.namzuHome, id, chosen.installPath, chosen.surfaceSha256).ok)
+			continue
+		candidates.push({ id, at: chosen.installedAt ?? '' })
+	}
+	candidates.sort((a, b) => a.at.localeCompare(b.at) || a.id.localeCompare(b.id))
+	const clashes = new Map<string, string>()
+	for (const { id } of candidates) {
+		const { name } = splitPluginId(id)
+		if (names.has(name))
+			clashes.set(id, `${id} will not load: the name "${name}" is already used by another plugin.`)
+		else names.add(name)
+	}
+	return clashes
+}
+
 interface ListRow {
 	readonly id: string
 	readonly name: string
@@ -281,11 +338,13 @@ interface ListRow {
 	readonly state: 'on' | 'off' | 'blocked'
 	readonly attention: number
 	readonly problem?: string
+	/** Where the marketplace the plugin came from is read from, when it is known here. */
+	readonly source: unknown
 	readonly layout: string | null
 	readonly installPath: string
 }
 
-function runList(deps: PluginRecordsDeps, flags: Flags): number {
+async function runList(deps: PluginRecordsDeps, flags: Flags): Promise<number> {
 	const command = 'plugin list'
 	if (flags.positional.length > 0)
 		return failure(deps, flags.json, command, EXIT_USAGE, 'plugin list takes no arguments.')
@@ -307,6 +366,8 @@ function runList(deps: PluginRecordsDeps, flags: Flags): number {
 				`${recordLayerPath(layer as RecordLayer, { home: deps.namzuHome, cwd: ctx.cwd })} could not be read (${layerRead.reason}), so what it says was not used`,
 			)
 	}
+	const clashes = await nameClashes(deps, ctx, read.plugins)
+	const known = readKnownMarketplaces(deps.namzuHome)
 	const rows: ListRow[] = []
 	let unread = 0
 	for (const [id, records] of [...read.plugins.entries()].sort(([a], [b]) => a.localeCompare(b))) {
@@ -328,6 +389,8 @@ function runList(deps: PluginRecordsDeps, flags: Flags): number {
 				(f) => f.level === 'notUsed' || f.level === 'refused',
 			).length
 			const { name, marketplace } = splitPluginId(id)
+			const clash = verdict.ok ? clashes.get(id) : undefined
+			const problem = verdict.ok ? clash : verdict.message
 			rows.push({
 				id,
 				name,
@@ -337,9 +400,13 @@ function runList(deps: PluginRecordsDeps, flags: Flags): number {
 				...(record.projectPath ? { projectPath: record.projectPath } : {}),
 				enabled: answer.on,
 				enabledBy: answer.by ?? null,
-				state: verdict.ok ? (answer.on ? 'on' : 'off') : 'blocked',
-				attention: notes + (verdict.ok ? 0 : 1),
-				...(verdict.ok ? {} : { problem: verdict.message }),
+				state: problem !== undefined ? 'blocked' : answer.on ? 'on' : 'off',
+				attention: notes + (problem !== undefined ? 1 : 0),
+				...(problem !== undefined ? { problem } : {}),
+				source:
+					known.state !== 'unreadable'
+						? (known.marketplaces.get(marketplace)?.source ?? null)
+						: null,
 				layout: record.layout ?? null,
 				installPath: record.installPath,
 			})
@@ -357,7 +424,6 @@ function runList(deps: PluginRecordsDeps, flags: Flags): number {
 		}
 	}
 	const declared: { name: string; layer: RecordLayer; source: unknown; added: boolean }[] = []
-	const known = readKnownMarketplaces(deps.namzuHome)
 	for (const layer of ['project', 'local'] as const) {
 		const layerRead = layers[layer]
 		if (layerRead === undefined || layerRead.state === 'unreadable') continue
@@ -467,6 +533,12 @@ async function runDetails(deps: PluginRecordsDeps, flags: Flags): Promise<number
 		id,
 	)
 	const verdict = verifyInstalledCopy(deps.namzuHome, id, record.installPath, record.surfaceSha256)
+	const all = readInstalledPlugins(deps.namzuHome)
+	const clash =
+		verdict.ok && all.state !== 'unreadable'
+			? (await nameClashes(deps, ctx, all.plugins)).get(id)
+			: undefined
+	const blockedBy = verdict.ok ? clash : verdict.message
 	const manifestRead = readInstallManifest(deps.namzuHome, id)
 	const { name, marketplace } = splitPluginId(id)
 	const known = readKnownMarketplaces(deps.namzuHome)
@@ -494,8 +566,12 @@ async function runDetails(deps: PluginRecordsDeps, flags: Flags): Promise<number
 				).dirs.flatMap((source) =>
 					listMarkdownNames(source.dir, source.only).map((file) => `${prefix}${file}`),
 				)
+			const hookRead = readPluginHookEntriesOf({ rootDir: candidate.installPath, manifest })
 			inventory = {
 				description: manifest.description,
+				hooks: Object.entries(hookRead.hooks)
+					.filter(([, entries]) => (entries?.length ?? 0) > 0)
+					.map(([event, entries]) => `${event} (${entries?.length ?? 0})`),
 				skills: (details.skills ?? []).map((skill) => skill.name),
 				commands: files(manifest.commands),
 				agents: files(manifest.agents),
@@ -515,7 +591,9 @@ async function runDetails(deps: PluginRecordsDeps, flags: Flags): Promise<number
 		enabled: answer.on,
 		enabledBy: answer.by ?? null,
 		verification: verdict.ok
-			? { ok: true }
+			? clash !== undefined
+				? { ok: false, code: 'name-clash', message: clash }
+				: { ok: true }
 			: { ok: false, code: verdict.code, message: verdict.message },
 		records: found.here.map((r) => ({
 			scope: r.scope,
@@ -528,7 +606,9 @@ async function runDetails(deps: PluginRecordsDeps, flags: Flags): Promise<number
 			layout: r.layout ?? null,
 			findings: r.findings,
 		})),
-		origin: source,
+		origin:
+			source ??
+			(manifestRead.state === 'ok' ? (manifestRead.manifest.installedFrom ?? null) : null),
 		surface,
 		surfaceSha256: manifestRead.state === 'ok' ? manifestRead.manifest.surfaceSha256 : null,
 		executableFiles: manifestRead.state === 'ok' ? manifestRead.manifest.executable : [],
@@ -550,7 +630,7 @@ async function runDetails(deps: PluginRecordsDeps, flags: Flags): Promise<number
 		`  Folder:   ${oneLine(record.installPath)}`,
 		`  Data:     ${oneLine(dataPath)}${output.data.bytes === null ? ' (none yet)' : ` (${output.data.bytes} bytes)`}`,
 	)
-	if (!verdict.ok) lines.push(`  Blocked:  ${oneLine(verdict.message)}`)
+	if (blockedBy !== undefined) lines.push(`  Blocked:  ${oneLine(blockedBy)}`)
 	const listed = (label: string, items: unknown): void => {
 		if (Array.isArray(items) && items.length > 0)
 			lines.push(`  ${label}${items.map((item) => oneLine(String(item))).join(', ')}`)
@@ -559,6 +639,7 @@ async function runDetails(deps: PluginRecordsDeps, flags: Flags): Promise<number
 		listed('Skills:   ', inventory.skills)
 		listed('Commands: ', inventory.commands)
 		listed('Agents:   ', inventory.agents)
+		listed('Hooks:    ', inventory.hooks)
 		listed('Servers:  ', inventory.servers)
 	}
 	if (manifestRead.state === 'ok') {
@@ -580,7 +661,7 @@ async function runDetails(deps: PluginRecordsDeps, flags: Flags): Promise<number
 	return EXIT_OK
 }
 
-function runToggle(deps: PluginRecordsDeps, flags: Flags, enable: boolean): number {
+async function runToggle(deps: PluginRecordsDeps, flags: Flags, enable: boolean): Promise<number> {
 	const command = enable ? 'plugin enable' : 'plugin disable'
 	const verb = enable ? 'on' : 'off'
 	if (flags.positional.length !== 1)
@@ -641,6 +722,21 @@ function runToggle(deps: PluginRecordsDeps, flags: Flags, enable: boolean): numb
 		notes.push(
 			`It is still ${answer.on ? 'on' : 'off'} here: ${layerSentence(answer.by, answer.on)}.`,
 		)
+	if (enable) {
+		const verdict = verifyInstalledCopy(
+			deps.namzuHome,
+			id,
+			chosen.installPath,
+			chosen.surfaceSha256,
+		)
+		const all = readInstalledPlugins(deps.namzuHome)
+		const blocked = !verdict.ok
+			? verdict.message
+			: all.state !== 'unreadable'
+				? (await nameClashes(deps, ctx, all.plugins)).get(id)
+				: undefined
+		if (blocked !== undefined) notes.push(`It is still blocked and will not load: ${blocked}`)
+	}
 	if (enable && !deps.loadingOn)
 		notes.push(
 			'Plugin loading is off, so it will not run until you run: namzu config set plugins.enabled true',

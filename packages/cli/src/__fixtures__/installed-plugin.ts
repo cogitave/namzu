@@ -11,6 +11,7 @@ import { dirname, join } from 'node:path'
 import {
 	INSTALL_MANIFEST_VERSION,
 	installManifestPath,
+	isConfigFile,
 	sha256Hex,
 	surfaceDigest,
 } from '../integrations/plugins/install-manifest.js'
@@ -35,7 +36,7 @@ export interface InstalledFixtureOptions {
 	readonly projectPath?: string
 	/** Files by path inside the plugin, replacing the default skill and plugin manifest. */
 	readonly files?: Record<string, string | object>
-	/** Paths that count as executable; each is hashed. Default `scripts/run.sh`. */
+	/** Paths that count as executable; each is hashed. Default `scripts/run.sh`; every JSON and skill file in `files` is added. */
 	readonly executable?: readonly string[]
 	readonly layout?: 'common' | 'namzu'
 	readonly installedAt?: string
@@ -70,7 +71,13 @@ export function installFixture(home: string, options: InstalledFixtureOptions): 
 		'scripts/run.sh': '#!/bin/sh\ntrue\n',
 	}
 	writeFiles(installPath, files)
-	const executable = [...(options.executable ?? ['scripts/run.sh'])]
+	// The install step lists every configuration file as well as the scripts.
+	const executable = [
+		...new Set([
+			...(options.executable ?? ['scripts/run.sh']),
+			...Object.keys(files).filter(isConfigFile),
+		]),
+	]
 	const hashes: Record<string, string> = {}
 	for (const path of executable) {
 		const content = files[path]

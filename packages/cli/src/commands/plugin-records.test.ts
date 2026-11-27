@@ -1,4 +1,11 @@
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
+import {
+	appendFileSync,
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	realpathSync,
+	writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -188,7 +195,7 @@ describe('namzu plugin details', () => {
 				skills: ['ledger__reconcile'],
 				commands: ['ledger__close'],
 			},
-			executableFiles: ['scripts/run.sh'],
+			executableFiles: expect.arrayContaining(['scripts/run.sh', 'skills/reconcile/SKILL.md']),
 		})
 		expect(json.records[0]).toMatchObject({ scope: 'user', version: '1.2.0', layout: 'namzu' })
 		const text = (await run('details', ['ledger'])).out
@@ -216,6 +223,46 @@ describe('namzu plugin details', () => {
 		const result = await run('details', ['proj@m'], { trusted: false })
 		expect(result.code).toBe(77)
 		expect(result.err).toContain('not trusted')
+	})
+})
+
+describe('a plugin that will not load', () => {
+	it('shows a name used by a hand-placed plugin as blocked in list, details and enable', async () => {
+		installFixture(home, { id: 'ledger@mkt' })
+		set('user', 'ledger@mkt')
+		mkdirSync(join(home, 'plugins', 'ledger'), { recursive: true })
+		writeFileSync(
+			join(home, 'plugins', 'ledger', 'plugin.json'),
+			JSON.stringify({ name: 'ledger', version: '1.0.0', description: 'Mine.' }),
+		)
+		const list = (await run('list', ['--json'])).json()
+		expect(list.plugins[0]).toMatchObject({ state: 'blocked', attention: 1 })
+		expect(list.plugins[0].problem).toContain('already used by another plugin')
+		const details = (await run('details', ['ledger@mkt', '--json'])).json()
+		expect(details.verification).toMatchObject({ ok: false, code: 'name-clash' })
+		const enable = await run('enable', ['ledger@mkt'])
+		expect(enable.out).toContain('still blocked')
+	})
+
+	it('shows the second of two installed plugins with one name as blocked', async () => {
+		installFixture(home, { id: 'ledger@one', installedAt: '2026-11-01T00:00:00.000Z' })
+		installFixture(home, { id: 'ledger@two', installedAt: '2026-11-02T00:00:00.000Z' })
+		const list = (await run('list', ['--json'])).json()
+		expect(list.plugins.map((p: { id: string; state: string }) => [p.id, p.state])).toEqual([
+			['ledger@one', 'off'],
+			['ledger@two', 'blocked'],
+		])
+	})
+
+	it('says on enable that a changed plugin is still blocked, and fills origin from the manifest', async () => {
+		const fixture = installFixture(home, { id: 'ledger@mkt' })
+		appendFileSync(join(fixture.installPath, 'scripts', 'run.sh'), 'echo hi\n')
+		const enable = await run('enable', ['ledger@mkt'])
+		expect(enable.code).toBe(0)
+		expect(enable.out).toContain('still blocked and will not load')
+		expect((await run('details', ['ledger@mkt', '--json'])).json().origin).toEqual({
+			marketplace: 'mkt',
+		})
 	})
 })
 

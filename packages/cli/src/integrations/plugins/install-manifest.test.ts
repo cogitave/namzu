@@ -48,10 +48,45 @@ describe('the install manifest', () => {
 		})
 	})
 
-	it('does not look at a file that is not executable', () => {
+	it('does not look at a file that is neither executable nor configuration', () => {
+		const fixture = installFixture(home, { id: 'ledger@m' })
+		writeFileSync(join(fixture.installPath, 'README.md'), 'edited')
+		expect(verifyInstalledCopy(home, 'ledger@m', fixture.installPath, fixture.digest).ok).toBe(true)
+	})
+
+	it('stops a copy whose skill text changed, since its front matter can attach hooks', () => {
 		const fixture = installFixture(home, { id: 'ledger@m' })
 		writeFileSync(join(fixture.installPath, 'skills', 'ledger-skill', 'SKILL.md'), 'edited')
-		expect(verifyInstalledCopy(home, 'ledger@m', fixture.installPath, fixture.digest).ok).toBe(true)
+		expect(
+			verifyInstalledCopy(home, 'ledger@m', fixture.installPath, fixture.digest),
+		).toMatchObject({
+			ok: false,
+			code: 'changed',
+		})
+	})
+
+	it('stops a copy that gained a configuration file after install', () => {
+		const fixture = installFixture(home, { id: 'ledger@m' })
+		mkdirSync(join(fixture.installPath, 'hooks'), { recursive: true })
+		writeFileSync(join(fixture.installPath, 'hooks', 'hooks.json'), '{}')
+		expect(verifyInstalledCopy(home, 'ledger@m', fixture.installPath, fixture.digest).ok).toBe(
+			false,
+		)
+	})
+
+	it('stops a copy with a configuration file the installer did not list', () => {
+		const fixture = installFixture(home, {
+			id: 'ledger@m',
+			files: {
+				'plugin.json': { name: 'ledger', version: '1.0.0', description: 'x' },
+				'scripts/run.sh': 'x',
+			},
+		})
+		mkdirSync(join(fixture.installPath, 'agents'), { recursive: true })
+		writeFileSync(join(fixture.installPath, 'agents', 'a.md'), 'new agent')
+		expect(verifyInstalledCopy(home, 'ledger@m', fixture.installPath, fixture.digest).ok).toBe(
+			false,
+		)
 	})
 
 	it('stops a copy whose executable file is missing', () => {

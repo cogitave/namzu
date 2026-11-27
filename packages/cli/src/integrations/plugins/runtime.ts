@@ -339,7 +339,14 @@ export async function createCliPluginRuntime(
 			})
 		: { project: [], user: [] }
 	// The folders under `plugins/` that hold Namzu's own state are not plugins to scan.
-	discovered.user = discovered.user.filter((dir) => !isReservedPluginDir(userRoot, dir))
+	discovered.user = discovered.user.filter((dir) => {
+		if (!isReservedPluginDir(userRoot, dir)) return true
+		// Discovery only lists folders that hold a plugin manifest, so this one was meant as a plugin.
+		warningLines.push(
+			`The folder ${dir} holds a plugin but is named for Namzu's own plugin state, so it was not loaded. Rename the folder to load it.`,
+		)
+		return false
+	})
 	const installed: Awaited<ReturnType<PluginLifecycleManager['install']>>[] = []
 	const installedInfo = new Map<string, { id: string; scope: 'user' | 'project' | 'local' }>()
 	const installedSkipped: { id: string | undefined; message: string }[] = []
@@ -643,6 +650,20 @@ export async function createCliPluginRuntime(
 					from.id,
 					enabled,
 				)
+				// This computer's file for the folder outranks the shared and the user
+				// file, so a yes or no left there still decides: write it there too.
+				if (
+					layer === 'user' &&
+					currentEnabledAnswer({ home: userRoot, cwd, projectTrusted: folderIsTrusted() }, from.id)
+						.on !== enabled
+				) {
+					setEnabledPlugin(
+						recordLayerPath('local', { home: userRoot, cwd }),
+						userRoot,
+						from.id,
+						enabled,
+					)
+				}
 				return
 			}
 			settings.write({ rootDir: plugin.rootDir, name }, enabled)
