@@ -3,6 +3,10 @@ import {
 	Archive,
 	ArrowUpRight,
 	Blocks,
+	BriefcaseBusiness,
+	ArrowUpDown,
+	Code,
+	File as FileStock,
 	ChevronsDownUp,
 	CircleCheck,
 	Circle as CircleStroke,
@@ -294,3 +298,8 @@ export const ArrowUpRightIcon = createOutlineIcon(ArrowUpRight)
 export const CircleCheckIcon = createOutlineIcon(CircleCheck)
 export const CircleOutlineIcon = createOutlineIcon(CircleStroke)
 export const ListTreeIcon = createOutlineIcon(ListTree)
+
+export const CustomizeIcon = createOutlineIcon(BriefcaseBusiness)
+export const SortIcon = createOutlineIcon(ArrowUpDown)
+export const CodeIcon = createOutlineIcon(Code)
+export const FileIcon = createOutlineIcon(FileStock)

@@ -5,6 +5,7 @@ import { engineAnnouncement, engineBadge } from './engine-updates-model.js'
 import { pageEntries } from './extensions-model.js'
 import { openExtensionPage, openExtensionsPage, useExtensionsSnapshot } from './extensions-store.js'
 import {
+	CustomizeIcon,
 	DownloadIcon,
 	HomeFilledIcon,
 	HomeIcon,
@@ -23,14 +24,17 @@ export function NavigationRail({
 	section,
 	onHome,
 	onSearch,
+	onCustomize,
 	onSettings,
 	update,
 	onOpenUpdates,
 }: {
-	section: 'home' | 'spaces' | 'plugins' | 'settings'
+	section: 'home' | 'spaces' | 'customize' | 'settings'
 	onHome: () => void
 	/** Opens the search the sidebar's magnifier opens; the collapsed rail keeps it one click away. */
 	onSearch?: () => void
+	/** Opens the Customize page: skills, connectors and plugins. */
+	onCustomize?: () => void
 	onSettings: () => void
 	/** Absent in a window that has no updater. */
 	update?: { state: UpdateState; onOpen: () => void; onCheck: () => void }
@@ -69,6 +73,16 @@ export function NavigationRail({
 					/>
 				)}
 				<ExtensionsRailButton />
+				{onCustomize && (
+					<RailButton
+						control="customize"
+						label="Customize"
+						active={section === 'customize'}
+						onClick={onCustomize}
+					>
+						<CustomizeIcon />
+					</RailButton>
+				)}
 			</div>
 			<div className="rail-foot">
 				<RailButton
@@ -132,12 +146,14 @@ function settingsTooltip(): string {
 export function SidebarFoot({
 	section,
 	onHome,
+	onCustomize,
 	onSettings,
 	update,
 	onOpenUpdates,
 }: {
-	section: 'home' | 'spaces' | 'plugins' | 'settings'
+	section: 'home' | 'spaces' | 'customize' | 'settings'
 	onHome?: () => void
+	onCustomize?: () => void
 	onSettings: () => void
 	update?: { state: UpdateState; onOpen: () => void; onCheck: () => void }
 	onOpenUpdates?: () => void
@@ -151,6 +167,17 @@ export function SidebarFoot({
 				</RailButton>
 			)}
 			<ExtensionsRailButton side="top" />
+			{onCustomize && (
+				<RailButton
+					control="customize"
+					label="Customize"
+					side="top"
+					active={section === 'customize'}
+					onClick={onCustomize}
+				>
+					<CustomizeIcon />
+				</RailButton>
+			)}
 			<RailButton
 				control="settings"
 				label="Settings"
@@ -246,7 +273,7 @@ function RailButton({
 	children,
 }: {
 	/** Names the control for the hand-over of focus when the rail and the foot swap places. */
-	control: 'home' | 'search' | 'settings' | 'extensions' | 'extension-page'
+	control: 'home' | 'search' | 'settings' | 'extensions' | 'extension-page' | 'customize'
 	label: string
 	tooltip?: string
 	side?: 'right' | 'top'

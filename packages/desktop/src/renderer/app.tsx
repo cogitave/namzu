@@ -68,15 +68,11 @@ import { changedPaths, commitButtonState } from './commit-model.js'
 import type { AddMenuToolServers } from './composer-add-menu.js'
 import { historyEntries } from './composer-history.js'
 import { closedModeFallback, offeredPermissionModes } from './composer-permissions.js'
-import {
-	type ComposerPlugin,
-	type ComposerPluginInventory,
-	type ComposerPublicPlugin,
-	type PluginCollection,
-	type PluginSelection,
-	pluginRowId,
-} from './composer-plugins.js'
+import type { ComposerPluginInventory } from './composer-plugins.js'
 import { Composer } from './composer.js'
+import { CustomizePage } from './customize-page.js'
+import { requestAddConnector } from './mcp-servers-model.js'
+import type { CustomizeTab } from './customize-model.js'
 import { type ComputerChatLayout, useComputerChatMotion } from './computer-chat-motion.js'
 import { ComputerInputRetiredError, computerSurfaceOwnsFocus } from './computer-input-focus.js'
 import { ComputerInputQueue, computerInputOwnerMatches } from './computer-input-queue.js'
@@ -246,7 +242,6 @@ import { type PasteRange, addPaste, confirmedRanges, trackEdit } from './paste-r
 import { pendingMessages } from './pending-messages.js'
 import type { PendingActions } from './pending-tail.js'
 import { plainError, plainErrorText } from './plain-error.js'
-import { PluginsPage, PluginsSidebar } from './plugins-page.js'
 import {
 	EMPTY_CONVERSATION_TITLE,
 	emptyProjectConversation,
@@ -917,7 +912,7 @@ export function App({
 		return () => window.removeEventListener('keydown', key)
 	}, [toggleSidebar, commandOpen])
 	const setAppearance = onAppearanceChange
-	const [railSection, setRailSection] = useState<'spaces' | 'plugins' | null>(null)
+	const [railSection, setRailSection] = useState<'spaces' | 'customize' | null>(null)
 	const [settingsSection, setSettingsSection] = useState<SettingsSection>('general')
 	const [settingsFocus, setSettingsFocus] = useState<string>()
 	// Counts every ask to open Settings, so a repeated ask for the same row still reaches the dialog.
@@ -929,8 +924,10 @@ export function App({
 	settingsOpenRef.current = settingsOpen
 	/** The control that had the focus when Settings opened, so closing puts it back. */
 	const settingsOpener = useRef<HTMLElement | null>(null)
-	/** Plugins replaces the conversation with a page of its own. */
-	const pageOpen = railSection === 'plugins'
+	/** Customize replaces the conversation with a page of its own. */
+	const pageOpen = railSection === 'customize'
+	/** The tab Customize opens on: the one left last, for as long as the window lives. */
+	const [customizeTab, setCustomizeTab] = useState<CustomizeTab>('skills')
 	// Read at all times: it decides whether the strip of tabs or the bar stands above the conversation.
 	const desktopSettings = useDesktopSettings(api, true)
 	useAppearancePrefs(desktopSettings.settings)
@@ -950,7 +947,7 @@ export function App({
 	useEffect(() => {
 		const previous = previousRailSection.current
 		previousRailSection.current = railSection
-		if (previous === 'plugins' && railSection === null)
+		if (previous === 'customize' && railSection === null)
 			input.current?.focus({ preventScroll: true })
 	}, [railSection])
 	// The panes beside the conversation are showing. What they hold is the layout below; this flag is
@@ -2141,81 +2138,6 @@ export function App({
 		pluginOwner.current.key = pluginsKey
 		pluginOwner.current.generation++
 	}
-	const [pluginCollection, setPluginCollection] = useState<PluginCollection>('public')
-	const [pluginSelection, setPluginSelection] = useState<
-		PluginSelection & {
-			key: string
-			generation: number
-		}
-	>()
-	const selectedPlugin =
-		pluginSelection?.key === pluginsKey &&
-		pluginSelection.generation === pluginOwner.current.generation
-			? pluginSelection
-			: undefined
-	useEffect(() => {
-		if (railSection !== 'plugins') setPluginSelection(undefined)
-	}, [railSection])
-	const openPluginDetails = (
-		plugin: ComposerPlugin | ComposerPublicPlugin,
-		collection: PluginCollection,
-	) => {
-		if (!project?.trusted || project.status !== 'ready' || pluginOwner.current.key !== pluginsKey)
-			return
-		setPluginSelection({
-			key: pluginsKey,
-			generation: pluginOwner.current.generation,
-			collection,
-			name: plugin.name,
-			scope: 'scope' in plugin ? plugin.scope : undefined,
-		})
-		setPluginCollection(collection)
-		setSideOpen(false)
-	}
-	const tryPlugin = (plugin: ComposerPlugin) => {
-		const view = pluginStates[pluginsKey]?.value
-		if (
-			!sessionId ||
-			pal ||
-			!project?.trusted ||
-			!palCanWork ||
-			project.status !== 'ready' ||
-			!view?.live ||
-			pluginStates[pluginsKey]?.loading ||
-			!view.plugins.some(
-				(entry) =>
-					entry.name === plugin.name && entry.scope === plugin.scope && entry.status === 'enabled',
-			)
-		)
-			return
-		const generation = pluginOwner.current.generation
-		setRailSection(null)
-		setPalsPage(false)
-		setSideOpen(false)
-		requestAnimationFrame(() => {
-			if (pluginOwner.current.key !== pluginsKey || pluginOwner.current.generation !== generation)
-				return
-			paneRoot.current
-				?.querySelector<HTMLTextAreaElement>('.composer-input')
-				?.focus({ preventScroll: true })
-		})
-	}
-	const returnToPlugins = (focusSearch: boolean) => {
-		const selected = selectedPlugin
-		const generation = pluginOwner.current.generation
-		setPluginSelection(undefined)
-		setSideOpen(false)
-		requestAnimationFrame(() => {
-			if (pluginOwner.current.key !== pluginsKey || pluginOwner.current.generation !== generation)
-				return
-			const row = !focusSearch && selected ? document.getElementById(pluginRowId(selected)) : null
-			;(row ?? document.getElementById('installed-plugin-search'))?.focus({
-				preventScroll: true,
-			})
-		})
-	}
-	const backToPlugins = () => returnToPlugins(false)
-	const searchPlugins = () => returnToPlugins(true)
 	const loadPlugins = useCallback(async () => {
 		const targetProject = projectId
 		const targetSession = sessionId
@@ -4928,7 +4850,7 @@ export function App({
 		if (focused)
 			onShellState({
 				page:
-					railSection === 'plugins'
+					railSection === 'customize'
 						? railSection
 						: palsPage
 							? 'pals'
@@ -5489,15 +5411,19 @@ export function App({
 		setSideOpen(false)
 	}
 	const closeSettings = () => setSettingsOpen(false)
-	/** Settings' Extensions row: the dialog closes and the Plugins page opens in its place. */
-	const showPluginsFromSettings = () => {
+	/** Opens Customize on a tab: from the rail, a slash command, a link in a card, or Settings. */
+	const openCustomize = (tab?: CustomizeTab) => {
 		abandonTabRestore()
 		navigation.current += 1
 		setPalScreen(undefined)
 		setPalsPage(false)
-		setRailSection('plugins')
+		if (tab) setCustomizeTab(tab)
+		setRailSection('customize')
 		setSettingsOpen(false)
+		setSideOpen(false)
 	}
+	const openCustomizeRef = useRef(openCustomize)
+	openCustomizeRef.current = openCustomize
 	const settingsReturnFocus = () =>
 		settingsOpener.current?.isConnected && settingsOpener.current.getClientRects().length > 0
 			? settingsOpener.current
@@ -5588,8 +5514,8 @@ export function App({
 			setSettingsOpen(false)
 			void act(newConversationRef.current)
 		}
-		// The saved-skill card's link: Settings on the Skills list.
-		const openSkills = () => openSettingsRef.current('agent', configSettingId('skills.disabled'))
+		// The saved-skill card's link: Customize on the Skills tab.
+		const openSkills = () => openCustomizeRef.current('skills')
 		window.addEventListener(NEW_SKILL_EVENT, start)
 		window.addEventListener(OPEN_SKILLS_EVENT, openSkills)
 		return () => {
@@ -6704,9 +6630,10 @@ export function App({
 			slashHandlers.tasks = () => openSessionPane()
 		}
 		if (project?.trusted && !project.isChat && !externalHarness && api.mcpServers)
-			slashHandlers.mcp = () => openSettings('tools', 'mcpServers')
+			slashHandlers.mcp = () => openCustomize('connectors')
 		if (!externalHarness) slashHandlers.hooks = () => openSettings('tools', 'hooks')
 		slashHandlers.config = () => openSettings()
+		if (!externalHarness) slashHandlers.plugins = () => openCustomize('plugins')
 		slashHandlers.theme = () => openSettings('appearance')
 		slashHandlers.login = () => openSettings('models', 'models')
 		slashHandlers['release-notes'] = () => openSettings('updates')
@@ -6729,7 +6656,7 @@ export function App({
 			: {
 					view: (sessionPanelActive ? mcp.view : composerServers.view) ?? undefined,
 					onOpen: () => setToolServersWanted(true),
-					onManage: () => openSettings('tools', 'mcpServers'),
+					onManage: () => openCustomize('connectors'),
 				}
 
 	// A pane is open while the panes are showing and the layout holds it; the Session pane is its own flag.
@@ -7493,6 +7420,7 @@ export function App({
 								section={railSection ?? 'home'}
 								onHome={goHome}
 								onSearch={openCommands}
+								onCustomize={() => openCustomize()}
 								onSettings={() => openSettings()}
 								update={update}
 								onOpenUpdates={() => openSettings('updates')}
@@ -7502,6 +7430,7 @@ export function App({
 							foot={
 								<SidebarFoot
 									section={railSection ?? 'home'}
+									onCustomize={() => openCustomize()}
 									onSettings={() => openSettings()}
 									update={update}
 									onOpenUpdates={() => openSettings('updates')}
@@ -7544,7 +7473,7 @@ export function App({
 							threads={threads}
 							backgroundWork={backgroundWork}
 							unread={unreadConversations}
-							open={!pageOpen && sideOpen}
+							open={sideOpen}
 							onRemoveProject={api.removeProject ? requestProjectRemoval : undefined}
 							onRenameProject={api.renameProject ? requestProjectRename : undefined}
 							onLocateProject={
@@ -7605,53 +7534,6 @@ export function App({
 									: undefined
 							}
 						/>
-						{railSection === 'plugins' && (
-							<>
-								{sideOpen && (
-									<button
-										type="button"
-										className="scrim"
-										aria-label="Close sidebar"
-										onClick={() => setSideOpen(false)}
-									/>
-								)}
-								<aside
-									id="namzu-plugins-sidebar"
-									className={`sidebar plugins-navigation-sidebar ${sideOpen ? 'open' : ''}`}
-									inert={sideCollapsed && !sideOpen}
-									aria-hidden={sideCollapsed && !sideOpen}
-									aria-label="Customize"
-								>
-									<PluginsSidebar
-										view={pluginStates[pluginsKey]?.value}
-										loading={pluginStates[pluginsKey]?.loading ?? false}
-										disabled={!project?.trusted || project.status !== 'ready'}
-										contextLabel={project?.name}
-										onChooseSpace={showSpaces}
-										selected={selectedPlugin}
-										onOpenPlugin={(plugin) => openPluginDetails(plugin, 'personal')}
-										onBack={backToPlugins}
-										onSearch={searchPlugins}
-									/>
-									<Button
-										variant="ghost-muted"
-										size="icon-xs"
-										className="sidebar-close plugins-sidebar-close"
-										aria-label="Close sidebar"
-										onClick={() => setSideOpen(false)}
-									>
-										<XIcon />
-									</Button>
-									<SidebarFoot
-										section={railSection ?? 'home'}
-										onHome={goHome}
-										onSettings={() => openSettings()}
-										update={update}
-										onOpenUpdates={() => openSettings('updates')}
-									/>
-								</aside>
-							</>
-						)}
 					</>,
 					shell,
 				)}
@@ -7666,7 +7548,7 @@ export function App({
 				data-computer-chat={computerPage ? chatMotion.renderedLayout : undefined}
 				data-chat-minimized={computerPage && floatingChatMinimized}
 				data-page={
-					railSection === 'plugins'
+					railSection === 'customize'
 						? railSection
 						: palsPage
 							? 'pals'
@@ -7883,7 +7765,7 @@ export function App({
 						listening={listening}
 						info={desktopInfo.info}
 						infoError={desktopInfo.error}
-						onOpenPlugins={showPluginsFromSettings}
+						onOpenPlugins={() => openCustomize('plugins')}
 						onOpenFolder={
 							api.openDataFolder
 								? (kind: DataFolderKind) =>
@@ -7895,25 +7777,30 @@ export function App({
 						now={Date.now()}
 					/>
 				)}
-				{railSection === 'plugins' && (
-					<PluginsPage
+				{railSection === 'customize' && (
+					<CustomizePage
+						api={api}
+						projectId={project?.trusted && project.status === 'ready' ? projectId : undefined}
+						tab={customizeTab}
+						onTabChange={setCustomizeTab}
 						scope={pluginsKey}
 						view={pluginStates[pluginsKey]?.value}
 						loading={pluginStates[pluginsKey]?.loading ?? false}
 						disabled={!project?.trusted || project.status !== 'ready'}
 						contextLabel={project?.name}
-						onLoad={loadPlugins}
+						onLoadPlugins={loadPlugins}
 						onSetEnabled={setPluginEnabled}
 						onChooseSpace={showSpaces}
-						collection={pluginCollection}
-						onCollectionChange={(collection) => {
-							setPluginSelection(undefined)
-							setPluginCollection(collection)
+						onCreateSkill={() => window.dispatchEvent(new Event(NEW_SKILL_EVENT))}
+						onTryInChat={(name) => {
+							pendingSeed.current = `/${name} `
+							void act(newConversation)
 						}}
-						selected={selectedPlugin}
-						onOpenPlugin={openPluginDetails}
-						onTryPlugin={tryPlugin}
-						onBack={backToPlugins}
+						onOpenConnector={() => openSettings('tools', 'mcpServers')}
+						onAddConnector={() => {
+							requestAddConnector()
+							openSettings('tools', 'mcpServers')
+						}}
 					/>
 				)}
 				{palsPage && (
