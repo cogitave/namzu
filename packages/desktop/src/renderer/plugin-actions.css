@@ -1,7 +1,0 @@
-.plugin-actions-trigger {
-	border-radius: 50%;
-}
-.plugin-actions-trigger[data-popup-open] {
-	background: var(--sidebar-row-active);
-	color: var(--foreground);
-}

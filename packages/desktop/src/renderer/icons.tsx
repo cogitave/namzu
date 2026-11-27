@@ -1,17 +1,21 @@
 import {
 	AppWindow,
 	Archive,
+	ArrowUpDown,
 	ArrowUpRight,
 	Blocks,
+	BriefcaseBusiness,
 	ChevronsDownUp,
 	CircleCheck,
 	Circle as CircleStroke,
 	Clock,
+	Code,
 	Copy,
 	Download,
 	Ellipsis,
 	Eye,
 	FilePen,
+	File as FileStock,
 	FolderClosed,
 	FolderOpen,
 	Folders,
@@ -294,3 +298,8 @@ export const ArrowUpRightIcon = createOutlineIcon(ArrowUpRight)
 export const CircleCheckIcon = createOutlineIcon(CircleCheck)
 export const CircleOutlineIcon = createOutlineIcon(CircleStroke)
 export const ListTreeIcon = createOutlineIcon(ListTree)
+
+export const CustomizeIcon = createOutlineIcon(BriefcaseBusiness)
+export const SortIcon = createOutlineIcon(ArrowUpDown)
+export const CodeIcon = createOutlineIcon(Code)
+export const FileIcon = createOutlineIcon(FileStock)

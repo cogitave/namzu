@@ -147,13 +147,6 @@ describe('the frame tokens', () => {
 		)
 	})
 
-	it('starts a section title on the left edge of the icon slot, x 18', () => {
-		expect(8 + 10).toBe(18)
-		expect(tokenValue('--frame-title-start')).toMatch(
-			/^calc\(\s*var\(--frame-row-inset\)\s+\+\s+var\(--frame-row-padding\)\s*\)$/,
-		)
-	})
-
 	it('centres the first foot button on the icons column, x 26', () => {
 		// The icon slot spans x 18 to 34, so its centre is 26 and a 28px button starts at x 12.
 		expect(8 + 10 + 16 / 2 - 28 / 2).toBe(12)
@@ -207,12 +200,7 @@ describe('the frame tokens', () => {
 })
 
 /** Frame tokens that are computed from the pinned ones. */
-const DERIVED = [
-	'--frame-label-start',
-	'--frame-title-start',
-	'--frame-foot-start',
-	'--frame-dock-rest',
-]
+const DERIVED = ['--frame-label-start', '--frame-foot-start', '--frame-dock-rest']
 
 /** [file, selector, property, the token the value must read]. */
 const READS: ReadonlyArray<readonly [string, string, string, string]> = [
@@ -260,7 +248,6 @@ const READS: ReadonlyArray<readonly [string, string, string, string]> = [
 	['sidebar-navigation.css', '.sidebar-day-heading', 'margin-block', '--frame-day-before'],
 	['sidebar-navigation.css', '.sidebar-day-heading', 'margin-block', '--frame-day-after'],
 	['settings-page.css', '.settings-nav-group', 'gap', '--frame-row-space'],
-	['plugins-page.css', '.plugins-sidebar-installed ul', 'gap', '--frame-row-space'],
 	// The row's end control: 24 by 24, 4 from the end of the row.
 	[
 		'sidebar-navigation.css',
@@ -306,7 +293,6 @@ const READS: ReadonlyArray<readonly [string, string, string, string]> = [
 		'padding',
 		'--frame-row-padding',
 	],
-	['plugins-page.css', '.plugins-sidebar-installed h2', 'height', '--frame-title-band'],
 	['style.css', '.sidebar-section-title', 'font-weight', '--weight-control'],
 	// The cluster, its controls and the title that follows it.
 	['style.css', '.window-titlebar', 'height', '--frame-header-height'],
@@ -356,7 +342,6 @@ const READS: ReadonlyArray<readonly [string, string, string, string]> = [
 		'grid-template-columns',
 		'--frame-rail-width',
 	],
-	['plugins-page.css', '.plugins-sidebar-header', 'height', '--frame-header-height'],
 	['settings-page.css', '.settings-sidebar-navigation button', 'height', '--frame-row-height'],
 	['settings-page.css', '.settings-sidebar-navigation button', 'gap', '--frame-row-gap'],
 	[
@@ -401,13 +386,12 @@ describe('the rules that place the frame', () => {
 		const get = (file: string, selector: string, prop = 'box-shadow') =>
 			all.find((d) => d.file === file && d.selector === selector && d.prop === prop)?.value
 		expect(get('style.css', '.topbar')).toBe('inset 0 -1px 0 var(--border)')
-		// The sidebar's header and the Settings and Plugins sidebars' header draw no line under them.
+		// The sidebar's header and the Settings sidebar's header draw no line under them.
 		expect(get('style.css', '.sidebar-chrome')).toBeUndefined()
-		expect(get('plugins-page.css', '.plugins-sidebar-header')).toBeUndefined()
 		// Home (a new conversation with nothing in it) has nothing to separate.
 		expect(get('style.css', '.workspace:has([data-composer-home]) > .topbar')).toBe('none')
-		// Settings, Plugins and Pals have no top bar: the same line, at the same y, inside the same band.
-		const page = '.workspace:is([data-page="plugins"], [data-page="pals"])::before'
+		// Settings, Customize and Pals have no top bar: the same line, at the same y, inside the same band.
+		const page = '.workspace:is([data-page="customize"], [data-page="pals"])::before'
 		expect(get('style.css', page)).toBe('inset 0 -1px 0 var(--border)')
 		expect(get('style.css', page, 'height')).toBe('var(--frame-header-height)')
 		expect(get('style.css', page, 'top') ?? get('style.css', page, 'inset')).toBeDefined()

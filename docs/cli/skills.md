@@ -1,7 +1,7 @@
 ---
 type: Reference
 title: Skills
-description: Where the CLI finds SKILL.md skills, which tier wins a name, how the model loads them, how to audit model readiness and manifest cost, the built-in skills, making and saving skills, and the skills config keys.
+description: Where the CLI finds SKILL.md skills, which tier wins a name, how the model loads them, how to audit model readiness and manifest cost, the built-in skills, making, saving, adding and removing skills, and the skills config keys.
 resource: packages/cli/src/skills/
 tags: [cli, skills, config]
 status: stable
@@ -267,6 +267,19 @@ file it would overwrite, and the save is refused. A path shown on the screen or 
 card is `./…` inside the working folder, `~/…` under the home folder, and the full
 path otherwise (another drive on Windows, or a folder above the working folder).
 
+## Adding, creating and removing from the command line
+
+`namzu skills add <file.zip|file.skill|file.md|folder>...` puts skills you were
+given into `~/.namzu/skills` (or, with `--scope project`, `./.namzu/skills` in a
+trusted folder); `namzu skills create <name> --description … --instructions …`
+writes one from flags; `namzu skills remove <name>` moves one to
+`~/.namzu/backups/skills/`. They share the name, description and instructions
+rules of `save_skill`, show what a skill can run before it is added, never
+delete (a replaced or removed folder is kept in backups) and never write through
+a link. A skill added this way carries a `.namzu-install.json` the skill reader
+ignores. The full reference, with the limits, the JSON shapes and the exit
+statuses, is [namzu skills add, create and remove](skills-add.md).
+
 ## Skills in Desktop
 
 The Desktop app makes the same flow a card instead of a screen:
@@ -290,7 +303,7 @@ The Desktop app makes the same flow a card instead of a screen:
    file would replace and for each tripwire the host raised, and the buttons
    *Save skill*, *Save to project* and *Cancel* (Esc). Cancel holds the focus when the card opens, so saving takes a click.
 4. **After saving.** The result of a finished `save_skill` call (`Saved skill "name" to <path>`; the same line from any other tool draws nothing) is drawn, outside the folded work, as
-   a saved card: *usable from your next message*, with *Open Skills in Settings*; any
+   a saved card: *usable from your next message*, with *Open in Customize*, which opens Customize on Skills; any
    open Skills list reads the installed skills again at once and lists the new skill
    with its on/off switch.
 

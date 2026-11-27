@@ -31,7 +31,7 @@ export function SkillSavedCard({ name, path }: { name: string; path: string }) {
 				className="skill-saved-link"
 				onClick={() => window.dispatchEvent(new Event(OPEN_SKILLS_EVENT))}
 			>
-				Open Skills in Settings
+				Open in Customize
 			</button>
 		</section>
 	)

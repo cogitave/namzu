@@ -1,7 +1,8 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { UserMcpServerView } from '../shared/config-lists-protocol.js'
 import { ListEditor } from './config-settings-lists.js'
 import {
+	ADD_CONNECTOR_EVENT,
 	OPEN_A_PROJECT_FOR_SERVERS,
 	type ServerDraft,
 	approveLabel,
@@ -12,6 +13,7 @@ import {
 	mcpServerRowView,
 	mcpServersNote,
 	serverConfirmationCopy,
+	takeAddConnector,
 	userServerDetail,
 	variablesNote,
 	waitingServers,
@@ -219,6 +221,17 @@ export function McpServersRows({
 }) {
 	const [draft, setDraft] = useState<ServerDraft>()
 	const [removing, setRemoving] = useState<string>()
+	const canAdd = Boolean(own)
+	// Customize's "Add custom connector" lands here with the form open.
+	useEffect(() => {
+		if (!canAdd) return
+		const open = () => {
+			if (takeAddConnector()) setDraft(emptyDraft())
+		}
+		open()
+		window.addEventListener(ADD_CONNECTOR_EVENT, open)
+		return () => window.removeEventListener(ADD_CONNECTOR_EVENT, open)
+	}, [canAdd])
 	const ownByName = new Map((own?.view?.servers ?? []).map((server) => [server.name, server]))
 	const file = own?.view?.file
 	const dialog = own?.confirmation && (

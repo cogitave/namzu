@@ -136,6 +136,11 @@ export class RuntimeClient extends EventEmitter {
 	supportsSkillsList(): boolean {
 		return this.skillsList
 	}
+	private skillsCatalog = false
+	/** A host that predates the skill catalog does not list its three methods. */
+	supportsSkillsCatalog(): boolean {
+		return this.skillsCatalog
+	}
 	private browserStatus = false
 	/** A host that predates the browser status does not list `namzu/browser/status`. */
 	supportsBrowserStatus(): boolean {
@@ -419,6 +424,7 @@ export class RuntimeClient extends EventEmitter {
 		this.mcpServers = offers('mcpServers')
 		this.userMcpServers = offers('userMcpServers')
 		this.skillsList = offers('skillsList')
+		this.skillsCatalog = offers('skillsCatalog')
 		this.browserStatus = offers('browserStatus')
 		this.hooksView = offers('hooksView')
 		this.standingInstructions = offers('standingInstructions')

@@ -14,6 +14,23 @@ const STATE: Record<McpServerView['state'], string> = {
 	idle: 'Not connected right now',
 }
 
+/** The Customize page asks Settings to open the form for a new tool server. */
+export const ADD_CONNECTOR_EVENT = 'namzu:add-connector'
+let addConnectorPending = false
+
+/** Asks for the add form; it opens when the tool servers are on screen, now or once Settings has opened. */
+export function requestAddConnector(): void {
+	addConnectorPending = true
+	if (typeof window !== 'undefined') window.dispatchEvent(new Event(ADD_CONNECTOR_EVENT))
+}
+
+/** True once for each ask, so one ask opens one form. */
+export function takeAddConnector(): boolean {
+	const asked = addConnectorPending
+	addConnectorPending = false
+	return asked
+}
+
 export interface McpServerRowView {
 	name: string
 	origin: McpServerView['origin']

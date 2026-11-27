@@ -93,7 +93,7 @@ describe('the skill-save card', () => {
 })
 
 describe('the saved card', () => {
-	it('says it is usable from the next message and links to Settings > Skills', () => {
+	it('says it is usable from the next message and links to Customize', () => {
 		const html = renderToStaticMarkup(
 			createElement(SkillSavedCard, {
 				name: 'release-notes',
@@ -102,7 +102,7 @@ describe('the saved card', () => {
 		)
 		expect(html).toContain('Saved skill &quot;release-notes&quot;')
 		expect(html).toContain('Usable from your next message.')
-		expect(html).toContain('Open Skills in Settings')
+		expect(html).toContain('Open in Customize')
 	})
 })
 

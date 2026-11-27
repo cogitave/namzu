@@ -160,7 +160,6 @@
 	--frame-title-band: 28px;
 	--frame-title-before: 22px;
 	--frame-title-after: 4px;
-	--frame-title-start: calc(var(--frame-row-inset) + var(--frame-row-padding));
 	--frame-thread-height: 28px;
 	/* How far a project's conversations sit inside the guide line under its folder, and the line's colour. */
 	--sidebar-nest-inset: 2px;

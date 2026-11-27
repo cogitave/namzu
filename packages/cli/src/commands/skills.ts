@@ -1,3 +1,5 @@
+import { createInterface } from 'node:readline'
+import type { SkillsConfig } from '../config/schema.js'
 import { resolveTrustedProjectContext } from '../config/trusted-project-context.js'
 import { EXIT_UNTRUSTED, EXIT_USAGE } from '../exit-codes.js'
 import { decideHeadlessTrust } from '../permissions/headless-trust.js'
@@ -8,6 +10,7 @@ import { terminalDisplayText } from '../tui/terminal-display.js'
 import { SKILLS_ACTIONS } from './actions/small.js'
 import { resolveWorkingDirectory } from './exec-flags.js'
 import { printSkillsJson } from './host-queries.js'
+import { SKILLS_MANAGE_VERBS, type SkillsManageVerb, runSkillsManage } from './skills-manage.js'
 import type { CommandDef } from './types.js'
 
 interface SkillsFlags {
@@ -48,6 +51,7 @@ export interface SkillListOutput {
 
 const HELP = [
 	'Usage: namzu skills list [--json] [--cwd <path>] [--trust] [--audit [--context-window <tokens>]]',
+	'       namzu skills add <file.zip|file.skill|file.md|folder>... | create <name> | remove <name>',
 	'',
 	'List the skills available in a working directory: built-in, ~/.agents/skills,',
 	'~/.namzu/skills, ./skills, .agents/skills (checkout root down to the',
@@ -62,6 +66,8 @@ const HELP = [
 	'  --trust       Trust this directory for this invocation only',
 	'  --audit       Check which skills the model can load; fail on invalid skills',
 	'  --context-window <tokens>  With --audit, estimate manifest overflow for this model window',
+	'',
+	'`namzu skills add`, `create` and `remove` change your skills; `namzu skills add --help` says how.',
 ].join('\n')
 
 export const skillsCommand: CommandDef = {
@@ -71,13 +77,15 @@ export const skillsCommand: CommandDef = {
 	help: HELP,
 	actions: SKILLS_ACTIONS,
 	handler: async ({ ctx: bootstrapCtx, rawArgs: allArgs }) => {
+		const verb = SKILLS_MANAGE_VERBS.find((v) => v === allArgs[0])
+		if (verb !== undefined) return runManage(verb, allArgs.slice(1), bootstrapCtx.config.skills)
 		if (allArgs[0] !== 'list') {
 			const given = allArgs[0] === undefined || allArgs[0].startsWith('-') ? undefined : allArgs[0]
 			bootstrapCtx.formatter.error({
 				message:
 					given === undefined
-						? 'A skills command is required: `namzu skills list`.'
-						: `Unknown skills command \`${given}\`. Use \`namzu skills list\`.`,
+						? 'A skills command is required: `namzu skills list`, `add`, `create` or `remove`.'
+						: `Unknown skills command \`${given}\`. Use \`namzu skills list\`, \`add\`, \`create\` or \`remove\`.`,
 			})
 			return EXIT_USAGE
 		}
@@ -136,6 +144,38 @@ export const skillsCommand: CommandDef = {
 		} satisfies SkillListOutput)
 		return 0
 	},
+}
+
+function runManage(
+	verb: SkillsManageVerb,
+	args: readonly string[],
+	config: SkillsConfig | undefined,
+): Promise<number> {
+	return runSkillsManage(verb, args, {
+		out: (text) => process.stdout.write(`${text}\n`),
+		err: (text) => process.stderr.write(`${text}\n`),
+		isTTY: Boolean(process.stdin.isTTY && process.stderr.isTTY),
+		ask: (question) =>
+			new Promise((done) => {
+				const rl = createInterface({ input: process.stdin, output: process.stderr })
+				rl.question(question, (answer) => {
+					rl.close()
+					done(answer)
+				})
+			}),
+		readStdin: () =>
+			new Promise((done, fail) => {
+				let data = ''
+				process.stdin.setEncoding('utf8')
+				process.stdin.on('data', (chunk) => {
+					data += chunk
+				})
+				process.stdin.once('end', () => done(data))
+				process.stdin.once('error', fail)
+			}),
+		cwd: () => process.cwd(),
+		...(config ? { config } : {}),
+	})
 }
 
 function parseSkillsFlags(rawArgs: readonly string[]): SkillsFlags {

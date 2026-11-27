@@ -36,6 +36,7 @@ export const OPTIONAL_EXTENSION_GROUPS = {
 		'namzu/mcp/remove-user-server',
 	],
 	skillsList: ['namzu/skills/list'],
+	skillsCatalog: ['namzu/skills/catalog', 'namzu/skills/files', 'namzu/skills/read_file'],
 	browserStatus: ['namzu/browser/status'],
 	hooksView: ['namzu/hooks/list'],
 	standingInstructions: ['namzu/instructions/get', 'namzu/instructions/set'],

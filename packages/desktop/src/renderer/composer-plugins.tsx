@@ -3,7 +3,6 @@ import { ComposerControl, ComposerControlChevron } from './composer-control.js'
 import { LoaderCircleIcon, PuzzleIcon } from './icons.js'
 import { MENU_OFFSET } from './menu-metrics.js'
 import { plainErrorText } from './plain-error.js'
-import { PluginActions } from './plugin-actions.js'
 import { Button } from './ui/button.js'
 import { Popover, PopoverPopup, PopoverTrigger } from './ui/popover.js'
 
@@ -15,22 +14,14 @@ export interface ComposerPlugin {
 	readonly status: string
 	readonly startupEnabled?: boolean
 	readonly startupError?: string
-}
-export interface ComposerPublicPlugin {
-	readonly name: string
-	readonly version: string
-	readonly description: string
-}
-export type PluginCollection = 'public' | 'personal'
-export interface PluginSelection {
-	readonly collection: PluginCollection
-	readonly name: string
-	readonly scope?: ComposerPlugin['scope']
+	/** What the manifest says the plugin brings; absent from an engine that predates it. */
+	readonly skills?: readonly { name: string; description: string }[]
+	readonly servers?: readonly { name: string }[]
+	readonly author?: string
+	readonly updatedAt?: string
 }
 export interface ComposerPluginInventory {
 	readonly plugins: readonly ComposerPlugin[]
-	readonly publicPlugins?: readonly ComposerPublicPlugin[]
-	readonly publicNotice?: string
 	readonly live: boolean
 	readonly canChange: boolean
 	readonly notice?: string
@@ -175,53 +166,6 @@ function pluginStartupLabel(plugin: ComposerPlugin) {
 		: plugin.startupEnabled
 			? 'Starts enabled next time'
 			: 'Starts disabled next time'
-}
-
-export function PluginInventoryRow({
-	plugin,
-	collection,
-	canTry,
-	onTry,
-	onOpen,
-}: {
-	plugin: ComposerPlugin | ComposerPublicPlugin
-	collection: PluginCollection
-	canTry: boolean
-	onTry: () => void
-	onOpen: () => void
-}) {
-	const installed = 'scope' in plugin ? plugin : undefined
-	return (
-		<div className="plugins-page-row">
-			<button
-				type="button"
-				id={pluginRowId({ ...plugin, collection })}
-				className="plugins-page-row-main"
-				aria-label={`Open ${plugin.name} plugin`}
-				onClick={onOpen}
-			>
-				<span className="plugins-page-row-icon" aria-hidden="true">
-					<PuzzleIcon />
-				</span>
-				<span className="plugins-page-row-copy">
-					<span className="plugins-page-row-title" title={plugin.name}>
-						{plugin.name}
-					</span>
-					<span className="plugins-page-row-description">{plugin.description}</span>
-					{installed?.status === 'error' && <span className="plugins-page-error">Unavailable</span>}
-				</span>
-			</button>
-			<PluginActions pluginName={plugin.name} canTry={canTry} onTry={onTry} onManage={onOpen} />
-		</div>
-	)
-}
-
-export function pluginRowId(plugin: {
-	name: string
-	scope?: string
-	collection?: PluginCollection
-}) {
-	return `plugin-open-${plugin.collection ?? 'personal'}-${encodeURIComponent(plugin.scope ?? 'catalogue')}-${encodeURIComponent(plugin.name)}`
 }
 
 function PluginInventoryAction({
