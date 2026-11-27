@@ -538,6 +538,14 @@ describe('create', () => {
 		).toBe('create')
 	})
 
+	it('previews inline shell commands and needs a yes, like add', async () => {
+		const risky = { ...input, name: 'shc', instructions: 'Run !`echo hi` now' }
+		const first = await createSkill(risky, ctx())
+		expect(first.status).toBe('needs-consent')
+		expect(existsSync(join(userDir(), 'shc'))).toBe(false)
+		expect((await createSkill(risky, ctx({ yes: true }))).status).toBe('added')
+	})
+
 	it('refuses instructions that start with a frontmatter block', async () => {
 		expect(startsWithFrontmatter('---\nname: x\n---\nbody')).toBe(true)
 		expect(startsWithFrontmatter('  \n---\nx')).toBe(true)
@@ -597,6 +605,18 @@ describe('remove', () => {
 		expect(readdirSync(backups())).toEqual([`gone-soon.${NOW.getTime()}`])
 		expect(outcome.message).toContain('A copy is in')
 		expect(existsSync(join(backups(), `gone-soon.${NOW.getTime()}`, 'mine.txt'))).toBe(true)
+	})
+
+	it('refuses to write backups through a link', async () => {
+		await addSkillInput(zip('n.zip', [file('SKILL.md', md('nowrap'))]), {}, ctx())
+		const elsewhere = join(home, 'elsewhere')
+		mkdirSync(elsewhere, { recursive: true })
+		mkdirSync(join(home, '.namzu'), { recursive: true })
+		symlinkSync(elsewhere, join(home, '.namzu', 'backups'))
+		const outcome = await removeSkill('nowrap', rctx())
+		expect(outcome.status).toBe('failed')
+		expect(existsSync(join(userDir(), 'nowrap'))).toBe(true)
+		expect(readdirSync(elsewhere)).toEqual([])
 	})
 
 	it('asks first unless --yes, and exits for consent without a terminal', async () => {

@@ -112,7 +112,9 @@ The same validators and writer, from flags, with no model. `--instructions-file 
 reads standard input (at most 1 MB). Instructions that start with a `---` block
 are refused (`Your instructions start with a --- block. Remove it: the name and
 description become the frontmatter.`). The file is written the way `save_skill`
-writes one, with `namzu-origin: created`.
+writes one, with `namzu-origin: created`. Instructions that hold inline shell
+commands get the same `Runs commands: …` preview and need `--yes` (exit 75
+without one), as with `add`: typed text is not exempt.
 
 ## `remove`
 
@@ -122,7 +124,9 @@ built-in one, one in a shared `.agents/skills` folder, and one whose folder is a
 link. Without `--yes` it asks (`[y/N]` at a terminal, exit 75 without one), then
 moves the folder to `backups/skills/` and says where: `Removed. A copy is in
 ~/.namzu/backups/skills/x.<ms>/ if you want it back.` When the name is in both
-the user and the project folder, `--scope` says which.
+the user and the project folder, `--scope` says which. If `backups` (or any
+folder above `backups/skills`) is a link, nothing is moved and the command fails,
+so a copy can never land outside the Namzu home.
 
 ## `--json` and exit statuses
 

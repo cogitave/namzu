@@ -79,6 +79,11 @@ export function assertNoLinkBelow(anchor: string, path: string): void {
 	}
 }
 
+/** The backups folder sits under the Namzu home; no link may redirect it elsewhere. */
+export function assertBackupsSafe(backupsDir: string): void {
+	assertNoLinkBelow(dirname(dirname(backupsDir)), backupsDir)
+}
+
 /** Move a folder: a rename, or (across file systems) a copy beside the target, then a rename, then the removal. */
 export function moveDir(from: string, to: string, ops: InstallFsOps): void {
 	try {
@@ -186,6 +191,7 @@ export function stageSkill(plan: StagePlan, ops: InstallFsOps = REAL_FS_OPS): St
 			if (now !== undefined) {
 				if (now.isSymbolicLink())
 					throw new InstallError(`${target} is a link; nothing was changed.`)
+				assertBackupsSafe(plan.backupsDir)
 				mkdirSync(plan.backupsDir, { recursive: true, mode: 0o700 })
 				let ms = plan.now()
 				let candidate = join(plan.backupsDir, `${plan.name}.${ms}`)

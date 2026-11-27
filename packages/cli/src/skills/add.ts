@@ -107,9 +107,18 @@ const READ_KEYS = new Set<string>([
 
 const SHELL_TOOLS = new Set(['bash', 'shell', 'sh', 'powershell', 'pwsh', 'cmd', 'exec'])
 
-const oneLine = (text: string, max = 120): string => {
+export const oneLine = (text: string, max = 120): string => {
 	const flat = text.replace(/\s+/g, ' ').trim()
 	return flat.length > max ? `${flat.slice(0, max - 1)}…` : flat
+}
+
+/** The consent line for inline shell commands in a skill body, or none. */
+export function inlineShellConsent(body: string): string[] {
+	const inline = findInlineShell(body).map((m) => oneLine(m.command, 80))
+	if (inline.length === 0) return []
+	return [
+		`Runs commands: ${inline.slice(0, 5).join('; ')}${inline.length > 5 ? `; and ${inline.length - 5} more` : ''}`,
+	]
 }
 
 /** Set the `name:` line of a `SKILL.md` frontmatter (added when it has none). */
@@ -292,12 +301,7 @@ function buildPrepared(raw: ReadonlyMap<string, SkillFile>, ctx: BuildContext): 
 
 	// What the person is told before the skill can be used.
 	const consent: string[] = []
-	const inline = findInlineShell(parsed.body).map((m) => oneLine(m.command, 80))
-	if (inline.length > 0) {
-		consent.push(
-			`Runs commands: ${inline.slice(0, 5).join('; ')}${inline.length > 5 ? `; and ${inline.length - 5} more` : ''}`,
-		)
-	}
+	consent.push(...inlineShellConsent(parsed.body))
 	if (parsed.hooksSource !== undefined) {
 		const commands = hookCommands(readSkillHooks(parsed.hooksSource, 'SKILL.md').hooks).map((c) =>
 			oneLine(c, 80),

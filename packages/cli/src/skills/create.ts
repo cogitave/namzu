@@ -8,6 +8,7 @@ import {
 	type InstallContext,
 	type PreparedSkill,
 	type SkillOutcome,
+	inlineShellConsent,
 	installPrepared,
 } from './add.js'
 import { digestFiles } from './install.js'
@@ -51,7 +52,7 @@ export function prepareCreatedSkill(input: CreateInput, now: Date): PreparedSkil
 		fileName: 'namzu skills create',
 		sha256: digestFiles(files),
 		findings: [],
-		consent: [],
+		consent: inlineShellConsent(draft.body),
 	}
 }
 

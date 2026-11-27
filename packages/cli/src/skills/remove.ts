@@ -10,7 +10,13 @@ import { dirname, join } from 'node:path'
 
 import type { SkillsConfig } from '../config/schema.js'
 import { skillBackupsDir, skillsFolderFor } from './add.js'
-import { type InstallFsOps, REAL_FS_OPS, SKILL_INSTALL_RECORD, moveDir } from './install.js'
+import {
+	type InstallFsOps,
+	REAL_FS_OPS,
+	SKILL_INSTALL_RECORD,
+	assertBackupsSafe,
+	moveDir,
+} from './install.js'
 import { type SkillSaveScope, displayPath } from './save.js'
 import { type SkillInfo, discoverSkillRoster, skillTierLabel } from './store.js'
 
@@ -211,6 +217,7 @@ export async function removeSkill(name: string, ctx: RemoveContext): Promise<Rem
 	let ms = (ctx.now ?? (() => new Date()))().getTime()
 	let backup = join(backups, `${name}.${ms}`)
 	try {
+		assertBackupsSafe(backups)
 		mkdirSync(backups, { recursive: true, mode: 0o700 })
 		for (;;) {
 			try {
