@@ -135,7 +135,8 @@ pre {
 	opacity: 0;
 	visibility: hidden;
 }
-.workspace[data-page="customize"] > :not(.customize-page) {
+/* The toast viewport is a child of the pane too, and a notice from this page has to show. */
+.workspace[data-page="customize"] > :not(.customize-page, .toast-viewport) {
 	display: none;
 }
 /* The header's left cluster sits over the main header's left end, one cluster inset from the sidebar's

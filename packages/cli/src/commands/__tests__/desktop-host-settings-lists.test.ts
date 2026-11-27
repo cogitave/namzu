@@ -203,3 +203,20 @@ it('takes headers as environment references only, through the host', async () =>
 		await owner.close()
 	}
 })
+
+it('stages a skill file through the real host wiring: an ordinary folder is not taken for a Pal', async () => {
+	const file = join(root, 'notes.md')
+	writeFileSync(file, '---\nname: notes\ndescription: Keep notes.\n---\nBody.')
+	const owner = runtime()
+	const host = createDesktopHostExtensions(owner, cwd)
+	try {
+		const staged = (await host['namzu/skills/stage']({ paths: [file] })) as unknown as {
+			items: { name?: string; error?: string }[]
+		}
+		expect(staged.items).toHaveLength(1)
+		expect(staged.items[0]?.error).toBeUndefined()
+		expect(staged.items[0]?.name).toBe('notes')
+	} finally {
+		await owner.close?.()
+	}
+})

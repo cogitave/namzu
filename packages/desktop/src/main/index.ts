@@ -1786,8 +1786,17 @@ function register(): void {
 	// Skills the person adds: main opens the dialog or takes the drop, checks each path and
 	// remembers it; the engine is asked only about paths remembered for this window.
 	const skillPaths = createSkillPathRegistry()
+	// An end-to-end run (never a packaged app) names the files the dialog would have returned.
+	const e2ePick = !app.isPackaged ? process.env.NAMZU_E2E_SKILL_PICK : undefined
 	handleWindow('chooseSkillFiles', async ({ id, window }) => {
 		if (!window) return []
+		if (e2ePick) {
+			const paths: unknown = JSON.parse(e2ePick)
+			return skillPaths.register(
+				id,
+				Array.isArray(paths) ? paths.filter((p): p is string => typeof p === 'string') : [],
+			)
+		}
 		const picked = await dialog.showOpenDialog(window, {
 			title: 'Add a skill',
 			properties: ['openFile', 'multiSelections'],

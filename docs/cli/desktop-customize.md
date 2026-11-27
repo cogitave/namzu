@@ -42,9 +42,11 @@ Groups in this order, each with a count: **This project**, **Yours**, **From plu
 **Name only**, **You only** or **Off** when the skill is not simply on), then `place · description`
 and the time it was last changed (**3d ago**, or **Nov 19** after a week; none for a built-in skill,
 whose file says only when Namzu was installed). **Off** rows show their name in the muted colour.
-The **⋯** menu holds **Turn off** or **Turn on**; a plugin's skill has no menu, because it follows
-its plugin. **Add** holds **Create with Namzu**, which starts the same conversation as Settings'
-*Create skill*. With no skill, the page says where to put one (`.namzu/skills/`,
+The **⋯** menu holds **Turn off** or **Turn on** and, for a skill of your own or the project's,
+**Remove** (see below); a plugin's skill has no menu, because it follows its plugin. **Add** holds
+**Upload skill**, **Create a skill** and **Create with Namzu**, which starts the same conversation
+as Settings' *Create skill*; an engine that cannot add skills hides the first two. There is no
+*Record your screen* entry. With no skill, the page says where to put one (`.namzu/skills/`,
 `~/.namzu/skills/`).
 
 Pressing a row opens the skill. The header has **Try in chat** (a new conversation with
@@ -69,7 +71,8 @@ A table: **Connector | Type | Source | Status**. The rows are the open project's
 (*Your own settings*, *This project's settings*, *.mcp.json in this project*). **Status** is a tick
 for connected, **Approve** for a server waiting for approval (the same approval as Settings, Tools),
 **Failed** with the reason in its tooltip, or a dash. A row opens Settings, Tools, on the tool
-servers; **Add**, **Add custom connector**, opens the same place with the add form open.
+servers; **Add**, **Add custom connector**, opens a dialog (see below) when the engine reads your
+own servers, and otherwise the same place with the add form open.
 
 ### Plugins
 
@@ -90,9 +93,46 @@ The page reaches the engine only through the host methods in the table of
 group `skillsCatalog`. Every answer is read through `shared/customize-protocol.ts`, which keeps the
 shape it expects, caps the counts and lengths and drops the rest.
 
+## Adding, making and removing: the page
+
+- **Upload skill** replaces the list with a page (**← Your skills**, **Upload a skill**, *Add a
+  skill to this computer.*). A drop zone (*Drag and drop skill files here, or browse. You can add
+  several at once.*) with **browse** (the file dialog) and **Choose a folder**, the two help lines
+  about `.md` and `.zip` or `.skill` files, **Where to save** (**Yours** or **This project**; the
+  second is off, with the reason, until a trusted folder is open), the line *Each skill is checked
+  when you add it...*, **Upload** (off until something valid is chosen, with the hint *Choose a
+  file to continue.*) and **Cancel**. Choosing files stages them: one card per file with the name,
+  the description, `3 files · 12 KB`, chips (**Runs commands**, **Uses tools: shell**, **Has
+  hooks**), what it can run or pre-approve, what was changed or left out, a refusal in words when
+  it cannot be added, and **Remove from list**. A name that the chosen place already holds shows a
+  checkbox *Replaces your skill "x"* that must be ticked; a skill that can run something shows *I
+  trust what it can run* that must be ticked, because the engine refuses it otherwise. Upload
+  answers with a toast (*Added 2 skills. They are available from your next message.*), or keeps
+  the failed cards with the engine's reason on each.
+- **Create a skill** is a dialog: **Skill name** (the folder name derived from it shows under it
+  and is what is saved: lower case, words joined by dashes), **Description** with a counter
+  (`n/1024`; XML tags are refused), **Instructions** (monospace; a leading `---` is flagged) and
+  **Where to save**. **Create** stays off until the name and description are valid. A name that is
+  taken says *You already have a skill named "x".* and offers **Replace**. On success the new skill
+  opens. No model is involved. There is no attached-files list yet.
+- **Remove** in a row's menu (user and project skills only) asks **Remove skill?** with *"x" will
+  be removed from this computer. A copy is kept in Namzu's backups, so you can put it back.* and
+  moves the folder to the backups.
+- **Add custom connector** is a dialog: **Name**, **MCP server URL** (https, or http on this
+  computer), **Authentication** (**No sign-in**, **Sign in when asked**, or **Header** with a name
+  and a value written as an environment reference such as `Bearer ${EXAMPLE_TOKEN}`; a literal
+  value is not accepted, so no secret is typed or stored), the notice about trusting developers,
+  **Cancel** and **Save**. It saves through `namzu/mcp/save-user-server`. The server is one of your
+  own settings, so its row reads *Remote*, *Your own settings* and a dash; nothing waits for an
+  approval. Toasts from this page show over it (the page used to hide the notice area with the
+  conversation).
+- The two dialogs and the page follow the page's own parts; the end-to-end run
+  `e2e/ux-customize-actions.test.mjs` drives them with a test hook (`NAMZU_E2E_SKILL_PICK`, a JSON
+  list of paths the file dialog would return, never read by a packaged app).
+
 ## Adding, making and removing skills (engine and app plumbing)
 
-The page's Add and Remove actions rest on four host methods in the group `skillsManage`
+The page's Add and Remove actions (above) rest on four host methods in the group `skillsManage`
 (`namzu/skills/stage`, `install`, `create`, `remove`, in the table of [Desktop](desktop.md)), all
 built on the same modules as [`namzu skills add`, `create` and `remove`](skills-add.md). A method
 refuses a Pal, takes exact keys with length caps, and refuses `scope: project` and `tier: project`

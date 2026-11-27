@@ -932,7 +932,7 @@ export function createDesktopHostExtensions(
 	const pal = () => palAtWorkspace(cwd)
 	const skillActions = createDesktopSkillActions({
 		cwd,
-		pal: () => pal() !== undefined,
+		pal: () => Boolean(pal()),
 		isTrusted,
 	})
 	/** What the skill catalog reads: the project's skills and settings only once the folder is trusted. */
