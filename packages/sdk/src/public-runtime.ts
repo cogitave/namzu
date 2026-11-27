@@ -862,6 +862,7 @@ export type {
 	ExpandedPaths,
 	LayoutFinding,
 	LayoutFindingLevel,
+	LayoutSetupServer,
 	LoadedPluginManifest,
 	PluginPathValues,
 } from './plugin/index.js'

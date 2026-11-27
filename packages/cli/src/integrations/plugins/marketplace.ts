@@ -263,9 +263,14 @@ export async function resolveEntrySource(
 				return { kind: 'invalid', reason: `The source "${source}" is not a folder.` }
 			return { kind: 'local', dir }
 		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error)
+			// The path guard words its refusal for an agent's file tools; a person reads this one.
+			const leaves = /^Path escapes the working directory/.test(message)
 			return {
 				kind: 'invalid',
-				reason: `The source "${source}" cannot be used: ${error instanceof Error ? error.message : String(error)}`,
+				reason: leaves
+					? `The source "${source}" leaves the marketplace folder, which is not allowed.`
+					: `The source "${source}" cannot be used: ${message}`,
 			}
 		}
 	}

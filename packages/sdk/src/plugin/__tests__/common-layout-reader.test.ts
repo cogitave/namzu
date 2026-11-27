@@ -682,6 +682,32 @@ describe('servers', () => {
 		}
 	})
 
+	it('carries a server that needs setup as written, so a host can still show it', async () => {
+		const root = folder('asw', {
+			[COMMON_MCP_FILE]: {
+				rem: {
+					url: 'https://mcp.example.com/${TOK}',
+					headers: { A: 'Bearer ${TOK2}' },
+				},
+				loc: { command: 'x', args: ['${TOKEN}'], env: { A: '${MISSING}' } },
+			},
+		})
+		const read = await readCommonLayout(root, { environment: ENV })
+		expect(find(read, 'mcp-needs-setup', 'mcpServers.rem')?.server).toEqual({
+			name: 'rem',
+			kind: 'remote',
+			target: 'https://mcp.example.com/${TOK}',
+			transport: 'http',
+			values: { A: 'Bearer ${TOK2}' },
+		})
+		expect(find(read, 'mcp-needs-setup', 'mcpServers.loc')?.server).toMatchObject({
+			kind: 'local',
+			target: 'x',
+			args: ['${TOKEN}'],
+			values: { A: '${MISSING}' },
+		})
+	})
+
 	it('marks a server that needs setup and does not start it', async () => {
 		const root = folder('need', {
 			[COMMON_MCP_FILE]: {

@@ -179,7 +179,7 @@ export const pluginCommand: CommandDef = {
 				enableLoading: () => {
 					const plan = planSettingChange('plugins.enabled', 'true')
 					if (!plan.ok) throw new Error(plan.error)
-					return plan.apply()
+					return plan.apply().replace(/^Plugins is now/, 'Plugin loading is now')
 				},
 			}
 			if (isRecord) return runPluginRecords(verb as PluginRecordVerb, rawArgs.slice(1), deps)

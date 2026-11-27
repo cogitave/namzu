@@ -645,7 +645,7 @@ async function runDetails(deps: PluginRecordsDeps, flags: Flags): Promise<number
 	}
 	if (manifestRead.state === 'ok') {
 		lines.push(
-			`  Runs code: ${manifestRead.manifest.executable.length} executable ${manifestRead.manifest.executable.length === 1 ? 'file' : 'files'}, surface sha256:${manifestRead.manifest.surfaceSha256.slice(0, 12)}`,
+			`  Checked before it loads: ${manifestRead.manifest.executable.length} ${manifestRead.manifest.executable.length === 1 ? 'file' : 'files'}, surface sha256:${manifestRead.manifest.surfaceSha256.slice(0, 12)}`,
 		)
 		const consent = manifestRead.manifest.consent
 		if (consent && typeof consent.at === 'string')

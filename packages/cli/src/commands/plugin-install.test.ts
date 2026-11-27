@@ -824,13 +824,13 @@ describe('namzu plugin install: resolving the argument', () => {
 		expect((await plugin('install', ['bad@', '--yes'])).code).toBe(64)
 	})
 
-	it('says why an entry cannot be installed here, exit 1', async () => {
+	it('says why an entry cannot be installed here, exit 69', async () => {
 		await addTeam()
 		const remote = await plugin('install', ['remote-one@team-tools', '--yes'])
-		expect(remote.code).toBe(1)
+		expect(remote.code).toBe(69)
 		expect(remote.err).toContain('cannot fetch yet')
 		const npm = await plugin('install', ['npm-one@team-tools', '--yes'])
-		expect(npm.code).toBe(1)
+		expect(npm.code).toBe(69)
 		expect(npm.err).toContain('does not install')
 	})
 
@@ -846,7 +846,10 @@ describe('namzu plugin install: resolving the argument', () => {
 		const mismatch = await plugin('install', ['fake@liar', '--yes'])
 		expect(mismatch.code).toBe(65)
 		expect(mismatch.err).toContain('calls itself "real"')
-		expect((await plugin('install', ['escape@liar', '--yes'])).code).toBe(65)
+		const escaped = await plugin('install', ['escape@liar', '--yes'])
+		expect(escaped.code).toBe(65)
+		expect(escaped.err).toContain('leaves the marketplace folder, which is not allowed')
+		expect(escaped.err).not.toContain('file tools')
 		expect((await plugin('install', ['abs@liar', '--yes'])).code).toBe(65)
 	})
 
@@ -1393,5 +1396,122 @@ describe('concurrent writers', () => {
 			'ledger@team-tools': true,
 			'notes@team-tools': true,
 		})
+	})
+})
+
+describe('review fixes: what is hashed, shown and removed', () => {
+	const NAMZU_MANIFEST = 'plugin.json'
+
+	it('hashes a TypeScript hook module and any other file, so a later edit fails the load check', async () => {
+		const dir = join(root, 'tsmod')
+		write(dir, {
+			[NAMZU_MANIFEST]: {
+				name: 'tsmod',
+				version: '1.0.0',
+				description: 'Has a module.',
+				hooks: ['lib/h.ts'],
+			},
+			'lib/h.ts': 'export default () => ({})\n',
+			'data/notes.txt': 'plain\n',
+		})
+		const result = await plugin('install', [dir, '--yes', '--json'])
+		expect(result.code).toBe(0)
+		expect(result.json().surface.modules).toEqual([{ path: 'lib/h.ts' }])
+		const id = result.json().id as string
+		const manifest = readJson(join(home, 'plugins', '.install-manifests', `${id}.json`))
+		expect(manifest.executable).toEqual(expect.arrayContaining(['lib/h.ts', 'data/notes.txt']))
+		const record = installed()[id]?.[0]
+		writeFileSync(join(record.installPath, 'lib/h.ts'), 'export default () => ({ edited: 1 })\n')
+		const { verifyInstalledCopy } = await import('../integrations/plugins/install-manifest.js')
+		const verdict = verifyInstalledCopy(home, id, record.installPath, manifest.surfaceSha256)
+		expect(verdict.ok).toBe(false)
+	})
+
+	it('splits allowed-tools on commas outside parentheses', async () => {
+		const dir = join(root, 'tools')
+		write(dir, {
+			[MANIFEST]: { name: 'tools', version: '1.0.0', description: 'Tools.' },
+			'skills/s/SKILL.md': skill('s', 'allowed-tools: Bash(git log:*), Read\n'),
+		})
+		const result = await plugin('install', [dir, '--dry-run', '--json'])
+		expect(result.json().surface.allowedTools).toEqual([
+			{ kind: 'skill', name: 's', tools: ['Bash(git log:*)', 'Read'] },
+		])
+		const text = await plugin('install', [dir, '--dry-run'])
+		expect(text.out).toContain('allows Bash(git log:*), Read')
+	})
+
+	it('lists a remote server that needs a variable, with the variables, and does not call it unused', async () => {
+		const dir = join(root, 'remote')
+		write(dir, {
+			[MANIFEST]: { name: 'remote', version: '1.0.0', description: 'Remote.' },
+			'.mcp.json': {
+				mcpServers: {
+					rem: { type: 'http', url: 'https://mcp.example.com/' },
+					rem2: {
+						type: 'http',
+						url: 'https://mcp.example.com/${NAMZU_TEST_TOK_UNSET}',
+						headers: { Authorization: 'Bearer ${NAMZU_TEST_TOK2_UNSET}' },
+					},
+				},
+			},
+			'skills/s/SKILL.md': skill('s'),
+		})
+		const text = await plugin('install', [dir, '--dry-run'])
+		expect(text.out).toMatch(/server\s+rem2\s+->\s+https:\/\/mcp\.example\.com/)
+		expect(text.out).toContain('$NAMZU_TEST_TOK_UNSET')
+		expect(text.out).toContain('$NAMZU_TEST_TOK2_UNSET')
+		expect(text.out).toContain('needs setup')
+		expect(text.out).not.toContain('Not used by Namzu')
+	})
+
+	it('does not delete a folder outside the plugin cache when uninstalling a tampered record', async () => {
+		const victim = join(root, 'victim')
+		write(victim, { 'precious.txt': 'keep' })
+		const { putInstallRecord } = await import('../integrations/plugins/records.js')
+		const { removeInstall } = await import('../integrations/plugins/install.js')
+		putInstallRecord(home, 'a@mk', { scope: 'user', installPath: victim, version: '1.0.0' })
+		const out = removeInstall('a@mk', { scope: 'user' }, { home, now, deleteData: false })
+		expect(out.removedRecord).toBe(true)
+		expect(out.folderRemoved).toBe(false)
+		expect(existsSync(join(victim, 'precious.txt'))).toBe(true)
+	})
+
+	it('declares an already-added marketplace at a second scope', async () => {
+		const dir = await addTeam()
+		const result = await market(['add', dir, '--scope', 'project', '--json'])
+		expect(result.code).toBe(0)
+		expect(result.json().outcome).toBe('added')
+		expect(
+			readJson(recordLayerPath('project', { home, cwd })).extraKnownMarketplaces['team-tools'],
+		).toBeDefined()
+		const again = await market(['add', dir, '--scope', 'project', '--json'])
+		expect(again.json().outcome).toBe('already-added')
+	})
+
+	it('updates without asking when only the version changed and nothing runs', async () => {
+		const dir = join(root, 'cmd-market')
+		write(join(dir, 'plugins/only-cmd'), {
+			[MANIFEST]: { name: 'only-cmd', version: '0.1.0', description: 'A command.' },
+			'commands/hi.md': 'Say hi.',
+		})
+		makeMarketplace(dir, 'cmd-market', [{ name: 'only-cmd', source: './plugins/only-cmd' }])
+		await market(['add', dir])
+		await plugin('install', ['only-cmd@cmd-market', '--yes'])
+		write(join(dir, 'plugins/only-cmd'), {
+			[MANIFEST]: { name: 'only-cmd', version: '0.2.0', description: 'A command.' },
+		})
+		const result = await plugin('update', ['only-cmd@cmd-market', '--json'])
+		expect(result.code).toBe(0)
+		expect(result.json()).toMatchObject({ outcome: 'updated', from: '0.1.0', to: '0.2.0' })
+	})
+
+	it('prints the preview on standard error with --yes', async () => {
+		const dir = await addTeam()
+		void dir
+		const result = await plugin('install', ['ledger@team-tools', '--yes'])
+		expect(result.code).toBe(0)
+		expect(result.err).toContain('Runs on this computer')
+		expect(result.err).toContain('Surface: sha256:')
 	})
 })

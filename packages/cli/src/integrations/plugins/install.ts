@@ -35,6 +35,7 @@ import {
 import {
 	INSTALL_MANIFEST_VERSION,
 	installManifestPath,
+	isInsidePluginCache,
 	readInstallManifest,
 } from './install-manifest.js'
 import { type InstallPlan, recordFields, stagingFolder } from './install-plan.js'
@@ -321,7 +322,7 @@ export function commitUpdate(
 			throw error
 		}
 		for (const old of oldPaths) {
-			if (samePath(old, dest)) continue
+			if (samePath(old, dest) || !isInsidePluginCache(home, old)) continue
 			try {
 				writeFileSync(join(old, '.orphaned_at'), `${where.now.toISOString()}\n`, { mode: 0o600 })
 			} catch {
@@ -405,7 +406,12 @@ export function removeInstall(
 			.flat()
 			.some((record) => samePath(record.installPath, before.installPath))
 		let folderRemoved = false
-		if (!usedElsewhere && existsSync(before.installPath)) {
+		// A record that points outside the cache is dropped; the folder is not ours to delete.
+		if (
+			!usedElsewhere &&
+			existsSync(before.installPath) &&
+			isInsidePluginCache(home, before.installPath)
+		) {
 			trashFolder(home, before.installPath)
 			folderRemoved = true
 			removeEmptyParents(before.installPath, pluginCacheFolder(home))

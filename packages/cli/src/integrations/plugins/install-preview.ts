@@ -42,7 +42,7 @@ export function runsLines(surface: PluginSurface): string[] {
 				Object.keys(server.env).length > 0
 					? `   (environment: ${list(Object.keys(server.env))})`
 					: ''
-			}`,
+			}${server.needsSetup === true ? '   (needs setup: not started until its variables are set)' : ''}`,
 		)
 	for (const server of surface.mcpRemote)
 		lines.push(
@@ -50,7 +50,7 @@ export function runsLines(surface: PluginSurface): string[] {
 				server.sendsEnv.length > 0
 					? `; would send ${server.sendsEnv.map((name) => `$${one(name)}`).join(', ')}`
 					: ''
-			}${server.headers.length > 0 ? `; headers: ${list(server.headers)}` : ''})`,
+			}${server.headers.length > 0 ? `; headers: ${list(server.headers)}` : ''}${server.needsSetup === true ? '; needs setup' : ''})`,
 		)
 	for (const module of surface.modules)
 		lines.push(
@@ -108,7 +108,9 @@ export function renderInstallPreview(plan: InstallPlan, options: PreviewOptions)
 	if (surface.unpinnedDownload) lines.push('    This download is not pinned to a digest.')
 	for (const tools of surface.allowedTools)
 		lines.push(`  Pre-approves tools: ${tools.kind} ${one(tools.name)} allows ${list(tools.tools)}`)
-	const notUsed = plan.findings.filter((f) => f.level === 'notUsed')
+	// Servers that are listed above (running, remote, or waiting for setup) are not "unused".
+	const listedElsewhere = new Set(['mcp-server-remote', 'mcp-needs-setup'])
+	const notUsed = plan.findings.filter((f) => f.level === 'notUsed' && !listedElsewhere.has(f.code))
 	if (notUsed.length > 0)
 		lines.push(
 			`  Not used by Namzu: ${[...new Set(notUsed.map((f) => f.field ?? f.code))].map(one).join(', ')}`,

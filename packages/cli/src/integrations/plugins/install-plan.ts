@@ -430,6 +430,9 @@ async function build(
 		manifest,
 		remoteServers:
 			layoutKind === 'namzu' ? (manifest.remoteMcpServers ?? []) : layout.remoteServers,
+		setupServers: layout.findings.flatMap((finding) =>
+			finding.code === 'mcp-needs-setup' && finding.server !== undefined ? [finding.server] : [],
+		),
 		scripts: hashed.scripts,
 		unexpander: { root, dataSentinel: DATA_SENTINEL, projectSentinel: PROJECT_SENTINEL },
 	})

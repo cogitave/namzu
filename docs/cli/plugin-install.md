@@ -27,8 +27,8 @@ namzu plugin marketplace remove <name> [--yes] [--json]
 namzu plugin install <name>@<marketplace> | <folder> | <file.zip|file.plugin>
                      [--scope user|project|local] [--dry-run] [--enable-loading]
                      [--yes | --accept-surface <sha256>] [--cwd <dir>] [--json]
-namzu plugin update <id> [--dry-run] [--yes | --accept-surface <sha256>] [--json]
-namzu plugin uninstall <id> [--scope user|project|local] [--delete-data] [--yes] [--json]
+namzu plugin update <id> [--dry-run] [--yes | --accept-surface <sha256>] [--cwd <dir>] [--json]
+namzu plugin uninstall <id> [--scope user|project|local] [--delete-data] [--yes] [--cwd <dir>] [--json]
 namzu plugin prune [--dry-run] [--yes] [--json]
 ```
 
@@ -125,12 +125,19 @@ For a module, the preview names the file and says that what it declares is not
 read before it runs. That line is the seam where a module's own declaration of
 what it does is shown, once modules say it.
 
+A server that needs a variable which is not set here is still listed, marked
+`needs setup`, with the variables it would send; it is not started or connected
+until they are set. `Not used by Namzu` names only parts that are ignored, never
+a server that is listed above.
+
 The surface digest is the sha256 of the listing above together with the hash of
-every file that can run or decide what runs (every script, every `.json` file,
-every `SKILL.md` and every command, agent or skill markdown file).
+every regular file in the plugin (so a hook module, a file a server or hook
+names, and a script with any extension are all inside it). `plugin details` says
+how many files are checked before the plugin loads.
 
 4. **The answer.**
-   - `--yes` accepts what is shown.
+   - `--yes` accepts what is shown; the preview is still printed on standard
+     error (not with `--json`).
    - `--accept-surface <sha256>` accepts only the surface with that digest;
      another digest exits 75 with `What this plugin does changed since you read it.
      Read it again with --dry-run.` `--yes` and `--accept-surface` together exit 64.
@@ -197,7 +204,9 @@ source), `layout`, `findings`, `surface`, `surfaceSha256`, `inventory` and
 catalog, or the folder it was uploaded from), builds the new preview and marks
 what changed (`1 new hook`, `1 local server removed or changed`). Every scope of
 the id moves together. If what runs did not change and only a version that the
-catalog names did, it applies after printing the summary. Otherwise it shows the
+catalog names did, or the version in `plugin.json` did and nothing that runs
+differs (the same surface and only manifests or files that cannot run changed),
+it applies after printing the summary. Otherwise it shows the
 preview and asks as `install` does. The old folder stays, marked
 `.orphaned_at`, so a conversation that has it open keeps its files; `prune` takes
 it a day later. A version that kept its number but changed is refused: ask the

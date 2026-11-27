@@ -86,6 +86,12 @@ describe('what counts as runnable', () => {
 			'Bash(npm run test:*)',
 		])
 		expect(splitAllowedTools('')).toEqual([])
+		expect(splitAllowedTools('Bash(git log:*), Read')).toEqual(['Bash(git log:*)', 'Read'])
+		expect(splitAllowedTools('Read,Write , Bash(a, b)')).toEqual(['Read', 'Write', 'Bash(a, b)'])
+	})
+	it('treats TypeScript and other program files as runnable', () => {
+		for (const path of ['lib/h.ts', 'lib/h.mts', 'a/b.cts', 'x.tsx', 'x.jsx', 'x.php', 'x.wasm'])
+			expect(isExecutablePath(path, 0o644), path).toBe(true)
 	})
 	it('says what changed between two surfaces', () => {
 		const empty = {

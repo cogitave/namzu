@@ -88,7 +88,7 @@ import {
 	samePath,
 	splitPluginId,
 } from '../integrations/plugins/records.js'
-import { surfaceChanges } from '../integrations/plugins/surface.js'
+import { isExecutablePath, surfaceChanges } from '../integrations/plugins/surface.js'
 import {
 	type PluginRecordsDeps,
 	applicable,
@@ -282,7 +282,11 @@ async function consentFor(
 	flags: Flags,
 	input: ConsentInput,
 ): Promise<Consent> {
-	if (flags.yes) return { ok: true }
+	if (flags.yes) {
+		// --yes accepts what is shown; it still shows it, on stderr, so a log keeps what was accepted.
+		if (!flags.json) deps.err(`${input.preview}\n`)
+		return { ok: true }
+	}
 	if (flags.acceptSurface !== undefined) {
 		if (flags.acceptSurface !== input.digest)
 			return {
@@ -452,7 +456,7 @@ async function sourceFor(
 	}
 	const resolved = await resolveEntrySource(entry, hit.catalog)
 	if (resolved.kind === 'unsupported')
-		return failure(deps, flags.json, command, EXIT_FAIL, resolved.reason, {
+		return failure(deps, flags.json, command, EXIT_UNAVAILABLE, resolved.reason, {
 			id: `${wanted}@${hit.marketplace}`,
 		})
 	if (resolved.kind === 'invalid')
@@ -713,12 +717,32 @@ async function runUpdate(deps: PluginInstallDeps, flags: Flags): Promise<number>
 		}
 		const before = recorded.manifest.surface as unknown as Parameters<typeof surfaceChanges>[0]
 		const changes = surfaceChanges(before, plan.surface)
-		const unchangedSurface = recorded.manifest.surfaceSha256 === plan.digest
+		// Nothing that runs changed: the same surface rows, and the only files that differ
+		// are manifests (a version bump) or files that cannot run and configure nothing.
+		const nothingRunsDifferently =
+			JSON.stringify(before) === JSON.stringify(plan.surface) &&
+			[...new Set([...Object.keys(plan.files), ...Object.keys(recorded.manifest.files)])]
+				.filter((path) => plan.files[path] !== recorded.manifest.files[path])
+				.every((path) => {
+					const base = path.split('/').pop() ?? path
+					if (base === 'plugin.json') return true
+					return (
+						!isExecutablePath(path, 0) &&
+						!plan.surface.scripts.some((script) => script.path === path)
+					)
+				})
+		const unchangedSurface =
+			recorded.manifest.surfaceSha256 === plan.digest || nothingRunsDifferently
 		if (!unchangedSurface) {
 			const preview = renderInstallPreview(plan, {
 				scopeLine: '',
 				headline: `Update ${oneLine(id)} from ${oneLine(current.version ?? '?')} to ${oneLine(plan.version)}?`,
-				changes: changes.length > 0 ? changes : ['Files that configure the plugin changed.'],
+				changes: [
+					...(current.version !== plan.version
+						? [`Version ${oneLine(current.version ?? '?')} to ${oneLine(plan.version)}`]
+						: []),
+					...(changes.length > 0 ? changes : ['Files that configure or run the plugin changed.']),
+				],
 			})
 			if (flags.dryRun) {
 				if (flags.json)
@@ -1103,6 +1127,29 @@ async function runMarketplaceAdd(deps: PluginInstallDeps, flags: Flags): Promise
 	const existing = known.marketplaces.get(catalog.name)
 	if (existing !== undefined) {
 		if (existing.source.source === kind && samePath(String(existing.source.path ?? ''), real)) {
+			// Added at another scope: this scope still needs its own declaration.
+			const layerPath = recordLayerPath(scope, { home: deps.namzuHome, cwd: ctx.cwd })
+			const layer = readRecordLayer(layerPath)
+			if (layer.state !== 'unreadable' && !layer.marketplaces.has(catalog.name)) {
+				try {
+					setExtraKnownMarketplace(layerPath, deps.namzuHome, catalog.name, source)
+				} catch (error) {
+					const failed = stateFailure(error)
+					return failure(deps, flags.json, command, failed.code, failed.message)
+				}
+				const added = `Marketplace "${catalog.name}" was already added; it is now also declared for scope ${scope}.`
+				if (flags.json)
+					sayJson(deps, {
+						command,
+						outcome: 'added',
+						name: catalog.name,
+						source,
+						scope,
+						message: added,
+					})
+				else deps.out(`${added}\n`)
+				return EXIT_OK
+			}
 			const message = `Marketplace "${catalog.name}" is already added; nothing changed.`
 			if (flags.json)
 				sayJson(deps, { command, outcome: 'already-added', name: catalog.name, source, message })

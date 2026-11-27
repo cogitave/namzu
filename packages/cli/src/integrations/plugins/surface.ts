@@ -17,6 +17,7 @@ import { lstatSync, readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 
 import {
+	type LayoutSetupServer,
 	type PluginManifest,
 	type PluginRemoteMCPServerConfig,
 	isHookEntriesPath,
@@ -26,7 +27,9 @@ import { readSkillHooks } from '../../config/skill-hooks-reader.js'
 import { parseSkillMarkdown } from '../../skills/store.js'
 import { listMarkdownNames, resolvePluginFileDirs } from './files.js'
 import { readPluginHookEntriesOf } from './hook-entries.js'
-import { isConfigFile, sha256Hex } from './install-manifest.js'
+import { isConfigFile, isExecutablePath, sha256Hex } from './install-manifest.js'
+
+export { isExecutablePath }
 
 export interface SurfaceHook {
 	readonly event: string
@@ -51,6 +54,8 @@ export interface SurfaceLocalServer {
 	readonly command: string
 	readonly args: readonly string[]
 	readonly env: Readonly<Record<string, string>>
+	/** Set when a variable in it is not set here, so it is listed and not started. */
+	readonly needsSetup?: true
 }
 
 export interface SurfaceRemoteServer {
@@ -62,6 +67,8 @@ export interface SurfaceRemoteServer {
 	readonly sendsEnv: readonly string[]
 	/** Header names it would send. */
 	readonly headers: readonly string[]
+	/** Set when a variable in it is not set here, so it is listed and not connected. */
+	readonly needsSetup?: true
 }
 
 export interface SurfaceAllowedTools {
@@ -93,28 +100,6 @@ export interface PluginSurface {
 	readonly unpinnedDownload: boolean
 }
 
-const PROGRAM_EXTENSIONS = new Set([
-	'.js',
-	'.mjs',
-	'.cjs',
-	'.sh',
-	'.ps1',
-	'.bat',
-	'.cmd',
-	'.py',
-	'.rb',
-	'.pl',
-])
-
-/** Whether a file can run or configure running, by its path and mode. */
-export function isExecutablePath(path: string, mode: number): boolean {
-	if (isConfigFile(path)) return true
-	if (path.startsWith('hooks/') || path.startsWith('bin/')) return true
-	if ((mode & 0o111) !== 0) return true
-	const dot = path.lastIndexOf('.')
-	return dot >= 0 && PROGRAM_EXTENSIONS.has(path.slice(dot).toLowerCase())
-}
-
 export interface PluginFiles {
 	/** Paths with `/`, sorted. */
 	readonly executable: readonly string[]
@@ -123,7 +108,7 @@ export interface PluginFiles {
 	readonly scripts: readonly SurfaceScript[]
 }
 
-/** Every executable file under `root` with its hash. A link or a device is not followed and not listed. */
+/** Every regular file under `root` with its hash (the list keeps its old name). A link or a device is not followed and not listed. */
 export function hashExecutableFiles(root: string): PluginFiles {
 	const executable: string[] = []
 	const files: Record<string, string> = {}
@@ -135,10 +120,11 @@ export function hashExecutableFiles(root: string): PluginFiles {
 			if (entry.isDirectory()) walk(full, rel)
 			else if (entry.isFile()) {
 				const stat = lstatSync(full)
-				if (!isExecutablePath(rel, stat.mode)) continue
+				// Every regular file is hashed: a hook module, a file a server or hook
+				// names, or a script with any extension is then inside the digest.
 				executable.push(rel)
 				files[rel] = sha256Hex(readFileSync(full))
-				if (!isConfigFile(rel))
+				if (isExecutablePath(rel, stat.mode) && !isConfigFile(rel))
 					scripts.push({ path: rel, bytes: stat.size, exec: (stat.mode & 0o111) !== 0 })
 			}
 		}
@@ -201,11 +187,23 @@ function remoteRow(
 	}
 }
 
-const TOOL_TOKEN = /[^\s(]+(?:\([^)]*\))?/g
-
-/** `allowed-tools` as written, split into one entry per tool. */
+/** `allowed-tools` as written, split into one entry per tool: on commas and spaces outside parentheses. */
 export function splitAllowedTools(written: string): string[] {
-	return written.match(TOOL_TOKEN) ?? []
+	const out: string[] = []
+	let depth = 0
+	let current = ''
+	const flush = (): void => {
+		if (current !== '') out.push(current)
+		current = ''
+	}
+	for (const char of written) {
+		if (char === '(') depth++
+		else if (char === ')' && depth > 0) depth--
+		if (depth === 0 && (char === ',' || /\s/.test(char))) flush()
+		else current += char
+	}
+	flush()
+	return out
 }
 
 function inside(root: string, rel: string): string | undefined {
@@ -264,6 +262,8 @@ export interface SurfaceInput {
 	readonly root: string
 	readonly manifest: PluginManifest
 	readonly remoteServers: readonly PluginRemoteMCPServerConfig[]
+	/** Servers read but not admitted because they need setup, as written. */
+	readonly setupServers?: readonly LayoutSetupServer[]
 	readonly scripts: readonly SurfaceScript[]
 	readonly unexpander?: Unexpander
 }
@@ -304,6 +304,35 @@ export function readSurface(input: SurfaceInput): SurfaceRead {
 		),
 	}))
 	const mcpRemote = input.remoteServers.map((server) => remoteRow(server, unexpand))
+	// A server that needs a variable is still listed, with the variables it would send.
+	for (const server of input.setupServers ?? []) {
+		if (server.kind === 'remote') {
+			mcpRemote.push({
+				...remoteRow(
+					{
+						name: server.name,
+						url: server.target,
+						transport: server.transport ?? 'http',
+						...(Object.keys(server.values).length > 0 ? { headers: { ...server.values } } : {}),
+					},
+					unexpand,
+				),
+				needsSetup: true,
+			})
+		} else {
+			mcpLocal.push({
+				name: server.name,
+				command: unexpand(server.target),
+				args: (server.args ?? []).map(unexpand),
+				env: Object.fromEntries(
+					Object.entries(server.values)
+						.sort(([a], [b]) => a.localeCompare(b))
+						.map(([key, value]) => [key, unexpand(value)]),
+				),
+				needsSetup: true,
+			})
+		}
+	}
 
 	const fileHooks: SurfaceFileHook[] = []
 	const allowedTools: SurfaceAllowedTools[] = []
