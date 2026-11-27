@@ -109,6 +109,55 @@ export const SKILLS_ACTIONS: readonly ActionHelp[] = [
 		],
 		example: 'namzu skills list --audit',
 	},
+	{
+		path: ['add'],
+		operands: '<file.zip|file.skill|file.md|folder>...',
+		summary:
+			'Add skills from files or folders (up to 20, 30 MB each) to your skills or the project’s.',
+		flags: [
+			{ flag: '--scope user|project', description: 'Where it lives (default user).' },
+			{ flag: '--name <skill>', description: 'Use this name instead of the file’s (one input).' },
+			{
+				flag: '--replace',
+				description: 'Replace a skill of the same name; the old one is kept in backups.',
+			},
+			{ flag: '--yes', description: 'Accept the commands it can run and a replacement.' },
+			{ flag: '--json', description: 'Print one JSON object.' },
+		],
+		example: 'namzu skills add weekly-report.zip',
+	},
+	{
+		path: ['create'],
+		operands: '<name>',
+		summary: 'Write a skill from flags, with no model.',
+		flags: [
+			{
+				flag: '--description <text>',
+				description: 'When to use it (required, at most 1024 characters).',
+			},
+			{ flag: '--instructions <text>', description: 'The instructions.' },
+			{
+				flag: '--instructions-file <path|->',
+				description: 'Read the instructions from a file or standard input.',
+			},
+			{ flag: '--scope user|project', description: 'Where it lives (default user).' },
+			{ flag: '--replace', description: 'Replace a skill of the same name.' },
+			{ flag: '--json', description: 'Print one JSON object.' },
+		],
+		example:
+			'namzu skills create weekly-report --description "Weekly status report." --instructions-file -',
+	},
+	{
+		path: ['remove'],
+		operands: '<name>',
+		summary: 'Remove a skill you added; a copy is kept in backups.',
+		flags: [
+			{ flag: '--scope user|project', description: 'Which one, when both exist.' },
+			{ flag: '--yes', description: 'Do not ask first.' },
+			{ flag: '--json', description: 'Print one JSON object.' },
+		],
+		example: 'namzu skills remove weekly-report',
+	},
 ]
 
 export const PROVIDERS_ACTIONS: readonly ActionHelp[] = [

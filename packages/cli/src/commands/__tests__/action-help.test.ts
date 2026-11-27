@@ -47,7 +47,7 @@ const AREAS: ReadonlyArray<{ def: CommandDef; sources: readonly string[] }> = [
 	{ def: configCommand, sources: ['commands/config.ts'] },
 	{ def: computerCommand, sources: ['computer/run.ts'] },
 	{ def: stateCommand, sources: ['commands/state.ts'] },
-	{ def: skillsCommand, sources: ['commands/skills.ts'] },
+	{ def: skillsCommand, sources: ['commands/skills.ts', 'commands/skills-manage.ts'] },
 	{ def: providersCommand, sources: ['commands/providers.ts'] },
 	{ def: createWorktreeCommand(), sources: [] },
 	{ def: archiveCommand, sources: ['commands/archive.ts'] },

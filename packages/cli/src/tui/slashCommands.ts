@@ -1569,6 +1569,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 				'/skills opens the skills screen: Space changes the selected skill (on, name-only, user-only, off), / searches, t sorts by listing cost, Esc saves the changes for this project and closes. name-only tells the model the skill exists without its description; user-only keeps it from the model while /<name> still runs it; off hides it from both. To activate a skill for this conversation use /<name> or /skills <name>.',
 				'/skills new starts the skill-creator interview; the model drafts a SKILL.md and nothing is saved until you choose where on its confirmation screen.',
 				'/skills save turns what this conversation just did into a skill, generalised and without secrets or tool output, ending on the same confirmation screen.',
+				'To add a skill from a file or folder, or to remove one, run `namzu skills add`, `namzu skills create` or `namzu skills remove` in a terminal.',
 				'/skills save off stops the proposal printed after a multi-step task, in your user config; /skills save on turns it back on.',
 			],
 		},
