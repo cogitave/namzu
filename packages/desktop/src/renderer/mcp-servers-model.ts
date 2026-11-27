@@ -5,6 +5,14 @@ const WHERE: Record<McpServerView['origin'], string> = {
 	'your-config': 'Your own settings',
 	'this-project': 'This project’s settings',
 	'project-file': '.mcp.json in this project',
+	plugin: 'Plugin',
+}
+
+/** Where a server is set, as the person would name it: a plugin's by its name. */
+export function serverSourceLabel(server: Pick<McpServerView, 'origin' | 'plugin'>): string {
+	return server.origin === 'plugin' && server.plugin
+		? `Plugin ${server.plugin}`
+		: WHERE[server.origin]
 }
 
 const STATE: Record<McpServerView['state'], string> = {
@@ -12,6 +20,7 @@ const STATE: Record<McpServerView['state'], string> = {
 	waiting: 'Waiting for your approval',
 	failed: 'Failed',
 	idle: 'Not connected right now',
+	'needs-setup': 'Needs setup',
 }
 
 /** The Customize page asks Settings to open the form for a new tool server. */
@@ -47,11 +56,13 @@ export function mcpServerRowView(server: McpServerView): McpServerRowView {
 	return {
 		name: server.name,
 		origin: server.origin,
-		where: WHERE[server.origin],
+		where: serverSourceLabel(server),
 		state: server.state,
 		stateLabel: STATE[server.state],
 		...(server.detail ? { detail: server.detail } : {}),
-		...(server.state === 'failed' && server.reason ? { reason: server.reason } : {}),
+		...((server.state === 'failed' || server.state === 'needs-setup') && server.reason
+			? { reason: server.reason }
+			: {}),
 	}
 }
 

@@ -352,14 +352,19 @@ export interface ProjectPrView {
 	review: 'approved' | 'changes' | 'pending' | 'merged' | 'draft'
 }
 /** Where a tool server is defined. */
-export type McpServerOrigin = 'your-config' | 'this-project' | 'project-file'
-/** `idle`: set up and approved, and no conversation has started it yet. */
-export type McpServerState = 'connected' | 'waiting' | 'failed' | 'idle'
+export type McpServerOrigin = 'your-config' | 'this-project' | 'project-file' | 'plugin'
+/**
+ * `idle`: set up and approved, and no conversation has started it yet. `needs-setup`: a plugin's
+ * server that cannot start until a variable it names is set (`reason` says which).
+ */
+export type McpServerState = 'connected' | 'waiting' | 'failed' | 'idle' | 'needs-setup'
 export interface McpServerView {
 	name: string
 	origin: McpServerOrigin
 	state: McpServerState
-	/** Why it failed; only on `failed`. */
+	/** The plugin it comes from; only on origin `plugin`. */
+	plugin?: string
+	/** Why it failed or needs setup; only on `failed` and `needs-setup`. */
 	reason?: string
 	/** The command name or web address it uses; never its arguments or secrets. */
 	detail?: string

@@ -74,6 +74,37 @@ it('lists every server read-only, with the failure reason and the approval for w
 	expect(html).toContain('The tool servers for “shop”.')
 })
 
+it('shows a plugin’s remote server by the plugin, waiting for approval or needing setup', () => {
+	const html = markup(
+		controls({
+			view: {
+				servers: [
+					{
+						name: 'ledger-api',
+						origin: 'plugin',
+						plugin: 'ledger',
+						state: 'waiting',
+						detail: 'https://mcp.example.com',
+						fingerprint: 'f9',
+					},
+					{
+						name: 'ledger-two',
+						origin: 'plugin',
+						plugin: 'ledger',
+						state: 'needs-setup',
+						reason: 'TOKEN is not set',
+					},
+				],
+			},
+		}),
+	)
+	expect(html).toContain('Plugin ledger')
+	expect(html).toContain('Needs setup')
+	expect(html).toContain('TOKEN is not set')
+	expect(html).toContain('Approve this server')
+	expect(html).toContain('installed plugin')
+})
+
 it('offers no approval when nothing waits, and says so when nothing is set up', () => {
 	const none = markup(controls({ view: { servers: [view.servers[0] as never] } }))
 	expect(none).not.toContain('Approve')

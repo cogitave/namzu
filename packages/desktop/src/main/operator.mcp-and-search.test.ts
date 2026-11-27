@@ -48,6 +48,13 @@ const SERVERS = {
 		{ name: 'docs', origin: 'this-project', state: 'failed', reason: 'It did not answer.' },
 		{ name: 'bad\u0007name', origin: 'nowhere', state: 'connected' },
 		{ name: 'quiet', origin: 'your-config', state: 'idle', fingerprint: 'leaks-only-when-waiting' },
+		{
+			name: 'ledger-api',
+			origin: 'plugin',
+			plugin: 'ledger',
+			state: 'needs-setup',
+			reason: 'TOKEN is not set',
+		},
 	],
 }
 
@@ -59,10 +66,16 @@ it('hands on the engine’s tool server list and drops what it cannot vouch for'
 		['tickets', 'waiting'],
 		['docs', 'failed'],
 		['quiet', 'idle'],
+		['ledger-api', 'needs-setup'],
 	])
 	expect(view?.servers[1]).toMatchObject({ fingerprint: 'abc', detail: 'node' })
 	expect(view?.servers[2]?.reason).toBe('It did not answer.')
 	expect(view?.servers[3]).not.toHaveProperty('fingerprint')
+	expect(view?.servers[4]).toMatchObject({
+		origin: 'plugin',
+		plugin: 'ledger',
+		reason: 'TOKEN is not set',
+	})
 })
 
 it('says nothing when the engine has no tool server list', async () => {
@@ -76,7 +89,7 @@ it('says nothing when the engine has no tool server list', async () => {
 it('approves exactly the servers it was handed, with their fingerprints, and reads the list again', async () => {
 	const { owner, project, requests } = await setup({ FIXTURE_MCP: JSON.stringify(SERVERS) })
 	const after = await owner.approveMcpServers(project.id, [{ name: 'tickets', fingerprint: 'abc' }])
-	expect(after?.servers).toHaveLength(4)
+	expect(after?.servers).toHaveLength(5)
 	const approve = (await requests()).find((request) => request.method === 'namzu/mcp/approve')
 	expect(approve?.params).toEqual({ servers: [{ name: 'tickets', fingerprint: 'abc' }] })
 	for (const bad of [[], 'tickets', [{ name: 'tickets' }], [{ name: 'x', fingerprint: 5 }], [null]])

@@ -346,8 +346,8 @@ export function McpServersRows({
 					<div className="mcp-waiting">
 						<p>
 							{waiting.length === 1
-								? 'A tool server from this project’s .mcp.json is waiting for your approval and has not started.'
-								: `${waiting.length} tool servers from this project’s .mcp.json are waiting for your approval and have not started.`}{' '}
+								? 'A tool server from this project’s .mcp.json or from an installed plugin is waiting for your approval and has not started.'
+								: `${waiting.length} tool servers from this project’s .mcp.json or from installed plugins are waiting for your approval and have not started.`}{' '}
 							Approving lets them run the programs listed below on your computer.
 						</p>
 						<Button
