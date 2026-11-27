@@ -195,6 +195,20 @@ it('reads a text file of a skill, cuts it at 256 KiB and refuses binary files', 
 	})
 })
 
+it('keeps a file whose name merely begins with two dots', async () => {
+	skill(join(root, 'state', 'skills'), 'dotty', 'x', { '..notes.md': 'kept' })
+	await withHost(async (host) => {
+		const { files } = (await host['namzu/skills/files']({ name: 'dotty' })) as unknown as {
+			files: { path: string }[]
+		}
+		expect(files.map((f) => f.path)).toContain('..notes.md')
+		expect(await host['namzu/skills/read_file']({ name: 'dotty', path: '..notes.md' })).toEqual({
+			text: 'kept',
+			truncated: false,
+		})
+	})
+})
+
 it('refuses a path that leaves the skill folder: dots, absolute, drive, NUL, a link out', async () => {
 	const folder = skill(join(root, 'state', 'skills'), 'guarded', 'x', { '.hidden/x.txt': 'h' })
 	writeFileSync(join(root, 'outside.txt'), 'secret')

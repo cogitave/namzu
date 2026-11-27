@@ -26,6 +26,33 @@ export const SKILL_SORTS: readonly { id: SkillSort; label: string }[] = [
 export interface SkillRowModel extends SkillCatalogEntryView {
 	/** True when only the name and the place were known; there is no Contents then. */
 	basic?: boolean
+	/** Why the switch cannot move this skill: its state is set per project, above `skills.disabled`. */
+	locked?: string
+}
+
+const LOCK_NOTE =
+	'Set for this project in its local settings (/skills in the terminal changes it), so the switch here cannot move it'
+
+/**
+ * `skills.overrides` wins over `skills.disabled`, and the switch only writes the list. When the
+ * state the catalog reports is not the one the list alone would give, an override holds it: the
+ * row is locked rather than shown a switch that does nothing.
+ */
+export function withSwitchLocks(
+	rows: readonly SkillRowModel[],
+	disabled: unknown,
+): SkillRowModel[] {
+	const listed = new Set(
+		Array.isArray(disabled) ? (disabled as unknown[]).filter((n) => typeof n === 'string') : [],
+	)
+	return rows.map((row) => {
+		if (row.basic || row.plugin || row.tier === 'plugin') return row
+		const held =
+			row.state === 'name-only' ||
+			row.state === 'user-only' ||
+			(row.state === 'off') !== listed.has(row.name)
+		return held ? { ...row, locked: LOCK_NOTE } : row
+	})
 }
 
 /** The rows from the installed-skills list an older engine answers: names and places only. */
@@ -136,7 +163,7 @@ export function skillSubline(skill: SkillCatalogEntryView): string {
 
 /** A plugin's skills follow their plugin: no menu of their own. */
 export const skillHasMenu = (skill: SkillCatalogEntryView): boolean =>
-	skillGroupOf(skill) !== 'plugin'
+	skillGroupOf(skill) !== 'plugin' && !(skill as SkillRowModel).locked
 
 /** The note under the header when the state is more than on or off. */
 export function skillStateNote(state: SkillCatalogState): string | undefined {

@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest'
-import type { SkillCatalogEntryView } from '../shared/customize-protocol.js'
 import {
 	type SkillRowModel,
 	basicSkillRows,
@@ -20,13 +19,14 @@ import {
 	skillSubline,
 	skillUpdatedAt,
 	sortSkills,
+	withSwitchLocks,
 	withoutFrontMatter,
 } from './customize-model.js'
 
 const NOW = Date.parse('2026-11-27T12:00:00Z')
 const day = (n: number) => new Date(NOW - n * 86_400_000).toISOString()
 
-const skill = (over: Partial<SkillCatalogEntryView> = {}): SkillRowModel => ({
+const skill = (over: Partial<SkillRowModel> = {}): SkillRowModel => ({
 	name: 'notes',
 	description: 'Keep notes.',
 	tier: 'user',
@@ -99,6 +99,19 @@ describe('row words', () => {
 		expect(skillStateNote('user-only')).toContain('/skills')
 		expect(skillStateNote('on')).toBeUndefined()
 		expect(skillStateNote('off')).toBeUndefined()
+	})
+	it('locks the switch when a per-project override holds the state', () => {
+		const lock = (row: SkillRowModel, disabled: unknown = []) =>
+			withSwitchLocks([row], disabled)[0]?.locked
+		expect(lock(skill())).toBeUndefined()
+		expect(lock(skill({ state: 'off' }), ['notes'])).toBeUndefined()
+		// off with no listing: an override turned it off; on while listed: an override lifted it
+		expect(lock(skill({ state: 'off' }))).toContain('/skills')
+		expect(lock(skill(), ['notes'])).toContain('/skills')
+		expect(lock(skill({ state: 'name-only' }))).toContain('/skills')
+		expect(lock(skill({ state: 'user-only' }))).toContain('/skills')
+		expect(lock(skill({ plugin: 'acme', tier: 'plugin', state: 'off' }))).toBeUndefined()
+		expect(skillHasMenu(skill({ state: 'off', locked: 'x' }))).toBe(false)
 	})
 	it('names the folder with ~ for home', () => {
 		expect(skillLocation(skill())).toBe('~/.namzu/skills/notes')

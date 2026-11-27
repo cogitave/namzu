@@ -1,6 +1,6 @@
 import { CONNECTOR_COLUMNS, type ConnectorRowModel, NO_CONNECTORS } from './customize-model.js'
 import { EmptyState } from './customize-parts.js'
-import { CheckIcon } from './icons.js'
+import { CheckIcon, PlugIcon } from './icons.js'
 import { Button } from './ui/button.js'
 
 function StatusCell({
@@ -90,6 +90,7 @@ export function ConnectorsTable({
 					<tr key={row.name} title={row.title} onClick={() => onOpen(row.name)}>
 						<td>
 							<button type="button" className="customize-table-name">
+								<PlugIcon aria-hidden="true" />
 								{row.name}
 							</button>
 						</td>

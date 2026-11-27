@@ -7,7 +7,7 @@ import {
 	realpathSync,
 	statSync,
 } from 'node:fs'
-import { dirname, isAbsolute, join, relative } from 'node:path'
+import { dirname, isAbsolute, join, relative, sep } from 'node:path'
 import type { SkillsConfig } from '../config/schema.js'
 import { type SkillState, skillStateOf } from './overrides.js'
 import { type SkillTier, discoverSkillRoster, skillTierLabel } from './store.js'
@@ -62,7 +62,7 @@ export interface CatalogOptions {
 /** The folder under `root` the walk may enter: not a dot-folder, not a link leaving the folder. */
 function insideReal(rootReal: string, target: string): boolean {
 	const rel = relative(rootReal, target)
-	return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel))
+	return rel === '' || (rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel))
 }
 
 /** The files of a skill folder, relative with `/` separators, at most `limit`; never leaving the folder. */

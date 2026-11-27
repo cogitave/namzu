@@ -15,6 +15,7 @@ import {
 	type SkillSort,
 	connectorRows,
 	groupSkills,
+	withSwitchLocks,
 } from './customize-model.js'
 import { type AddMenuModel, CustomizeHeader } from './customize-parts.js'
 import {
@@ -93,7 +94,10 @@ export function CustomizePage({
 	const config = useConfigSettings(api, true, projectId)
 	const disabledValue = config.view ? stateFor(config.view, 'skills.disabled')?.value : undefined
 	const skills = useCustomizeSkills(api, projectId, disabledValue, true)
-	const rows = skills.rows
+	const rows = useMemo(
+		() => (skills.rows ? withSwitchLocks(skills.rows, disabledValue) : undefined),
+		[skills.rows, disabledValue],
+	)
 	const skill = skillName ? rows?.find((row) => row.name === skillName) : undefined
 	const toggleSkill = async (row: SkillRowModel, on: boolean) => {
 		await config.change('skills.disabled', skillsDisabledValue(disabledValue, row.name, on))

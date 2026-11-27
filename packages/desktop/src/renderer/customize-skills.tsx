@@ -156,7 +156,8 @@ export function SkillDetail({
 	contents?: React.ReactNode
 }) {
 	const on = skill.state !== 'off'
-	const note = switchDisabled ?? skillStateNote(skill.state)
+	const lock = switchDisabled ?? skill.locked
+	const note = switchDisabled ?? skillStateNote(skill.state) ?? skill.locked
 	const updated = longUpdated(skillUpdatedAt(skill), now)
 	const showContents = Boolean(contents) && skill.fileCount > 0
 	const shown: SkillDetailTab = showContents ? tab : 'overview'
@@ -181,7 +182,7 @@ export function SkillDetail({
 					<Switch
 						label={`Use ${skill.name}`}
 						checked={on}
-						disabled={Boolean(switchDisabled)}
+						disabled={Boolean(lock)}
 						onChange={onToggle}
 					/>
 				</>

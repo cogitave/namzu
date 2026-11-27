@@ -4,6 +4,7 @@
 	min-width: 0;
 	min-height: 0;
 	overflow-y: auto;
+	scrollbar-gutter: stable;
 	outline: none;
 	background: var(--background);
 	color: var(--foreground);
@@ -27,7 +28,7 @@
 }
 .customize-controls {
 	display: flex;
-	flex-wrap: wrap;
+	flex-wrap: nowrap;
 	align-items: center;
 	justify-content: space-between;
 	gap: 12px 16px;
@@ -72,7 +73,8 @@
 }
 .customize-tools {
 	display: flex;
-	flex-wrap: wrap;
+	flex: 1 1 auto;
+	justify-content: flex-end;
 	align-items: center;
 	gap: 8px;
 	min-width: 0;
@@ -81,8 +83,9 @@
 	display: flex;
 	align-items: center;
 	gap: 8px;
-	width: 210px;
-	max-width: 100%;
+	flex: 1 1 140px;
+	min-width: 120px;
+	max-width: 210px;
 	height: 28px;
 	padding: 0 10px;
 	box-sizing: border-box;
@@ -287,6 +290,8 @@
 	line-height: 18px;
 }
 .customize-row-time {
+	min-width: 64px;
+	text-align: end;
 	color: var(--muted-foreground);
 	font-size: var(--text-small);
 	white-space: nowrap;
@@ -369,8 +374,12 @@
 	background: var(--sidebar-row-hover);
 }
 .customize-table-name {
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
 	max-width: 100%;
 	overflow: hidden;
+	white-space: nowrap;
 	text-overflow: ellipsis;
 	padding: 0;
 	border: 0;
@@ -461,8 +470,8 @@
 	cursor: pointer;
 }
 .dark .customize-try {
-	background: #f4f4f5;
-	color: #18181b;
+	background: var(--foreground);
+	color: var(--background);
 	border-color: transparent;
 }
 .customize-try svg {
@@ -516,7 +525,7 @@
 }
 .customize-stats {
 	display: grid;
-	grid-template-columns: repeat(2, minmax(0, 1fr));
+	grid-template-columns: repeat(2, minmax(0, 220px));
 	margin: 0 0 28px;
 }
 .customize-stats > div {
@@ -594,7 +603,9 @@
 .customize-contents {
 	display: grid;
 	grid-template-columns: 220px minmax(0, 1fr);
+	height: calc(100dvh - 300px);
 	min-height: 360px;
+	grid-template-rows: minmax(0, 1fr);
 	border: 1px solid var(--border);
 	border-radius: var(--radius-card);
 	overflow: hidden;
@@ -603,7 +614,6 @@
 	padding: 8px;
 	border-inline-end: 1px solid var(--border);
 	overflow: auto;
-	max-height: 560px;
 }
 .customize-tree ul {
 	margin: 0;
@@ -646,6 +656,7 @@
 	display: flex;
 	flex-direction: column;
 	min-width: 0;
+	min-height: 0;
 }
 .customize-viewer-bar {
 	display: flex;
@@ -693,7 +704,7 @@
 	min-width: 0;
 	padding: 16px;
 	overflow: auto;
-	max-height: 560px;
+	min-height: 0;
 }
 .customize-source {
 	margin: 0;
@@ -709,6 +720,12 @@
 @container customize (max-width: 700px) {
 	.customize-content {
 		padding-inline: 20px;
+	}
+	.customize-controls {
+		flex-wrap: wrap;
+	}
+	.customize-tools {
+		flex-basis: 100%;
 	}
 	.customize-overview {
 		grid-template-columns: minmax(0, 1fr);
@@ -726,4 +743,11 @@
 		opacity: 1;
 		transform: none;
 	}
+}
+
+.customize-table-name svg {
+	width: 16px;
+	height: 16px;
+	flex: none;
+	color: var(--muted-foreground);
 }

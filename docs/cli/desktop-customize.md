@@ -49,9 +49,10 @@ its plugin. **Add** holds **Create with Namzu**, which starts the same conversat
 
 Pressing a row opens the skill. The header has **Try in chat** (a new conversation with
 `/<name> ` in the box, not sent), a menu and a switch. The switch writes `skills.disabled`, the
-setting Settings' switch writes, so Settings, the terminal's `/skills` and this page agree. A skill
-the terminal set to name only or user only is shown on, with the note that says where it was set;
-this page does not change that. **Overview** shows the uses in the last seven days, when it was last
+setting Settings' switch writes, so Settings, the terminal's `/skills` and this page agree. A per-project
+state from the terminal's `/skills` screen (`skills.overrides`) wins over that list, so a skill
+whose state the list alone would not give (name only, user only, or off or on by an override) has
+its switch and menu locked, with a note that says where it was set; this page does not change it. **Overview** shows the uses in the last seven days, when it was last
 used, the description and the folder (with `~` for home). **Contents** shows the folder's files in a
 tree and one file at a time, read-only: Markdown is rendered (its settings block left out), with a
 switch to the source; any other text file is plain monospace; a binary file or one over 256 KiB is
