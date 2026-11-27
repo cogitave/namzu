@@ -68,6 +68,7 @@ The operator application.
 * [Turn limits](turn-limits.md) - Limits for interactive and headless turns, headless override flags and honest closing stop reasons.
 * [Slash commands](slash-commands.md) - Every builtin slash command the interactive session answers to, one line each, with the composer keys that are not commands.
 * [Plugins](plugins.md) - Trusted extension loading, live contributions and session enable/disable controls.
+* [Installed plugins](plugin-records.md) - The install records, the settings that turn an installed plugin on, how it meets discovery and trust, and `namzu plugin list`, `details`, `enable` and `disable`.
 * [namzu plugin validate](plugin-validate.md) - Check a plugin folder and every part it carries without running anything from it: problems with file and line, the codes, the JSON shape and the exit statuses.
 * [Skills](skills.md) - Where SKILL.md skills come from and which tier wins a name, how the model is offered them and loads one with the skill tool, which directory it is told a skill's files are in, the manifest budget, tool gating, and the skills config keys.
 * [namzu skills add, create and remove](skills-add.md) - Add skills from a zip, .skill, .md or folder, write one from flags and remove one: the checks, what is asked before a skill that can run commands, backups, the provenance file, the JSON shapes and the exit statuses.

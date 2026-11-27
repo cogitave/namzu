@@ -20,7 +20,7 @@
 
 import { constants, existsSync } from 'node:fs'
 import { lstat, open, readdir, realpath, stat } from 'node:fs/promises'
-import { isAbsolute, join, relative, sep } from 'node:path'
+import { basename, dirname, isAbsolute, join, relative, sep } from 'node:path'
 
 import {
 	AGENT_FILE_KEYS,
@@ -47,6 +47,7 @@ import { SKILL_MANIFEST_MAX_CHARS } from '../../skills/catalog.js'
 import { COMMAND_FILE_KEYS, parseCommandText } from '../../user-commands/store.js'
 import { resolvePluginFileDir } from './files.js'
 import { CONVENTIONAL_HOOKS_FILE, readPluginHookEntriesOf } from './hook-entries.js'
+import { RESERVED_PLUGIN_FOLDERS } from './records.js'
 
 /** The version of the JSON shape `namzu plugin validate --json` prints. */
 export const PLUGIN_VALIDATION_REPORT_VERSION = 1
@@ -383,6 +384,19 @@ export async function validatePluginFolder(folder: string): Promise<PluginValida
 	}
 
 	const c = new Collector()
+	// `cache`, `marketplaces` and `data` under `plugins/` hold installed plugins and their
+	// data; discovery never scans them, so a hand-placed plugin named so is not loaded.
+	if (RESERVED_PLUGIN_FOLDERS.includes(basename(root)) && basename(dirname(root)) === 'plugins') {
+		c.add({
+			level: 'warning',
+			part: 'manifest',
+			file: '',
+			code: 'plugin-folder-reserved',
+			message: `The folder name "${basename(root)}" is one Namzu keeps its own plugin state in.`,
+			consequence:
+				'A plugin placed in a folder with this name under plugins/ is not loaded; rename the folder.',
+		})
+	}
 	// A folder without Namzu's own manifest is read in the common plugin layout.
 	// The reader never runs or imports anything, the same as the rest of this check.
 	const layout = await readCommonLayout(root, {

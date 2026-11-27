@@ -107,7 +107,9 @@ export function trustGrantLines(
 		(grants.allowRules.length === 0 &&
 			grants.directories.length === 0 &&
 			grants.toolServers.length === 0 &&
-			grants.hooks.length === 0)
+			grants.hooks.length === 0 &&
+			(grants.pluginRecords ?? []).length === 0 &&
+			(grants.marketplaces ?? []).length === 0)
 	)
 		return []
 	const room = trustPathWidth(columns)
@@ -154,6 +156,33 @@ export function trustGrantLines(
 			)
 		}
 		const more = grants.hooks.length - MAX_SHOWN_GRANT_RULES
+		if (more > 0) lines.push(`  and ${more} more`)
+	}
+	const records = grants.pluginRecords ?? []
+	if (records.length > 0) {
+		lines.push(`This folder's settings name ${countOf(records.length, 'plugin', 'plugins')}:`)
+		for (const record of records.slice(0, MAX_SHOWN_GRANT_RULES)) {
+			const state = !record.on
+				? 'turned off here'
+				: record.installed
+					? 'installed on this computer'
+					: 'asked for here and not installed on this computer'
+			lines.push(...wrapHard(`${record.id}: ${state}`, Math.max(1, room - 2)).map((l) => `  ${l}`))
+		}
+		const more = records.length - MAX_SHOWN_GRANT_RULES
+		if (more > 0) lines.push(`  and ${more} more`)
+	}
+	const declared = grants.marketplaces ?? []
+	if (declared.length > 0) {
+		lines.push(
+			`This folder declares ${countOf(declared.length, 'marketplace', 'marketplaces')} (suggestions, none is added):`,
+		)
+		for (const market of declared.slice(0, MAX_SHOWN_GRANT_RULES)) {
+			lines.push(
+				...wrapHard(`${market.name}: ${market.from}`, Math.max(1, room - 2)).map((l) => `  ${l}`),
+			)
+		}
+		const more = declared.length - MAX_SHOWN_GRANT_RULES
 		if (more > 0) lines.push(`  and ${more} more`)
 	}
 	lines.push(...wrapBalancedText(GRANTS_NOTICE, room))

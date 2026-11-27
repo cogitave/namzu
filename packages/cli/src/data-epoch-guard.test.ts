@@ -32,6 +32,12 @@ const CONSTANTS: Record<string, { version: number; onDisk: boolean }> = {
 	'config/hooks-report.ts#HOOKS_REPORT_VERSION': { version: 1, onDisk: false },
 	'integrations/harness/model-cache.ts#VERSION': { version: 1, onDisk: true },
 	'integrations/mcp/project-approval.ts#FILE_VERSION': { version: 1, onDisk: true },
+	// <home>/plugins/.install-manifests/<id>.json: new with plugin installs. An older command line
+	// does not know the file and never reads it; a version it does not know stops only that plugin.
+	'integrations/plugins/install-manifest.ts#INSTALL_MANIFEST_VERSION': { version: 1, onDisk: true },
+	// <home>/plugins/installed_plugins.json: new with plugin installs, version 2 from its first
+	// release (the shape of the common plugin layout's record file). An older command line ignores it.
+	'integrations/plugins/records.ts#INSTALLED_PLUGINS_VERSION': { version: 2, onDisk: true },
 	// The `--json` report of `namzu plugin validate`: printed, never stored.
 	'integrations/plugins/validate.ts#PLUGIN_VALIDATION_REPORT_VERSION': {
 		version: 1,

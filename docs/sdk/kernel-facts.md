@@ -135,6 +135,8 @@ than read, because reading it would drop the fields this build does not know and
 | Trusted folders | `trust.json` | command line, Desktop | `version` (`TRUST_FILE_VERSION` = 1) | a newer version reads as unreadable: it trusts nothing and is never replaced unless the person starts a new list (the old file is kept in `backups/`) |
 | Acknowledgements | `acknowledgements.json` | command line | `version` (`VERSION` = 1) | not checked beyond the shape check |
 | Tool server approvals | `mcp-approvals.json` | command line | `version` (`FILE_VERSION` = 1) | a newer version reads as unreadable: it approves nothing and is never replaced unless the person starts a new list (`namzu mcp approve --new-list`; the old file is kept in `backups/`) |
+| Installed plugins | `plugins/installed_plugins.json` | command line | `version` (`INSTALLED_PLUGINS_VERSION` = 2) | another version reads as unreadable: no installed plugin loads and the plugin commands refuse to write until the person fixes or moves the file; a command line older than this file ignores it |
+| Plugin install manifests | `plugins/.install-manifests/<id>.json` | command line | `version` (`INSTALL_MANIFEST_VERSION` = 1) | another version stops only that plugin, reported as not verified; a command line older than this file never reads it |
 | Tool server sign-ins | `mcp-oauth/<endpoint>.json` | command line | `version: 1` | a record of another version is ignored |
 | Plugin settings | `plugin-settings/<plugin>.json` | command line | `version: 1` | a record of another version is ignored |
 | Window layout | `workspaces.json` | command line | `version` (3; 1 and 2 are migrated) | a layout of another version reads as no layout; the next save replaces it |

@@ -9,12 +9,15 @@ import {
 	attachShellHooks,
 	createShellHook,
 	discoverAllPluginDirs,
+	loadPluginManifestWithFindings,
 } from '@namzu/sdk'
 
 import type { HooksSwitch } from '../../config/hook-layers.js'
 import type { HookEntry, HooksConfig, PluginConfig, PluginScope } from '../../config/schema.js'
 import { cliLogger } from '../../logging.js'
 import { resolveNamzuHome } from '../state/home.js'
+import { isTrusted } from '../trust/store.js'
+import { recordLayerPath, setEnabledPlugin } from './enabled-records.js'
 import { listMarkdownNames, resolvePluginFileDirs } from './files.js'
 import { type SessionHookActivity, createSessionHookActivity } from './hook-activity.js'
 import {
@@ -24,6 +27,12 @@ import {
 	readPluginHookEntriesOf,
 } from './hook-entries.js'
 import { createHookPathFilter } from './hook-path-filter.js'
+import {
+	currentEnabledAnswer,
+	planInstalledPlugins,
+	readInstalledManifest,
+} from './installed-source.js'
+import { isReservedPluginDir } from './records.js'
 import { PluginSettingsStore } from './settings.js'
 
 /**
@@ -88,6 +97,11 @@ export interface CliPluginRuntime {
 	 */
 	readonly hookActivity: SessionHookActivity
 	list(): readonly CliPluginInfo[]
+	/**
+	 * Installed plugins that were not loaded, with the reason, so a listing can
+	 * say so. A plugin that fails never stops the others.
+	 */
+	installedProblems(): readonly { readonly id: string | undefined; readonly message: string }[]
 	/** The JavaScript hooks plugins registered right now: the plugin's name and the event. */
 	pluginHooks(): readonly { readonly plugin: string; readonly event: string }[]
 	/** The hook entries (commands, addresses, prompts) enabled plugins ship, apart from their JavaScript hooks. */
@@ -123,6 +137,10 @@ export interface CliPluginInfo {
 	readonly commands: readonly string[]
 	/** Agent files from the plugin's agent folders, as named to the model. */
 	readonly agents: readonly string[]
+	/** `<plugin>@<marketplace>` of a plugin that was installed from a marketplace record. */
+	readonly installId?: string
+	/** The scope of the install record the plugin was loaded from. */
+	readonly installScope?: 'user' | 'project' | 'local'
 }
 
 function message(error: unknown): string {
@@ -175,6 +193,11 @@ export async function createCliPluginRuntime(
 	host?: {
 		readonly keepForSkills?: boolean
 		readonly hooksSwitch?: HooksSwitch
+		/**
+		 * Whether `cwd` is a trusted folder. Only then are the folder's install
+		 * records and its two settings files read. Absent: the trust list says.
+		 */
+		readonly projectTrusted?: boolean
 	},
 ): Promise<CliPluginRuntime | undefined> {
 	const pluginsEnabled = config?.enabled === true
@@ -231,12 +254,26 @@ export async function createCliPluginRuntime(
 	>()
 	const warningLines: string[] = []
 	const hooksSwitch = host?.hooksSwitch
+	// Installed plugins by the folder they run from, so their data lives under
+	// `plugins/data/<id>/` and not under the hand-placed plugins' folders.
+	const installedIdByRoot = new Map<string, string>()
+	const dataDirOf = (plugin: {
+		readonly name: string
+		readonly scope: PluginScope
+		readonly rootDir: string
+	}): string => {
+		const installedId = installedIdByRoot.get(plugin.rootDir)
+		return pluginDataDir(userRoot, {
+			...plugin,
+			...(installedId !== undefined ? { installedId } : {}),
+		})
+	}
 	const manager = new PluginLifecycleManager({
 		pluginRegistry: plugins,
 		skillRegistry: skills,
 		scopeRoots: { project: cwd, user: userRoot },
 		pathValues: ({ name, scope, rootDir }) => ({
-			data: pluginDataDir(userRoot, { name, scope, rootDir }),
+			data: dataDirOf({ name, scope, rootDir }),
 			project: cwd,
 		}),
 		log,
@@ -244,11 +281,7 @@ export async function createCliPluginRuntime(
 		hooksFor: (plugin): readonly PluginHookDefinition[] => {
 			const read = readPluginHookEntriesOf(plugin)
 			const name = plugin.manifest.name
-			const dataDir = pluginDataDir(userRoot, {
-				name,
-				scope: plugin.scope,
-				rootDir: plugin.rootDir,
-			})
+			const dataDir = dataDirOf({ name, scope: plugin.scope, rootDir: plugin.rootDir })
 			const problems = [...read.problems]
 			let usable = true
 			if (read.count > 0 && dataDirOverlapsPlugin(dataDir, plugin.rootDir)) {
@@ -305,7 +338,18 @@ export async function createCliPluginRuntime(
 				log,
 			})
 		: { project: [], user: [] }
+	// The folders under `plugins/` that hold Namzu's own state are not plugins to scan.
+	discovered.user = discovered.user.filter((dir) => {
+		if (!isReservedPluginDir(userRoot, dir)) return true
+		// Discovery only lists folders that hold a plugin manifest, so this one was meant as a plugin.
+		warningLines.push(
+			`The folder ${dir} holds a plugin but is named for Namzu's own plugin state, so it was not loaded. Rename the folder to load it.`,
+		)
+		return false
+	})
 	const installed: Awaited<ReturnType<PluginLifecycleManager['install']>>[] = []
+	const installedInfo = new Map<string, { id: string; scope: 'user' | 'project' | 'local' }>()
+	const installedSkipped: { id: string | undefined; message: string }[] = []
 	// What the common plugin layout reader left out or refused, said once per plugin.
 	const noteLayoutFindings = (
 		plugin: Awaited<ReturnType<PluginLifecycleManager['install']>>,
@@ -319,6 +363,89 @@ export async function createCliPluginRuntime(
 
 	const isLayoutRefusal = (error: unknown): boolean =>
 		error instanceof Error && error.name === 'PluginLayoutRefusedError'
+
+	let projectTrusted = host?.projectTrusted
+	const folderIsTrusted = (): boolean => {
+		if (projectTrusted === undefined) {
+			try {
+				projectTrusted = isTrusted(cwd)
+			} catch {
+				projectTrusted = false
+			}
+		}
+		return projectTrusted
+	}
+	/**
+	 * The third source: plugins with an install record. One that cannot load (a
+	 * changed file, a refused manifest, a name already used, a missing folder) is
+	 * reported and skipped; the others load.
+	 */
+	const loadInstalledPlugins = async (): Promise<void> => {
+		const plan = planInstalledPlugins({
+			home: userRoot,
+			cwd,
+			projectTrusted: folderIsTrusted(),
+			allowedScopes,
+		})
+		for (const problem of plan.problems) {
+			warningLines.push(problem.message)
+			installedSkipped.push(problem)
+		}
+		if (plan.candidates.length === 0) return
+		// A `--plugin-dir` folder wins a name over an installed plugin.
+		const launchNames = new Set<string>()
+		for (const dir of launchDirs) {
+			try {
+				launchNames.add((await loadPluginManifestWithFindings(dir)).manifest.name)
+			} catch {
+				// Reported when that folder itself is loaded below.
+			}
+		}
+		for (const candidate of plan.candidates) {
+			const skip = (reason: string): void => {
+				const text = `${candidate.id} was not loaded: ${reason}`
+				warningLines.push(text)
+				installedSkipped.push({ id: candidate.id, message: text })
+			}
+			if (launchNames.has(candidate.name) || plugins.findByName(candidate.name)) {
+				skip(`the name "${candidate.name}" is already used by another plugin.`)
+				continue
+			}
+			installedIdByRoot.set(candidate.installPath, candidate.id)
+			let plugin: (typeof installed)[number]
+			try {
+				const read = await readInstalledManifest(candidate, {
+					home: userRoot,
+					cwd,
+					installedNames: new Set(plugins.getAll().map((p) => p.manifest.name)),
+				})
+				const manifestSource = read.manifest ? { manifest: read.manifest } : undefined
+				const findings = read.findings
+				plugin = await manager.install(candidate.installPath, candidate.scope, {
+					authorityRoot: candidate.installPath,
+					...(manifestSource ? { manifestSource } : {}),
+				})
+				for (const finding of findings) {
+					if (finding.level === 'notUsed' || finding.level === 'refused')
+						warningLines.push(`Plugin ${plugin.manifest.name}: ${finding.message}`)
+				}
+			} catch (error) {
+				installedIdByRoot.delete(candidate.installPath)
+				skip(message(error))
+				continue
+			}
+			installed.push(plugin)
+			installedInfo.set(plugin.id, { id: candidate.id, scope: candidate.record.scope })
+			noteLayoutFindings(plugin)
+			if (candidate.answer.on) {
+				try {
+					await manager.enable(plugin.id)
+				} catch (error) {
+					skip(`it could not be turned on (${message(error)}).`)
+				}
+			}
+		}
+	}
 
 	try {
 		for (const scope of allowedScopes) {
@@ -345,6 +472,7 @@ export async function createCliPluginRuntime(
 				if (enabled) await manager.enable(plugin.id)
 			}
 		}
+		if (pluginsEnabled) await loadInstalledPlugins()
 		// Folders named on the command line: each is its own authority, loaded
 		// without `plugins.enabled`, and a plugin already found above keeps its
 		// place.
@@ -416,6 +544,7 @@ export async function createCliPluginRuntime(
 					})),
 				),
 		takePluginHookWarnings: () => warningLines.splice(0),
+		installedProblems: () => installedSkipped,
 		pluginHooks: () =>
 			manager
 				.listHooks()
@@ -431,11 +560,17 @@ export async function createCliPluginRuntime(
 					const prefix = `${plugin.manifest.name}__`
 					let startupEnabled: boolean | undefined
 					let startupError: string | undefined
+					const from = installedInfo.get(plugin.id)
 					try {
-						startupEnabled = settings.read({
-							rootDir: plugin.rootDir,
-							name: plugin.manifest.name,
-						})
+						startupEnabled = from
+							? currentEnabledAnswer(
+									{ home: userRoot, cwd, projectTrusted: folderIsTrusted() },
+									from.id,
+								).on
+							: settings.read({
+									rootDir: plugin.rootDir,
+									name: plugin.manifest.name,
+								})
 					} catch (error) {
 						startupError = message(error)
 					}
@@ -459,6 +594,7 @@ export async function createCliPluginRuntime(
 						),
 						hookEntries: readPluginHookEntriesOf(plugin).count,
 						mcpServers: (plugin.manifest.mcpServers ?? []).map((server) => server.name),
+						...(from ? { installId: from.id, installScope: from.scope } : {}),
 						commands: resolvePluginFileDirs(
 							plugin.manifest.name,
 							plugin.rootDir,
@@ -502,6 +638,34 @@ export async function createCliPluginRuntime(
 				throw new Error('Resolve the plugin error before remembering its state.')
 			}
 			const enabled = plugin.status === 'enabled'
+			const from = installedInfo.get(plugin.id)
+			if (from) {
+				// A recorded yes for an installed plugin: the user's own file for a user
+				// install, this computer's file for the folder otherwise, so a shared
+				// file is never edited by a toggle.
+				const layer = from.scope === 'user' ? 'user' : 'local'
+				setEnabledPlugin(
+					recordLayerPath(layer, { home: userRoot, cwd }),
+					userRoot,
+					from.id,
+					enabled,
+				)
+				// This computer's file for the folder outranks the shared and the user
+				// file, so a yes or no left there still decides: write it there too.
+				if (
+					layer === 'user' &&
+					currentEnabledAnswer({ home: userRoot, cwd, projectTrusted: folderIsTrusted() }, from.id)
+						.on !== enabled
+				) {
+					setEnabledPlugin(
+						recordLayerPath('local', { home: userRoot, cwd }),
+						userRoot,
+						from.id,
+						enabled,
+					)
+				}
+				return
+			}
 			settings.write({ rootDir: plugin.rootDir, name }, enabled)
 		},
 		close() {

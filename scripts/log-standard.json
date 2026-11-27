@@ -168,6 +168,18 @@
 			"reason": "`namzu skills add|create|remove` says why it refused, shows what a skill can run before a yes, and asks the y/N question on stderr: the person's own messages from this command, not log records."
 		},
 		{
+			"file": "packages/cli/src/commands/plugin.ts",
+			"symbol": "process.stdout.write",
+			"count": 1,
+			"reason": "`namzu plugin list|details|enable|disable` prints its answer (words, or one JSON object with --json) on stdout: it is the command's output, not a log record."
+		},
+		{
+			"file": "packages/cli/src/commands/plugin.ts",
+			"symbol": "process.stderr.write",
+			"count": 1,
+			"reason": "`namzu plugin list|details|enable|disable` says why it refused or could not read a record on stderr: the person's own message from this command, not a log record."
+		},
+		{
 			"file": "packages/cli/src/commands/extension.ts",
 			"symbol": "process.stdout.write",
 			"count": 1,
