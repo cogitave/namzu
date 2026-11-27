@@ -152,7 +152,11 @@ function mappingAt(
 	return found?.kind === 'mapping' ? found.entries : undefined
 }
 
-function toSkillMetadata(parsed: ParsedFrontmatter, dirPath: string): SkillMetadata {
+function toSkillMetadata(
+	parsed: ParsedFrontmatter,
+	dirPath: string,
+	anyFolderName = false,
+): SkillMetadata {
 	const source = sourceLabel(dirPath)
 	const { values } = parsed
 
@@ -166,7 +170,7 @@ function toSkillMetadata(parsed: ParsedFrontmatter, dirPath: string): SkillMetad
 		throw new Error(`${source} missing required field: description`)
 	}
 
-	validateSkillName(name, dirPath)
+	validateSkillName(name, dirPath, anyFolderName)
 	validateDescription(description, dirPath)
 
 	const skillMetadata: SkillMetadata = { name, description }
@@ -272,7 +276,7 @@ const REASONING_EFFORTS: readonly ReasoningEffort[] = [
 
 const SKILL_NAME_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 
-function validateSkillName(name: string, dirPath: string): void {
+function validateSkillName(name: string, dirPath: string, anyFolderName = false): void {
 	if (name.length > 64) {
 		throw new Error(`SKILL.md at "${dirPath}": name exceeds 64 characters`)
 	}
@@ -282,7 +286,7 @@ function validateSkillName(name: string, dirPath: string): void {
 		)
 	}
 	const expectedName = basename(dirPath)
-	if (name !== expectedName) {
+	if (!anyFolderName && name !== expectedName) {
 		throw new Error(
 			`SKILL.md at "${dirPath}": name "${name}" must match directory name "${expectedName}"`,
 		)
@@ -313,23 +317,30 @@ function estimateTokens(text: string): number {
  * so the two cannot disagree about what a valid skill is.
  *
  * @param dirPath The skill's folder: the name must match its last segment.
+ * @param options `anyFolderName` skips that match, for a plugin whose own folder
+ *   is the skill (the folder is named for a version, not the skill).
  */
 export function parseSkillMarkdown(
 	raw: string,
 	dirPath: string,
+	options?: { readonly anyFolderName?: boolean },
 ): { readonly metadata: SkillMetadata; readonly body: string } {
 	const parsed = parseFrontmatter(raw, sourceLabel(dirPath), SKILL_FRONTMATTER_OPTIONS)
-	return { metadata: toSkillMetadata(parsed, dirPath), body: parsed.body }
+	return {
+		metadata: toSkillMetadata(parsed, dirPath, options?.anyFolderName === true),
+		body: parsed.body,
+	}
 }
 
 export async function loadSkill(
 	dirPath: string,
 	level: SkillDisclosureLevel = 'metadata',
 	log?: Logger,
+	options?: { readonly anyFolderName?: boolean },
 ): Promise<SkillLoadResult> {
 	const skillMdPath = join(dirPath, SKILL_FILENAME)
 	const raw = await readFile(skillMdPath, 'utf-8')
-	const parsedSkill = parseSkillMarkdown(raw, dirPath)
+	const parsedSkill = parseSkillMarkdown(raw, dirPath, options)
 	const metadata = parsedSkill.metadata
 
 	const skill: Skill = {
@@ -354,7 +365,9 @@ export async function loadSkill(
 	// it. Without a `log`, this loader emits nothing (`resolveLogger` is
 	// `NOOP_LOGGER`), which is the deliberate default rather than a fallback
 	// to somebody else's stream.
-	const logger = resolveLogger(log).child({ [SCOPE_ATTRIBUTE]: 'skills/loader' })
+	const logger = resolveLogger(log).child({
+		[SCOPE_ATTRIBUTE]: 'skills/loader',
+	})
 	logger.debug('Loaded skill', {
 		'namzu.skills.name': metadata.name,
 		'namzu.skills.level': level,
@@ -371,7 +384,9 @@ export async function loadSkill(
 export async function discoverSkills(parentDir: string, log?: Logger): Promise<string[]> {
 	// Resolved here too — see loadSkill above for why module scope froze
 	// this logger's level, and its very reference, at import time.
-	const logger = resolveLogger(log).child({ [SCOPE_ATTRIBUTE]: 'skills/loader' })
+	const logger = resolveLogger(log).child({
+		[SCOPE_ATTRIBUTE]: 'skills/loader',
+	})
 	const dirs: string[] = []
 
 	try {
@@ -389,7 +404,9 @@ export async function discoverSkills(parentDir: string, log?: Logger): Promise<s
 			} catch {}
 		}
 	} catch {
-		logger.debug('Skills directory not found', { 'namzu.skills.parent_dir': parentDir })
+		logger.debug('Skills directory not found', {
+			'namzu.skills.parent_dir': parentDir,
+		})
 	}
 
 	return dirs.sort()

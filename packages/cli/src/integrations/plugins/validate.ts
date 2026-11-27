@@ -296,12 +296,22 @@ class Collector {
 	readonly problems: PluginProblem[] = []
 	/** Name and version read from a manifest that is otherwise refused, when they are plain text. */
 	identity: { name?: string; version?: string } = {}
-	readonly parts: { kind: PluginPartKind; name: string; file?: string; id: string }[] = []
+	readonly parts: {
+		kind: PluginPartKind
+		name: string
+		file?: string
+		id: string
+	}[] = []
 
 	part(kind: PluginPartKind, name: string, file?: string): string {
 		const id = kind === 'manifest' ? 'manifest' : `${kind}:${name}`
 		if (!this.parts.some((p) => p.id === id)) {
-			this.parts.push({ kind, name, ...(file !== undefined ? { file } : {}), id })
+			this.parts.push({
+				kind,
+				name,
+				...(file !== undefined ? { file } : {}),
+				id,
+			})
 		}
 		return id
 	}
@@ -375,7 +385,10 @@ export async function validatePluginFolder(folder: string): Promise<PluginValida
 	const c = new Collector()
 	// A folder without Namzu's own manifest is read in the common plugin layout.
 	// The reader never runs or imports anything, the same as the rest of this check.
-	const layout = await readCommonLayout(root)
+	const layout = await readCommonLayout(root, {
+		// The real load gives a plugin its own data folder; a placeholder stands for it here.
+		paths: () => ({ data: join(root, '.plugin-data'), project: root }),
+	})
 	if (layout.source !== 'namzu' && layout.source !== 'none') {
 		checkCommonLayout(layout, c)
 		return {
@@ -407,6 +420,11 @@ export async function validatePluginFolder(folder: string): Promise<PluginValida
 }
 
 const NOT_USED = 'Namzu has no use for it; the plugin still loads.'
+const NOT_USED_BY_CODE: Readonly<Record<string, string>> = {
+	'folder-shadowed-by-manifest': 'The files in that folder are skipped; the plugin still loads.',
+	'mcp-server-remote': 'It is listed and not started yet; the plugin still loads.',
+	'mcp-needs-setup': 'It is not started until that is set up; the plugin still loads.',
+}
 const DROPPED = 'That entry is dropped; the plugin loads without it.'
 
 /** The part a finding belongs to, by the field and file it names. */
@@ -456,7 +474,11 @@ function checkCommonLayout(read: CommonLayoutRead, c: Collector): void {
 			file: finding.path ?? '',
 			code: finding.code,
 			message: finding.message,
-			consequence: whole ? REFUSED : finding.level === 'refused' ? DROPPED : NOT_USED,
+			consequence: whole
+				? REFUSED
+				: finding.level === 'refused'
+					? DROPPED
+					: (NOT_USED_BY_CODE[finding.code] ?? NOT_USED),
 		})
 	}
 	if (manifest !== undefined) {
@@ -485,7 +507,16 @@ async function checkManifest(root: string, c: Collector): Promise<Manifest | und
 		consequence = REFUSED,
 		line?: number,
 		level: PluginProblemLevel = 'error',
-	): void => c.add({ level, part, file: MANIFEST_FILE, line, code, message: text, consequence })
+	): void =>
+		c.add({
+			level,
+			part,
+			file: MANIFEST_FILE,
+			line,
+			code,
+			message: text,
+			consequence,
+		})
 
 	// The loader's own file rule: a regular file, not a link.
 	let entry: Awaited<ReturnType<typeof lstat>>
@@ -841,14 +872,20 @@ function readProblem(
 		case 'missing':
 			return { code: 'path-missing', text: `${what} "${rel}" does not exist.` }
 		case 'not-file':
-			return { code: 'path-not-file', text: `${what} "${rel}" is not a regular file.` }
+			return {
+				code: 'path-not-file',
+				text: `${what} "${rel}" is not a regular file.`,
+			}
 		case 'too-large':
 			return {
 				code: 'file-too-large',
 				text: `${what} "${rel}" is ${read.detail ?? 'very large'}, over the ${MAX_CHECKED_FILE_BYTES} bytes this check reads, so it was not read.`,
 			}
 		case 'binary':
-			return { code: 'file-binary', text: `${what} "${rel}" is not a text file.` }
+			return {
+				code: 'file-binary',
+				text: `${what} "${rel}" is not a text file.`,
+			}
 		default:
 			return {
 				code: 'file-unreadable',

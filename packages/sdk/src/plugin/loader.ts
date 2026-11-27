@@ -32,7 +32,9 @@ export async function discoverPlugins(parentDir: string, log?: Logger): Promise<
 	// it. Without a `log`, discovery emits nothing (`resolveLogger` is
 	// `NOOP_LOGGER`), which is the deliberate default rather than a fallback
 	// to somebody else's stream.
-	const logger = resolveLogger(log).child({ [SCOPE_ATTRIBUTE]: 'plugin/loader' })
+	const logger = resolveLogger(log).child({
+		[SCOPE_ATTRIBUTE]: 'plugin/loader',
+	})
 	const dirs: string[] = []
 
 	try {
@@ -55,7 +57,9 @@ export async function discoverPlugins(parentDir: string, log?: Logger): Promise<
 			// directory listed is not the directory loaded.
 			const s = await lstat(fullPath)
 			if (s.isSymbolicLink()) {
-				logger.warn('Refusing a symlinked plugin directory', { 'namzu.plugin.path': fullPath })
+				logger.warn('Refusing a symlinked plugin directory', {
+					'namzu.plugin.path': fullPath,
+				})
 				continue
 			}
 			if (!s.isDirectory()) continue
@@ -94,7 +98,9 @@ export async function discoverPlugins(parentDir: string, log?: Logger): Promise<
 			if (admitted) dirs.push(fullPath)
 		}
 	} catch {
-		logger.debug('Plugins directory not found', { 'namzu.plugin.parent_dir': parentDir })
+		logger.debug('Plugins directory not found', {
+			'namzu.plugin.parent_dir': parentDir,
+		})
 	}
 
 	return dirs
@@ -126,6 +132,15 @@ export async function loadPluginManifest(
 }
 
 /** {@link loadPluginManifest}, and what the common-layout reader found. */
+/**
+ * A folder read in the common plugin layout that Namzu refuses (nothing usable,
+ * an unmet dependency, a bad name). A host can report it and carry on loading
+ * the other plugins, unlike a malformed Namzu manifest.
+ */
+export class PluginLayoutRefusedError extends Error {
+	override readonly name = 'PluginLayoutRefusedError'
+}
+
 export async function loadPluginManifestWithFindings(
 	pluginDir: string,
 	capabilities: PluginEnablementCapabilities = {},
@@ -142,7 +157,7 @@ export async function loadPluginManifestWithFindings(
 	if (manifestEntry === undefined) {
 		const read = await readCommonLayout(pluginDir, capabilities.commonLayout)
 		if (read.refusal !== undefined || read.manifest === undefined) {
-			throw new Error(
+			throw new PluginLayoutRefusedError(
 				`Plugin at ${pluginDir} was not loaded: ${read.refusal?.message ?? 'there is no manifest here.'}`,
 			)
 		}
@@ -356,7 +371,9 @@ export async function discoverAllPluginDirs(
 ): Promise<{ project: string[]; user: string[] }> {
 	// Resolved here too — see discoverPlugins above for why module scope
 	// froze this logger's level, and its very reference, at import time.
-	const logger = resolveLogger(options?.log).child({ [SCOPE_ATTRIBUTE]: 'plugin/loader' })
+	const logger = resolveLogger(options?.log).child({
+		[SCOPE_ATTRIBUTE]: 'plugin/loader',
+	})
 	if (options?.enabled === false || options?.autoDiscovery === false) {
 		logger.debug('Plugin discovery skipped', {
 			'namzu.plugin.enabled': options.enabled,

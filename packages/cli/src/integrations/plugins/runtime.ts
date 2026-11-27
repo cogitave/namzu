@@ -93,7 +93,9 @@ export interface CliPluginRuntime {
 	/** The hook entries (commands, addresses, prompts) enabled plugins ship, apart from their JavaScript hooks. */
 	pluginHookEntries(): readonly PluginHookEntryView[]
 	/** What could not be loaded from the hook entries plugins ship, with the plugin's name. */
-	pluginHookProblems(): readonly (PluginHookProblem & { readonly plugin: string })[]
+	pluginHookProblems(): readonly (PluginHookProblem & {
+		readonly plugin: string
+	})[]
 	/** The lines the launch says once about those problems; each call returns what is new. */
 	takePluginHookWarnings(): string[]
 	setEnabled(name: string, enabled: boolean): Promise<void>
@@ -170,7 +172,10 @@ export async function createCliPluginRuntime(
 	 * value the host hands the code that attaches a skill's and an agent file's
 	 * hooks.
 	 */
-	host?: { readonly keepForSkills?: boolean; readonly hooksSwitch?: HooksSwitch },
+	host?: {
+		readonly keepForSkills?: boolean
+		readonly hooksSwitch?: HooksSwitch
+	},
 ): Promise<CliPluginRuntime | undefined> {
 	const pluginsEnabled = config?.enabled === true
 	const launchDirs = config?.launchDirs ?? []
@@ -216,7 +221,10 @@ export async function createCliPluginRuntime(
 		string,
 		{
 			readonly name: string
-			readonly entries: readonly { readonly event: string; readonly entry: HookEntry }[]
+			readonly entries: readonly {
+				readonly event: string
+				readonly entry: HookEntry
+			}[]
 			readonly problems: readonly PluginHookProblem[]
 			readonly off?: HooksSwitch
 		}
@@ -253,7 +261,10 @@ export async function createCliPluginRuntime(
 				})
 			}
 			const entries = SHELL_HOOK_EVENTS.flatMap((event) =>
-				(read.hooks[event] ?? []).map((entry) => ({ event: event as string, entry })),
+				(read.hooks[event] ?? []).map((entry) => ({
+					event: event as string,
+					entry,
+				})),
 			)
 			shipped.set(plugin.id, {
 				name,
@@ -306,14 +317,31 @@ export async function createCliPluginRuntime(
 		}
 	}
 
+	const isLayoutRefusal = (error: unknown): boolean =>
+		error instanceof Error && error.name === 'PluginLayoutRefusedError'
+
 	try {
 		for (const scope of allowedScopes) {
 			const dirs = [...discovered[scope]].sort((a, b) => a.localeCompare(b))
 			for (const dir of dirs) {
-				const plugin = await manager.install(dir, scope as PluginScope)
+				let plugin: (typeof installed)[number]
+				try {
+					plugin = await manager.install(dir, scope as PluginScope)
+				} catch (error) {
+					// A folder in the common plugin layout that is refused is reported;
+					// the other plugins still load.
+					if (isLayoutRefusal(error)) {
+						warningLines.push(message(error))
+						continue
+					}
+					throw error
+				}
 				installed.push(plugin)
 				noteLayoutFindings(plugin)
-				const enabled = settings.read({ rootDir: plugin.rootDir, name: plugin.manifest.name })
+				const enabled = settings.read({
+					rootDir: plugin.rootDir,
+					name: plugin.manifest.name,
+				})
 				if (enabled) await manager.enable(plugin.id)
 			}
 		}
@@ -324,7 +352,10 @@ export async function createCliPluginRuntime(
 			const plugin = await manager.install(dir, 'user', { authorityRoot: dir })
 			installed.push(plugin)
 			noteLayoutFindings(plugin)
-			const enabled = settings.read({ rootDir: plugin.rootDir, name: plugin.manifest.name })
+			const enabled = settings.read({
+				rootDir: plugin.rootDir,
+				name: plugin.manifest.name,
+			})
 			if (enabled) await manager.enable(plugin.id)
 		}
 	} catch (error) {
@@ -401,7 +432,10 @@ export async function createCliPluginRuntime(
 					let startupEnabled: boolean | undefined
 					let startupError: string | undefined
 					try {
-						startupEnabled = settings.read({ rootDir: plugin.rootDir, name: plugin.manifest.name })
+						startupEnabled = settings.read({
+							rootDir: plugin.rootDir,
+							name: plugin.manifest.name,
+						})
 					} catch (error) {
 						startupError = message(error)
 					}

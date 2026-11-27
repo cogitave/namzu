@@ -34,7 +34,11 @@ import type {
 	PluginManifest,
 	PluginScope,
 } from '../types/plugin/index.js'
-import { PluginManifestSchema, assertPluginHookEvent } from '../types/plugin/index.js'
+import {
+	CommonLayoutManifestSchema,
+	PluginManifestSchema,
+	assertPluginHookEvent,
+} from '../types/plugin/index.js'
 import type { SessionEvent } from '../types/session/index.js'
 import type { ToolDefinition } from '../types/tool/index.js'
 import { toErrorMessage } from '../utils/error.js'
@@ -716,7 +720,9 @@ export class PluginLifecycleManager {
 		readonly manifest: PluginManifest
 		readonly findings: readonly LayoutFinding[]
 	}> {
-		const parsed = PluginManifestSchema.parse(given)
+		const parsed = (
+			given.layout === 'common' ? CommonLayoutManifestSchema : PluginManifestSchema
+		).parse(given)
 		const manifest: PluginManifest =
 			given.layout === 'common' ? { ...parsed, layout: 'common' } : parsed
 		assertEnableable(manifest, {
@@ -941,7 +947,10 @@ export class PluginLifecycleManager {
 				}
 				for (const skillPath of manifest.skills) {
 					const absolutePath = await resolveWithinReal(admission.rootDir, skillPath)
-					const { skill } = await loadSkill(absolutePath, 'metadata', this.log)
+					const { skill } = await loadSkill(absolutePath, 'metadata', this.log, {
+						anyFolderName:
+							manifest.layout === 'common' && (skillPath === '.' || skillPath === './'),
+					})
 					const namespacedName = manifest.name + PLUGIN_NAMESPACE_SEPARATOR + skill.metadata.name
 					skillRegistry.add(namespacedName, {
 						...skill,
@@ -955,7 +964,7 @@ export class PluginLifecycleManager {
 			// Load hooks
 			if (admission.inCode) {
 				for (const hook of admission.inCode.hooks) this.registerHook(pluginId, hook)
-			} else if (manifest.hooks && manifest.hooks.length > 0) {
+			} else if (manifest.hooks && manifest.hooks.length > 0 && manifest.layout !== 'common') {
 				for (const hookPath of manifest.hooks) {
 					// A `.json` path is a file of hook entries, read by the host through
 					// `hooksFor`; it is not a module.
@@ -1339,7 +1348,11 @@ export class PluginLifecycleManager {
 		// by one, `post_*` in reverse, each seeing the previous hook's `modify`.
 		const entries = handlers.map((hookEntry) => ({
 			hookEntry,
-			hookContext: { ...context, pluginId: hookEntry.pluginId, event } as PluginHookContext,
+			hookContext: {
+				...context,
+				pluginId: hookEntry.pluginId,
+				event,
+			} as PluginHookContext,
 		}))
 		for (const { hookEntry } of entries) {
 			if (!emitSessionEvent) break
@@ -1399,7 +1412,11 @@ export class PluginLifecycleManager {
 		},
 		hookContext: PluginHookContext,
 		callerSignal: AbortSignal | undefined,
-	): Promise<{ hookEntry: typeof hookEntry; result: PluginHookResult; durationMs: number }> {
+	): Promise<{
+		hookEntry: typeof hookEntry
+		result: PluginHookResult
+		durationMs: number
+	}> {
 		const { handler: handlerFn } = hookEntry
 		const start = performance.now()
 		let result: PluginHookResult

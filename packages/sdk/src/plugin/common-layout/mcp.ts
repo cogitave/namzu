@@ -81,14 +81,14 @@ class Reader {
 				needs.push(`${whole} is a saved option, which is not supported yet (${field})`)
 				return whole
 			}
-			if (mode === 'keep') return whole
-			if (mode === 'env' && /^[A-Za-z_][A-Za-z0-9_]*$/.test(inner)) {
+			if ((mode === 'env' || mode === 'keep') && /^[A-Za-z_][A-Za-z0-9_]*$/.test(inner)) {
 				const value = this.environment[inner]
 				if (value === undefined || value === '') {
 					needs.push(`${inner} is not set`)
 					return whole
 				}
-				return value
+				// A header keeps its reference as written: the value is read when it connects.
+				return mode === 'keep' ? whole : value
 			}
 			needs.push(`${whole} is not expanded in ${field}`)
 			return whole
@@ -321,7 +321,7 @@ class Reader {
 			level: 'notUsed',
 			code: 'mcp-server-remote',
 			field: `mcpServers.${name}`,
-			message: `${name} is a remote server at ${parsed.origin}. It is read and listed, and it is not started yet.`,
+			message: `${name} is a remote server at ${parsed.origin}${parsed.pathname === '/' ? '' : parsed.pathname}. It is read and listed, and it is not started yet.`,
 		})
 	}
 }

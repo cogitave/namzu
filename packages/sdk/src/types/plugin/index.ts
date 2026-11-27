@@ -1,5 +1,9 @@
 import { z } from 'zod'
 import {
+	COMMON_LAYOUT_MAX_AGENTS,
+	COMMON_LAYOUT_MAX_COMMANDS,
+	COMMON_LAYOUT_MAX_MCP_SERVERS,
+	COMMON_LAYOUT_MAX_SKILLS,
 	MAX_AGENT_DIRS_PER_PLUGIN,
 	MAX_COMMAND_DIRS_PER_PLUGIN,
 	MAX_CONNECTORS_PER_PLUGIN,
@@ -839,7 +843,9 @@ export type PluginHookResultFor<E extends PluginHookEvent> = E extends 'user_pro
 											: E extends 'pre_compact'
 												? Extract<
 														PluginHookResult,
-														{ action: 'continue' | 'annotate' | 'skip' | 'error' }
+														{
+															action: 'continue' | 'annotate' | 'skip' | 'error'
+														}
 													>
 												: E extends 'turn_end' | 'subagent_stop'
 													? Extract<PluginHookResult, { action: 'continue' | 'skip' | 'error' }>
@@ -997,33 +1003,51 @@ const PluginRelativeDirSchema = z
 		'must be a folder inside the plugin, with no ".." and no absolute path',
 	)
 
-export const PluginManifestSchema = z.object({
-	name: z
-		.string()
-		.min(1)
-		.max(PLUGIN_NAME_MAX_LENGTH)
-		.regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, 'Plugin name must be lowercase kebab-case'),
-	version: z.string().min(1),
-	description: z.string().min(1),
-	author: z.string().optional(),
-	instructions: z.string().min(1).optional(),
-	tools: z.array(z.string()).max(MAX_TOOLS_PER_PLUGIN).optional(),
-	skills: z.array(z.string()).max(MAX_SKILLS_PER_PLUGIN).optional(),
-	hooks: z.array(z.string()).max(MAX_HOOKS_PER_PLUGIN).optional(),
-	hookEntries: z.record(z.string(), z.unknown()).optional(),
-	mcpServers: z.array(PluginMCPServerConfigSchema).max(MAX_MCP_SERVERS_PER_PLUGIN).optional(),
-	remoteMcpServers: z
-		.array(PluginRemoteMCPServerConfigSchema)
-		.max(MAX_MCP_SERVERS_PER_PLUGIN)
-		.optional(),
-	connectors: z.array(z.string()).max(MAX_CONNECTORS_PER_PLUGIN).optional(),
-	personas: z.array(z.string()).max(MAX_PERSONAS_PER_PLUGIN).optional(),
-	commands: z.array(PluginRelativeDirSchema).max(MAX_COMMAND_DIRS_PER_PLUGIN).optional(),
-	agents: z.array(PluginRelativeDirSchema).max(MAX_AGENT_DIRS_PER_PLUGIN).optional(),
-	/** Operating systems the plugin supports, as `process.platform` names them. Absent means all. */
-	platforms: z.array(z.string().min(1)).max(16).optional(),
-	/** Runtime versions the plugin supports. Absent means any. */
-	engines: z.object({ namzu: z.string().min(1).max(200).optional() }).optional(),
+const makePluginManifestSchema = (limits: {
+	readonly mcpServers: number
+	readonly skills: number
+	readonly commands: number
+	readonly agents: number
+}) =>
+	z.object({
+		name: z
+			.string()
+			.min(1)
+			.max(PLUGIN_NAME_MAX_LENGTH)
+			.regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, 'Plugin name must be lowercase kebab-case'),
+		version: z.string().min(1),
+		description: z.string().min(1),
+		author: z.string().optional(),
+		instructions: z.string().min(1).optional(),
+		tools: z.array(z.string()).max(MAX_TOOLS_PER_PLUGIN).optional(),
+		skills: z.array(z.string()).max(limits.skills).optional(),
+		hooks: z.array(z.string()).max(MAX_HOOKS_PER_PLUGIN).optional(),
+		hookEntries: z.record(z.string(), z.unknown()).optional(),
+		mcpServers: z.array(PluginMCPServerConfigSchema).max(limits.mcpServers).optional(),
+		remoteMcpServers: z.array(PluginRemoteMCPServerConfigSchema).max(limits.mcpServers).optional(),
+		connectors: z.array(z.string()).max(MAX_CONNECTORS_PER_PLUGIN).optional(),
+		personas: z.array(z.string()).max(MAX_PERSONAS_PER_PLUGIN).optional(),
+		commands: z.array(PluginRelativeDirSchema).max(limits.commands).optional(),
+		agents: z.array(PluginRelativeDirSchema).max(limits.agents).optional(),
+		/** Operating systems the plugin supports, as `process.platform` names them. Absent means all. */
+		platforms: z.array(z.string().min(1)).max(16).optional(),
+		/** Runtime versions the plugin supports. Absent means any. */
+		engines: z.object({ namzu: z.string().min(1).max(200).optional() }).optional(),
+	})
+
+export const PluginManifestSchema = makePluginManifestSchema({
+	mcpServers: MAX_MCP_SERVERS_PER_PLUGIN,
+	skills: MAX_SKILLS_PER_PLUGIN,
+	commands: MAX_COMMAND_DIRS_PER_PLUGIN,
+	agents: MAX_AGENT_DIRS_PER_PLUGIN,
+})
+
+/** The same shape with the larger limits a plugin in the common plugin layout may use. */
+export const CommonLayoutManifestSchema = makePluginManifestSchema({
+	mcpServers: COMMON_LAYOUT_MAX_MCP_SERVERS,
+	skills: COMMON_LAYOUT_MAX_SKILLS,
+	commands: COMMON_LAYOUT_MAX_COMMANDS,
+	agents: COMMON_LAYOUT_MAX_AGENTS,
 })
 
 // ---------------------------------------------------------------------------

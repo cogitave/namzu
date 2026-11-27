@@ -1,20 +1,23 @@
 import { createHash } from 'node:crypto'
+import type { Dirent } from 'node:fs'
 import { lstat, readFile, readdir } from 'node:fs/promises'
 import { basename, join } from 'node:path'
 import { AGENT_FILE_KEYS } from '../../agents/file-definitions.js'
 import {
-	MAX_AGENT_DIRS_PER_PLUGIN,
-	MAX_COMMAND_DIRS_PER_PLUGIN,
-	MAX_MCP_SERVERS_PER_PLUGIN,
-	MAX_SKILLS_PER_PLUGIN,
+	COMMON_LAYOUT_MAX_AGENTS,
+	COMMON_LAYOUT_MAX_BYTES,
+	COMMON_LAYOUT_MAX_COMMANDS,
+	COMMON_LAYOUT_MAX_FILES,
+	COMMON_LAYOUT_MAX_MCP_SERVERS,
+	COMMON_LAYOUT_MAX_SKILLS,
 	PLUGIN_MANIFEST_FILENAME,
 	PLUGIN_NAME_MAX_LENGTH,
 	PLUGIN_NAME_PATTERN,
 } from '../../constants/plugin/index.js'
 import { parseSkillMarkdown } from '../../skills/loader.js'
 import {
+	CommonLayoutManifestSchema,
 	type PluginManifest,
-	PluginManifestSchema,
 	RENAMED_PLUGIN_HOOK_EVENTS,
 } from '../../types/plugin/index.js'
 import {
@@ -254,6 +257,13 @@ export async function readCommonLayout(
 		return finish('none')
 	}
 
+	// The reader owns the plugin-level size caps: it stops counting at the cap.
+	const size = await measureFolder(root)
+	if (size !== undefined) {
+		out.refuseAll('too-large', 'root', size)
+		return finish('none')
+	}
+
 	const commonDir = await kindOf(join(root, COMMON_MANIFEST_DIR))
 	const commonFile =
 		commonDir === 'dir'
@@ -352,8 +362,20 @@ export async function readCommonLayout(
 	if (base !== undefined) source = 'manifest'
 	else if (sidecar !== undefined) source = 'sidecar'
 	else if (rootSkill === 'file' && !conventional.includes('dir')) source = 'single-skill'
-	else if (hasConventional) source = 'conventional'
-	else {
+	else if (hasConventional) {
+		if (
+			(await kindOf(join(root, COMMON_HOOKS_FILE))) !== 'missing' ||
+			(await kindOf(join(root, COMMON_MCP_FILE))) !== 'missing'
+		) {
+			out.refuseAll(
+				'manifest-required',
+				'manifest',
+				`Hooks and servers run code, so a plugin that ships them needs a ${COMMON_MANIFEST_DIR}/${COMMON_MANIFEST_FILE}. Add one, or remove ${COMMON_HOOKS_FILE} and ${COMMON_MCP_FILE}.`,
+			)
+			return finish('conventional')
+		}
+		source = 'conventional'
+	} else {
 		out.refuseAll(
 			'not-a-plugin',
 			'root',
@@ -475,7 +497,7 @@ async function readMerged(
 			out.refuseAll(
 				'dependency-unmet',
 				'dependencies',
-				`It needs ${missing}, which is not installed. Install it first: namzu plugin install ${missing}.`,
+				`It needs ${missing}, which is not installed. Add it first (the /plugin screen, or --plugin-dir), then add this plugin.`,
 			)
 			return finish(source)
 		}
@@ -510,14 +532,16 @@ async function readMerged(
 		const read = await readCapped(join(root, where))
 		try {
 			if ('problem' in read) throw new Error(`${where} ${read.problem}`)
-			parseSkillMarkdown(read.text, rel === '.' ? root : join(root, rel))
+			parseSkillMarkdown(read.text, rel === '.' ? root : join(root, rel), {
+				anyFolderName: rel === '.',
+			})
 		} catch (error) {
 			out.add({
 				level: 'refused',
 				code: 'skill-invalid',
 				field,
 				path: where,
-				message: `${where}: ${error instanceof Error ? error.message : String(error)}`,
+				message: `${where}: ${(error instanceof Error ? error.message : String(error)).split(root).join('.')}`,
 			})
 			return false
 		}
@@ -563,10 +587,22 @@ async function readMerged(
 			message: `${COMMON_SKILLS_DIR} is a link and is not followed.`,
 		})
 	} else if (skillsDir === 'dir') {
-		const entries = (await readdir(join(root, COMMON_SKILLS_DIR), { withFileTypes: true })).sort(
-			(a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0),
-		)
+		let entries: Dirent[] = []
+		try {
+			entries = (await readdir(join(root, COMMON_SKILLS_DIR), { withFileTypes: true })).sort(
+				(a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0),
+			)
+		} catch (error) {
+			out.add({
+				level: 'ignored',
+				code: 'skills-unreadable',
+				field: 'skills',
+				path: COMMON_SKILLS_DIR,
+				message: `${COMMON_SKILLS_DIR}/ could not be read (${error instanceof Error ? error.message : String(error)}), so its skills are not loaded.`,
+			})
+		}
 		for (const entry of entries) {
+			if (skillPaths.length > COMMON_LAYOUT_MAX_SKILLS) break
 			if (entry.name.startsWith('.') || entry.name === 'node_modules' || entry.name === '__MACOSX')
 				continue
 			const rel = `${COMMON_SKILLS_DIR}/${entry.name}`
@@ -584,11 +620,11 @@ async function readMerged(
 			await addSkill(rel, 'skills')
 		}
 	}
-	if (skillPaths.length > MAX_SKILLS_PER_PLUGIN) {
+	if (skillPaths.length > COMMON_LAYOUT_MAX_SKILLS) {
 		out.refuseAll(
 			'too-many-skills',
 			'skills',
-			`The plugin has ${skillPaths.length} skills; Namzu reads at most ${MAX_SKILLS_PER_PLUGIN} from one plugin.`,
+			`The plugin has ${skillPaths.length} skills; Namzu reads at most ${COMMON_LAYOUT_MAX_SKILLS} from one plugin.`,
 		)
 		return finish(source)
 	}
@@ -693,9 +729,9 @@ async function readMerged(
 		}
 		return paths
 	}
-	const commands = await filePaths('commands', COMMON_COMMANDS_DIR, MAX_COMMAND_DIRS_PER_PLUGIN)
+	const commands = await filePaths('commands', COMMON_COMMANDS_DIR, COMMON_LAYOUT_MAX_COMMANDS)
 	if (out.refusal) return finish(source)
-	const agents = await filePaths('agents', COMMON_AGENTS_DIR, MAX_AGENT_DIRS_PER_PLUGIN)
+	const agents = await filePaths('agents', COMMON_AGENTS_DIR, COMMON_LAYOUT_MAX_AGENTS)
 	if (out.refusal) return finish(source)
 	for (const rel of agents ?? []) await noteAgentKeys(root, rel, out)
 	if ((commands?.length ?? 0) > 0) {
@@ -730,6 +766,16 @@ async function readMerged(
 					`hooks: "${entry}" ${problem ?? 'goes through a link'}, so the plugin is not loaded.`,
 				)
 				return finish(source)
+			}
+			if (!rel.toLowerCase().endsWith('.json')) {
+				out.add({
+					level: 'refused',
+					code: 'hooks-module-refused',
+					field: 'hooks',
+					path: rel,
+					message: `hooks: "${entry}" is program code, not a file of hook entries. Namzu does not run plugin code at startup, so it is skipped.`,
+				})
+				continue
 			}
 			hookFiles.push(rel)
 		} else if (isMapping(entry)) {
@@ -772,10 +818,6 @@ async function readMerged(
 		}
 	}
 	for (const rel of hookFiles) {
-		if (rel.toLowerCase().endsWith('.js') || rel.toLowerCase().endsWith('.mjs')) {
-			hookCount += 1
-			continue
-		}
 		const kind = await walk(root, rel)
 		if (kind !== 'file') {
 			out.add({
@@ -936,11 +978,11 @@ async function readMerged(
 		options.environment ?? (process.env as Record<string, string | undefined>),
 	)
 	for (const finding of servers.findings) out.add(finding)
-	if (servers.local.length + servers.remote.length > MAX_MCP_SERVERS_PER_PLUGIN) {
+	if (servers.local.length + servers.remote.length > COMMON_LAYOUT_MAX_MCP_SERVERS) {
 		out.refuseAll(
 			'too-many-servers',
 			'mcpServers',
-			`The plugin lists ${servers.local.length + servers.remote.length} servers; Namzu reads at most ${MAX_MCP_SERVERS_PER_PLUGIN} from one plugin.`,
+			`The plugin lists ${servers.local.length + servers.remote.length} servers; Namzu reads at most ${COMMON_LAYOUT_MAX_MCP_SERVERS} from one plugin.`,
 		)
 		return finish(source)
 	}
@@ -949,6 +991,7 @@ async function readMerged(
 	for (const field of NOT_USED_FIELDS) {
 		if (m[field] === undefined) continue
 		const count = countOf(m[field])
+		if (count === 0) continue
 		const loud =
 			field === 'settings'
 				? ' This plugin asks to change your settings. Namzu does not apply that.'
@@ -967,6 +1010,7 @@ async function readMerged(
 	for (const dir of COMMON_UNUSED_DIRS) {
 		if ((await kindOf(join(root, dir))) === 'dir') {
 			const count = (await readdir(join(root, dir)).catch(() => [])).length
+			if (count === 0) continue
 			out.add({
 				level: 'notUsed',
 				code: 'component-unsupported',
@@ -1061,7 +1105,7 @@ async function readMerged(
 		...(platforms && platforms.length > 0 ? { platforms } : {}),
 		...(engineNamzu !== undefined ? { engines: { namzu: engineNamzu } } : {}),
 	}
-	const parsed = PluginManifestSchema.safeParse(candidate)
+	const parsed = CommonLayoutManifestSchema.safeParse(candidate)
 	if (!parsed.success) {
 		out.refuseAll(
 			'manifest-invalid',
@@ -1104,6 +1148,38 @@ async function noteAgentKeys(root: string, rel: string, out: Collector): Promise
 			})
 		}
 	}
+}
+
+/**
+ * Count a folder's files and bytes without following links, stopping as soon as
+ * either cap is passed. The reason it is too large, or undefined.
+ */
+async function measureFolder(root: string): Promise<string | undefined> {
+	let files = 0
+	let bytes = 0
+	const pending = [root]
+	while (pending.length > 0) {
+		const dir = pending.pop() as string
+		const entries = await readdir(dir, { withFileTypes: true }).catch(() => [])
+		for (const entry of entries) {
+			if (entry.isSymbolicLink()) continue
+			const full = join(dir, entry.name)
+			if (entry.isDirectory()) {
+				if (entry.name === '.git' || entry.name === 'node_modules') continue
+				pending.push(full)
+				continue
+			}
+			files += 1
+			bytes += (await lstat(full).catch(() => undefined))?.size ?? 0
+			if (files > COMMON_LAYOUT_MAX_FILES) {
+				return `The plugin has more than ${COMMON_LAYOUT_MAX_FILES} files; Namzu reads at most that many from one plugin.`
+			}
+			if (bytes > COMMON_LAYOUT_MAX_BYTES) {
+				return `The plugin is larger than ${COMMON_LAYOUT_MAX_BYTES / (1024 * 1024)} MiB; Namzu reads at most that much from one plugin.`
+			}
+		}
+	}
+	return undefined
 }
 
 /**

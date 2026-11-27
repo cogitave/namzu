@@ -76,7 +76,7 @@ reads that key, so a `plugin.json` cannot claim it.
 | `engines`, `platforms` | `engines.namzu` and `platforms` are honoured by the loader's compatibility check; other engines are dropped. |
 | `skills` | Folder paths added to the auto-scanned `skills/`. `"."` is one skill only when `SKILL.md` is there. |
 | `commands`, `agents` | A folder or a single `.md` file, a list of them, or the object-map form with `source`. Inline `content` is refused for that entry (`inline-text-unsupported`). Naming any stops the folder being scanned on its own and reports `folder-shadowed-by-manifest`. With none named, `commands/` and `agents/` are scanned. Agent frontmatter keys Namzu does not read are reported per file (`agent-key-ignored`). |
-| `hooks` | A path, inline events, or a list of both. `hooks/hooks.json` is always read. |
+| `hooks` | A path to a `.json` file of hook entries, inline events, or a list of both. `hooks/hooks.json` is always read. A path to program code (`.js`, `.mjs`) is refused for that entry (`hooks-module-refused`): Namzu does not run plugin code at startup. A folder that ships hooks or servers with no manifest is refused (`manifest-required`). |
 | `mcpServers` | A path, an inline map, or a list of those, plus the root servers file. See [servers](#servers). |
 | `dependencies` | Each must already be installed (`options.installedIds`), else the plugin is refused (`dependency-unmet`); nothing is installed for you. |
 | `userConfig` | Not supported yet (`user-config-unsupported`). A server that names `${user_config.X}` is not started. |
@@ -98,8 +98,11 @@ A plugin with nothing usable left is refused: `Nothing in <name> is used by Namz
 - At most **64 skills**, **64** command sources and **64** agent sources, and
   **16 servers** (local and remote together). More refuses the plugin
   (`too-many-skills`, `too-many-commands`, `too-many-agents`, `too-many-servers`).
-  The same caps now apply to a Namzu `plugin.json`: skills went from 20 and
-  servers from 5, and command and agent folders from 10.
+  A Namzu `plugin.json` keeps its own, lower caps (20 skills, 5 servers, 10
+  command and 10 agent folders); the higher ones are for this layout only
+  (`CommonLayoutManifestSchema`). The reader stops scanning `skills/` once the cap
+  is passed. A plugin folder of more than 20,000 files or 256 MiB is refused
+  (`too-large`); the reader counts them, without following links.
 - `findCommonLayoutRoot(dir)` is for a folder unpacked from an archive: one
   wrapping folder is descended into when it holds the manifest folder or a
   recognised component; `__MACOSX` and `.DS_Store` are ignored.

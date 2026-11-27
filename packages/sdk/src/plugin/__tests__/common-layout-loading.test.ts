@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest'
 
 import { PluginRegistry } from '../../registry/plugin/index.js'
 import { SkillRegistry } from '../../skills/registry.js'
-import { PluginManifestSchema } from '../../types/plugin/index.js'
+import { CommonLayoutManifestSchema, PluginManifestSchema } from '../../types/plugin/index.js'
 import { NOOP_LOGGER } from '../../utils/log/create-logger.js'
 import {
 	COMMON_DATA_VARIABLE,
@@ -50,10 +50,17 @@ function manager(authority: string, skills?: SkillRegistry) {
 describe('the loader reads the common layout when there is no plugin.json', () => {
 	it('loads a folder with the common manifest, with the findings', async () => {
 		const root = make(tmp(), 'ledger', {
-			[MANIFEST]: { name: 'ledger', version: '1.0.0', description: 'Books.', themes: ['t'] },
+			[MANIFEST]: {
+				name: 'ledger',
+				version: '1.0.0',
+				description: 'Books.',
+				themes: ['t'],
+			},
 			'skills/reconcile/SKILL.md': skill('reconcile'),
 		})
-		const loaded = await loadPluginManifestWithFindings(root, { skillsSupported: true })
+		const loaded = await loadPluginManifestWithFindings(root, {
+			skillsSupported: true,
+		})
 		expect(loaded.manifest).toMatchObject({
 			name: 'ledger',
 			skills: ['skills/reconcile'],
@@ -64,18 +71,24 @@ describe('the loader reads the common layout when there is no plugin.json', () =
 	})
 
 	it('loads a folder with only the conventional folders', async () => {
-		const root = make(tmp(), 'just-skills', { 'skills/a/SKILL.md': skill('a') })
+		const root = make(tmp(), 'just-skills', {
+			'skills/a/SKILL.md': skill('a'),
+		})
 		const manifest = await loadPluginManifest(root, { skillsSupported: true })
 		expect(manifest.name).toBe('just-skills')
 	})
 
 	it('still refuses skills when the host wired no skill registry', async () => {
-		const root = make(tmp(), 'just-skills', { 'skills/a/SKILL.md': skill('a') })
+		const root = make(tmp(), 'just-skills', {
+			'skills/a/SKILL.md': skill('a'),
+		})
 		await expect(loadPluginManifest(root)).rejects.toThrow(/cannot enable/)
 	})
 
 	it('throws the reason for a refused plugin', async () => {
-		const root = make(tmp(), 'themed', { [MANIFEST]: { name: 'themed', themes: ['t'] } })
+		const root = make(tmp(), 'themed', {
+			[MANIFEST]: { name: 'themed', themes: ['t'] },
+		})
 		await expect(loadPluginManifest(root)).rejects.toThrow(/Nothing in themed is used by Namzu/)
 		const empty = make(tmp(), 'nothing', { 'readme.txt': 'x' })
 		await expect(loadPluginManifest(empty)).rejects.toThrow(/nothing here Namzu reads/i)
@@ -83,35 +96,50 @@ describe('the loader reads the common layout when there is no plugin.json', () =
 
 	it('keeps a Namzu plugin.json as it was, and ignores a layout claim in it', async () => {
 		const root = make(tmp(), 'native', {
-			'plugin.json': { name: 'native', version: '1.0.0', description: 'n', layout: 'common' },
+			'plugin.json': {
+				name: 'native',
+				version: '1.0.0',
+				description: 'n',
+				layout: 'common',
+			},
 			[MANIFEST]: { name: 'other' },
 		})
 		const manifest = await loadPluginManifest(root)
 		expect(manifest.name).toBe('native')
 		expect(manifest.layout).toBeUndefined()
 		expect(
-			PluginManifestSchema.parse({ name: 'n', version: '1', description: 'd', layout: 'common' }),
+			PluginManifestSchema.parse({
+				name: 'n',
+				version: '1',
+				description: 'd',
+				layout: 'common',
+			}),
 		).not.toHaveProperty('layout')
 	})
 
-	it('accepts 64 skills and 16 servers in a Namzu manifest, and the remote form', () => {
+	it('accepts 64 skills and 16 servers in the common layout only, and the remote form', () => {
 		const base = { name: 'big', version: '1.0.0', description: 'd' }
 		expect(
-			PluginManifestSchema.safeParse({
+			CommonLayoutManifestSchema.safeParse({
 				...base,
 				skills: Array.from({ length: 64 }, (_, i) => `s${i}`),
 			}).success,
 		).toBe(true)
 		expect(
-			PluginManifestSchema.safeParse({
+			CommonLayoutManifestSchema.safeParse({
 				...base,
 				skills: Array.from({ length: 65 }, (_, i) => `s${i}`),
 			}).success,
 		).toBe(false)
-		const servers = Array.from({ length: 16 }, (_, i) => ({ name: `s${i}`, command: 'x' }))
-		expect(PluginManifestSchema.safeParse({ ...base, mcpServers: servers }).success).toBe(true)
+		const servers = Array.from({ length: 16 }, (_, i) => ({
+			name: `s${i}`,
+			command: 'x',
+		}))
+		expect(CommonLayoutManifestSchema.safeParse({ ...base, mcpServers: servers }).success).toBe(
+			true,
+		)
 		expect(
-			PluginManifestSchema.safeParse({
+			CommonLayoutManifestSchema.safeParse({
 				...base,
 				mcpServers: [...servers, { name: 'z', command: 'x' }],
 			}).success,
@@ -122,13 +150,25 @@ describe('the loader reads the common layout when there is no plugin.json', () =
 			transport: 'sse',
 			headers: { A: 'b' },
 		}
-		expect(PluginManifestSchema.safeParse({ ...base, remoteMcpServers: [remote] }).success).toBe(
-			true,
-		)
 		expect(
-			PluginManifestSchema.safeParse({ ...base, remoteMcpServers: [{ ...remote, command: 'x' }] })
-				.success,
+			CommonLayoutManifestSchema.safeParse({
+				...base,
+				remoteMcpServers: [remote],
+			}).success,
+		).toBe(true)
+		expect(
+			CommonLayoutManifestSchema.safeParse({
+				...base,
+				remoteMcpServers: [{ ...remote, command: 'x' }],
+			}).success,
 		).toBe(false)
+	})
+	it('keeps the Namzu manifest limits for a plugin.json', () => {
+		const base = { name: 'big', version: '1.0.0', description: 'd' }
+		const skills = (n: number) => Array.from({ length: n }, (_, i) => `s${i}`)
+		expect(PluginManifestSchema.safeParse({ ...base, skills: skills(20) }).success).toBe(true)
+		expect(PluginManifestSchema.safeParse({ ...base, skills: skills(21) }).success).toBe(false)
+		expect(CommonLayoutManifestSchema.safeParse({ ...base, skills: skills(21) }).success).toBe(true)
 	})
 })
 
@@ -136,7 +176,9 @@ describe('discoverPlugins accepts the common manifest path', () => {
 	it('admits a folder whose manifest is the common one, and still skips a bare folder', async () => {
 		const parent = tmp()
 		make(parent, 'common', { [MANIFEST]: { name: 'common' } })
-		make(parent, 'native', { 'plugin.json': { name: 'native', version: '1', description: 'd' } })
+		make(parent, 'native', {
+			'plugin.json': { name: 'native', version: '1', description: 'd' },
+		})
 		make(parent, 'bare', { 'skills/a/SKILL.md': skill('a') })
 		const found = await discoverPlugins(parent)
 		expect(found.map((dir) => dir.slice(parent.length + 1)).sort()).toEqual(['common', 'native'])
@@ -189,6 +231,7 @@ describe('the lifecycle admits a common-layout plugin', () => {
 
 	it('reads servers with the data and project folders the host gives', async () => {
 		const root = make(tmp(), 'srv', {
+			[MANIFEST]: { name: 'srv' },
 			[COMMON_MCP_FILE]: {
 				db: {
 					command: 'node',
@@ -227,18 +270,26 @@ describe('the lifecycle admits a common-layout plugin', () => {
 				},
 			},
 		})
-		expect(plugin.manifest).toMatchObject({ name: 'given', version: '9.9.9', layout: 'common' })
+		expect(plugin.manifest).toMatchObject({
+			name: 'given',
+			version: '9.9.9',
+			layout: 'common',
+		})
 		const outside = tmp()
 		await expect(
 			mgr.install(outside, 'user', {
 				authorityRoot: root,
-				manifestSource: { manifest: { name: 'x', version: '1', description: 'd' } },
+				manifestSource: {
+					manifest: { name: 'x', version: '1', description: 'd' },
+				},
 			}),
 		).rejects.toThrow(/escapes/i)
 		await expect(
 			mgr.install(root, 'user', {
 				authorityRoot: root,
-				manifestSource: { manifest: { name: 'Bad Name', version: '1', description: 'd' } },
+				manifestSource: {
+					manifest: { name: 'Bad Name', version: '1', description: 'd' },
+				},
 			}),
 		).rejects.toThrow()
 	})
@@ -249,13 +300,17 @@ describe('the entry sidecar is reached only through an install record option', (
 		name: 'entry',
 		description: 'From the entry.',
 		strict: false,
-		hooks: { PreToolUse: [{ hooks: [{ type: 'command', command: 'echo injected' }] }] },
+		hooks: {
+			PreToolUse: [{ hooks: [{ type: 'command', command: 'echo injected' }] }],
+		},
 		mcpServers: { evil: { command: 'rm' } },
 	}
 
 	it('a repository or hand-placed folder with a sidecar is not a plugin and injects nothing', async () => {
 		const parent = tmp()
-		const only = make(parent, 'only-sidecar', { [ENTRY_SIDECAR_FILE]: sidecar })
+		const only = make(parent, 'only-sidecar', {
+			[ENTRY_SIDECAR_FILE]: sidecar,
+		})
 		expect(await discoverPlugins(parent)).toEqual([])
 		await expect(loadPluginManifest(only)).rejects.toThrow(/nothing here Namzu reads/i)
 		const mgr = manager(only)
@@ -278,7 +333,9 @@ describe('the entry sidecar is reached only through an install record option', (
 			'skills/a/SKILL.md': skill('a'),
 			[ENTRY_SIDECAR_FILE]: { ...sidecar, name: 'both' },
 		})
-		const loaded = await loadPluginManifestWithFindings(root, { skillsSupported: true })
+		const loaded = await loadPluginManifestWithFindings(root, {
+			skillsSupported: true,
+		})
 		expect(loaded.manifest.hookEntries).toBeUndefined()
 		expect(loaded.manifest.mcpServers).toBeUndefined()
 		const withRecord = await loadPluginManifestWithFindings(root, {
@@ -298,7 +355,11 @@ describe('the hook environment of a common-layout plugin', () => {
 	const dataDir = join(tmp(), 'data')
 	// `env` names none of the variables, so the shape-based rule that fills a variable a
 	// command mentions does not apply: what shows is what the process environment carries.
-	const lines = async (plugin: { root: string; dataDir: string; layout?: 'common' }) =>
+	const lines = async (plugin: {
+		root: string
+		dataDir: string
+		layout?: 'common'
+	}) =>
 		(
 			await runShellHook({ command: 'env' }, { ...input, projectDir: '/proj', plugin })
 		).stdout.split('\n')

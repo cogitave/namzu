@@ -23,7 +23,10 @@ function folder(name: string, files: Record<string, string | object>): string {
 	const parent = mkdtempSync(join(tmpdir(), 'namzu-layout-'))
 	const root = join(parent, name)
 	mkdirSync(root, { recursive: true })
-	for (const [path, content] of Object.entries(files)) {
+	// Servers need a manifest; the tests of the servers are not about that rule.
+	const given =
+		COMMON_MCP_FILE in files && !(MANIFEST in files) ? { ...files, [MANIFEST]: { name } } : files
+	for (const [path, content] of Object.entries(given)) {
 		const full = join(root, path)
 		mkdirSync(dirname(full), { recursive: true })
 		writeFileSync(full, typeof content === 'string' ? content : JSON.stringify(content))
@@ -42,7 +45,9 @@ function find(read: CommonLayoutRead, code: string, field?: string): LayoutFindi
 
 describe('detection and sources', () => {
 	it('reads a folder with only the conventional folders, named after the folder', async () => {
-		const root = folder('plain-tools', { 'skills/alpha/SKILL.md': skill('alpha') })
+		const root = folder('plain-tools', {
+			'skills/alpha/SKILL.md': skill('alpha'),
+		})
 		const read = await readCommonLayout(root, { environment: ENV })
 		expect(read.source).toBe('conventional')
 		expect(read.refusal).toBeUndefined()
@@ -70,7 +75,11 @@ describe('detection and sources', () => {
 		})
 		const read = await readCommonLayout(root)
 		expect(read.source).toBe('manifest')
-		expect(read.manifest).toMatchObject({ name: 'ledger', version: '1.2.0', layout: 'common' })
+		expect(read.manifest).toMatchObject({
+			name: 'ledger',
+			version: '1.2.0',
+			layout: 'common',
+		})
 
 		const both = folder('both', {
 			'plugin.json': { name: 'both', version: '1.0.0', description: 'x' },
@@ -94,7 +103,9 @@ describe('detection and sources', () => {
 		expect((await readCommonLayout(join(parent, 'file'))).refusal?.code).toBe('root-not-directory')
 		const bad = folder('bad', { [MANIFEST]: '{ nope' })
 		expect((await readCommonLayout(bad)).refusal?.code).toBe('manifest-invalid')
-		const big = folder('big', { [MANIFEST]: `{"name":"big","pad":"${'x'.repeat(300 * 1024)}"}` })
+		const big = folder('big', {
+			[MANIFEST]: `{"name":"big","pad":"${'x'.repeat(300 * 1024)}"}`,
+		})
 		const read = await readCommonLayout(big)
 		expect(read.refusal?.code).toBe('manifest-invalid')
 		expect(read.refusal?.message).toContain('larger than 256 KiB')
@@ -173,7 +184,10 @@ describe('manifest fields', () => {
 
 	it('refuses a name that is not lowercase words joined by dashes', async () => {
 		const read = await readCommonLayout(
-			folder('x', { [MANIFEST]: { name: 'Bad_Name' }, 'skills/a/SKILL.md': skill('a') }),
+			folder('x', {
+				[MANIFEST]: { name: 'Bad_Name' },
+				'skills/a/SKILL.md': skill('a'),
+			}),
 		)
 		expect(read.refusal).toMatchObject({
 			code: 'name-invalid',
@@ -197,12 +211,15 @@ describe('manifest fields', () => {
 
 	it('refuses dependencies that are not installed, and accepts ones that are', async () => {
 		const files = {
-			[MANIFEST]: { name: 'dep', dependencies: ['base', { name: 'other@market' }] },
+			[MANIFEST]: {
+				name: 'dep',
+				dependencies: ['base', { name: 'other@market' }],
+			},
 			'skills/a/SKILL.md': skill('a'),
 		}
 		const unmet = await readCommonLayout(folder('dep', files))
 		expect(unmet.refusal?.code).toBe('dependency-unmet')
-		expect(unmet.refusal?.message).toContain('namzu plugin install base')
+		expect(unmet.refusal?.message).toContain('It needs base, which is not installed')
 		const met = await readCommonLayout(folder('dep', files), {
 			installedIds: new Set(['base@market', 'other@market']),
 		})
@@ -314,7 +331,10 @@ describe('skills', () => {
 		expect(read.refusal).toBeUndefined()
 		expect(read.manifest?.skills).toEqual(['skills/good'])
 		const finding = find(read, 'skill-invalid')
-		expect(finding).toMatchObject({ level: 'refused', path: 'skills/bad/SKILL.md' })
+		expect(finding).toMatchObject({
+			level: 'refused',
+			path: 'skills/bad/SKILL.md',
+		})
 		expect(finding?.message).toContain('description')
 	})
 
@@ -331,11 +351,17 @@ describe('skills', () => {
 	})
 
 	it('refuses the plugin when a declared path leaves the folder or goes through a link', async () => {
-		const leaving = folder('esc', { [MANIFEST]: { name: 'esc', skills: ['../elsewhere'] } })
+		const leaving = folder('esc', {
+			[MANIFEST]: { name: 'esc', skills: ['../elsewhere'] },
+		})
 		expect((await readCommonLayout(leaving)).refusal?.code).toBe('path-escapes')
-		const absolute = folder('abs', { [MANIFEST]: { name: 'abs', skills: ['/etc'] } })
+		const absolute = folder('abs', {
+			[MANIFEST]: { name: 'abs', skills: ['/etc'] },
+		})
 		expect((await readCommonLayout(absolute)).refusal?.code).toBe('path-escapes')
-		const through = folder('thr', { [MANIFEST]: { name: 'thr', skills: ['inner/a'] } })
+		const through = folder('thr', {
+			[MANIFEST]: { name: 'thr', skills: ['inner/a'] },
+		})
 		const outside = folder('outside', { 'a/SKILL.md': skill('a') })
 		symlinkSync(outside, join(through, 'inner'), 'dir')
 		expect((await readCommonLayout(through)).refusal?.code).toBe('path-escapes')
@@ -369,7 +395,11 @@ describe('commands and agents', () => {
 
 	it('supports single files, and a named list shadows the folder with a finding', async () => {
 		const root = folder('single', {
-			[MANIFEST]: { name: 'single', commands: ['./commands/one.md'], agents: 'agents/a.md' },
+			[MANIFEST]: {
+				name: 'single',
+				commands: ['./commands/one.md'],
+				agents: 'agents/a.md',
+			},
 			'commands/one.md': 'One.',
 			'commands/two.md': 'Two.',
 			'agents/a.md': '---\nname: a\ndescription: A.\ncolor: red\n---\nP.\n',
@@ -387,7 +417,10 @@ describe('commands and agents', () => {
 		const root = folder('map', {
 			[MANIFEST]: {
 				name: 'map',
-				commands: { go: { source: './commands/go.md' }, inline: { content: 'text' } },
+				commands: {
+					go: { source: './commands/go.md' },
+					inline: { content: 'text' },
+				},
 			},
 			'commands/go.md': 'Go.',
 		})
@@ -412,7 +445,9 @@ describe('commands and agents', () => {
 		expect(find(read, 'path-missing')?.level).toBe('refused')
 		expect(find(read, 'file-not-markdown')?.level).toBe('ignored')
 		expect(read.manifest?.commands).toEqual(['commands/ok.md'])
-		const linked = folder('lk', { [MANIFEST]: { name: 'lk', agents: ['agents'] } })
+		const linked = folder('lk', {
+			[MANIFEST]: { name: 'lk', agents: ['agents'] },
+		})
 		symlinkSync(folder('o', { 'a.md': 'x' }), join(linked, 'agents'), 'dir')
 		expect((await readCommonLayout(linked)).refusal?.code).toBe('path-escapes')
 	})
@@ -424,7 +459,9 @@ describe('hooks', () => {
 	it('reads hooks/hooks.json without it being listed, and a listed path', async () => {
 		const root = folder('hk', {
 			[MANIFEST]: { name: 'hk', hooks: './extra.json' },
-			'hooks/hooks.json': { hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [hook] }] } },
+			'hooks/hooks.json': {
+				hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [hook] }] },
+			},
 			'extra.json': { hooks: { Stop: [{ hooks: [hook] }] } },
 		})
 		const read = await readCommonLayout(root)
@@ -434,7 +471,10 @@ describe('hooks', () => {
 
 	it('reads inline events, a list mixing paths and events', async () => {
 		const root = folder('inl', {
-			[MANIFEST]: { name: 'inl', hooks: ['./h.json', { PostToolUse: [{ hooks: [hook] }] }] },
+			[MANIFEST]: {
+				name: 'inl',
+				hooks: ['./h.json', { PostToolUse: [{ hooks: [hook] }] }],
+			},
 			'h.json': { PreToolUse: [{ hooks: [hook] }] },
 		})
 		const read = await readCommonLayout(root)
@@ -444,9 +484,13 @@ describe('hooks', () => {
 
 	it('refuses a modules list for that file only, and ignores an unknown event', async () => {
 		const root = folder('mod', {
+			[MANIFEST]: { name: 'mod' },
 			'hooks/hooks.json': {
 				modules: ['./m.js'],
-				hooks: { PreToolUse: [{ hooks: [hook] }], Mystery: [{ hooks: [hook] }] },
+				hooks: {
+					PreToolUse: [{ hooks: [hook] }],
+					Mystery: [{ hooks: [hook] }],
+				},
 			},
 			'skills/a/SKILL.md': skill('a'),
 		})
@@ -459,6 +503,47 @@ describe('hooks', () => {
 		expect(find(read, 'hook-event-unknown')?.message).toContain('"Mystery"')
 	})
 
+	it('refuses a hooks path that is program code, from the manifest and from a sidecar', async () => {
+		const root = folder('evil', {
+			[MANIFEST]: { name: 'evil', description: 'd', hooks: './hooks/evil.js' },
+			'skills/a/SKILL.md': skill('a'),
+		})
+		const read = await readCommonLayout(root)
+		expect(read.manifest?.hooks).toBeUndefined()
+		expect(find(read, 'hooks-module-refused')).toMatchObject({
+			level: 'refused',
+			path: 'hooks/evil.js',
+		})
+		expect(find(read, 'hooks-used')).toBeUndefined()
+		const viaSidecar = folder('evil2', {
+			[MANIFEST]: { name: 'evil2' },
+			[ENTRY_SIDECAR_FILE]: { strict: false, hooks: ['./x.mjs'] },
+			'skills/a/SKILL.md': skill('a'),
+		})
+		const sidecar = await readCommonLayout(viaSidecar, { entrySidecar: true })
+		expect(sidecar.manifest?.hooks).toBeUndefined()
+		expect(find(sidecar, 'hooks-module-refused')?.path).toBe('x.mjs')
+	})
+
+	it('refuses hooks or servers with no manifest', async () => {
+		const root = folder('bare', {
+			'hooks/hooks.json': { hooks: { Stop: [{ hooks: [hook] }] } },
+			'skills/a/SKILL.md': skill('a'),
+		})
+		const read = await readCommonLayout(root)
+		expect(read.refusal?.code).toBe('manifest-required')
+	})
+
+	it('keeps a root skill whose name is not its folder name', async () => {
+		const root = folder('1.0.0', {
+			[MANIFEST]: { name: 'one', skills: './' },
+			'SKILL.md': skill('solo'),
+		})
+		const read = await readCommonLayout(root)
+		expect(read.refusal).toBeUndefined()
+		expect(read.manifest?.skills).toEqual(['.'])
+	})
+
 	it('refuses an invalid or missing hooks file for that file, and a path that leaves the folder for the plugin', async () => {
 		const root = folder('bad', {
 			[MANIFEST]: { name: 'bad', hooks: ['./nope.json', './broken.json'] },
@@ -468,13 +553,18 @@ describe('hooks', () => {
 		const read = await readCommonLayout(root)
 		expect(find(read, 'hooks-file-missing')?.level).toBe('refused')
 		expect(find(read, 'hooks-file-invalid')?.level).toBe('refused')
-		const leaving = folder('esc', { [MANIFEST]: { name: 'esc', hooks: '../x.json' } })
+		const leaving = folder('esc', {
+			[MANIFEST]: { name: 'esc', hooks: '../x.json' },
+		})
 		expect((await readCommonLayout(leaving)).refusal?.code).toBe('path-escapes')
 	})
 })
 
 describe('servers', () => {
-	const options = { environment: ENV, paths: () => ({ data: '/data/ledger', project: '/proj' }) }
+	const options = {
+		environment: ENV,
+		paths: () => ({ data: '/data/ledger', project: '/proj' }),
+	}
 
 	it('reads the keyed form of the root servers file and starts local servers as before', async () => {
 		const root = folder('srv', {
@@ -535,20 +625,41 @@ describe('servers', () => {
 				alias: { type: 'streamable-http', url: 'https://mcp.example.com/z' },
 			},
 		})
-		const read = await readCommonLayout(root, options)
+		const read = await readCommonLayout(root, {
+			...options,
+			environment: { ...ENV, API_TOKEN: 'x' },
+		})
 		expect(read.remoteServers.map((s) => [s.name, s.transport])).toEqual([
 			['api', 'http'],
 			['stream', 'sse'],
 			['bare', 'http'],
 			['alias', 'http'],
 		])
-		expect(read.remoteServers[0]?.headers).toEqual({ Authorization: 'Bearer ${API_TOKEN}' })
+		expect(read.remoteServers[0]?.headers).toEqual({
+			Authorization: 'Bearer ${API_TOKEN}',
+		})
 		expect(read.manifest?.remoteMcpServers).toHaveLength(4)
 		expect(read.manifest?.mcpServers).toBeUndefined()
 		expect(find(read, 'mcp-server-remote', 'mcpServers.api')).toMatchObject({
 			level: 'notUsed',
 			message: expect.stringContaining('https://mcp.example.com'),
 		})
+	})
+
+	it('marks a remote server whose header variable is unset or not a bare name as needing setup', async () => {
+		const root = folder('hdr', {
+			[COMMON_MCP_FILE]: {
+				unset: {
+					url: 'https://mcp.example.com/a',
+					headers: { A: 'Bearer ${NOPE}' },
+				},
+				dflt: { url: 'https://mcp.example.com/b', headers: { A: '${X:-d}' } },
+			},
+		})
+		const read = await readCommonLayout(root, options)
+		expect(read.remoteServers).toHaveLength(0)
+		expect(find(read, 'mcp-needs-setup', 'mcpServers.unset')?.message).toContain('NOPE is not set')
+		expect(find(read, 'mcp-needs-setup', 'mcpServers.dflt')?.message).toContain('headers.A')
 	})
 
 	it('refuses an entry that names both forms, a bad address and an unknown type, and the plugin loads without them', async () => {
@@ -610,7 +721,9 @@ describe('servers', () => {
 
 	it('reports other $-forms, backticks and %NAME% and leaves them as written', async () => {
 		const root = folder('odd', {
-			[COMMON_MCP_FILE]: { s: { command: 'sh', args: ['$HOME', '`id`', '%TEMP%'] } },
+			[COMMON_MCP_FILE]: {
+				s: { command: 'sh', args: ['$HOME', '`id`', '%TEMP%'] },
+			},
 		})
 		const read = await readCommonLayout(root, options)
 		expect(read.manifest?.mcpServers?.[0]?.args).toEqual(['$HOME', '`id`', '%TEMP%'])
@@ -663,14 +776,21 @@ describe('the marketplace-entry sidecar', () => {
 		description: 'From the entry.',
 		version: '3.1.0',
 		strict: false,
-		hooks: { PreToolUse: [{ hooks: [{ type: 'command', command: 'echo hi' }] }] },
+		hooks: {
+			PreToolUse: [{ hooks: [{ type: 'command', command: 'echo hi' }] }],
+		},
 		skills: ['./pick'],
 		mysteryField: 1,
 	}
 
 	it('is read only when asked, and then supplies the manifest', async () => {
-		const files = { [ENTRY_SIDECAR_FILE]: sidecar, 'pick/SKILL.md': skill('pick') }
-		const read = await readCommonLayout(folder('entry-plugin', files), { entrySidecar: true })
+		const files = {
+			[ENTRY_SIDECAR_FILE]: sidecar,
+			'pick/SKILL.md': skill('pick'),
+		}
+		const read = await readCommonLayout(folder('entry-plugin', files), {
+			entrySidecar: true,
+		})
 		expect(read.source).toBe('sidecar')
 		expect(read.manifest).toMatchObject({
 			name: 'entry-plugin',
@@ -696,7 +816,9 @@ describe('the marketplace-entry sidecar', () => {
 		const without = await readCommonLayout(folder('own', files))
 		expect(without.manifest?.hookEntries).toBeUndefined()
 		expect(without.manifest?.version).toMatch(/^0\.0\.0\+/)
-		const withIt = await readCommonLayout(folder('own', files), { entrySidecar: true })
+		const withIt = await readCommonLayout(folder('own', files), {
+			entrySidecar: true,
+		})
 		expect(Object.keys(withIt.manifest?.hookEntries ?? {})).toEqual(['PreToolUse'])
 		expect(withIt.manifest?.version).toBe('3.1.0')
 	})
@@ -707,7 +829,9 @@ describe('the marketplace-entry sidecar', () => {
 			'skills/a/SKILL.md': skill('a'),
 			[ENTRY_SIDECAR_FILE]: { ...sidecar, strict: undefined, name: 'own' },
 		}
-		const read = await readCommonLayout(folder('own', files), { entrySidecar: true })
+		const read = await readCommonLayout(folder('own', files), {
+			entrySidecar: true,
+		})
 		expect(read.manifest?.hookEntries).toBeUndefined()
 		expect(read.manifest?.version).toBe('1.0.0')
 		expect(read.manifest?.description).toBe('From the entry.')
@@ -744,7 +868,9 @@ describe('archive roots', () => {
 		expect(await findCommonLayoutRoot(direct)).toBe(direct)
 		const unrelated = folder('un', { 'docs/readme.txt': 'x' })
 		expect(await findCommonLayoutRoot(unrelated)).toBe(unrelated)
-		const manifestWrapped = folder('mw', { [`inner/${MANIFEST}`]: { name: 'inner' } })
+		const manifestWrapped = folder('mw', {
+			[`inner/${MANIFEST}`]: { name: 'inner' },
+		})
 		expect(await findCommonLayoutRoot(manifestWrapped)).toBe(join(manifestWrapped, 'inner'))
 	})
 })

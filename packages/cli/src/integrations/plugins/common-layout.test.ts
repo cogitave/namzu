@@ -97,6 +97,18 @@ describe('a plugin in the common layout reaches the session', () => {
 	})
 })
 
+describe('a refused hand-placed folder', () => {
+	it('is reported and the other plugins still load', async () => {
+		const placed = join(cwd, '.namzu', 'plugins')
+		make('good', { [MANIFEST]: { name: 'good' }, 'skills/a/SKILL.md': skill('a') }, placed)
+		make('needy', { [MANIFEST]: { name: 'needy', dependencies: ['absent'] } }, placed)
+		const runtime = await createCliPluginRuntime({ enabled: true, allowedScopes: ['project'] }, cwd)
+		expect(runtime?.list().map((p) => p.name)).toEqual(['good'])
+		expect(runtime?.takePluginHookWarnings().join('\n')).toContain('absent')
+		await runtime?.close()
+	})
+})
+
 describe('single-file commands and agents, root variables and the colon spelling', () => {
 	it('contributes only the named file, with the plugin folder in its text', async () => {
 		const dir = make('ledger', {
@@ -193,6 +205,18 @@ describe('namzu plugin validate reads the layout', () => {
 		expect(report.status).toBe('warnings')
 		expect(report.problems.every((p) => p.level === 'warning')).toBe(true)
 		expect(report.layout?.findings.some((f) => f.level === 'used')).toBe(true)
+	})
+
+	it('does not warn about empty unused folders, and knows the data folder', async () => {
+		const dir = make('quiet', {
+			[MANIFEST]: { name: 'quiet' },
+			'skills/a/SKILL.md': skill('a'),
+			'.mcp.json': { db: { command: 'node', env: { A: '${NAMZU_PLUGIN_DATA}' } } },
+		})
+		mkdirSync(join(dir, 'output-styles'))
+		mkdirSync(join(dir, 'monitors'))
+		const report = await validatePluginFolder(dir)
+		expect(report.problems).toEqual([])
 	})
 
 	it('is clean for a plugin with nothing to report', async () => {
