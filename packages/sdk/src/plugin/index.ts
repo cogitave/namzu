@@ -14,6 +14,7 @@ export type {
 	PluginEnablementCapabilities,
 } from './loader.js'
 export * from './common-layout/index.js'
+export * from './hook-module/index.js'
 export {
 	boundCompactionSummary,
 	boundHookContext,

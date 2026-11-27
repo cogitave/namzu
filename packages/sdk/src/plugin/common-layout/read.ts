@@ -32,6 +32,8 @@ import {
 	COMMON_UNUSED_DIRS,
 	ENTRY_SIDECAR_FILE,
 } from '../common-layout-names.js'
+import { summarizeHookModule } from '../hook-module/consent.js'
+import { locateHookModule, scanHookModule } from '../hook-module/scan.js'
 import { SHELL_HOOK_EVENTS, SHELL_HOOK_PASCAL_EVENT_NAMES } from '../shell-hook.js'
 import { type McpSource, readMcpSources, serversOf } from './mcp.js'
 import type {
@@ -223,10 +225,58 @@ class Collector {
 }
 
 /**
+ * What the hooks module a plugin names in its hooks file comes to: a finding
+ * for what runs, for what Namzu has no place for, and for what refuses the
+ * module (its plain hook entries still load either way).
+ */
+async function noteHookModule(root: string, out: Collector): Promise<void> {
+	const located = await locateHookModule(root)
+	if (located.kind === 'none') return
+	if (located.kind === 'refused') {
+		out.add({
+			level: 'refused',
+			code: 'hooks-modules-refused',
+			field: 'hooks',
+			path: located.hooksFile,
+			message: `${located.message} Its plain hook entries still load.`,
+		})
+		return
+	}
+	const scan = await scanHookModule(root, located.entry)
+	for (const refusal of scan.refusals) {
+		out.add({
+			level: 'refused',
+			code: 'hooks-module-scan-refused',
+			field: 'hooks',
+			path: refusal.file,
+			message: `${refusal.file}:${refusal.line}: ${refusal.message}. The module does not run; its plain hook entries still load.`,
+		})
+	}
+	if (scan.refusals.length > 0) return
+	const summary = summarizeHookModule(scan)
+	for (const line of summary.notUsed) {
+		out.add({
+			level: 'notUsed',
+			code: 'hooks-module-not-used',
+			field: 'hooks',
+			path: located.entry,
+			message: line,
+		})
+	}
+	out.add({
+		level: 'used',
+		code: 'hooks-module-used',
+		field: 'hooks',
+		path: located.entry,
+		message: `${located.entry} runs in an isolated worker (events: ${summary.events.join(', ') || 'none'}).`,
+	})
+}
+
+/**
  * Read a plugin folder written in the common plugin layout.
  *
  * Pure: it reads inside the folder, never follows a symbolic link, runs and
- * imports nothing, and opens no connection. It returns the manifest Namzu
+ * imports nothing (a hooks module is parsed, not run), and opens no connection. It returns the manifest Namzu
  * would admit, the remote servers it found, and a finding for everything it
  * used, left out or refused (see {@link LayoutFinding}).
  *
@@ -854,13 +904,17 @@ async function readMerged(
 			continue
 		}
 		if (isMapping(parsed) && parsed.modules !== undefined) {
-			out.add({
-				level: 'refused',
-				code: 'hooks-modules-refused',
-				field: 'hooks',
-				path: rel,
-				message: `${rel}: "modules" runs plugin code at startup and is not supported; its plain hook entries still load.`,
-			})
+			if (rel === COMMON_HOOKS_FILE) {
+				await noteHookModule(root, out)
+			} else {
+				out.add({
+					level: 'refused',
+					code: 'hooks-modules-refused',
+					field: 'hooks',
+					path: rel,
+					message: `${rel}: "modules" is read only in ${COMMON_HOOKS_FILE}, so this module does not run; its plain hook entries still load.`,
+				})
+			}
 		}
 		const events = isMapping(parsed)
 			? isMapping(parsed.hooks)
