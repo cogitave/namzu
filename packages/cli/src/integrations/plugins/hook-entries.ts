@@ -138,7 +138,13 @@ function add(collector: Collector, parsed: HooksConfig): void {
  * or the mapping under its `hooks` key. Other keys beside `hooks` are said and
  * not acted on, except `description`, which a wrapper may carry.
  */
-function unwrap(value: unknown, file: string, collector: Collector): unknown {
+function unwrap(raw: unknown, file: string, collector: Collector): unknown {
+	// `modules` names a hooks module, which the plugin runtime starts; it holds no entries.
+	let value = raw
+	if (isMapping(value) && value.modules !== undefined) {
+		const { modules: _modules, ...rest } = value
+		value = rest
+	}
 	if (isMapping(value) && isMapping(value.hooks)) {
 		for (const key of Object.keys(value)) {
 			if (key !== 'hooks' && key !== 'description') {

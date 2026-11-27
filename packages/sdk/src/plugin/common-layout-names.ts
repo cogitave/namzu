@@ -61,3 +61,13 @@ export const COMMON_USER_CONFIG_PREFIX = 'user_config.'
 
 /** A command spelled `/<plugin>:<command>` in the layout's own documentation. */
 export const COMMON_COMMAND_SEPARATOR = ':'
+
+/**
+ * What a hooks module may import besides its own files: the package that holds
+ * its types. A type import is erased before the module runs; a value import of
+ * it is refused.
+ */
+export const COMMON_MODULE_TYPES_SPECIFIER = 'claude-code'
+
+/** The namespace the layout gives its settings-style hook events: `classic.<Event>`. */
+export const COMMON_MODULE_EVENT_NAMESPACE = 'classic'

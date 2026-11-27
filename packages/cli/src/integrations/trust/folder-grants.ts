@@ -10,10 +10,15 @@
  * files declare.
  */
 
-import { readFileSync, readdirSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { isAbsolute, join, relative, resolve } from 'node:path'
 
-import { parseAgentMarkdown } from '@namzu/sdk'
+import {
+	hookModuleConsentEntry,
+	locateHookModule,
+	parseAgentMarkdown,
+	scanHookModule,
+} from '@namzu/sdk'
 
 import { hooksOfElement } from '../../config/hook-common-shape.js'
 import { folderConfigFiles } from '../../config/project-files.js'
@@ -176,10 +181,14 @@ function describePluginHooks(cwd: string): HookGrant[] {
 	for (const name of names) {
 		const folder = join(root, name)
 		const manifest = readObject(join(folder, 'plugin.json'))
-		if (!manifest) continue
-		const label = typeof manifest.name === 'string' ? manifest.name : name
+		// A folder in the common plugin layout has no `plugin.json` of Namzu's own: its manifest
+		// sits in the layout's folder, or it has none and its hooks file stands alone.
+		const common = manifest ? undefined : readObject(join(folder, '.claude-plugin', 'plugin.json'))
+		if (!manifest && !common && !existsSync(join(folder, 'hooks', 'hooks.json'))) continue
+		const named = manifest ?? common
+		const label = typeof named?.name === 'string' ? named.name : name
 		const files = ['hooks/hooks.json']
-		if (Array.isArray(manifest.hooks)) {
+		if (Array.isArray(manifest?.hooks)) {
 			for (const path of manifest.hooks) {
 				if (typeof path === 'string' && path.toLowerCase().endsWith('.json')) files.push(path)
 			}
@@ -192,7 +201,7 @@ function describePluginHooks(cwd: string): HookGrant[] {
 			const value = readObject(path)
 			if (value) blocks.push(value)
 		}
-		if (manifest.hookEntries !== null && typeof manifest.hookEntries === 'object') {
+		if (manifest?.hookEntries !== null && typeof manifest?.hookEntries === 'object') {
 			blocks.push(manifest.hookEntries as Record<string, unknown>)
 		}
 		for (const block of blocks) {
@@ -204,8 +213,40 @@ function describePluginHooks(cwd: string): HookGrant[] {
 				out.push({ event: grant.event, runs: `${grant.runs} (plugin ${label})` })
 			}
 		}
+		const module = describePluginModule(folder, label)
+		if (module !== undefined) out.push(module)
 	}
 	return out
+}
+
+/**
+ * The hooks module a plugin in the common layout names, as one entry of the
+ * trust screen: where it is, the events it hooks, and whether it runs commands,
+ * reads files or uses the network. The module is parsed, never run, and a module
+ * the scan refuses is said to be refused, since it will not run.
+ */
+function describePluginModule(folder: string, label: string): HookGrant | undefined {
+	try {
+		const located = locateHookModule(folder)
+		if (located.kind === 'refused') {
+			return { event: `hooks module (plugin ${label})`, runs: `not run: ${located.message}` }
+		}
+		if (located.kind !== 'found') return undefined
+		const scan = scanHookModule(folder, located.entry)
+		const entry = hookModuleConsentEntry(label, scan)
+		if (scan.refusals.length > 0) {
+			return {
+				event: `hooks module (plugin ${label})`,
+				runs: `${located.entry} is not run: ${scan.refusals[0]?.message ?? 'refused'}`,
+			}
+		}
+		return {
+			event: `hooks module (plugin ${label})`,
+			runs: `${located.entry} runs in an isolated worker: ${entry.lines.join('; ')}`,
+		}
+	} catch {
+		return undefined
+	}
 }
 
 /**
