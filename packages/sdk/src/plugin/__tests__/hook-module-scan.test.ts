@@ -183,6 +183,37 @@ export function register(on) {
 	})
 })
 
+describe('a module in TypeScript', () => {
+	it('has its types erased without the runtime printing a warning about it', async () => {
+		const warnings: string[] = []
+		const listener = (warning: Error): void => {
+			warnings.push(warning.message)
+		}
+		process.on('warning', listener)
+		try {
+			const root = plugin({
+				'hooks/mod.ts': `export function register(on: (p: string, h: () => object) => void): void { on('classic.Stop', (): object => ({})) }`,
+			})
+			const result = scanHookModule(root, 'hooks/mod.ts')
+			expect(result.refusals).toEqual([])
+			expect(result.program?.files['hooks/mod.ts']).not.toContain(': object')
+			await new Promise((resolve) => setImmediate(resolve))
+		} finally {
+			process.off('warning', listener)
+		}
+		expect(warnings.filter((text) => /stripTypeScriptTypes|type stripping/i.test(text))).toEqual([])
+	})
+
+	it('refuses syntax that is not only types, such as an enum', () => {
+		const root = plugin({
+			'hooks/mod.ts': `enum Mode { A }\nexport function register(on) { on('classic.Stop', () => ({})) }`,
+		})
+		expect(refused(scanHookModule(root, 'hooks/mod.ts'))[0]).toContain(
+			'does not parse as TypeScript',
+		)
+	})
+})
+
 describe('what refuses a module', () => {
 	it('refuses a dynamic import and a top-level await, with the file and line', () => {
 		const dynamic = scan(

@@ -91,7 +91,7 @@ function typeStripper(): TypeStripper | undefined {
 		const original = process.emitWarning
 		process.emitWarning = ((warning: unknown, ...rest: unknown[]) => {
 			const text = typeof warning === 'string' ? warning : String((warning as Error)?.message ?? '')
-			if (/type stripping/i.test(text)) return
+			if (/type stripping|stripTypeScriptTypes/i.test(text)) return
 			return (original as (...args: unknown[]) => void).call(process, warning, ...rest)
 		}) as typeof process.emitWarning
 		try {
