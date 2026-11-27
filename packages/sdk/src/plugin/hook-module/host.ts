@@ -392,10 +392,11 @@ export async function startHookModule(options: StartHookModuleOptions): Promise<
 					)
 					return
 				case 'log':
-					log.debug(
-						`${plugin.name} console.${String(incoming.level)}: ${String(incoming.text)}`,
-						attrs,
-					)
+					log.debug('Plugin hooks module console output', {
+						...attrs,
+						'namzu.hook_module.console_level': String(incoming.level),
+						'namzu.hook_module.text': String(incoming.text),
+					})
 					return
 				case 'call': {
 					outstandingCalls += 1

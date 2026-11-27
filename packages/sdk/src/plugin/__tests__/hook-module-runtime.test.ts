@@ -751,8 +751,11 @@ export function register(on) {
 		)
 		await managerFor(handle).executeHooks('user_prompt_submit', { sessionId: SESSION, prompt: 'x' })
 		expect(
-			debug.mock.calls.some((call) =>
-				String(call[0]).includes('plug console.warn: from console 1'),
+			debug.mock.calls.some(
+				(call) =>
+					call[1]?.['namzu.hook_module.console_level'] === 'warn' &&
+					call[1]?.['namzu.hook_module.text'] === 'from console 1' &&
+					call[1]?.['namzu.plugin.name'] === 'plug',
 			),
 		).toBe(true)
 		expect(info.mock.calls.some((call) => call[1]?.['namzu.hook_module.text'] === 'from ui')).toBe(

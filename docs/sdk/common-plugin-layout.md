@@ -137,7 +137,7 @@ one hooks module per plugin; a second entry is refused"), as is a path that
 leaves the plugin, an absolute path, a link and a file over 1 MiB. The module
 exports `register(on, options)`:
 
-```js
+```text
 export function register(on, options) {
   on('classic.PreToolUse', { tool: 'Bash' }, ($, e, next) => {
     if (e.command?.includes('rm -rf')) return { deny: 'no recursive removal' }
