@@ -256,3 +256,13 @@ describe('what the form sends', () => {
 		expect(variablesNote(undefined)).toBe('Variables and headers are edited in the file.')
 	})
 })
+
+describe('the ask to add a connector', () => {
+	it('is taken once, so one ask opens one form', async () => {
+		const { requestAddConnector, takeAddConnector } = await import('./mcp-servers-model.js')
+		expect(takeAddConnector()).toBe(false)
+		requestAddConnector()
+		expect(takeAddConnector()).toBe(true)
+		expect(takeAddConnector()).toBe(false)
+	})
+})

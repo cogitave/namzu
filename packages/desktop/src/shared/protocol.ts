@@ -25,6 +25,7 @@ import type {
 	ConfigSettingsView,
 } from './config-settings-protocol.js'
 import type { ContextReport } from './context-protocol.js'
+import type { SkillCatalogView, SkillFileTextView, SkillFilesView } from './customize-protocol.js'
 import type { EngineDeliveryView } from './engine-delivery-protocol.js'
 import type {
 	EngineUpdateAnnouncement,
@@ -216,6 +217,11 @@ export interface PluginInventoryView {
 		status: string
 		startupEnabled?: boolean
 		startupError?: string
+		/** What the manifest says the plugin brings; absent from an engine that predates it. */
+		skills?: { name: string; description: string }[]
+		servers?: { name: string }[]
+		author?: string
+		updatedAt?: string
 	}[]
 	live: boolean
 	canChange: boolean
@@ -1137,6 +1143,12 @@ export interface DesktopApi {
 	existingFolders?(paths: string[]): Promise<string[]>
 	/** The installed skills (names and where they live), for a project or the person's own; null where the engine cannot say. */
 	installedSkills?(projectId?: string): Promise<InstalledSkillsView | null>
+	/** Every skill with its state, place, time and use, for the Customize page; null where the engine cannot say. */
+	skillCatalog?(projectId?: string): Promise<SkillCatalogView | null>
+	/** The files in one skill's folder; null where the engine cannot say. */
+	skillFiles?(name: string, projectId?: string): Promise<SkillFilesView | null>
+	/** One text file of a skill's folder, up to 256 KiB; null where the engine cannot say. */
+	skillFile?(name: string, path: string, projectId?: string): Promise<SkillFileTextView | null>
 	/** Which browser the engine would drive on this computer, read without launching it; null where the engine cannot say. */
 	engineBrowser?(): Promise<EngineBrowserView | null>
 	/** The person's own instructions every conversation starts from; null where the engine cannot say. */

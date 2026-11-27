@@ -303,7 +303,7 @@ The Desktop app makes the same flow a card instead of a screen:
    file would replace and for each tripwire the host raised, and the buttons
    *Save skill*, *Save to project* and *Cancel* (Esc). Cancel holds the focus when the card opens, so saving takes a click.
 4. **After saving.** The result of a finished `save_skill` call (`Saved skill "name" to <path>`; the same line from any other tool draws nothing) is drawn, outside the folded work, as
-   a saved card: *usable from your next message*, with *Open Skills in Settings*; any
+   a saved card: *usable from your next message*, with *Open in Customize*, which opens Customize on Skills; any
    open Skills list reads the installed skills again at once and lists the new skill
    with its on/off switch.
 

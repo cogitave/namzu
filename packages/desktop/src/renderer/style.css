@@ -135,15 +135,8 @@ pre {
 	opacity: 0;
 	visibility: hidden;
 }
-.app[data-page="plugins"] > .sidebar:not(.plugins-navigation-sidebar),
-.workspace[data-page="plugins"] > :not(.plugins-page) {
+.workspace[data-page="customize"] > :not(.customize-page) {
 	display: none;
-}
-.plugins-sidebar-close {
-	position: absolute;
-	/* Centred in the header: (header - control) / 2 from the top. */
-	top: calc((var(--frame-header-height) - var(--frame-control-size)) / 2);
-	right: var(--frame-bar-inset);
 }
 /* The header's left cluster sits over the main header's left end, one cluster inset from the sidebar's
    edge (or the rail's), and is only as wide as its controls: the rest of the band is the header's own. */
@@ -657,7 +650,7 @@ pre {
 }
 /* Plugins and the Pals page have no top bar of their own; the same line is drawn across the
    pane at the same y, inside the band, over the page. */
-.workspace:is([data-page="plugins"], [data-page="pals"])::before {
+.workspace:is([data-page="customize"], [data-page="pals"])::before {
 	content: "";
 	position: absolute;
 	inset: 0 0 auto;

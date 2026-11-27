@@ -41,6 +41,15 @@ import {
 	readContextReport,
 } from '../shared/context-protocol.js'
 import { QUESTION_TOOL } from '../shared/conversation-status.js'
+import {
+	type SkillCatalogView,
+	type SkillFileTextView,
+	type SkillFilesView,
+	readSkillCatalog,
+	readSkillFileText,
+	readSkillFiles,
+	withManifestDetails,
+} from '../shared/customize-protocol.js'
 import { EXTENSION_BRIDGE_METHODS, readStateEvent } from '../shared/extensions-view.js'
 import {
 	type HistoryWorkSnapshot,
@@ -1347,6 +1356,53 @@ export class Operator {
 		if (project && !project.view.palId && this.projects.get(project.view.id) !== project)
 			return null
 		return readInstalledSkills(result)
+	}
+	/** The client that answers skill questions for a project (or the person's own), or null without the catalog. */
+	private async skillsClient(
+		projectId: unknown,
+	): Promise<{ client: RuntimeClient; current: () => boolean } | null> {
+		const project =
+			projectId === undefined || projectId === null ? undefined : this.project(projectId)
+		const client = project && !project.view.palId ? project.client : await this.registry(false)
+		if (!client.supportsSkillsCatalog()) return null
+		return {
+			client,
+			current: () =>
+				!project ||
+				project.view.palId !== undefined ||
+				this.projects.get(project.view.id) === project,
+		}
+	}
+	/** Every skill with what the Customize page shows of it; null where the engine does not know the question. */
+	async skillCatalog(projectId?: unknown): Promise<SkillCatalogView | null> {
+		const skills = await this.skillsClient(projectId)
+		if (!skills) return null
+		const result = await skills.client.request('namzu/skills/catalog', {})
+		return skills.current() ? readSkillCatalog(result) : null
+	}
+	/** The files in one skill's folder. */
+	async skillFiles(name: unknown, projectId?: unknown): Promise<SkillFilesView | null> {
+		if (typeof name !== 'string' || !name.trim() || name.length > 200)
+			throw new Error('Invalid skill name.')
+		const skills = await this.skillsClient(projectId)
+		if (!skills) return null
+		const result = await skills.client.request('namzu/skills/files', { name })
+		return skills.current() ? readSkillFiles(result) : null
+	}
+	/** One text file of a skill's folder. */
+	async skillFile(
+		name: unknown,
+		path: unknown,
+		projectId?: unknown,
+	): Promise<SkillFileTextView | null> {
+		if (typeof name !== 'string' || !name.trim() || name.length > 200)
+			throw new Error('Invalid skill name.')
+		if (typeof path !== 'string' || !path.trim() || path.length > 512)
+			throw new Error('Invalid file path.')
+		const skills = await this.skillsClient(projectId)
+		if (!skills) return null
+		const result = await skills.client.request('namzu/skills/read_file', { name, path })
+		return skills.current() ? readSkillFileText(result) : null
 	}
 	private async instructionsHost(): Promise<RuntimeClient> {
 		const client = await this.registry(false)
@@ -4954,7 +5010,7 @@ export class Operator {
 			session ? { sessionId: session.runtimeSessionId } : {},
 		)) as PluginInventoryView
 		assertCurrent()
-		return result
+		return withManifestDetails(result)
 	}
 	async setPluginEnabled(
 		sessionId: string,
@@ -4980,11 +5036,13 @@ export class Operator {
 		this.changingPlugins.add(sessionId)
 		session.selectionRevision = (session.selectionRevision ?? 0) + 1
 		try {
-			return (await session.client.request('namzu/plugins/set_enabled', {
-				sessionId: session.runtimeSessionId,
-				name,
-				enabled,
-			})) as PluginInventoryView
+			return withManifestDetails(
+				(await session.client.request('namzu/plugins/set_enabled', {
+					sessionId: session.runtimeSessionId,
+					name,
+					enabled,
+				})) as PluginInventoryView,
+			)
 		} finally {
 			this.changingPlugins.delete(sessionId)
 		}

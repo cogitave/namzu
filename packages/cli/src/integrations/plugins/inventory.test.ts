@@ -80,11 +80,13 @@ it('reads admitted installed manifests and saved state without executing modules
 				scope: 'project',
 				status: 'installed',
 				startupEnabled: false,
+				// The server's name is shown; its command and variables are not.
+				servers: [{ name: 'private-server' }],
 			},
 		],
 	})
 	const serialized = JSON.stringify(view)
-	for (const secret of ['must-not-leak', 'SECRET', 'private-server', 'must-not-import.mjs'])
+	for (const secret of ['must-not-leak', 'SECRET', 'must-not-import.mjs'])
 		expect(serialized).not.toContain(secret)
 	await expect(readFile(join(userRoot, 'imported.txt'))).rejects.toMatchObject({ code: 'ENOENT' })
 })
