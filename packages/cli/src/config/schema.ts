@@ -635,6 +635,13 @@ export interface PluginConfig {
 	 * folder on the command line is the consent.
 	 */
 	readonly launchDirs?: readonly string[]
+	/**
+	 * Marketplaces `namzu plugin marketplace add` and every download from one
+	 * refuse: `owner/repo`, `owner/*`, `host/path`, `host/*` or a bare host,
+	 * compared with the marketplace's normalised address. Read from the user's
+	 * own file and the managed file only; a project or local file cannot set it.
+	 */
+	readonly blockedMarketplaces?: readonly string[]
 }
 
 export interface NamzuCliConfig {

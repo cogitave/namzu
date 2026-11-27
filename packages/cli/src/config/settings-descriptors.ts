@@ -2898,4 +2898,9 @@ export const SETTING_SUBKEY_EXCLUSIONS: readonly SettingExclusion[] = [
 		reason:
 			'Set for one run by --plugin-dir; the loader never reads it from a file, so a saved value would do nothing.',
 	},
+	{
+		key: 'plugins.blockedMarketplaces',
+		reason:
+			'A list of marketplace addresses an organisation or a person forbids, written in the user or managed file by hand; a project file cannot set it, and there is no single value for Settings to show.',
+	},
 ]

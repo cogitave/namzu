@@ -1,7 +1,7 @@
 ---
 type: Reference
 title: Install plugins
-description: namzu plugin install, update, uninstall and prune, and namzu plugin marketplace add, list and remove, for folders, archives and local marketplaces; the preview of everything a plugin runs, the digest you accept, scopes, exit codes and crash safety.
+description: namzu plugin install, update, uninstall and prune, and namzu plugin marketplace add, list, update and remove, for folders, archives, local marketplaces and downloaded ones; the preview of everything a plugin runs, the digest you accept, scopes, exit codes and crash safety.
 resource: packages/cli/src/commands/plugin-install.ts
 tags: [cli, plugins, install, marketplace, consent, trust]
 ---
@@ -9,11 +9,12 @@ tags: [cli, plugins, install, marketplace, consent, trust]
 # Install plugins
 
 `namzu plugin install` puts a plugin on this computer after you have seen
-everything in it that can run. It works from three kinds of source that are
-already on this computer: a plugin folder, a plugin archive (`.zip` or
-`.plugin`) and a plugin listed in a marketplace that is a folder or a `.json`
-file. Nothing is downloaded: an address that needs a download (`owner/repo`,
-`https://…`, `git@host:…`) is answered with exit 69 and a sentence.
+everything in it that can run. It works from a plugin folder, a plugin archive
+(`.zip` or `.plugin`) and a plugin listed in a marketplace, which is a folder or
+a `.json` file on this computer or one that was downloaded from a Git repository
+or an https address. Downloads, their limits and what is refused are on
+[Marketplaces and downloads](plugin-marketplaces.md); this page is about what
+happens with a plugin once it is in hand.
 
 What an installed plugin is, where its records live and how it loads is on
 [Installed plugins](plugin-records.md). Plugins written in the layout other
@@ -21,8 +22,10 @@ tools share are read as [the common plugin layout](../sdk/common-plugin-layout.m
 says.
 
 ```
-namzu plugin marketplace add <folder|file.json> [--scope user|project|local] [--dry-run] [--json]
+namzu plugin marketplace add <folder|file.json|owner/repo|https://…> [--ref <ref>] [--sparse <path>...]
+                             [--scope user|project|local] [--dry-run] [--yes] [--json]
 namzu plugin marketplace list [--json]
+namzu plugin marketplace update [<name>] [--json]
 namzu plugin marketplace remove <name> [--yes] [--json]
 namzu plugin install <name>@<marketplace> | <folder> | <file.zip|file.plugin>
                      [--scope user|project|local] [--dry-run] [--enable-loading]
@@ -34,7 +37,9 @@ namzu plugin prune [--dry-run] [--yes] [--json]
 
 ## Marketplaces
 
-A marketplace is a folder holding the catalog file of
+A marketplace that is downloaded (`owner/repo`, an https address) is covered by
+[Marketplaces and downloads](plugin-marketplaces.md); what follows is the same
+for every kind. A marketplace on this computer is a folder holding the catalog file of
 [the common plugin layout](../sdk/common-plugin-layout.md) (or a
 `marketplace.json` at its root), or that `.json` file itself. `marketplace add`
 registers it where it is: nothing is copied, and its catalog is read again each
@@ -42,8 +47,10 @@ time it is needed. The catalog names the marketplace, an owner and a list of
 plugins, each with a `name` and a `source`. A source that is a folder path
 starting with `./` (or a bare name under the catalog's `metadata.pluginRoot`) is
 installable: it is resolved inside the marketplace's folder, and a link that
-leads out of it is refused. A source that needs a download, or that would run a
-package manager, is listed and marked not installable. A catalog is read from a
+leads out of it is refused. A source that is a repository (`github`, `url`,
+`git-subdir`) or an https `archive` is downloaded when you install it; one that
+would run a package manager or another program (`npm`, `command`, request
+headers) is listed and marked not installable. A catalog is read from a
 regular file of at most 10 MiB and lists at most 500 plugins; an entry with no
 name or source is left out and reported.
 
@@ -63,7 +70,8 @@ them are installed and whether auto-update is on (it is off; auto-update is not
 part of this change), and the marketplaces the folder's own settings declare and
 this computer has not added. `marketplace remove` shows the plugins it will
 uninstall and the settings entries that go, asks, and keeps every plugin's data;
-the marketplace's own folder is never touched.
+the marketplace's own folder is never touched, and a copy Namzu downloaded is
+removed with it.
 
 ## Install
 
@@ -189,8 +197,8 @@ preview, the notice and every question go to standard error. The object has
 `command`, `outcome` (`installed`, `already-installed`, `declined`, `dry-run`,
 `failed`, and for the other commands `updated`, `up-to-date`, `uninstalled`,
 `disabled`, `pruned`, `nothing-to-do`, `added`, `already-added`, `removed`),
-`message`, and for an install `id`, `scope`, `version`, `commit` (null for a local
-source), `layout`, `findings`, `surface`, `surfaceSha256`, `inventory` and
+`message`, and for an install `id`, `scope`, `version`, `commit` (the commit of a
+repository, or null), `layout`, `findings`, `surface`, `surfaceSha256`, `inventory` and
 `loading`.
 
 | Exit | Meaning |
@@ -200,23 +208,25 @@ source), `layout`, `findings`, `surface`, `surfaceSha256`, `inventory` and
 | 64 | the command line is wrong, or an address that is never accepted |
 | 65 | refused data: an unsafe archive, a plugin-level refusal, a name clash, a reserved marketplace name |
 | 66 | not found, or an install record that cannot be read (nothing is changed and the file is kept) |
-| 69 | an address that needs a download, which this version does not do |
+| 69 | unavailable: `git` is missing, the host could not be reached, a download timed out, or an entry that Namzu does not install (`npm`, `command`) |
 | 75 | a yes is needed and none can be asked |
-| 77 | the folder is not trusted |
+| 77 | the folder is not trusted, or `plugins.blockedMarketplaces` refuses the marketplace |
 
 ## Update, uninstall, prune
 
 `update <id>` reads the plugin again from where it came from (its marketplace's
-catalog, or the folder it was uploaded from), builds the new preview and marks
-what changed (`1 new hook`, `1 local server removed or changed`). Every scope of
+catalog, downloading it again when it is a remote one, or the folder it was
+uploaded from), builds the new preview and marks
+what changed (`1 new hook`, `1 script changed`, `1 local server removed`). Every scope of
 the id moves together. If what runs did not change and only a version that the
 catalog names did, or the version in `plugin.json` did and nothing that runs
 differs (the same surface and only manifests or files that cannot run changed),
 it applies after printing the summary. Otherwise it shows the
 preview and asks as `install` does. The old folder stays, marked
 `.orphaned_at`, so a conversation that has it open keeps its files; `prune` takes
-it a day later. A version that kept its number but changed is refused: ask the
-author to raise it.
+it a day later. A version that kept its number but changed is refused up front, before any
+preview or question and with or without `--yes` (exit 65): ask the author to
+raise it. A script that was edited counts once, as changed.
 
 `uninstall <id>` removes the record for one scope, its recorded yes, and, when
 no other scope needs them, the install manifest and the copy. The plugin's data

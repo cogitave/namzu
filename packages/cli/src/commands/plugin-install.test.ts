@@ -149,7 +149,7 @@ describe('namzu plugin marketplace add', () => {
 			outcome: 'added',
 			name: 'team-tools',
 			plugins: 4,
-			notInstallable: 2,
+			notInstallable: 1,
 		})
 		expect(result.err).toContain('Add only marketplaces you trust')
 		const known = readJson(knownMarketplacesPath(home))
@@ -220,15 +220,15 @@ describe('namzu plugin marketplace add', () => {
 		expect((await market(['add', 'https://example.com/m.json?x=1'])).code).toBe(64)
 	})
 
-	it('says a remote address needs a download, exit 69, and writes nothing', async () => {
+	it('asks for --yes to add a remote address when nothing can be asked, exit 75, and writes nothing', async () => {
 		for (const remote of [
 			'acme/team-tools',
 			'https://github.com/acme/team-tools',
 			'git@github.com:acme/team-tools.git',
 		]) {
 			const result = await market(['add', remote])
-			expect(result.code, remote).toBe(69)
-			expect(result.err).toContain('needs a download')
+			expect(result.code, remote).toBe(75)
+			expect(result.err).toContain('Add --yes to confirm that you trust')
 		}
 		expect(existsSync(knownMarketplacesPath(home))).toBe(false)
 	})
@@ -868,9 +868,6 @@ describe('namzu plugin install: resolving the argument', () => {
 
 	it('says why an entry cannot be installed here, exit 69', async () => {
 		await addTeam()
-		const remote = await plugin('install', ['remote-one@team-tools', '--yes'])
-		expect(remote.code).toBe(69)
-		expect(remote.err).toContain('cannot fetch yet')
 		const npm = await plugin('install', ['npm-one@team-tools', '--yes'])
 		expect(npm.code).toBe(69)
 		expect(npm.err).toContain('does not install')
