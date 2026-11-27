@@ -453,6 +453,8 @@ export interface MarketplacePreviewView {
 	source?: string
 	kind?: string
 	remote?: boolean
+	/** A plain sentence for what adding it would do: "Will add github.com/acme/tools (default branch)". */
+	description?: string
 	notice?: string
 	blocked?: string
 	error?: string
@@ -468,10 +470,12 @@ export function readMarketplacePreview(value: unknown): MarketplacePreviewView |
 	if (!source || !kind || typeof row.remote !== 'boolean') return null
 	const notice = typeof row.notice === 'string' ? row.notice.slice(0, 2_000) : undefined
 	const blocked = line(row.blocked)
+	const description = line(row.description)
 	return {
 		source,
 		kind,
 		remote: row.remote,
+		...(description ? { description } : {}),
 		...(notice ? { notice } : {}),
 		...(blocked ? { blocked } : {}),
 	}
@@ -560,7 +564,14 @@ export function readMarketplaceRemove(value: unknown): MarketplaceRemoveView | n
 }
 
 export interface MarketplaceUpdateView {
-	results: { name: string; outcome: 'updated' | 'failed'; plugins?: number; error?: string }[]
+	results: {
+		name: string
+		outcome: 'updated' | 'up-to-date' | 'pinned' | 'failed'
+		plugins?: number
+		error?: string
+		/** What the refresh found, in a sentence: "pinned at 1a2b3c4", "already up to date". */
+		message?: string
+	}[]
 }
 
 export function readMarketplaceUpdate(value: unknown): MarketplaceUpdateView | null {
@@ -571,15 +582,22 @@ export function readMarketplaceUpdate(value: unknown): MarketplaceUpdateView | n
 		const item = record(raw)
 		const name = short(item?.name, 64)
 		const outcome =
-			item?.outcome === 'updated' || item?.outcome === 'failed' ? item.outcome : undefined
+			item?.outcome === 'updated' ||
+			item?.outcome === 'up-to-date' ||
+			item?.outcome === 'pinned' ||
+			item?.outcome === 'failed'
+				? item.outcome
+				: undefined
 		if (!item || !name || !outcome) continue
 		const plugins = count(item.plugins, 10_000)
 		const error = line(item.error)
+		const message = line(item.message)
 		results.push({
 			name,
 			outcome,
 			...(plugins !== undefined ? { plugins } : {}),
 			...(error ? { error } : {}),
+			...(message ? { message } : {}),
 		})
 	}
 	return { results }

@@ -61,7 +61,7 @@ export function previewLine(
 	if (view.error) return { tone: 'error', text: view.error }
 	if (view.blocked) return { tone: 'error', text: view.blocked }
 	if (!view.source) return undefined
-	return { tone: 'ok', text: `Will add ${view.source}` }
+	return { tone: 'ok', text: view.description ?? `Will add ${view.source}` }
 }
 
 export const marketplaceLetter = (name: string): string =>

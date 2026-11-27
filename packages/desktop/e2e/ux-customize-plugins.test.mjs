@@ -235,6 +235,10 @@ test("Customize plugins: add a marketplace, discover, install, update, turn off,
 		await page(w).getByRole("button", { name: "Add", exact: true }).click();
 		await w.page.getByRole("menuitem", { name: "Add marketplace" }).click();
 		await expect(dialog).toBeVisible({ timeout: T });
+		// An address that needs a download is read from its text alone: the line says what Add would
+		// do and nothing is fetched. (A real add would reach a server; this run stays on disk.)
+		await dialog.getByLabel("URL").fill("acme/tools#main");
+		await expect(dialog.getByText("Will add github.com/acme/tools (branch or tag main)")).toBeVisible({ timeout: T });
 		await dialog.getByLabel("URL").fill(market);
 		await expect(dialog.getByText(`Will add ${market}`)).toBeVisible({ timeout: T });
 		await shoot(w, "3-marketplace-filled");

@@ -52,8 +52,8 @@ import {
 	samePath,
 	splitPluginId,
 } from '../integrations/plugins/records.js'
+import { oneLine } from '../integrations/plugins/remote-marketplace.js'
 import { StateFileBusyError, StateFileUnreadableError } from '../integrations/state/state-file.js'
-import { terminalDisplayText } from '../tui/terminal-display.js'
 
 export const PLUGIN_RECORD_VERBS = ['list', 'details', 'enable', 'disable'] as const
 export type PluginRecordVerb = (typeof PLUGIN_RECORD_VERBS)[number]
@@ -132,8 +132,7 @@ function parseFlags(args: readonly string[]): Flags {
 	return { json, ...(scope ? { scope } : {}), ...(cwd ? { cwd } : {}), positional }
 }
 
-export const oneLine = (value: string): string =>
-	terminalDisplayText(value).replace(/[\t\n\r]+/g, ' ')
+export { oneLine }
 
 export function failure(
 	deps: PluginRecordsDeps,

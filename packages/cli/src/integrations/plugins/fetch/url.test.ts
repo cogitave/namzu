@@ -249,4 +249,45 @@ describe('download', () => {
 		)
 		expect(bytes.toString()).toBe('{"a":1}')
 	})
+
+	it('stops a download whose signal aborted, with the sentence for a cancel and not a network error', async () => {
+		const controller = new AbortController()
+		let reached!: () => void
+		const waiting = new Promise<void>((resolve) => {
+			reached = resolve
+		})
+		// A server that sends the headers and then nothing: the download ends only through the signal.
+		handler = (_request, response) => {
+			response.writeHead(200, { 'content-type': 'application/json' })
+			response.write('{')
+			reached()
+		}
+		const request = {
+			url: 'https://example.test/m.json',
+			maxBytes: 100,
+			timeoutMs: 600_000,
+			acceptType: isCatalogType,
+			subject: 'catalog',
+		}
+		const pending = download(request, {
+			...loopback,
+			rewriteUrl: () => `${base}/m.json`,
+			signal: controller.signal,
+		})
+		const settled = expect(pending).rejects.toMatchObject({
+			kind: 'cancelled',
+			message: 'Cancelled.',
+		})
+		await waiting
+		controller.abort()
+		await settled
+		// Already aborted: nothing is requested.
+		await expect(
+			download(request, {
+				...loopback,
+				rewriteUrl: () => `${base}/m.json`,
+				signal: controller.signal,
+			}),
+		).rejects.toMatchObject({ kind: 'cancelled' })
+	})
 })

@@ -10,7 +10,7 @@
  */
 
 import { EXIT_DATAERR, EXIT_NOINPUT, EXIT_UNAVAILABLE, EXIT_USAGE } from '../../../exit-codes.js'
-import { FetchError, type FetchOptions } from './git.js'
+import { FetchError, type FetchOptions, cancelledFetch } from './git.js'
 
 export const CATALOG_DOWNLOAD_MAX_BYTES = 10 * 1024 * 1024
 export const CATALOG_DOWNLOAD_TIMEOUT_MS = 30_000
@@ -72,7 +72,10 @@ export async function download(
 			'address',
 		)
 	const fetcher = options.fetchImpl ?? fetch
+	if (options.signal?.aborted) throw cancelledFetch()
 	const controller = new AbortController()
+	const onAbort = (): void => controller.abort()
+	options.signal?.addEventListener('abort', onAbort, { once: true })
 	let timedOut = false
 	const timer = setTimeout(() => {
 		timedOut = true
@@ -92,6 +95,7 @@ export async function download(
 					},
 				})
 			} catch {
+				if (options.signal?.aborted) throw cancelledFetch()
 				if (timedOut)
 					throw new FetchError(
 						EXIT_UNAVAILABLE,
@@ -185,6 +189,7 @@ export async function download(
 				}
 			} catch (error) {
 				if (error instanceof FetchError) throw error
+				if (options.signal?.aborted) throw cancelledFetch()
 				if (timedOut)
 					throw new FetchError(
 						EXIT_UNAVAILABLE,
@@ -197,6 +202,7 @@ export async function download(
 		}
 	} finally {
 		clearTimeout(timer)
+		options.signal?.removeEventListener('abort', onAbort)
 	}
 }
 

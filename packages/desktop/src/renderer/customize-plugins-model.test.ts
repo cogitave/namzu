@@ -63,6 +63,14 @@ describe('the address preview line', () => {
 				blocked: 'Needs a download.',
 			}),
 		).toEqual({ tone: 'error', text: 'Needs a download.' })
+		expect(
+			previewLine({
+				source: 'acme/tools',
+				kind: 'github',
+				remote: true,
+				description: 'Will add github.com/acme/tools (default branch)',
+			}),
+		).toEqual({ tone: 'ok', text: 'Will add github.com/acme/tools (default branch)' })
 		expect(previewLine(undefined)).toBeUndefined()
 		expect(previewLine(null)).toBeUndefined()
 	})

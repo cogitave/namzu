@@ -27,6 +27,13 @@ import {
 	setEnabledPlugin,
 	setExtraKnownMarketplace,
 } from '../integrations/plugins/enabled-records.js'
+import { FetchError, type FetchOptions } from '../integrations/plugins/fetch/git.js'
+import { fetchMarketplace } from '../integrations/plugins/fetch/index.js'
+import {
+	type MarketplaceSource,
+	describeSource,
+	isBlockedSource,
+} from '../integrations/plugins/fetch/source.js'
 import { readInstallManifest, surfaceDigest } from '../integrations/plugins/install-manifest.js'
 import {
 	type InstallPlan,
@@ -74,10 +81,25 @@ import {
 	samePath,
 	splitPluginId,
 } from '../integrations/plugins/records.js'
+import {
+	DOWNLOAD_BLOCKED,
+	MARKETPLACE_BLOCKED,
+	MARKETPLACE_NOTICE,
+	anotherPlace,
+	countNotInstallable,
+	describeAddition,
+	downloadBlocked,
+	fetchNotes,
+	newStaging,
+	placeMarketplace,
+	readFetchedCatalog,
+	refreshRemoteMarketplace,
+	sameSource,
+	sameVersionChanged,
+} from '../integrations/plugins/remote-marketplace.js'
 import { hashExecutableFiles } from '../integrations/plugins/surface.js'
 import { compareUpdate } from '../integrations/plugins/update-compare.js'
 import { namzuHomePath } from '../integrations/state/home.js'
-import { MARKETPLACE_NOTICE } from './plugin-install.js'
 import { stateFailure } from './plugin-records.js'
 
 export const PLUGIN_STAGE_TTL_MS = 10 * 60 * 1000
@@ -119,6 +141,10 @@ export interface PluginActionDeps {
 	readonly loadingOn: () => boolean
 	/** Writes `plugins.enabled: true`; returns the sentence to show. */
 	readonly enableLoading: () => string
+	/** `plugins.blockedMarketplaces` of the configuration now (user and managed files). */
+	readonly blockedMarketplaces?: () => readonly string[]
+	/** How downloads are made. Tests replace parts of it; the app never sets it. */
+	readonly fetch?: FetchOptions
 }
 
 interface Held {
@@ -194,7 +220,12 @@ const line = (text: string): string =>
 /** The sentence for a failure: the command line's own words for a refusal, a conflict or a record. */
 function reason(error: unknown): string {
 	if (error instanceof SimulatedCrash) throw error
-	if (error instanceof PlanRefusal || error instanceof InstallConflict) return error.message
+	if (
+		error instanceof PlanRefusal ||
+		error instanceof InstallConflict ||
+		error instanceof FetchError
+	)
+		return error.message
 	return stateFailure(error).message
 }
 
@@ -440,6 +471,13 @@ export function createDesktopPluginActions(deps: PluginActionDeps) {
 		readCatalog(known.installLocation, known.source.source === 'file' ? 'file' : 'directory')
 
 	/** The catalog entry an id names, as a source the planner reads. */
+	const blocked = (): readonly string[] => deps.blockedMarketplaces?.() ?? []
+	/** What a download is given: the test options, and the step's signal so a cancel kills Git. */
+	const fetchOf = (context?: OpContext): FetchOptions => ({
+		...(deps.fetch ?? {}),
+		...(context ? { signal: context.signal } : {}),
+	})
+	const allowFile = deps.fetch?.allowFileProtocol === true
 	const sourceForId = async (id: string): Promise<InstallSource> => {
 		const { name, marketplace } = splitPluginId(id)
 		if (marketplace === LOCAL_UPLOADS_MARKETPLACE) {
@@ -459,18 +497,67 @@ export function createDesktopPluginActions(deps: PluginActionDeps) {
 		const entry = read.catalog.entries.find((candidate) => candidate.name === name)
 		if (entry === undefined)
 			throw new Error(`Plugin "${name}" is not in marketplace "${marketplace}".`)
-		const resolved = await resolveEntrySource(entry, read.catalog)
+		const resolved = await resolveEntrySource(entry, read.catalog, {
+			hosted: market.source.source === 'url',
+			...(allowFile ? { allowFileProtocol: true } : {}),
+		})
 		if (resolved.kind === 'unsupported') throw new Error(resolved.reason)
-		if (resolved.kind === 'invalid') throw new Error(`${entry.name}: ${resolved.reason}`)
-		return { kind: 'catalog', marketplace, entry, dir: resolved.dir }
+		if (resolved.kind === 'invalid')
+			throw new Error(
+				resolved.reason.startsWith(`${entry.name}: `)
+					? resolved.reason
+					: `${entry.name}: ${resolved.reason}`,
+			)
+		if (resolved.kind === 'remote') {
+			// Before any download: a marketplace or a source the settings block is never fetched from.
+			if (downloadBlocked(market, resolved.remote, blocked())) throw new Error(DOWNLOAD_BLOCKED)
+			return { kind: 'remote-catalog', marketplace, entry, remote: resolved.remote }
+		}
+		const commit =
+			market.source.source === 'github' || market.source.source === 'git'
+				? market.commit
+				: undefined
+		return {
+			kind: 'catalog',
+			marketplace,
+			entry,
+			dir: resolved.dir,
+			...(commit !== undefined ? { commit } : {}),
+		}
+	}
+
+	/**
+	 * A plugin from a marketplace that lives at an address is checked against that marketplace as it
+	 * is now: only that one marketplace is fetched, and only because the person asked to check.
+	 */
+	const refreshOwnMarketplace = async (id: string, context: OpContext): Promise<void> => {
+		const { marketplace } = splitPluginId(id)
+		if (marketplace === LOCAL_UPLOADS_MARKETPLACE) return
+		const market = knownRead().marketplaces.get(marketplace)
+		if (market === undefined) return
+		if (market.source.source === 'directory' || market.source.source === 'file') return
+		context.check()
+		context.progress('downloading')
+		const row = await refreshRemoteMarketplace(market, {
+			home,
+			now: new Date(now()),
+			blockedMarketplaces: blocked(),
+			fetch: fetchOf(context),
+		})
+		if (row.outcome === 'failed')
+			throw new Error(`Could not read marketplace "${marketplace}" again: ${row.message}`)
 	}
 
 	const planOf = async (source: InstallSource, context: OpContext): Promise<InstallPlan> => {
 		context.check()
-		context.progress('reading')
+		context.progress(source.kind === 'remote-catalog' ? 'downloading' : 'reading')
 		let plan: InstallPlan
 		try {
-			plan = await planInstall(source, { home, cwd: effectiveCwd() })
+			plan = await planInstall(source, {
+				home,
+				cwd: effectiveCwd(),
+				fetch: fetchOf(context),
+			})
 		} catch (error) {
 			rethrow(error)
 		}
@@ -489,6 +576,65 @@ export function createDesktopPluginActions(deps: PluginActionDeps) {
 					(record.projectPath !== undefined && samePath(record.projectPath, projectCwd()))),
 		)
 
+	/** `marketplaces/add` for a repository or an https address: fetch aside, read, then move into place. */
+	const addRemote = async (source: MarketplaceSource, scope: RecordScope, context: OpContext) => {
+		const display = describeSource(source)
+		// Before anything is fetched: the settings may forbid this marketplace.
+		if (isBlockedSource(source, blocked())) throw new Error(MARKETPLACE_BLOCKED)
+		const known = knownRead()
+		const staging = newStaging(home)
+		try {
+			context.check()
+			context.progress('downloading')
+			const fetched = await fetchMarketplace(source, staging, fetchOf(context))
+			context.check()
+			context.progress('reading')
+			const read = readFetchedCatalog(fetched.dir, display)
+			if (!read.ok) throw new Error(read.message)
+			const { catalog } = read
+			const problem = marketplaceNameProblem(catalog.name)
+			if (problem !== undefined) throw new Error(problem)
+			const where = { home, cwd: effectiveCwd() }
+			const notInstallable = await countNotInstallable(catalog, source.source === 'url', allowFile)
+			const notes = [
+				...fetchNotes(fetched),
+				...(notInstallable > 0
+					? [`${notInstallable} of its plugins cannot be installed here.`]
+					: []),
+			]
+			const summary = (outcome: string) => ({
+				name: catalog.name,
+				plugins: catalog.entries.length,
+				outcome,
+				warnings: [...catalog.warnings, ...notes].slice(0, FINDINGS_MAX).map(line),
+			})
+			const existing = known.marketplaces.get(catalog.name)
+			if (existing !== undefined) {
+				if (!sameSource(existing.source, source))
+					throw new Error(anotherPlace(catalog.name, existing.source, source, 'Remove it first.'))
+				const layerPath = recordLayerPath(scope, where)
+				const layer = readRecordLayer(layerPath)
+				if (layer.state !== 'unreadable' && !layer.marketplaces.has(catalog.name)) {
+					setExtraKnownMarketplace(layerPath, home, catalog.name, source)
+					return summary('declared')
+				}
+				return summary('already-added')
+			}
+			context.check()
+			placeMarketplace(catalog, source, fetched, {
+				home,
+				cwd: effectiveCwd(),
+				scope,
+				now: new Date(now()),
+				by: 'desktop',
+				layerPath: recordLayerPath(scope, where),
+			})
+			return summary('added')
+		} finally {
+			discardStaging(staging)
+		}
+	}
+
 	const methods = {
 		/** What an address would be, from its text alone: no network, no disk beyond the path. */
 		'namzu/marketplaces/preview': (params: Record<string, unknown>) => {
@@ -502,8 +648,9 @@ export function createDesktopPluginActions(deps: PluginActionDeps) {
 					source: line(address.text),
 					kind: address.form,
 					remote: true,
+					description: line(describeAddition(address.source)),
 					notice: MARKETPLACE_NOTICE,
-					blocked: `${line(address.text)} needs a download, which this version of Namzu does not do yet. Add a folder or a .json file instead.`,
+					...(isBlockedSource(address.source, blocked()) ? { blocked: MARKETPLACE_BLOCKED } : {}),
 				}
 			return {
 				source: line(address.path),
@@ -528,10 +675,7 @@ export function createDesktopPluginActions(deps: PluginActionDeps) {
 			try {
 				const address = parseMarketplaceAddress(source, deps.cwd)
 				if (address.kind === 'refused') throw new Error(address.message)
-				if (address.kind === 'remote')
-					throw new Error(
-						`${line(address.text)} needs a download, which this version of Namzu does not do yet. Add a folder or a .json file instead.`,
-					)
+				if (address.kind === 'remote') return await addRemote(address.source, scope, context)
 				const real = realPathOf(address.path)
 				if (real === undefined) throw new Error(`${line(address.path)} was not found.`)
 				if (/^\\\\/.test(real))
@@ -618,7 +762,7 @@ export function createDesktopPluginActions(deps: PluginActionDeps) {
 					const read = catalogOf(market)
 					return {
 						name: market.name,
-						source: line(String(market.source.path ?? market.source.source)),
+						source: line(describeSource(market.source)),
 						kind: market.source.source,
 						lastUpdated: market.lastUpdated ?? null,
 						autoUpdate: market.autoUpdate ?? false,
@@ -723,15 +867,42 @@ export function createDesktopPluginActions(deps: PluginActionDeps) {
 					throw new Error(`Marketplace "${only}" is not added.`)
 				const results: {
 					name: string
-					outcome: 'updated' | 'failed'
+					outcome: 'updated' | 'up-to-date' | 'pinned' | 'failed'
 					plugins?: number
 					error?: string
+					message?: string
 				}[] = []
 				for (const market of [...known.marketplaces.values()]
 					.filter((m) => only === undefined || m.name === only)
 					.sort((a, b) => a.name.localeCompare(b.name))
 					.slice(0, LIST_MAX)) {
 					context.check()
+					const remote = market.source.source !== 'directory' && market.source.source !== 'file'
+					if (remote) {
+						context.progress('downloading')
+						const row = await refreshRemoteMarketplace(market, {
+							home,
+							now: new Date(now()),
+							blockedMarketplaces: blocked(),
+							fetch: fetchOf(context),
+						})
+						if (row.outcome === 'failed') {
+							results.push({ name: market.name, outcome: 'failed', error: line(row.message) })
+							continue
+						}
+						for (const item of row.newer) knownUpdates.set(item.id, item.available)
+						const reread = readKnownMarketplaces(home)
+						const fresh =
+							reread.state === 'unreadable' ? undefined : reread.marketplaces.get(market.name)
+						const catalog = catalogOf(fresh ?? market)
+						results.push({
+							name: market.name,
+							outcome: row.outcome as 'updated' | 'up-to-date' | 'pinned',
+							...(catalog.ok ? { plugins: catalog.catalog.entries.length } : {}),
+							message: line(row.message),
+						})
+						continue
+					}
 					const read = catalogOf(market)
 					if (!read.ok) {
 						results.push({ name: market.name, outcome: 'failed', error: line(read.reason) })
@@ -769,7 +940,10 @@ export function createDesktopPluginActions(deps: PluginActionDeps) {
 			const plugins = []
 			for (const entry of catalog.entries.slice(0, MAX_CATALOG_PLUGINS)) {
 				const id = `${entry.name}@${name}`
-				const resolved = await resolveEntrySource(entry, catalog)
+				const resolved = await resolveEntrySource(entry, catalog, {
+					hosted: market.source.source === 'url',
+					...(allowFile ? { allowFileProtocol: true } : {}),
+				})
 				const scopes =
 					installed.state === 'unreadable'
 						? []
@@ -780,8 +954,10 @@ export function createDesktopPluginActions(deps: PluginActionDeps) {
 					...(entry.description !== undefined ? { description: line(entry.description) } : {}),
 					...(entry.version !== undefined ? { version: line(entry.version) } : {}),
 					...(entry.author !== undefined ? { author: line(entry.author) } : {}),
-					installable: resolved.kind === 'local',
-					...(resolved.kind === 'local' ? {} : { reason: line(resolved.reason) }),
+					installable: resolved.kind === 'local' || resolved.kind === 'remote',
+					...(resolved.kind === 'local' || resolved.kind === 'remote'
+						? {}
+						: { reason: line(resolved.reason) }),
 					installedAt: scopes,
 				})
 			}
@@ -1021,9 +1197,12 @@ export function createDesktopPluginActions(deps: PluginActionDeps) {
 				const recorded = readInstallManifest(home, id)
 				if (recorded.state !== 'ok')
 					throw new Error(`${id} has no readable install manifest. Install it again.`)
+				await refreshOwnMarketplace(id, context)
 				plan = await planOf(await sourceForId(id), context)
 				if (plan.name !== splitPluginId(id).name)
 					throw new Error(`The source now holds "${plan.name}", not ${splitPluginId(id).name}.`)
+				if (current.version === plan.version && recorded.manifest.surfaceSha256 !== plan.digest)
+					throw new Error(sameVersionChanged(id, plan.version))
 				const comparison = compareUpdate(recorded.manifest, plan)
 				const upToDate =
 					current.version === plan.version && recorded.manifest.surfaceSha256 === plan.digest
@@ -1077,6 +1256,8 @@ export function createDesktopPluginActions(deps: PluginActionDeps) {
 						message: `${id} is up to date (${plan.version}).`,
 					}
 				}
+				// The same version with other files cannot be applied: say so before a question that could only end in a refusal.
+				if (current.version === plan.version) throw new Error(sameVersionChanged(id, plan.version))
 				const { changes, unchangedSurface } = compareUpdate(recorded.manifest, plan)
 				if (!unchangedSurface && accepted !== plan.digest) {
 					return {

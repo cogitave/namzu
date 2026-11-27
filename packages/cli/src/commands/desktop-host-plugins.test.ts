@@ -163,7 +163,7 @@ describe('namzu/marketplaces', () => {
 
 	it('refuses a download, a missing path, a changed name and an unaccepted notice', async () => {
 		const m = actions()
-		await expect(addMarket(m, 'owner/repo')).rejects.toThrow('needs a download')
+		await expect(addMarket(m, 'http://x.test/m')).rejects.toThrow('https://')
 		await expect(addMarket(m, join(root, 'nothing'))).rejects.toThrow('was not found')
 		await expect(
 			m.methods['namzu/marketplaces/add']({ source: market(), scope: 'user', accepted: 'yes' }),

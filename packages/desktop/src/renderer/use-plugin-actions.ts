@@ -129,6 +129,12 @@ export function usePluginActions(
 			const result = answer?.results.find((item) => item.name === name)
 			if (!result || result.outcome === 'failed')
 				notify(result?.error ?? 'The marketplace could not be updated.', { tone: 'error' })
+			else if (result.outcome === 'up-to-date')
+				notify(`Marketplace "${name}" is already up to date.`, { tone: 'success' })
+			else if (result.outcome === 'pinned')
+				notify(`Marketplace "${name}" is ${result.message ?? 'pinned'}, so it did not change.`, {
+					tone: 'success',
+				})
 			else notify(`Marketplace "${name}" updated.`, { tone: 'success' })
 			changed()
 		} catch (failure) {

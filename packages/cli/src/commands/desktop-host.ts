@@ -943,6 +943,8 @@ export function createDesktopHostExtensions(
 		pal: () => Boolean(pal()),
 		isTrusted,
 		...(notify ? { notify } : {}),
+		// A settings file that cannot be read stops the step: a block list nobody could read is not "empty".
+		blockedMarketplaces: () => loadConfig({ cwd }).plugins?.blockedMarketplaces ?? [],
 		loadingOn: () => {
 			try {
 				return loadConfig({ cwd }).plugins?.enabled === true

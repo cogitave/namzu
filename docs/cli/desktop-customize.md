@@ -221,12 +221,21 @@ nothing, and the page then shows the old Plugins tab and **Create with Namzu** o
 - **Add marketplace** is a dialog: the notice (*Only add marketplaces you trust. Namzu does not
   control their plugins, and their owners can change them later.*), **URL** (placeholder `owner/repo
   or a Git address`) with the help line and **Choose a folder**. While the person types, the page asks
-  `namzu/marketplaces/preview` (the address is parsed, nothing is fetched) and shows `Will add
-  <address>` or the engine's refusal in its words; **Add** stays off until the address is accepted.
+  `namzu/marketplaces/preview` (the address is parsed, nothing is fetched) and shows the engine's
+  sentence (`Will add github.com/acme/tools (default branch)`, `Will add /path/to/folder`), its
+  refusal in its words, or *Adding this marketplace is turned off in your settings.* for an address
+  `plugins.blockedMarketplaces` names; **Add** stays off until the address is accepted.
   **Add** is the consent: it calls `namzu/marketplaces/add` for the *Yours* place with `accepted:
   marketplace-v1`, shows the phase the engine announces (`Checking…`, `Downloading…`, `Reading…`) and
-  **Cancel** stops the step through `namzu/ops/cancel`. A Git or URL address is added exactly as far
-  as the engine's own marketplace functions go; the dialog does not decide. A toast says
+  **Cancel** stops the step through `namzu/ops/cancel`. A repository, `owner/repo[#ref]` or https
+  address is fetched aside by the same functions as `namzu plugin marketplace add` and moved into
+  place only after it was read; **Cancel** kills Git (or drops the download) and removes the staging
+  folder. The dialog does not decide: there is no `--ref` or `--sparse` here, a ref goes in the
+  address. **Update now** on such a marketplace fetches it again (a marketplace pinned to a commit
+  says so and does not move), and a plugin's **Check for updates** refreshes only its own
+  marketplace first. A plugin whose catalog entry names a repository or an https archive is
+  installed through the same consent card and digest, and an update of a plugin that kept its version
+  while its files changed is refused with the command's sentence. A toast says
   `Marketplace "team-tools" added (14 plugins).` and the page switches to **Discover**.
   *Keep up to date automatically* is not offered: the host method has no such option yet.
 - **Yours | Discover** appears beside the tabs once a marketplace exists. **Yours** is the installed

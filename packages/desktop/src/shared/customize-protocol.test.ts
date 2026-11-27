@@ -345,6 +345,14 @@ describe('reading marketplace answers', () => {
 		expect(
 			readMarketplacePreview({ source: 'a/b', kind: 'github', remote: true, blocked: 'later' }),
 		).toMatchObject({ blocked: 'later', remote: true })
+		expect(
+			readMarketplacePreview({
+				source: 'acme/tools',
+				kind: 'github',
+				remote: true,
+				description: 'Will add github.com/acme/tools (default branch)',
+			}),
+		).toMatchObject({ description: 'Will add github.com/acme/tools (default branch)' })
 		expect(readMarketplacePreview({ error: 'No.' })).toEqual({ error: 'No.' })
 		expect(readMarketplacePreview({ source: '/m' })).toBeNull()
 		expect(readMarketplacePreview('x')).toBeNull()
@@ -404,9 +412,16 @@ describe('reading marketplace answers', () => {
 					{ name: 't', outcome: 'updated', plugins: 3 },
 					{ name: 'u', outcome: 'failed', error: 'e' },
 					{ name: 'v', outcome: 'x' },
+					{ name: 'w', outcome: 'pinned', message: 'pinned at 1a2b3c4' },
+					{ name: 'x', outcome: 'up-to-date', plugins: 2 },
 				],
 			})?.results,
-		).toHaveLength(2)
+		).toEqual([
+			{ name: 't', outcome: 'updated', plugins: 3 },
+			{ name: 'u', outcome: 'failed', error: 'e' },
+			{ name: 'w', outcome: 'pinned', message: 'pinned at 1a2b3c4' },
+			{ name: 'x', outcome: 'up-to-date', plugins: 2 },
+		])
 		const available = readMarketplaceAvailable({
 			marketplace: 't',
 			plugins: [
