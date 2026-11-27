@@ -52,3 +52,14 @@ describe('pixels', () => {
 		expect(shownSize(1080, 1920, 1280)).toEqual({ w: 720, h: 1280 })
 	})
 })
+
+describe('the tray dot', () => {
+	it('is red in the middle and clear at the corners', async () => {
+		const { redDot } = await import('./pixels.js')
+		const dot = redDot(16)
+		const at = (x: number, y: number) => (y * 16 + x) * 4
+		expect(dot[at(8, 8) + 2]).toBe(225)
+		expect(dot[at(8, 8) + 3]).toBe(255)
+		expect(dot[at(0, 0) + 3]).toBe(0)
+	})
+})

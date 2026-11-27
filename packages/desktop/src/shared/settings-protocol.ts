@@ -41,6 +41,10 @@ export interface DesktopSettings {
 	restoreTerminals: boolean
 	/** The person agreed to voice input once: the microphone may be opened by Namzu's own windows. */
 	voiceInputAccepted: boolean
+	/** Offer "Record your screen" under Customize, Skills, Add. Off removes the menu item. */
+	screenRecording: boolean
+	/** The last recording had voice narration on; the chooser starts with it. */
+	screenRecordingVoice: boolean
 	/**
 	 * Draw windows with the graphics card. Turn it off when windows flicker, go blank or crash at
 	 * start; it is read once, before the app is ready, so a change applies on the next start.

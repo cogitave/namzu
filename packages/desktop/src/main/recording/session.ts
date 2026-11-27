@@ -320,6 +320,11 @@ export class RecordingSession {
 		}
 	}
 
+	/** The microphone could not be opened or was lost. */
+	narrationLost(): void {
+		if (this.narrationOn) this.showNote('narration-disconnected')
+	}
+
 	/** The person clicked "Narration disconnected": open narration again, and say so if it cannot. */
 	reconnectNarration(): void {
 		if (this.current !== 'running' && this.current !== 'paused') return

@@ -58,6 +58,7 @@ import {
 	readTerminalAttachOptions,
 	readTerminalOpenRequest,
 } from '../shared/terminal-view.js'
+import { readVoiceChunk } from '../shared/voice-input-protocol.js'
 import {
 	type WorkspaceWindowBounds,
 	locateWorkspaceTab,
@@ -144,6 +145,9 @@ import {
 	QUICK_ENTRY_SUBMIT,
 	quickEntryUrl,
 } from './quick-entry-page.js'
+import { RecordingHost } from './recording/host.js'
+import { RecordingQuitGuard } from './recording/quit-guard.js'
+import { readRecordingStart } from './recording/start-options.js'
 import { recoveryCardPage, recoveryCardUrl } from './recovery-card.js'
 import { selectRendererPage } from './renderer-page.js'
 import { DESKTOP_BROWSER_PANE_CAPABILITY } from './required-extensions.js'
@@ -1278,6 +1282,23 @@ localListening.subscribe((event) => {
 		if (!window.isDestroyed()) window.webContents.send('namzu:local-listening-event', event)
 	voiceInput.noteEngine(event.state)
 })
+/**
+ * Record your screen. A recording lives in this process's memory: the pictures, the controls the
+ * person used and their words reach no file, and no window sees them until Send on the review sheet.
+ */
+const recording = new RecordingHost({
+	settings: () => settingsStore.get(),
+	saveSettings: (patch) => settingsStore.set(patch),
+	listening: localListening,
+	broadcast: (notice) => {
+		for (const [, window] of windows.entries())
+			if (!window.isDestroyed() && !window.webContents.isDestroyed())
+				window.webContents.send('namzu:recording-notice', notice)
+	},
+	openSettings: () => showMainWindow(),
+	fake: testProfile !== undefined && process.env.NAMZU_RECORDING_FAKE === '1',
+})
+app.on('browser-window-created', (_event, window) => recording.watchWindow(window))
 /** `NAMZU_HOME`, default `~/.namzu`: where the command line keeps conversations and its trust list. */
 function namzuHome(): string {
 	const configured = process.env.NAMZU_HOME
@@ -1428,6 +1449,7 @@ function register(): void {
 		['saveDraftSettings', 0],
 		['voiceInputStart', 0],
 		['voiceInputAudio', 0],
+		['recordingSend', 0],
 		['cancel', 0],
 		['takeQueued', 0],
 		['removeQueued', 0],
@@ -1918,6 +1940,36 @@ function register(): void {
 	registerHandler('voiceInputStart', ({ id }, args) => voiceInput.start(id, args[0]))
 	registerHandler('voiceInputAudio', ({ id }, args) => voiceInput.audio(id, args[0], args[1]))
 	registerHandler('voiceInputStop', ({ id }) => voiceInput.stop(id))
+	handle('recordingAvailability', () => recording.availability())
+	handleWindow('recordingStart', ({ window }, options: unknown) =>
+		recording.begin(window, readRecordingStart(options)),
+	)
+	handle('recordingReview', () => recording.controller.review())
+	handle('recordingEdit', (edit: unknown) => {
+		if (!edit || typeof edit !== 'object') throw new Error('Invalid recording change.')
+		const change = edit as { kind?: unknown; id?: unknown; index?: unknown }
+		if (change.kind === 'step' && Number.isInteger(change.id))
+			return recording.controller.removeStep(change.id as number)
+		if (change.kind === 'picture' && Number.isInteger(change.index))
+			return recording.controller.removePicture(change.index as number)
+		if (change.kind === 'pictures') return recording.controller.removePictures()
+		if (change.kind === 'voice') return recording.controller.removeVoice()
+		throw new Error('Invalid recording change.')
+	})
+	handle('recordingDiscard', () => recording.controller.discardReview())
+	handle('recordingSend', (ownerId: string, note: unknown) => {
+		if (note !== undefined && (typeof note !== 'string' || note.length > 5_000))
+			throw new Error('Invalid note.')
+		const delivery = recording.controller.deliver(note)
+		// The review closes only once the draft has taken the recording.
+		const attachments = operator.addRecording(ownerId, delivery.attachment)
+		recording.controller.confirmSent()
+		return { attachments, text: delivery.composerText }
+	})
+	handle('recordingAudio', (samples: unknown) =>
+		recording.controller.audio(readVoiceChunk(samples)),
+	)
+	handle('recordingNarrationLost', () => recording.controller.narrationLost())
 	handleWindow('setComputerKeyboardCapture', ({ window }, enabled: boolean) => {
 		if (typeof enabled !== 'boolean') throw new Error('Invalid computer keyboard focus.')
 		window.webContents.setIgnoreMenuShortcuts(enabled)
@@ -2961,6 +3013,7 @@ const engineUpdates = new EngineUpdates({
 let quitting = false
 let stopped = false
 const replyGuard = new RunningReplyGuard(dialog, () => operator.runningReplies())
+const recordingGuard = new RecordingQuitGuard(dialog, () => recording.holdsRecording)
 let shutdownRun: Promise<void> | undefined
 /** Our graceful stop, shared by every way out: a normal quit and an app update. */
 function shutdown(): Promise<void> {
@@ -3024,9 +3077,18 @@ app.on('before-quit', (event) => {
 		})
 		return
 	}
+	if (!recordingGuard.approved && recording.holdsRecording) {
+		void recordingGuard.confirm().then((quit) => {
+			if (quit) app.quit()
+		})
+		return
+	}
 	if (shutdownRun) return
 	void shutdown()
-		.then(() => app.quit())
+		.then(() => {
+			recording.dispose()
+			app.quit()
+		})
 		.catch((error: unknown) => {
 			diagnostics.record('shutdown_failed', { error })
 			dialog.showErrorBox('Namzu couldn’t close cleanly', nativeFailureBody(error, 'stop'))
@@ -3062,6 +3124,12 @@ void app
 		// Listening never survives the computer going to sleep or being locked.
 		powerMonitor.on('suspend', () => void voiceInput.stopAll('sleep'))
 		powerMonitor.on('lock-screen', () => void voiceInput.stopAll('sleep'))
+		// A recording stops on lock or sleep and can be taken up again within the hour.
+		powerMonitor.on('suspend', () => recording.away('sleep'))
+		powerMonitor.on('lock-screen', () => recording.away('lock'))
+		screen.on('display-removed', (_event, display) =>
+			recording.controller.displayLost(String(display.id)),
+		)
 		installStreamRendererPolicy({
 			protocol: session.defaultSession.protocol,
 			fetch: (request, options) => net.fetch(request, options),

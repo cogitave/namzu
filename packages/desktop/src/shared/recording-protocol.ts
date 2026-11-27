@@ -275,6 +275,8 @@ export type RecordingNotice =
 	| { type: 'review'; view: RecordingReviewView }
 	| { type: 'review-closed'; reason: 'sent' | 'discarded' | 'expired' }
 	| { type: 'message'; text: string }
+	/** Narration audio: the window that started the recording opens (or closes) its microphone. */
+	| { type: 'narration'; on: boolean; microphone: string }
 
 /** The sentences the feature says to the person, in one place. */
 export const RECORDING_WORDS = {

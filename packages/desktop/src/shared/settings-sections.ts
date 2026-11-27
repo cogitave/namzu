@@ -11,6 +11,7 @@ export const SETTINGS_SECTIONS = [
 	'notifications',
 	'terminal',
 	'desktop',
+	'privacy',
 	'telemetry',
 	'updates',
 	'speech',

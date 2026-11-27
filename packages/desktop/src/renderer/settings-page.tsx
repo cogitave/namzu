@@ -6,6 +6,7 @@ import {
 	Gauge,
 	KeyRound,
 	Monitor,
+	ShieldCheck,
 	SquareTerminal,
 	Volume2,
 	Wrench,
@@ -133,6 +134,7 @@ const SECTION_ICONS: Record<SettingsSection, IconComponent> = {
 	notifications: Bell as IconComponent,
 	terminal: SquareTerminal as IconComponent,
 	desktop: Monitor as IconComponent,
+	privacy: ShieldCheck as IconComponent,
 	telemetry: Activity as IconComponent,
 	updates: DownloadIcon,
 	speech: Volume2 as IconComponent,
@@ -607,6 +609,7 @@ function SectionBody(props: SectionProps) {
 			{props.section === 'notifications' && <NotificationsSection {...props} />}
 			{props.section === 'updates' && <UpdatesSection {...props} />}
 			{props.section === 'desktop' && <DesktopSection {...props} />}
+			{props.section === 'privacy' && <PrivacySection {...props} />}
 			{props.section === 'terminal' && <TerminalSettings {...props} />}
 			{props.section === 'agent' && <AgentRows {...props} />}
 			{props.section !== 'agent' && ENGINE_ROW_SECTIONS.includes(props.section) && (
@@ -1783,6 +1786,47 @@ function EngineDeliveryRows({ settings, now }: { settings: DesktopSettingsContro
 				/>
 			</CatalogueRow>
 		</>
+	)
+}
+
+/**
+ * Privacy: what Record your screen captures, where it stays, and the one switch that removes the way in.
+ * The words are the ones the chooser and the documentation use, so a person reads the same thing in
+ * all three places.
+ */
+export const SCREEN_RECORDING_POINTS: readonly string[] = [
+	'Namzu records pictures of the screen you choose, the controls you use (which button, which menu), text you leave in ordinary fields, and your voice if you turn it on.',
+	'It stays in this app’s memory until you press Send. Nothing is written to disk, and nothing is recorded in the background.',
+	'After you press Send, the pictures and text go to the model you chose, which may be a provider on the internet or a model on this computer. You read the whole recording first and can remove any step or picture.',
+	'Password fields are never recorded. Recording pauses while one has focus, and a password manager’s window pauses it too.',
+	'Keystrokes are never captured. Text is read from ordinary fields when you leave them, never key by key.',
+	'Namzu’s own windows are hidden from the pictures while recording.',
+	'Voice narration is turned into text on this computer. Only the text is kept; the sound is not.',
+	'To remove the permission, turn the switch below off: Record your screen disappears from Customize.',
+]
+
+function PrivacySection({ settings }: SettingsPageProps) {
+	return (
+		<div className="settings-privacy">
+			<h2 className="settings-section-title">Screen recording</h2>
+			<ul className="settings-privacy-list">
+				{SCREEN_RECORDING_POINTS.map((point) => (
+					<li key={point}>{point}</li>
+				))}
+			</ul>
+			<CatalogueRow id="screen-recording">
+				<Switch
+					label={labelOf('screen-recording')}
+					checked={settings.settings?.screenRecording ?? true}
+					disabled={!settings.settings}
+					onChange={(value) => void settings.change({ screenRecording: value })}
+				/>
+			</CatalogueRow>
+			<p className="settings-note">
+				Record your screen is available on Windows, on a computer you are sitting at. It does not
+				work in a remote session.
+			</p>
+		</div>
 	)
 }
 

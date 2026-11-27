@@ -51,14 +51,14 @@ export interface ListeningState {
 	/** `Voice narration understands <language>.` */
 	language?: string
 	service?: NarrationService
-	microphones: ChooserMicrophone[]
+	/** Why voice is not offered, when it is not: listening missing, or voice input not turned on. */
+	missing?: string
 }
 
 export interface ControllerSettings {
 	/** Settings, Privacy: the switch that offers the menu item. */
 	enabled: boolean
 	voice: boolean
-	microphone: string
 }
 
 export interface ControllerDeps {
@@ -101,6 +101,7 @@ export interface RecordingDelivery {
 export class RecordingController {
 	private session: RecordingSession | undefined
 	private choosing = false
+	private chosenDisplay: string | undefined
 
 	constructor(private readonly deps: ControllerDeps) {}
 
@@ -127,7 +128,12 @@ export class RecordingController {
 	 * Opens the chooser and, on Start, begins recording. `provider` names where the recording will
 	 * go once sent ("DeepSeek V4 Flash"), because the chooser says so.
 	 */
-	async begin(options: { provider: string }): Promise<BeginResult> {
+	async begin(options: {
+		provider: string
+		microphones?: ChooserMicrophone[]
+		/** The microphone last used; the window keeps it, main does not. */
+		microphone?: string
+	}): Promise<BeginResult> {
 		const availability = this.availability()
 		if (!availability.available)
 			return {
@@ -147,7 +153,7 @@ export class RecordingController {
 			const init: ChooserInit = {
 				disclosure: chooserDisclosure(options.provider),
 				warning: RECORDING_WORDS.warning,
-				voiceMissing: RECORDING_WORDS.listeningMissing,
+				voiceMissing: listening.missing ?? RECORDING_WORDS.listeningMissing,
 				displays: displays.map((display) => display.info),
 				voice: {
 					available: voiceAvailable,
@@ -155,8 +161,8 @@ export class RecordingController {
 					...(voiceAvailable && listening.language
 						? { language: `Voice narration understands ${listening.language}.` }
 						: {}),
-					microphones: listening.microphones,
-					microphone: settings.microphone,
+					microphones: options.microphones ?? [{ id: '', label: 'System default' }],
+					microphone: options.microphone ?? '',
 				},
 				shortcut: this.deps.shortcut(),
 				provider: options.provider,
@@ -177,11 +183,13 @@ export class RecordingController {
 				this.deps.notify({ type: 'state', recording: 'idle' })
 				return { started: false, reason: 'failed', message: 'That screen is no longer there.' }
 			}
-			this.deps.saveSettings({
-				screenRecordingVoice: answer.voice,
-				...(answer.microphone ? { screenRecordingMicrophone: answer.microphone } : {}),
-			})
-			const session = this.makeSession(chosen, listening)
+			this.deps.saveSettings({ screenRecordingVoice: answer.voice })
+			this.chosenDisplay = chosen.info.id
+			const session = this.makeSession(
+				chosen,
+				listening,
+				answer.voice && voiceAvailable ? answer.microphone : undefined,
+			)
 			this.session = session
 			chosen.place?.()
 			try {
@@ -201,10 +209,23 @@ export class RecordingController {
 		}
 	}
 
-	private makeSession(display: DisplaySource, listening: ListeningState): RecordingSession {
+	private makeSession(
+		display: DisplaySource,
+		listening: ListeningState,
+		microphone: string | undefined,
+	): RecordingSession {
 		const watch = this.deps.createWatch()
-		const noticeState = (state: SessionState) =>
+		let narrating = false
+		const noticeState = (state: SessionState) => {
+			if (microphone !== undefined) {
+				const wanted = state === 'running' || state === 'paused' || state === 'away'
+				if (wanted !== narrating) {
+					narrating = wanted
+					this.deps.notify({ type: 'narration', on: wanted, microphone })
+				}
+			}
 			this.deps.notify({ type: 'state', recording: state === 'processing' ? 'running' : state })
+		}
 		return new RecordingSession({
 			clock: this.deps.clock,
 			wall: this.deps.wall,
@@ -262,13 +283,21 @@ export class RecordingController {
 		this.session?.away(reason)
 	}
 
-	displayLost(): void {
+	/** A display went away; only the one being recorded ends it. */
+	displayLost(id?: string): void {
 		const session = this.session
-		if (session?.busy) void session.done('display-lost')
+		if (!session?.busy) return
+		if (id !== undefined && id !== this.chosenDisplay) return
+		void session.done('display-lost')
 	}
 
 	audio(samples: Float32Array): void {
 		this.session?.audio(samples)
+	}
+
+	/** The window could not open the microphone, or lost it: the recording goes on without voice. */
+	narrationLost(): void {
+		this.session?.narrationLost()
 	}
 
 	review(): RecordingReviewView | undefined {
@@ -306,6 +335,21 @@ export class RecordingController {
 	 * the message.
 	 */
 	send(note: string | undefined): RecordingDelivery {
+		const delivery = this.deliver(note)
+		this.confirmSent()
+		return delivery
+	}
+
+	/** Closes the review once the draft has taken the recording. */
+	confirmSent(): void {
+		this.session?.closeReview('sent')
+	}
+
+	/**
+	 * What Send hands over, without closing the review: when the draft cannot take it (an untrusted
+	 * folder), the person still has the recording to send somewhere else.
+	 */
+	deliver(note: string | undefined): RecordingDelivery {
 		const session = this.session
 		const draft = session?.review
 		if (!session || !draft) throw new Error(RECORDING_WORDS.expired)
@@ -322,7 +366,6 @@ export class RecordingController {
 			},
 			composerText: composerText(note),
 		}
-		session.closeReview('sent')
 		return delivery
 	}
 }

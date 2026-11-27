@@ -1523,3 +1523,19 @@ input.settings-config-number {
 	-webkit-box-orient: vertical;
 	overflow: hidden;
 }
+
+.settings-privacy {
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+}
+.settings-privacy-list {
+	margin: 0;
+	padding-left: 18px;
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	color: var(--foreground);
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
+}

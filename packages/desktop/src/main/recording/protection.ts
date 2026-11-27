@@ -12,8 +12,15 @@ export interface ProtectableWindow {
 
 interface Entry {
 	window: ProtectableWindow
-	/** What the window does when no recording runs: the pill is always protected, the others are not. */
-	baseline: boolean
+	/** What the window does when no recording runs; unknown until a window says it is always protected. */
+	baseline: boolean | undefined
+}
+
+const protectedByDefault = new WeakSet<object>()
+
+/** A window that is hidden from captures all the time (the working pill): it stays so afterwards. */
+export function markProtectedByDefault(window: object): void {
+	protectedByDefault.add(window)
 }
 
 export class ContentProtection {
@@ -21,8 +28,13 @@ export class ContentProtection {
 	private engaged = false
 
 	/** A window to protect during a recording. */
-	add(window: ProtectableWindow, baseline = false): void {
-		const entry = { window, baseline }
+	add(window: ProtectableWindow, baseline?: boolean): void {
+		for (const known of this.entries)
+			if (known.window === window) {
+				if (baseline !== undefined) known.baseline = baseline
+				return
+			}
+		const entry: Entry = { window, baseline }
 		this.entries.add(entry)
 		if (this.engaged) this.apply(entry, true)
 	}
@@ -42,7 +54,8 @@ export class ContentProtection {
 
 	release(): void {
 		this.engaged = false
-		for (const entry of this.entries) this.apply(entry, entry.baseline)
+		for (const entry of this.entries)
+			this.apply(entry, entry.baseline ?? protectedByDefault.has(entry.window))
 	}
 
 	/** Windows that are no longer there are forgotten. */

@@ -145,7 +145,7 @@ describe('where the Desktop rows sit', () => {
 	})
 
 	it('has a Desktop app section in the fourth group, first, and it is a valid stored section', () => {
-		expect(SETTINGS_NAV_GROUPS[3]).toEqual(['desktop', 'telemetry', 'updates', 'about'])
+		expect(SETTINGS_NAV_GROUPS[3]).toEqual(['desktop', 'privacy', 'telemetry', 'updates', 'about'])
 		expect(SETTINGS_SECTION_TITLES.desktop).toBe('Desktop app')
 		expect(isSettingsSection('desktop')).toBe(true)
 		expect(parseSettingsRoute('settings/desktop')).toBe('desktop')

@@ -52,9 +52,9 @@ function rig(over: Partial<ControllerDeps> = {}, voice = false) {
 		platform: 'win32',
 		env: { SESSIONNAME: 'Console' },
 		helperPresent: () => true,
-		settings: () => ({ enabled: true, voice: false, microphone: '' }),
+		settings: () => ({ enabled: true, voice: false }),
 		saveSettings: (patch) => saved.push(patch),
-		listening: async () => ({ ready: voice, microphones: [{ id: 'm1', label: 'Mic' }] }),
+		listening: async () => ({ ready: voice }),
 		displays: async () => [display],
 		createWatch: () => undefined,
 		chooser: async (init) => {
@@ -105,7 +105,7 @@ describe('offering the recorder', () => {
 	it.each([
 		['platform', { platform: 'linux' as const }],
 		['helper-missing', { helperPresent: () => false }],
-		['switched-off', { settings: () => ({ enabled: false, voice: false, microphone: '' }) }],
+		['switched-off', { settings: () => ({ enabled: false, voice: false }) }],
 	])('hides the item for %s', (reason, over) => {
 		expect(rig(over).controller.availability().reason).toBe(reason)
 	})
@@ -133,9 +133,8 @@ describe('the chooser', () => {
 				listening: async () => ({
 					ready: true,
 					language: 'Turkish and English',
-					microphones: [],
 				}),
-				settings: () => ({ enabled: true, voice: true, microphone: '' }),
+				settings: () => ({ enabled: true, voice: true }),
 			},
 			true,
 		)
@@ -162,7 +161,7 @@ describe('the chooser', () => {
 		const t = rig({}, true)
 		t.setAnswer({ type: 'start', displayId: 'd1', voice: true, microphone: 'm1' })
 		expect(await t.controller.begin({ provider: 'X' })).toEqual({ started: true })
-		expect(t.saved).toEqual([{ screenRecordingVoice: true, screenRecordingMicrophone: 'm1' }])
+		expect(t.saved).toEqual([{ screenRecordingVoice: true }])
 		expect(t.placed()).toBe(1)
 		expect(t.controller.state).toBe('running')
 	})

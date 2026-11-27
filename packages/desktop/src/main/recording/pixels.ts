@@ -79,3 +79,22 @@ export function shownSize(width: number, height: number, edge: number): { w: num
 	const scale = edge / long
 	return { w: Math.max(1, Math.round(width * scale)), h: Math.max(1, Math.round(height * scale)) }
 }
+
+/** A filled red dot on a transparent square, BGRA, for the tray icon while a recording runs. */
+export function redDot(size: number): Uint8Array {
+	const bgra = new Uint8Array(size * size * 4)
+	const c = (size - 1) / 2
+	const radius = size * 0.38
+	for (let y = 0; y < size; y++)
+		for (let x = 0; x < size; x++) {
+			const distance = Math.hypot(x - c, y - c)
+			if (distance > radius + 0.5) continue
+			const at = (y * size + x) * 4
+			const alpha = distance > radius - 0.5 ? Math.round(255 * (radius + 0.5 - distance)) : 255
+			bgra[at] = 45
+			bgra[at + 1] = 45
+			bgra[at + 2] = 225
+			bgra[at + 3] = Math.max(0, Math.min(255, alpha))
+		}
+	return bgra
+}
