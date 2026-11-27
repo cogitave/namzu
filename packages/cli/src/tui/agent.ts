@@ -1579,7 +1579,12 @@ export interface AgentSession {
 	 */
 	readonly skillShell?: SessionSkillShell
 	/** Command folders of the enabled plugins; the composer turns their files into slash commands. */
-	readonly pluginCommandDirs?: readonly { readonly plugin: string; readonly dir: string }[]
+	readonly pluginCommandDirs?: readonly {
+		readonly plugin: string
+		readonly dir: string
+		readonly only?: string
+		readonly root?: string
+	}[]
 	readonly webSearchSummary?: string
 	readonly hasProvider: boolean
 	/**

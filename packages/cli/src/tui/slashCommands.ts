@@ -92,6 +92,7 @@ import {
 	type ShellExpansion,
 	type UserCommand,
 	expandCommand,
+	findUserCommand,
 } from '../user-commands/store.js'
 import { timeLeft } from './background-view.js'
 import { VIM_USAGE, parseVimArgument } from './editor-mode.js'
@@ -887,7 +888,7 @@ function commandHelp(ctx: SlashContext, args: readonly string[]): SlashAction {
 			].join('\n'),
 		}
 	}
-	const user = ctx.userCommands.find((entry) => entry.name === name)
+	const user = findUserCommand(ctx.userCommands, name)
 	if (user) {
 		const acceptsArguments = user.template.includes(ARGUMENTS_TOKEN)
 		return {
@@ -3382,7 +3383,7 @@ export function runSlash(
 			: cmd.action(commandContext, parsed.args)
 	}
 
-	const user = ctx.userCommands.find((c) => c.name === parsed.name)
+	const user = findUserCommand(ctx.userCommands, parsed.name)
 	if (!user) {
 		const renamed = RENAMED_SLASH[parsed.name]
 		if (renamed) {

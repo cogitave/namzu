@@ -24,6 +24,8 @@ import { isAbsolute, join, relative, sep } from 'node:path'
 
 import {
 	AGENT_FILE_KEYS,
+	type CommonLayoutRead,
+	type LayoutFinding,
 	PluginManifestSchema,
 	RENAMED_PLUGIN_HOOK_EVENTS,
 	SKILL_FRONTMATTER_KEYS,
@@ -33,6 +35,7 @@ import {
 	parseAgentMarkdown,
 	parsePluginManifestText,
 	parseSkillMarkdown,
+	readCommonLayout,
 	resolveWithinReal,
 	skillModelDescription,
 } from '@namzu/sdk'
@@ -90,6 +93,13 @@ export interface PluginPart {
 	readonly status: 'ok' | 'warning' | 'error'
 }
 
+/** What the common plugin layout reader found, when the folder is read in that layout. */
+export interface PluginLayoutReport {
+	readonly source: CommonLayoutRead['source']
+	/** Every finding, including the quiet `used` and `ignored` ones. */
+	readonly findings: readonly LayoutFinding[]
+}
+
 export type PluginValidationStatus = 'clean' | 'warnings' | 'errors' | 'unreadable'
 
 export interface PluginValidationReport {
@@ -103,6 +113,8 @@ export interface PluginValidationReport {
 	readonly parts: readonly PluginPart[]
 	readonly problems: readonly PluginProblem[]
 	readonly summary: { readonly errors: number; readonly warnings: number }
+	/** Present when the folder has no `plugin.json` and was read in the common plugin layout. */
+	readonly layout?: PluginLayoutReport
 }
 
 // --- reading --------------------------------------------------------------
@@ -361,9 +373,106 @@ export async function validatePluginFolder(folder: string): Promise<PluginValida
 	}
 
 	const c = new Collector()
+	// A folder without Namzu's own manifest is read in the common plugin layout.
+	// The reader never runs or imports anything, the same as the rest of this check.
+	const layout = await readCommonLayout(root)
+	if (layout.source !== 'namzu' && layout.source !== 'none') {
+		checkCommonLayout(layout, c)
+		return {
+			...c.finish(root, {
+				...(layout.manifest
+					? { name: layout.manifest.name, version: layout.manifest.version }
+					: {}),
+			}),
+			layout: { source: layout.source, findings: layout.findings },
+		}
+	}
+	if (layout.source === 'namzu') {
+		for (const finding of layout.findings) {
+			if (finding.code === 'manifest-both') {
+				c.add({
+					level: 'warning',
+					part: 'manifest',
+					file: MANIFEST_FILE,
+					code: 'manifest-both',
+					message: finding.message,
+					consequence: `${MANIFEST_FILE} is used and the other manifest is ignored.`,
+				})
+			}
+		}
+	}
 	const manifest = await checkManifest(root, c)
 	if (manifest) await checkParts(root, manifest, c)
 	return c.finish(root, manifest ? { name: manifest.name, version: manifest.version } : c.identity)
+}
+
+const NOT_USED = 'Namzu has no use for it; the plugin still loads.'
+const DROPPED = 'That entry is dropped; the plugin loads without it.'
+
+/** The part a finding belongs to, by the field and file it names. */
+function partOf(finding: LayoutFinding, c: Collector): string {
+	const name = (path: string | undefined, fallback: string): string =>
+		path === undefined
+			? fallback
+			: (path
+					.split('/')
+					.filter((x) => x !== 'SKILL.md')
+					.pop() ?? fallback)
+	if (finding.field === 'skills' && finding.path !== undefined) {
+		return c.part('skill', name(finding.path, 'skill'), finding.path)
+	}
+	if (finding.field.startsWith('mcpServers.')) {
+		return c.part('mcp-server', finding.field.split('.')[1] ?? 'server')
+	}
+	if (finding.field === 'hooks' && finding.path !== undefined) {
+		return c.part('hook', finding.path, finding.path)
+	}
+	if (finding.field === 'commands' && finding.path !== undefined) {
+		return c.part('command', name(finding.path, 'command'), finding.path)
+	}
+	if (finding.field === 'agents' && finding.path !== undefined) {
+		return c.part('agent', name(finding.path, 'agent'), finding.path)
+	}
+	return 'manifest'
+}
+
+/** Turn the reader's findings into the report's parts and problems. */
+function checkCommonLayout(read: CommonLayoutRead, c: Collector): void {
+	c.part('manifest', 'manifest')
+	const manifest = read.manifest
+	for (const path of manifest?.skills ?? []) c.part('skill', path.split('/').pop() ?? path, path)
+	for (const server of manifest?.mcpServers ?? []) c.part('mcp-server', server.name)
+	for (const server of manifest?.remoteMcpServers ?? []) c.part('mcp-server', server.name)
+	for (const path of manifest?.hooks ?? []) c.part('hook', path, path)
+	for (const path of manifest?.commands ?? [])
+		c.part('command', path.split('/').pop() ?? path, path)
+	for (const path of manifest?.agents ?? []) c.part('agent', path.split('/').pop() ?? path, path)
+	for (const finding of read.findings) {
+		if (finding.level === 'used' || finding.level === 'ignored') continue
+		const whole = read.refusal === finding
+		c.add({
+			level: finding.level === 'refused' && whole ? 'error' : 'warning',
+			part: whole ? 'manifest' : partOf(finding, c),
+			file: finding.path ?? '',
+			code: finding.code,
+			message: finding.message,
+			consequence: whole ? REFUSED : finding.level === 'refused' ? DROPPED : NOT_USED,
+		})
+	}
+	if (manifest !== undefined) {
+		try {
+			assertEnableable(manifest, { skillsSupported: true })
+		} catch (error) {
+			c.add({
+				level: 'error',
+				part: 'manifest',
+				file: '',
+				code: 'manifest-incompatible',
+				message: message(error),
+				consequence: REFUSED,
+			})
+		}
+	}
 }
 
 type Manifest = ReturnType<typeof parsePluginManifestText>

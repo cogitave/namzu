@@ -8,13 +8,14 @@
  * with the same name — and hands the kernel the roots.
  */
 
-import { dirname, join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 
 import {
 	type AgentFileDefinition,
 	type DiscoveredAgentDefinitions,
 	discoverAgentDefinitions as discoverFromRoots,
 	expandInlineShell,
+	expandPluginRootText,
 	findInlineShell,
 	substituteEscaped,
 } from '@namzu/sdk'
@@ -67,7 +68,14 @@ export async function discoverAgentDefinitions(opts: {
 	readonly cwd: string
 	readonly home?: string
 	readonly skills?: SkillsConfig
-	readonly pluginAgentDirs?: readonly { readonly plugin: string; readonly dir: string }[]
+	readonly pluginAgentDirs?: readonly {
+		readonly plugin: string
+		readonly dir: string
+		/** One file of `dir` (its name without `.md`) when the plugin named a file, not a folder. */
+		readonly only?: string
+		/** The plugin's folder, put in for `${NAMZU_PLUGIN_ROOT}` in the agent's text. */
+		readonly root?: string
+	}[]
 	/**
 	 * What decides whether an agent file's hooks can attach. Absent: the hooks
 	 * are read as they would be in a trusted folder with no switch on, which is
@@ -86,16 +94,22 @@ export async function discoverAgentDefinitions(opts: {
 	readonly skillShell?: SessionSkillShell
 }): Promise<LoadedAgentDefinitions> {
 	const fromPlugins = await Promise.all(
-		(opts.pluginAgentDirs ?? []).map(async ({ plugin, dir }) => {
+		(opts.pluginAgentDirs ?? []).map(async ({ plugin, dir, only, root }) => {
 			const found = await discoverFromRoots([{ dir, source: 'plugin' }], {
 				permissionModes: AGENT_FILE_PERMISSION_MODES,
 			})
+			const own = (path: string): boolean => only === undefined || basename(path) === `${only}.md`
 			return {
-				definitions: found.definitions.map((definition) => ({
-					...definition,
-					name: `${plugin}__${definition.name}`,
-				})),
-				skipped: found.skipped,
+				definitions: found.definitions
+					.filter((definition) => own(definition.path))
+					.map((definition) => ({
+						...definition,
+						name: `${plugin}__${definition.name}`,
+						...(root !== undefined
+							? { prompt: expandPluginRootText(definition.prompt, root) }
+							: {}),
+					})),
+				skipped: found.skipped.filter((skipped) => own(skipped.path)),
 			}
 		}),
 	)

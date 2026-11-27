@@ -227,6 +227,10 @@ export async function createCliPluginRuntime(
 		pluginRegistry: plugins,
 		skillRegistry: skills,
 		scopeRoots: { project: cwd, user: userRoot },
+		pathValues: ({ name, scope, rootDir }) => ({
+			data: pluginDataDir(userRoot, { name, scope, rootDir }),
+			project: cwd,
+		}),
 		log,
 		...(config?.hookTimeoutMs !== undefined ? { hookTimeoutMs: config.hookTimeoutMs } : {}),
 		hooksFor: (plugin): readonly PluginHookDefinition[] => {
@@ -266,7 +270,11 @@ export async function createCliPluginRuntime(
 			if (hooksSwitch !== undefined || !usable) return []
 			const options: ShellHookOptions = {
 				...shellOptions,
-				plugin: { root: plugin.rootDir, dataDir },
+				plugin: {
+					root: plugin.rootDir,
+					dataDir,
+					...(plugin.manifest.layout === 'common' ? { layout: 'common' as const } : {}),
+				},
 			}
 			return entries.map(({ event, entry }) =>
 				createShellHook(event as (typeof SHELL_HOOK_EVENTS)[number], entry, options),
@@ -287,6 +295,16 @@ export async function createCliPluginRuntime(
 			})
 		: { project: [], user: [] }
 	const installed: Awaited<ReturnType<PluginLifecycleManager['install']>>[] = []
+	// What the common plugin layout reader left out or refused, said once per plugin.
+	const noteLayoutFindings = (
+		plugin: Awaited<ReturnType<PluginLifecycleManager['install']>>,
+	): void => {
+		for (const finding of manager.layoutFindings(plugin.id)) {
+			if (finding.level === 'notUsed' || finding.level === 'refused') {
+				warningLines.push(`Plugin ${plugin.manifest.name}: ${finding.message}`)
+			}
+		}
+	}
 
 	try {
 		for (const scope of allowedScopes) {
@@ -294,6 +312,7 @@ export async function createCliPluginRuntime(
 			for (const dir of dirs) {
 				const plugin = await manager.install(dir, scope as PluginScope)
 				installed.push(plugin)
+				noteLayoutFindings(plugin)
 				const enabled = settings.read({ rootDir: plugin.rootDir, name: plugin.manifest.name })
 				if (enabled) await manager.enable(plugin.id)
 			}
@@ -304,6 +323,7 @@ export async function createCliPluginRuntime(
 		for (const dir of launchDirs) {
 			const plugin = await manager.install(dir, 'user', { authorityRoot: dir })
 			installed.push(plugin)
+			noteLayoutFindings(plugin)
 			const enabled = settings.read({ rootDir: plugin.rootDir, name: plugin.manifest.name })
 			if (enabled) await manager.enable(plugin.id)
 		}
@@ -410,14 +430,14 @@ export async function createCliPluginRuntime(
 							plugin.rootDir,
 							plugin.manifest.commands,
 						).dirs.flatMap((source) =>
-							listMarkdownNames(source.dir).map((file) => `${prefix}${file}`),
+							listMarkdownNames(source.dir, source.only).map((file) => `${prefix}${file}`),
 						),
 						agents: resolvePluginFileDirs(
 							plugin.manifest.name,
 							plugin.rootDir,
 							plugin.manifest.agents,
 						).dirs.flatMap((source) =>
-							listMarkdownNames(source.dir).map((file) => `${prefix}${file}`),
+							listMarkdownNames(source.dir, source.only).map((file) => `${prefix}${file}`),
 						),
 					}
 				})
