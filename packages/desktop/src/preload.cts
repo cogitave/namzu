@@ -128,6 +128,30 @@ const api: DesktopApi = {
 	installSkills: (change, projectId) => invoke('installSkills', change, projectId),
 	createSkill: (change, projectId) => invoke('createSkill', change, projectId),
 	removeSkill: (name, tier, projectId) => invoke('removeSkill', name, tier, projectId),
+	choosePluginFile: () => invoke('choosePluginFile'),
+	choosePluginFolder: () => invoke('choosePluginFolder'),
+	dropPluginFile: (files) =>
+		invoke(
+			'dropPluginFile',
+			Array.from(files)
+				.slice(0, 1)
+				.map((file) => webUtils.getPathForFile(file))
+				.filter((path) => path.length > 0),
+		),
+	stagePlugin: (path, opId, projectId) => invoke('stagePlugin', path, opId, projectId),
+	previewMarketplace: (source, projectId) => invoke('previewMarketplace', source, projectId),
+	addMarketplace: (change, projectId) => invoke('addMarketplace', change, projectId),
+	marketplaces: (projectId) => invoke('marketplaces', projectId),
+	removeMarketplace: (change, projectId) => invoke('removeMarketplace', change, projectId),
+	updateMarketplaces: (change, projectId) => invoke('updateMarketplaces', change, projectId),
+	availablePlugins: (marketplace, projectId) => invoke('availablePlugins', marketplace, projectId),
+	planPlugin: (change, projectId) => invoke('planPlugin', change, projectId),
+	installPlugin: (change, projectId) => invoke('installPlugin', change, projectId),
+	enablePlugin: (change, projectId) => invoke('enablePlugin', change, projectId),
+	checkPluginUpdate: (change, projectId) => invoke('checkPluginUpdate', change, projectId),
+	updatePlugin: (change, projectId) => invoke('updatePlugin', change, projectId),
+	uninstallPlugin: (change, projectId) => invoke('uninstallPlugin', change, projectId),
+	cancelOp: (opId, projectId) => invoke('cancelOp', opId, projectId),
 	engineBrowser: () => invoke('engineBrowser'),
 	standingInstructions: () => invoke('standingInstructions'),
 	saveStandingInstructions: (text, revision) => invoke('saveStandingInstructions', text, revision),

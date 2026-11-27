@@ -140,6 +140,15 @@ export interface PluginManifestView {
 	servers?: { name: string }[]
 	author?: string
 	updatedAt?: string
+	/** `name@marketplace`: only a plugin Namzu installed has one. A hand-placed folder has none. */
+	id?: string
+	marketplace?: string
+	layout?: 'common' | 'namzu'
+	/** The places an install record exists for it. */
+	installed?: ('user' | 'project' | 'local')[]
+	findings?: Record<string, number>
+	/** A check found a newer version. */
+	updateKnown?: true
 }
 
 const PLUGIN_ITEMS_MAX = 100
@@ -170,7 +179,32 @@ export function readPluginManifestView(value: unknown): PluginManifestView {
 		}
 	const author = short(row.author, 200)
 	const updatedAt = isoTime(row.updatedAt)
+	const id = short(row.id, 200)
+	const marketplace = short(row.marketplace, 64)
+	const installed = Array.isArray(row.installed)
+		? [
+				...new Set(
+					row.installed.filter(
+						(scope): scope is 'user' | 'project' | 'local' =>
+							scope === 'user' || scope === 'project' || scope === 'local',
+					),
+				),
+			]
+		: []
+	const findings: Record<string, number> = {}
+	const rawFindings = record(row.findings)
+	if (rawFindings)
+		for (const [level, total] of Object.entries(rawFindings).slice(0, 10)) {
+			const n = count(total, 10_000)
+			if (n !== undefined && /^[a-z-]{1,20}$/.test(level)) findings[level] = n
+		}
 	return {
+		...(id ? { id } : {}),
+		...(marketplace ? { marketplace } : {}),
+		...(row.layout === 'common' || row.layout === 'namzu' ? { layout: row.layout } : {}),
+		...(installed.length > 0 ? { installed } : {}),
+		...(Object.keys(findings).length > 0 ? { findings } : {}),
+		...(row.updateKnown === true ? { updateKnown: true as const } : {}),
 		...(skills.length > 0 ? { skills } : {}),
 		...(servers.length > 0 ? { servers } : {}),
 		...(author ? { author } : {}),
@@ -189,7 +223,19 @@ export function withManifestDetails<T extends { plugins: readonly unknown[] }>(v
 		plugins: view.plugins.map((entry) => {
 			const row = record(entry)
 			if (!row) return entry
-			const { skills: _s, servers: _v, author: _a, updatedAt: _u, ...rest } = row
+			const {
+				skills: _s,
+				servers: _v,
+				author: _a,
+				updatedAt: _u,
+				id: _i,
+				marketplace: _m,
+				layout: _l,
+				installed: _n,
+				findings: _f,
+				updateKnown: _k,
+				...rest
+			} = row
 			return { ...rest, ...readPluginManifestView(row) }
 		}),
 	}
@@ -375,3 +421,642 @@ export const SKILL_FORM_LIMITS = {
 
 /** The staged paths the app may ask the engine to read at once. */
 export const SKILL_ADD_PATHS_MAX = 20
+
+// ---------------------------------------------------------------------------
+// Marketplaces and plugins
+// ---------------------------------------------------------------------------
+
+export const PLUGIN_LIST_MAX = 100
+export const PLUGIN_FINDINGS_MAX = 50
+const PLUGIN_TEXT_MAX = 20_000
+
+/** Where a plugin's record lives: for everyone here, for this folder (shared), or for this folder on this computer. */
+export type PluginScope = 'user' | 'project' | 'local'
+const pluginScopeOf = (value: unknown): PluginScope | undefined =>
+	value === 'user' || value === 'project' || value === 'local' ? value : undefined
+
+const textList = (value: unknown, max = PLUGIN_LIST_MAX): string[] =>
+	Array.isArray(value)
+		? value
+				.filter((item): item is string => typeof item === 'string' && item.length > 0)
+				.slice(0, max)
+				.map((item) => item.slice(0, LINE_MAX))
+		: []
+
+const line = (value: unknown): string | undefined => {
+	const text = typeof value === 'string' && value.length > 0 ? value.slice(0, LINE_MAX) : undefined
+	return text
+}
+
+/** What an address would be, read from its text alone. `error` set means it cannot be used. */
+export interface MarketplacePreviewView {
+	source?: string
+	kind?: string
+	remote?: boolean
+	/** A plain sentence for what adding it would do: "Will add github.com/acme/tools (default branch)". */
+	description?: string
+	notice?: string
+	blocked?: string
+	error?: string
+}
+
+export function readMarketplacePreview(value: unknown): MarketplacePreviewView | null {
+	const row = record(value)
+	if (!row) return null
+	const error = line(row.error)
+	if (error) return { error }
+	const source = line(row.source)
+	const kind = short(row.kind, 40)
+	if (!source || !kind || typeof row.remote !== 'boolean') return null
+	const notice = typeof row.notice === 'string' ? row.notice.slice(0, 2_000) : undefined
+	const blocked = line(row.blocked)
+	const description = line(row.description)
+	return {
+		source,
+		kind,
+		remote: row.remote,
+		...(description ? { description } : {}),
+		...(notice ? { notice } : {}),
+		...(blocked ? { blocked } : {}),
+	}
+}
+
+export interface MarketplaceAddView {
+	name: string
+	plugins: number
+	outcome: 'added' | 'declared' | 'already-added'
+	warnings: string[]
+}
+
+export function readMarketplaceAdd(value: unknown): MarketplaceAddView | null {
+	const row = record(value)
+	const name = short(row?.name, 64)
+	const plugins = count(row?.plugins, 10_000)
+	const outcome =
+		row?.outcome === 'added' || row?.outcome === 'declared' || row?.outcome === 'already-added'
+			? row.outcome
+			: undefined
+	if (!row || !name || plugins === undefined || !outcome) return null
+	return { name, plugins, outcome, warnings: textList(row.warnings, PLUGIN_FINDINGS_MAX) }
+}
+
+export interface MarketplaceRowView {
+	name: string
+	source: string
+	kind: string
+	lastUpdated?: string
+	autoUpdate: boolean
+	plugins: number | null
+	installed: number
+	problem?: string
+}
+
+export interface MarketplaceListView {
+	marketplaces: MarketplaceRowView[]
+	declaredByProject: { name: string; declaredBy: 'project' | 'local' }[]
+	problems: string[]
+}
+
+export function readMarketplaceList(value: unknown): MarketplaceListView | null {
+	const row = record(value)
+	if (!row || !Array.isArray(row.marketplaces)) return null
+	const marketplaces: MarketplaceRowView[] = []
+	for (const raw of row.marketplaces.slice(0, PLUGIN_LIST_MAX)) {
+		const item = record(raw)
+		const name = short(item?.name, 64)
+		const source = line(item?.source)
+		const kind = short(item?.kind, 40)
+		if (!item || !name || !source || !kind) continue
+		const lastUpdated = isoTime(item.lastUpdated)
+		const problem = line(item.problem)
+		marketplaces.push({
+			name,
+			source,
+			kind,
+			...(lastUpdated ? { lastUpdated } : {}),
+			autoUpdate: item.autoUpdate === true,
+			plugins: count(item.plugins, 10_000) ?? null,
+			installed: count(item.installed, 10_000) ?? 0,
+			...(problem ? { problem } : {}),
+		})
+	}
+	const declaredByProject: MarketplaceListView['declaredByProject'] = []
+	if (Array.isArray(row.declaredByProject))
+		for (const raw of row.declaredByProject.slice(0, PLUGIN_LIST_MAX)) {
+			const item = record(raw)
+			const name = short(item?.name, 64)
+			if (!name || (item?.declaredBy !== 'project' && item?.declaredBy !== 'local')) continue
+			declaredByProject.push({ name, declaredBy: item.declaredBy })
+		}
+	return { marketplaces, declaredByProject, problems: textList(row.problems, PLUGIN_FINDINGS_MAX) }
+}
+
+export interface MarketplaceRemoveView {
+	name: string
+	removedPlugins: string[]
+}
+
+export function readMarketplaceRemove(value: unknown): MarketplaceRemoveView | null {
+	const row = record(value)
+	const name = short(row?.name, 64)
+	if (!row || row.outcome !== 'removed' || !name) return null
+	return { name, removedPlugins: textList(row.removedPlugins) }
+}
+
+export interface MarketplaceUpdateView {
+	results: {
+		name: string
+		outcome: 'updated' | 'up-to-date' | 'pinned' | 'failed'
+		plugins?: number
+		error?: string
+		/** What the refresh found, in a sentence: "pinned at 1a2b3c4", "already up to date". */
+		message?: string
+	}[]
+}
+
+export function readMarketplaceUpdate(value: unknown): MarketplaceUpdateView | null {
+	const row = record(value)
+	if (!row || !Array.isArray(row.results)) return null
+	const results: MarketplaceUpdateView['results'] = []
+	for (const raw of row.results.slice(0, PLUGIN_LIST_MAX)) {
+		const item = record(raw)
+		const name = short(item?.name, 64)
+		const outcome =
+			item?.outcome === 'updated' ||
+			item?.outcome === 'up-to-date' ||
+			item?.outcome === 'pinned' ||
+			item?.outcome === 'failed'
+				? item.outcome
+				: undefined
+		if (!item || !name || !outcome) continue
+		const plugins = count(item.plugins, 10_000)
+		const error = line(item.error)
+		const message = line(item.message)
+		results.push({
+			name,
+			outcome,
+			...(plugins !== undefined ? { plugins } : {}),
+			...(error ? { error } : {}),
+			...(message ? { message } : {}),
+		})
+	}
+	return { results }
+}
+
+export interface MarketplacePluginView {
+	name: string
+	id: string
+	description?: string
+	version?: string
+	author?: string
+	installable: boolean
+	reason?: string
+	installedAt: PluginScope[]
+}
+
+export interface MarketplaceAvailableView {
+	marketplace: string
+	plugins: MarketplacePluginView[]
+	warnings: string[]
+}
+
+export function readMarketplaceAvailable(value: unknown): MarketplaceAvailableView | null {
+	const row = record(value)
+	const marketplace = short(row?.marketplace, 64)
+	if (!row || !marketplace || !Array.isArray(row.plugins)) return null
+	const plugins: MarketplacePluginView[] = []
+	for (const raw of row.plugins.slice(0, 500)) {
+		const item = record(raw)
+		const name = short(item?.name, 200)
+		const id = short(item?.id, 200)
+		if (!item || !name || !id || typeof item.installable !== 'boolean') continue
+		const description =
+			typeof item.description === 'string'
+				? item.description.slice(0, SKILL_DESCRIPTION_MAX)
+				: undefined
+		const version = short(item.version, 64)
+		const author = short(item.author, 200)
+		const reason = line(item.reason)
+		plugins.push({
+			name,
+			id,
+			...(description ? { description } : {}),
+			...(version ? { version } : {}),
+			...(author ? { author } : {}),
+			installable: item.installable,
+			...(reason ? { reason } : {}),
+			installedAt: Array.isArray(item.installedAt)
+				? [
+						...new Set(
+							item.installedAt.map(pluginScopeOf).filter((s): s is PluginScope => s !== undefined),
+						),
+					]
+				: [],
+		})
+	}
+	return { marketplace, plugins, warnings: textList(row.warnings, PLUGIN_FINDINGS_MAX) }
+}
+
+/** What runs is read whole: the host refuses to send what is longer, so a cut here would hide a tail. */
+export const PLUGIN_RUN_MAX = 2000
+const runLine = (value: unknown): string | undefined =>
+	typeof value === 'string' && value.length > 0 ? value.slice(0, PLUGIN_RUN_MAX) : undefined
+
+/** The consent surface: every kind of thing a plugin runs on this computer. */
+export interface PluginSurfaceView {
+	hooks: { event: string; matcher?: string; type: string; run: string; from?: string }[]
+	fileHooks: { kind: string; name: string; event: string; type: string; run: string }[]
+	mcpLocal: {
+		name: string
+		command: string
+		args: string[]
+		envNames: string[]
+		needsSetup?: true
+	}[]
+	mcpRemote: {
+		name: string
+		origin: string
+		transport: string
+		sendsEnv: string[]
+		headers: string[]
+		needsSetup?: true
+	}[]
+	modules: { path: string; declares?: string[]; isolated?: boolean; refused?: string }[]
+	allowedTools: { kind: string; name: string; tools: string[] }[]
+	scripts: { path: string; bytes: number; exec: boolean }[]
+	scriptsTotal: number
+	unpinnedDownload: boolean
+}
+
+const runList = (value: unknown): string[] =>
+	Array.isArray(value)
+		? value
+				.filter((item): item is string => typeof item === 'string' && item.length > 0)
+				.slice(0, PLUGIN_LIST_MAX)
+				.map((item) => item.slice(0, PLUGIN_RUN_MAX))
+		: []
+
+function rows<T>(value: unknown, each: (item: Record<string, unknown>) => T | undefined): T[] {
+	const out: T[] = []
+	if (!Array.isArray(value)) return out
+	for (const raw of value.slice(0, PLUGIN_LIST_MAX)) {
+		const item = record(raw)
+		const read = item ? each(item) : undefined
+		if (read !== undefined) out.push(read)
+	}
+	return out
+}
+
+export function readPluginSurface(value: unknown): PluginSurfaceView | null {
+	const row = record(value)
+	if (!row) return null
+	return {
+		hooks: rows(row.hooks, (item) => {
+			const event = runLine(item.event)
+			const type = short(item.type, 20)
+			const run = runLine(item.run)
+			if (!event || !type || run === undefined) return undefined
+			const matcher = runLine(item.matcher)
+			const from = runLine(item.from)
+			return { event, ...(matcher ? { matcher } : {}), type, run, ...(from ? { from } : {}) }
+		}),
+		fileHooks: rows(row.fileHooks, (item) => {
+			const kind = short(item.kind, 20)
+			const name = runLine(item.name)
+			const event = runLine(item.event)
+			const type = short(item.type, 20)
+			const run = runLine(item.run)
+			if (!kind || !name || !event || !type || run === undefined) return undefined
+			return { kind, name, event, type, run }
+		}),
+		mcpLocal: rows(row.mcpLocal, (item) => {
+			const name = runLine(item.name)
+			const command = runLine(item.command)
+			if (!name || !command) return undefined
+			return {
+				name,
+				command,
+				args: runList(item.args),
+				envNames: runList(item.envNames),
+				...(item.needsSetup === true ? { needsSetup: true as const } : {}),
+			}
+		}),
+		mcpRemote: rows(row.mcpRemote, (item) => {
+			const name = runLine(item.name)
+			const origin = runLine(item.origin)
+			const transport = short(item.transport, 20)
+			if (!name || !origin || !transport) return undefined
+			return {
+				name,
+				origin,
+				transport,
+				sendsEnv: runList(item.sendsEnv),
+				headers: runList(item.headers),
+				...(item.needsSetup === true ? { needsSetup: true as const } : {}),
+			}
+		}),
+		modules: rows(row.modules, (item) => {
+			const path = runLine(item.path)
+			if (!path) return undefined
+			const refused = runLine(item.refused)
+			return {
+				path,
+				...(Array.isArray(item.declares) ? { declares: runList(item.declares) } : {}),
+				...(typeof item.isolated === 'boolean' ? { isolated: item.isolated } : {}),
+				...(refused ? { refused } : {}),
+			}
+		}),
+		allowedTools: rows(row.allowedTools, (item) => {
+			const kind = short(item.kind, 20)
+			const name = runLine(item.name)
+			if (!kind || !name) return undefined
+			return { kind, name, tools: runList(item.tools) }
+		}),
+		scripts: rows(row.scripts, (item) => {
+			const path = runLine(item.path)
+			const bytes = count(item.bytes, Number.MAX_SAFE_INTEGER)
+			if (!path || bytes === undefined) return undefined
+			return { path, bytes, exec: item.exec === true }
+		}),
+		scriptsTotal: count(row.scriptsTotal, 1_000_000) ?? 0,
+		unpinnedDownload: row.unpinnedDownload === true,
+	}
+}
+
+export interface PluginFindingView {
+	level: string
+	code: string
+	field?: string
+	message: string
+}
+
+function readFindings(value: unknown): PluginFindingView[] {
+	const out: PluginFindingView[] = []
+	if (!Array.isArray(value)) return out
+	for (const raw of value.slice(0, PLUGIN_FINDINGS_MAX)) {
+		const item = record(raw)
+		const level = short(item?.level, 20)
+		const code = short(item?.code, 80)
+		const message = line(item?.message)
+		if (!item || !level || !code || !message) continue
+		const fieldName = line(item.field)
+		out.push({ level, code, ...(fieldName ? { field: fieldName } : {}), message })
+	}
+	return out
+}
+
+/** What a plugin would do, with the digest the install must send back. Nothing is installed yet. */
+export interface PluginPlanView {
+	planId: string
+	digest: string
+	id: string
+	name: string
+	version: string
+	layout: 'common' | 'namzu'
+	scope: PluginScope
+	components: { skills: string[]; commands: string[]; agents: string[] }
+	surface: PluginSurfaceView
+	findings: PluginFindingView[]
+	warnings: string[]
+	/** The same text the command line shows, ending with the digest. */
+	preview: string
+	installed?: { version: string | null }
+	loadingOn: boolean
+	expiresAt: string
+}
+
+export function readPluginPlan(value: unknown): PluginPlanView | null {
+	const row = record(value)
+	const planId = short(row?.planId, 100)
+	const digest =
+		typeof row?.digest === 'string' && /^[0-9a-f]{64}$/.test(row.digest) ? row.digest : undefined
+	const id = short(row?.id, 200)
+	const name = short(row?.name, 200)
+	const version = short(row?.version, 100)
+	const scope = pluginScopeOf(row?.scope)
+	const expiresAt = isoTime(row?.expiresAt)
+	const surface = readPluginSurface(row?.surface)
+	const components = record(row?.components)
+	const preview =
+		typeof row?.preview === 'string' ? row.preview.slice(0, PLUGIN_TEXT_MAX) : undefined
+	if (
+		!row ||
+		!planId ||
+		!digest ||
+		!id ||
+		!name ||
+		!version ||
+		!scope ||
+		!expiresAt ||
+		!surface ||
+		!components ||
+		preview === undefined ||
+		typeof row.loadingOn !== 'boolean'
+	)
+		return null
+	const installed = record(row.installed)
+	return {
+		planId,
+		digest,
+		id,
+		name,
+		version,
+		layout: row.layout === 'common' ? 'common' : 'namzu',
+		scope,
+		components: {
+			skills: textList(components.skills),
+			commands: textList(components.commands),
+			agents: textList(components.agents),
+		},
+		surface,
+		findings: readFindings(row.findings),
+		warnings: textList(row.warnings, PLUGIN_FINDINGS_MAX),
+		preview,
+		...(installed ? { installed: { version: line(installed.version) ?? null } } : {}),
+		loadingOn: row.loadingOn,
+		expiresAt,
+	}
+}
+
+export interface PluginStageView {
+	stageId: string
+	name: string
+	version: string
+	expiresAt: string
+}
+
+export function readPluginStage(value: unknown): PluginStageView | null {
+	const row = record(value)
+	const stageId = short(row?.stageId, 100)
+	const name = short(row?.name, 200)
+	const version = short(row?.version, 100)
+	const expiresAt = isoTime(row?.expiresAt)
+	if (!row || !stageId || !name || !version || !expiresAt) return null
+	return { stageId, name, version, expiresAt }
+}
+
+export interface PluginInstallView {
+	id: string
+	outcome: 'installed' | 'already-installed'
+	loading: 'on' | 'off'
+	message: string
+	notes: string[]
+}
+
+export function readPluginInstall(value: unknown): PluginInstallView | null {
+	const row = record(value)
+	const id = short(row?.id, 200)
+	const outcome =
+		row?.outcome === 'installed' || row?.outcome === 'already-installed' ? row.outcome : undefined
+	const loading = row?.loading === 'on' || row?.loading === 'off' ? row.loading : undefined
+	const message = line(row?.message)
+	if (!row || !id || !outcome || !loading || !message) return null
+	return { id, outcome, loading, message, notes: textList(row.notes, 10) }
+}
+
+export interface PluginEnableView {
+	outcome: 'enabled' | 'disabled' | 'unchanged'
+	id: string
+	scope: PluginScope
+	effective: { enabled: boolean; by?: PluginScope }
+	loading: 'on' | 'off'
+	note?: string
+}
+
+export function readPluginEnable(value: unknown): PluginEnableView | null {
+	const row = record(value)
+	const id = short(row?.id, 200)
+	const scope = pluginScopeOf(row?.scope)
+	const outcome =
+		row?.outcome === 'enabled' || row?.outcome === 'disabled' || row?.outcome === 'unchanged'
+			? row.outcome
+			: undefined
+	const effective = record(row?.effective)
+	if (!row || !id || !scope || !outcome || !effective || typeof effective.enabled !== 'boolean')
+		return null
+	const by = pluginScopeOf(effective.by)
+	const note = line(row.note)
+	return {
+		outcome,
+		id,
+		scope,
+		effective: { enabled: effective.enabled, ...(by ? { by } : {}) },
+		loading: row.loading === 'on' ? 'on' : 'off',
+		...(note ? { note } : {}),
+	}
+}
+
+export interface PluginUpdateCheckView {
+	id: string
+	current: string | null
+	latest: string
+	upToDate: boolean
+	changesExecutable: boolean
+}
+
+export function readPluginUpdateCheck(value: unknown): PluginUpdateCheckView | null {
+	const row = record(value)
+	const id = short(row?.id, 200)
+	const latest = short(row?.latest, 100)
+	if (!row || !id || !latest || typeof row.upToDate !== 'boolean') return null
+	return {
+		id,
+		current: line(row.current) ?? null,
+		latest,
+		upToDate: row.upToDate,
+		changesExecutable: row.changesExecutable === true,
+	}
+}
+
+/** An update, or the question it needs answered first (`needs-consent`, with the digest to send back). */
+export interface PluginUpdateView {
+	outcome: 'updated' | 'up-to-date' | 'needs-consent'
+	id: string
+	from: string | null
+	to: string
+	message?: string
+	digest?: string
+	changes?: string[]
+	surface?: PluginSurfaceView
+	preview?: string
+}
+
+export function readPluginUpdate(value: unknown): PluginUpdateView | null {
+	const row = record(value)
+	const id = short(row?.id, 200)
+	const to = short(row?.to, 100)
+	const outcome =
+		row?.outcome === 'updated' || row?.outcome === 'up-to-date' || row?.outcome === 'needs-consent'
+			? row.outcome
+			: undefined
+	if (!row || !id || !to || !outcome) return null
+	const message = line(row.message)
+	const digest =
+		typeof row.digest === 'string' && /^[0-9a-f]{64}$/.test(row.digest) ? row.digest : undefined
+	if (outcome === 'needs-consent' && !digest) return null
+	const surface = readPluginSurface(row.surface)
+	const preview =
+		typeof row.preview === 'string' ? row.preview.slice(0, PLUGIN_TEXT_MAX) : undefined
+	return {
+		outcome,
+		id,
+		from: line(row.from) ?? null,
+		to,
+		...(message ? { message } : {}),
+		...(digest ? { digest } : {}),
+		...(Array.isArray(row.changes) ? { changes: textList(row.changes, PLUGIN_FINDINGS_MAX) } : {}),
+		...(surface ? { surface } : {}),
+		...(preview !== undefined ? { preview } : {}),
+	}
+}
+
+export interface PluginUninstallView {
+	id: string
+	scope: PluginScope
+	dataKept: boolean
+	dataDeleted: boolean
+	remaining: number
+}
+
+export function readPluginUninstall(value: unknown): PluginUninstallView | null {
+	const row = record(value)
+	const id = short(row?.id, 200)
+	const scope = pluginScopeOf(row?.scope)
+	if (!row || row.outcome !== 'uninstalled' || !id || !scope) return null
+	return {
+		id,
+		scope,
+		dataKept: row.dataKept === true,
+		dataDeleted: row.dataDeleted === true,
+		remaining: count(row.remaining, 100) ?? 0,
+	}
+}
+
+export function readOpCancel(value: unknown): { cancelled: boolean } | null {
+	const row = record(value)
+	return row && typeof row.cancelled === 'boolean' ? { cancelled: row.cancelled } : null
+}
+
+/** The notification a long step sends: which step (by the id the app gave it) and its phase. */
+export const OP_PROGRESS_NOTIFICATION = 'namzu/ops/progress'
+export interface OpProgressView {
+	opId: string
+	phase: 'checking' | 'downloading' | 'reading'
+}
+
+export function readOpProgress(value: unknown): OpProgressView | null {
+	const row = record(value)
+	const opId =
+		typeof row?.opId === 'string' && /^[A-Za-z0-9_-]{8,64}$/.test(row.opId) ? row.opId : undefined
+	const phase =
+		row?.phase === 'checking' || row?.phase === 'downloading' || row?.phase === 'reading'
+			? row.phase
+			: undefined
+	return opId && phase ? { opId, phase } : null
+}
+
+/** An id the app picks for a long step it may want to stop. */
+export const OP_ID_PATTERN = /^[A-Za-z0-9_-]{8,64}$/
+
+/** What a plugin file or folder the person picks may be, as the engine also checks it. */
+export const PLUGIN_ARCHIVE_MAX_BYTES = 200 * 1024 * 1024

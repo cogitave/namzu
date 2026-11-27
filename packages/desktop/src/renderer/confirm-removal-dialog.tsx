@@ -19,6 +19,7 @@ export function ConfirmRemovalDialog({
 	onClose,
 	returnFocus,
 	sideAction,
+	tone = 'destructive',
 }: {
 	title: string
 	description: string
@@ -34,6 +35,8 @@ export function ConfirmRemovalDialog({
 	 * dialog's own error line.
 	 */
 	sideAction?: SideAction | readonly SideAction[]
+	/** A reversible change reads as a plain action, not a red one. */
+	tone?: 'destructive' | 'default'
 }) {
 	const sideActions =
 		sideAction === undefined ? [] : 'label' in sideAction ? [sideAction] : sideAction
@@ -124,7 +127,11 @@ export function ConfirmRemovalDialog({
 							>
 								Cancel
 							</Button>
-							<Button variant="destructive" disabled={pending} onClick={() => void confirm()}>
+							<Button
+								variant={tone === 'default' ? 'default' : 'destructive'}
+								disabled={pending}
+								onClick={() => void confirm()}
+							>
 								{pending ? pendingLabel : actionLabel}
 							</Button>
 						</div>

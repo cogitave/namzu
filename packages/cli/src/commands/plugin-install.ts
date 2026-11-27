@@ -1,33 +1,5 @@
-/**
- * `namzu plugin install | uninstall | update | prune` and
- * `namzu plugin marketplace add | list | remove`: the command line over the
- * install writers (`integrations/plugins/install.ts`), for local sources: a
- * marketplace that is a folder or a `.json` file on this computer, a plugin
- * folder, or a plugin archive.
- *
- * Installing a plugin runs nothing and fetches nothing. The plugin is copied
- * to a staging folder and read there; the person sees every runnable thing in
- * it (hooks, servers, modules, scripts, pre-approved tools) and a digest of
- * that surface, and only a yes (typed, `--yes`, or `--accept-surface` with the
- * digest that was shown) moves it into place. With no terminal and neither
- * flag the preview is printed and the command exits 75: nothing is installed
- * on a guess.
- *
- * `--json` prints one object on standard output and nothing else there; every
- * prompt and notice goes to standard error.
- *
- * Exit status: 0 done (also "nothing to do"), 1 failed or declined, 64 the
- * command line is wrong, 65 refused data (an unsafe archive, a plugin Namzu
- * cannot take), 66 not found or a record could not be read, 69 unavailable
- * (an address that needs a download), 75 a yes is needed and none can be
- * asked, 77 the folder is not trusted.
- */
-
-import { randomUUID } from 'node:crypto'
-import { existsSync, lstatSync, mkdirSync, readFileSync, renameSync } from 'node:fs'
-import { isAbsolute, join, relative, resolve } from 'node:path'
-
-import { COMMON_MARKETPLACE_DIR, COMMON_MARKETPLACE_FILE } from '@namzu/sdk'
+import { existsSync, lstatSync, readFileSync } from 'node:fs'
+import { join, resolve } from 'node:path'
 
 import {
 	EXIT_DATAERR,
@@ -53,7 +25,6 @@ import {
 	type MarketplaceSource,
 	describeSource,
 	isBlockedSource,
-	isCommitId,
 	refProblem,
 	repoPathProblem,
 } from '../integrations/plugins/fetch/source.js'
@@ -64,7 +35,6 @@ import {
 	PlanRefusal,
 	discardStaging,
 	planInstall,
-	stagingFolder,
 	usedPluginNames,
 } from '../integrations/plugins/install-plan.js'
 import { renderInstallPreview } from '../integrations/plugins/install-preview.js'
@@ -104,7 +74,27 @@ import {
 	samePath,
 	splitPluginId,
 } from '../integrations/plugins/records.js'
-import { isExecutablePath, surfaceChanges } from '../integrations/plugins/surface.js'
+import {
+	DOWNLOAD_BLOCKED,
+	MARKETPLACE_BLOCKED,
+	MARKETPLACE_NOTICE,
+	type UpdateRow,
+	anotherPlace,
+	countNotInstallable,
+	downloadBlocked,
+	fetchNotes,
+	isInside,
+	lstatExists,
+	marketplaceConsentText,
+	newStaging,
+	newerVersions,
+	placeMarketplace,
+	readFetchedCatalog,
+	refreshRemoteMarketplace,
+	sameSource,
+	sameVersionChanged,
+} from '../integrations/plugins/remote-marketplace.js'
+import { compareUpdate } from '../integrations/plugins/update-compare.js'
 import {
 	type PluginRecordsDeps,
 	applicable,
@@ -267,7 +257,6 @@ function contextOf(deps: PluginInstallDeps, flags: Flags): Context {
 	return { cwd: realPathOrResolved(cwd), trusted: deps.isTrusted(cwd) }
 }
 
-const BLOCKED = 'Adding this marketplace is turned off in your settings.'
 const UNTRUSTED = 'This folder is not trusted yet. Open it with namzu once, or use --scope user.'
 
 function scopeLine(scope: RecordScope): string {
@@ -524,23 +513,8 @@ async function sourceFor(
 	if (resolved.kind === 'remote') {
 		// Before any download: a marketplace or a source the settings block is never fetched from.
 		const remote = resolved.remote
-		const entryAddress =
-			remote.kind === 'github'
-				? { source: 'github', repo: remote.repo }
-				: remote.kind === 'archive'
-					? { source: 'url', url: remote.url }
-					: { source: 'git', url: remote.url }
-		if (
-			(market !== undefined && isBlockedSource(market.source, deps.blockedMarketplaces)) ||
-			isBlockedSource(entryAddress, deps.blockedMarketplaces)
-		)
-			return failure(
-				deps,
-				flags.json,
-				command,
-				EXIT_UNTRUSTED,
-				'Downloading from this marketplace is turned off in your settings.',
-			)
+		if (downloadBlocked(market, remote, deps.blockedMarketplaces))
+			return failure(deps, flags.json, command, EXIT_UNTRUSTED, DOWNLOAD_BLOCKED)
 		return { kind: 'remote-catalog', marketplace: hit.marketplace, entry, remote }
 	}
 	const marketCommit =
@@ -824,27 +798,10 @@ async function runUpdate(deps: PluginInstallDeps, flags: Flags): Promise<number>
 				flags.json,
 				command,
 				EXIT_DATAERR,
-				`${id} still says version ${plan.version} but its files changed. Ask its author to raise the version, or remove it and install it again.`,
+				sameVersionChanged(id, plan.version),
 				{ id },
 			)
-		const before = recorded.manifest.surface as unknown as Parameters<typeof surfaceChanges>[0]
-		const changes = surfaceChanges(before, plan.surface)
-		// Nothing that runs changed: the same surface rows, and the only files that differ
-		// are manifests (a version bump) or files that cannot run and configure nothing.
-		const nothingRunsDifferently =
-			JSON.stringify(before) === JSON.stringify(plan.surface) &&
-			[...new Set([...Object.keys(plan.files), ...Object.keys(recorded.manifest.files)])]
-				.filter((path) => plan.files[path] !== recorded.manifest.files[path])
-				.every((path) => {
-					const base = path.split('/').pop() ?? path
-					if (base === 'plugin.json') return true
-					return (
-						!isExecutablePath(path, 0) &&
-						!plan.surface.scripts.some((script) => script.path === path)
-					)
-				})
-		const unchangedSurface =
-			recorded.manifest.surfaceSha256 === plan.digest || nothingRunsDifferently
+		const { changes, unchangedSurface } = compareUpdate(recorded.manifest, plan)
 		if (!unchangedSurface) {
 			const preview = renderInstallPreview(plan, {
 				scopeLine: '',
@@ -1144,11 +1101,7 @@ export async function runPluginInstall(
 // Marketplaces
 // ---------------------------------------------------------------------------
 
-const MARKETPLACE_NOTICE = [
-	'Plugins from a marketplace can run programs on this computer, with access to',
-	'your files. Namzu does not control this marketplace or its plugins, and its',
-	'owner can change them later. Add only marketplaces you trust.',
-].join('\n')
+export { MARKETPLACE_NOTICE }
 
 async function runMarketplaceAdd(deps: PluginInstallDeps, flags: Flags): Promise<number> {
 	const command = 'plugin marketplace add'
@@ -1308,7 +1261,11 @@ async function runMarketplaceAdd(deps: PluginInstallDeps, flags: Flags): Promise
 		const failed = stateFailure(error)
 		return failure(deps, flags.json, command, failed.code, failed.message)
 	}
-	const unsupported = await countNotInstallable(catalog, false, deps)
+	const unsupported = await countNotInstallable(
+		catalog,
+		false,
+		deps.fetch?.allowFileProtocol === true,
+	)
 	const message = `Added marketplace "${catalog.name}" (${catalog.entries.length} ${catalog.entries.length === 1 ? 'plugin' : 'plugins'}${unsupported > 0 ? `, ${unsupported} cannot be installed here` : ''}).`
 	if (flags.json)
 		sayJson(deps, {
@@ -1324,46 +1281,6 @@ async function runMarketplaceAdd(deps: PluginInstallDeps, flags: Flags): Promise
 		})
 	else deps.out(`${[message, ...catalog.warnings.map((w) => `Note: ${oneLine(w)}`)].join('\n')}\n`)
 	return EXIT_OK
-}
-
-/** Whether two marketplace sources name the same thing. */
-function sameSource(
-	a: Readonly<Record<string, unknown>>,
-	b: Readonly<Record<string, unknown>>,
-): boolean {
-	const norm = (v: Readonly<Record<string, unknown>>) =>
-		JSON.stringify([
-			v.source,
-			v.repo ?? v.url ?? v.path ?? null,
-			v.ref ?? null,
-			[...((v.sparsePaths as string[] | undefined) ?? [])].sort(),
-		])
-	return norm(a) === norm(b)
-}
-
-/** The refusal for a marketplace name that is already added from a different source; says so when only the ref or the sparse folders differ. */
-function anotherPlace(
-	name: string,
-	existing: Readonly<Record<string, unknown>>,
-	wanted: Readonly<Record<string, unknown>>,
-): string {
-	const remove = `Remove it first: namzu plugin marketplace remove ${name}`
-	const sameRepo =
-		existing.source === wanted.source &&
-		(existing.repo ?? existing.url ?? existing.path ?? null) ===
-			(wanted.repo ?? wanted.url ?? wanted.path ?? null) &&
-		wanted.source !== 'directory'
-	if (sameRepo) {
-		const pin = (v: Readonly<Record<string, unknown>>): string => {
-			const sparse = (v.sparsePaths as string[] | undefined) ?? []
-			return [
-				v.ref !== undefined ? `ref ${String(v.ref)}` : 'default branch',
-				...(sparse.length > 0 ? [`folders ${sparse.join(', ')}`] : []),
-			].join(', ')
-		}
-		return `A marketplace named "${name}" is already added from this repository at a different ref or folder set (added: ${oneLine(pin(existing))}; asked for: ${oneLine(pin(wanted))}). ${remove}`
-	}
-	return `A marketplace named "${name}" is already added from another place (${oneLine(describeSource(existing as { source: string }))}). ${remove}`
 }
 
 /** The source with `--ref` and `--sparse` applied, or the sentence that says why they do not fit. */
@@ -1386,48 +1303,6 @@ function withFlags(source: MarketplaceSource, flags: Flags): MarketplaceSource |
 	}
 }
 
-function marketplaceConsentText(
-	name: string,
-	display: string,
-	catalog: Catalog,
-	notInstallable: number,
-	commit: string | undefined,
-	ref: string | undefined,
-): string {
-	return [
-		`Add marketplace "${oneLine(name)}" from ${oneLine(display)}?`,
-		'',
-		MARKETPLACE_NOTICE,
-		'',
-		`  Owner:    ${catalog.owner !== undefined ? oneLine(catalog.owner) : '(not stated)'}`,
-		`  Plugins:  ${catalog.entries.length}${notInstallable > 0 ? ` (${notInstallable} cannot be installed here)` : ''}`,
-		...(commit !== undefined
-			? [`  Commit:   ${commit.slice(0, 7)}${ref !== undefined ? `  (${oneLine(ref)})` : ''}`]
-			: []),
-		'',
-		'You will see what a plugin does before you install it.',
-	].join('\n')
-}
-
-async function countNotInstallable(
-	catalog: Catalog,
-	hosted: boolean,
-	deps: PluginInstallDeps,
-): Promise<number> {
-	const kinds = await Promise.all(
-		catalog.entries.map(
-			async (entry) =>
-				(
-					await resolveEntrySource(entry, catalog, {
-						hosted,
-						...(deps.fetch?.allowFileProtocol ? { allowFileProtocol: true } : {}),
-					})
-				).kind,
-		),
-	)
-	return kinds.filter((kind) => kind !== 'local' && kind !== 'remote').length
-}
-
 /** `marketplace add` for a repository or an https address: fetch aside, read, ask, then move into place. */
 async function runRemoteMarketplaceAdd(
 	deps: PluginInstallDeps,
@@ -1443,7 +1318,7 @@ async function runRemoteMarketplaceAdd(
 	const display = describeSource(source)
 	// Before anything is fetched: the settings may forbid this marketplace.
 	if (isBlockedSource(source, deps.blockedMarketplaces))
-		return failure(deps, flags.json, command, EXIT_UNTRUSTED, BLOCKED)
+		return failure(deps, flags.json, command, EXIT_UNTRUSTED, MARKETPLACE_BLOCKED)
 	if (flags.dryRun) {
 		if (flags.json)
 			sayJson(deps, { command, outcome: 'dry-run', source, notice: MARKETPLACE_NOTICE })
@@ -1468,8 +1343,7 @@ async function runRemoteMarketplaceAdd(
 			EXIT_NOINPUT,
 			`The marketplace list could not be read, so nothing was changed (${known.reason}).`,
 		)
-	const staging = join(stagingFolder(deps.namzuHome), randomUUID())
-	mkdirSync(staging, { recursive: true, mode: 0o700 })
+	const staging = newStaging(deps.namzuHome)
 	try {
 		let fetched: Awaited<ReturnType<typeof fetchMarketplace>>
 		try {
@@ -1478,17 +1352,8 @@ async function runRemoteMarketplaceAdd(
 			const failed = describeError(error)
 			return failure(deps, flags.json, command, failed.code, failed.message)
 		}
-		const read = readCatalog(fetched.dir, 'directory')
-		if (!read.ok)
-			return failure(
-				deps,
-				flags.json,
-				command,
-				EXIT_DATAERR,
-				read.missing
-					? `${oneLine(display)} is not a marketplace: it has no ${COMMON_MARKETPLACE_DIR}/${COMMON_MARKETPLACE_FILE}.`
-					: `${oneLine(display)} is not a marketplace: ${read.reason}`,
-			)
+		const read = readFetchedCatalog(fetched.dir, display)
+		if (!read.ok) return failure(deps, flags.json, command, EXIT_DATAERR, read.message)
 		const { catalog } = read
 		const problem = marketplaceNameProblem(catalog.name)
 		if (problem !== undefined) return failure(deps, flags.json, command, EXIT_DATAERR, problem)
@@ -1521,7 +1386,11 @@ async function runRemoteMarketplaceAdd(
 			else deps.out(`${message}\n`)
 			return EXIT_OK
 		}
-		const notInstallable = await countNotInstallable(catalog, source.source === 'url', deps)
+		const notInstallable = await countNotInstallable(
+			catalog,
+			source.source === 'url',
+			deps.fetch?.allowFileProtocol === true,
+		)
 		const ref = source.source === 'url' ? undefined : source.ref
 		const consent = marketplaceConsentText(
 			catalog.name,
@@ -1538,43 +1407,20 @@ async function runRemoteMarketplaceAdd(
 			if (!(await deps.ask('Add this marketplace?')))
 				return declined(deps, flags.json, command, EXIT_FAIL, 'Not added.', { source })
 		}
-		const dest = join(marketplacesFolder(deps.namzuHome), catalog.name)
-		const now = deps.now().toISOString()
 		try {
-			if (existsSync(dest) || lstatExists(dest)) trashFolder(deps.namzuHome, dest)
-			mkdirSync(marketplacesFolder(deps.namzuHome), { recursive: true, mode: 0o700 })
-			renameSync(fetched.dir, dest)
-			putKnownMarketplace(deps.namzuHome, catalog.name, {
-				source,
-				installLocation: dest,
-				lastUpdated: now,
-				autoUpdate: false,
-				...(fetched.commit !== undefined ? { commit: fetched.commit } : {}),
-				consent: { at: now, by: 'cli', notice: 'marketplace-v1' },
+			placeMarketplace(catalog, source, fetched, {
+				home: deps.namzuHome,
+				cwd: ctx.cwd,
+				scope,
+				now: deps.now(),
+				by: 'cli',
+				layerPath: recordLayerPath(scope, { home: deps.namzuHome, cwd: ctx.cwd }),
 			})
-			setExtraKnownMarketplace(
-				recordLayerPath(scope, { home: deps.namzuHome, cwd: ctx.cwd }),
-				deps.namzuHome,
-				catalog.name,
-				source,
-			)
 		} catch (error) {
 			const failed = describeError(error)
 			return failure(deps, flags.json, command, failed.code, failed.message)
 		}
-		const notes = [
-			...catalog.warnings,
-			...(fetched.lfsPointers > 0
-				? [
-						`${fetched.lfsPointers} Git LFS ${fetched.lfsPointers === 1 ? 'file was' : 'files were'} not downloaded and stay as pointer files.`,
-					]
-				: []),
-			...(fetched.submodules > 0
-				? [
-						`The repository lists ${fetched.submodules} ${fetched.submodules === 1 ? 'submodule' : 'submodules'}; none was downloaded.`,
-					]
-				: []),
-		]
+		const notes = [...catalog.warnings, ...fetchNotes(fetched)]
 		const message = `Added marketplace "${catalog.name}" (${catalog.entries.length} ${catalog.entries.length === 1 ? 'plugin' : 'plugins'}${notInstallable > 0 ? `, ${notInstallable} cannot be installed here` : ''}).`
 		if (flags.json)
 			sayJson(deps, {
@@ -1598,157 +1444,38 @@ async function runRemoteMarketplaceAdd(
 	}
 }
 
-function lstatExists(path: string): boolean {
-	try {
-		lstatSync(path)
-		return true
-	} catch {
-		return false
-	}
-}
-
-interface UpdateRow {
-	readonly name: string
-	readonly outcome: 'updated' | 'up-to-date' | 'pinned' | 're-read' | 'failed'
-	readonly message: string
-	readonly from?: string | null
-	readonly to?: string | null
-	readonly newPlugins: readonly string[]
-	readonly changedPlugins: readonly string[]
-	readonly newer: readonly { id: string; installed: string; available: string }[]
-}
-
-function diffCatalogs(
-	before: ReturnType<typeof readCatalog>,
-	after: Catalog,
-): { added: string[]; changed: string[] } {
-	const old = new Map(before.ok ? before.catalog.entries.map((e) => [e.name, e]) : [])
-	const added: string[] = []
-	const changed: string[] = []
-	for (const entry of after.entries) {
-		const prior = old.get(entry.name)
-		if (prior === undefined) added.push(entry.name)
-		else if (JSON.stringify(prior.raw) !== JSON.stringify(entry.raw)) changed.push(entry.name)
-	}
-	return { added, changed }
-}
-
-/** Installed plugins of a marketplace whose catalog entry now names another version. */
-function newerVersions(
-	deps: PluginInstallDeps,
-	name: string,
-	catalog: Catalog,
-): UpdateRow['newer'] {
-	const installed = readInstalledPlugins(deps.namzuHome)
-	if (installed.state === 'unreadable') return []
-	const out: { id: string; installed: string; available: string }[] = []
-	for (const [id, records] of installed.plugins) {
-		const parts = splitPluginId(id)
-		if (parts.marketplace !== name) continue
-		const entry = catalog.entries.find((candidate) => candidate.name === parts.name)
-		const have = records[0]?.version
-		if (entry?.version !== undefined && have !== undefined && entry.version !== have)
-			out.push({ id, installed: have, available: entry.version })
-	}
-	return out
-}
-
-function isInside(outer: string, inner: string): boolean {
-	const rel = relative(outer, inner)
-	return rel !== '' && !rel.startsWith('..') && !isAbsolute(rel)
-}
-
+/** One marketplace refreshed: a local one is read again, a remote one is fetched aside and replaced. */
 async function updateOne(deps: PluginInstallDeps, market: KnownMarketplace): Promise<UpdateRow> {
-	const name = market.name
-	const row = (
-		partial: Partial<UpdateRow> & Pick<UpdateRow, 'outcome' | 'message'>,
-	): UpdateRow => ({
-		name,
-		newPlugins: [],
-		changedPlugins: [],
-		newer: [],
-		...partial,
-	})
 	const kind = market.source.source
 	if (kind === 'directory' || kind === 'file') {
 		const read = catalogOf(market)
-		if (!read.ok) return row({ outcome: 'failed', message: read.reason })
-		return row({
+		if (!read.ok)
+			return {
+				name: market.name,
+				outcome: 'failed',
+				message: read.reason,
+				newPlugins: [],
+				changedPlugins: [],
+				newer: [],
+			}
+		return {
+			name: market.name,
 			outcome: 're-read',
 			message: `re-read (${read.catalog.entries.length} ${read.catalog.entries.length === 1 ? 'plugin' : 'plugins'})`,
-			newer: newerVersions(deps, name, read.catalog),
-		})
-	}
-	if (isBlockedSource(market.source, deps.blockedMarketplaces))
-		return row({ outcome: 'failed', message: 'refreshing it is turned off in your settings.' })
-	const ref = typeof market.source.ref === 'string' ? market.source.ref : undefined
-	if ((kind === 'github' || kind === 'git') && ref !== undefined && isCommitId(ref))
-		return row({ outcome: 'pinned', message: `pinned at ${ref.slice(0, 7)}` })
-	if (!isInside(marketplacesFolder(deps.namzuHome), market.installLocation))
-		return row({
-			outcome: 'failed',
-			message: 'its folder is not under Namzu’s marketplaces folder, so it is not replaced.',
-		})
-	const staging = join(stagingFolder(deps.namzuHome), randomUUID())
-	mkdirSync(staging, { recursive: true, mode: 0o700 })
-	try {
-		let fetched: Awaited<ReturnType<typeof fetchMarketplace>>
-		try {
-			fetched = await fetchMarketplace(
-				market.source as unknown as MarketplaceSource,
-				staging,
-				deps.fetch,
-			)
-		} catch (error) {
-			return row({ outcome: 'failed', message: describeError(error).message })
+			newPlugins: [],
+			changedPlugins: [],
+			newer: newerVersions(deps.namzuHome, market.name, read.catalog),
 		}
-		const read = readCatalog(fetched.dir, 'directory')
-		if (!read.ok)
-			return row({ outcome: 'failed', message: `it is no longer a marketplace: ${read.reason}` })
-		if (read.catalog.name !== name)
-			return row({
-				outcome: 'failed',
-				message: `it now calls itself "${read.catalog.name}", so it was not updated.`,
-			})
-		const before = readCatalog(market.installLocation, 'directory')
-		const diff = diffCatalogs(before, read.catalog)
-		const unchanged =
-			fetched.commit !== undefined
-				? fetched.commit === market.commit
-				: before.ok &&
-					diff.added.length === 0 &&
-					diff.changed.length === 0 &&
-					before.catalog.entries.length === read.catalog.entries.length
-		const newer = newerVersions(deps, name, read.catalog)
-		if (unchanged) return row({ outcome: 'up-to-date', message: 'already up to date', newer })
-		try {
-			if (lstatExists(market.installLocation)) trashFolder(deps.namzuHome, market.installLocation)
-			renameSync(fetched.dir, market.installLocation)
-			putKnownMarketplace(deps.namzuHome, name, {
-				source: market.source,
-				installLocation: market.installLocation,
-				lastUpdated: deps.now().toISOString(),
-				...(fetched.commit !== undefined ? { commit: fetched.commit } : {}),
-			})
-		} catch (error) {
-			return row({ outcome: 'failed', message: describeError(error).message })
-		}
-		const counts = `${diff.added.length} new, ${diff.changed.length} changed`
-		return row({
-			outcome: 'updated',
-			message:
-				fetched.commit !== undefined
-					? `updated ${(market.commit ?? '?').slice(0, 7)} to ${fetched.commit.slice(0, 7)} (${counts})`
-					: `updated (${counts})`,
-			from: market.commit ?? null,
-			to: fetched.commit ?? null,
-			newPlugins: diff.added,
-			changedPlugins: diff.changed,
-			newer,
-		})
-	} finally {
-		discardStaging(staging)
 	}
+	return refreshRemoteMarketplace(market, {
+		home: deps.namzuHome,
+		now: deps.now(),
+		...(deps.blockedMarketplaces !== undefined
+			? { blockedMarketplaces: deps.blockedMarketplaces }
+			: {}),
+		...(deps.fetch !== undefined ? { fetch: deps.fetch } : {}),
+		describe: (error) => describeError(error).message,
+	})
 }
 
 async function runMarketplaceUpdate(deps: PluginInstallDeps, flags: Flags): Promise<number> {

@@ -4,7 +4,13 @@ import type {
 	ComposerPluginInventory,
 	usePluginInventory,
 } from './composer-plugins.js'
-import { NO_PLUGINS, USE_SKILLS_NOTE, longUpdated, shortUpdated } from './customize-model.js'
+import {
+	NO_PLUGINS,
+	NO_PLUGINS_NOTE,
+	USE_SKILLS_NOTE,
+	longUpdated,
+	shortUpdated,
+} from './customize-model.js'
 import {
 	Chip,
 	DetailFrame,
@@ -15,16 +21,25 @@ import {
 	MoreMenu,
 	Tile,
 } from './customize-parts.js'
+import {
+	PLACED_NOTE,
+	type PluginGroup,
+	groupPlugins,
+	isManaged,
+	noUpdateReason,
+	updateWords,
+} from './customize-plugins-model.js'
 import { LoaderCircleIcon, PuzzleIcon } from './icons.js'
 import { Switch } from './settings-row.js'
 import { Button } from './ui/button.js'
+import type { PluginActions } from './use-plugin-actions.js'
 
 type Inventory = ReturnType<typeof usePluginInventory>
 
 export const pluginIsOff = (plugin: ComposerPlugin, live: boolean): boolean =>
 	live ? plugin.status === 'disabled' : plugin.startupEnabled === false
 
-const pluginPlace = (plugin: ComposerPlugin) => (plugin.scope === 'user' ? 'user' : 'project')
+const pluginPlace = (plugin: ComposerPlugin) => (plugin.scope === 'user' ? 'Yours' : 'This project')
 
 /** Why a plugin cannot be switched now, in the words the old page used; nothing when it can. */
 export function pluginChangeNotice(view: ComposerPluginInventory | undefined): string | undefined {
@@ -45,30 +60,80 @@ const turnEntry = (
 	onSelect: () => void inventory.change(plugin),
 })
 
-export function PluginsList({
-	plugins,
+/** What the row and detail menus of a plugin can do beyond the live switch: only for one Namzu installed. */
+export interface PluginRowActions {
+	actions: PluginActions
+	/** Turns it off (after a confirm) or on, in its saved record. */
+	onToggle: (plugin: ComposerPlugin, on: boolean) => void
+	onRemove: (plugin: ComposerPlugin) => void
+}
+
+/** The entries of a plugin's menu, in the order of the design: switch, check, details, then remove. */
+export function pluginEntries(
+	plugin: ComposerPlugin,
+	view: ComposerPluginInventory,
+	inventory: Inventory,
+	row: PluginRowActions | undefined,
+	onOpen?: (plugin: ComposerPlugin) => void,
+): MenuEntry[] {
+	const entries: MenuEntry[] = []
+	const off = pluginIsOff(plugin, view.live)
+	if (row && isManaged(plugin))
+		entries.push({
+			label: off ? 'Turn on' : 'Turn off',
+			disabled: inventory.changing !== undefined,
+			onSelect: () => row.onToggle(plugin, off),
+		})
+	else entries.push(turnEntry(plugin, view, inventory))
+	if (row) {
+		const reason = noUpdateReason(plugin)
+		const state = plugin.id ? row.actions.states[plugin.id] : undefined
+		entries.push({
+			label: 'Check for updates',
+			disabled: Boolean(reason) || state?.kind === 'checking' || state?.kind === 'updating',
+			title: reason,
+			onSelect: () => void row.actions.check(plugin),
+		})
+		if (state?.kind === 'available')
+			entries.push({ label: 'Update', onSelect: () => void row.actions.update(plugin) })
+	}
+	if (onOpen) entries.push({ label: 'Details', onSelect: () => onOpen(plugin) })
+	if (row && isManaged(plugin))
+		entries.push({ label: 'Remove', danger: true, onSelect: () => row.onRemove(plugin) })
+	return entries
+}
+
+function PluginGroupList({
+	group,
 	view,
 	inventory,
 	now,
 	onOpen,
+	row,
 }: {
-	plugins: readonly ComposerPlugin[]
+	group: PluginGroup
 	view: ComposerPluginInventory
 	inventory: Inventory
 	now: number
 	onOpen: (plugin: ComposerPlugin) => void
+	row?: PluginRowActions
 }) {
+	const plugins = group.plugins
 	return (
-		<section className="customize-group" aria-label="Installed plugins">
-			<GroupHeading title="Installed" count={plugins.length} />
+		<section className="customize-group" aria-label={`${group.title} plugins`}>
+			<GroupHeading title={group.title} count={plugins.length} />
 			<ul className="customize-list">
 				{plugins.map((plugin) => {
 					const off = pluginIsOff(plugin, view.live)
+					const words = updateWords(plugin.id ? row?.actions.states[plugin.id] : undefined)
 					return (
 						<li
 							key={`${plugin.scope}:${plugin.name}`}
 							className="customize-row"
 							data-off={off || undefined}
+							data-update={
+								(plugin.id && row?.actions.states[plugin.id]?.kind === 'available') || undefined
+							}
 						>
 							<button
 								type="button"
@@ -85,6 +150,11 @@ export function PluginsList({
 										{plugin.version && <Chip>{plugin.version}</Chip>}
 										{off && <Chip>Off</Chip>}
 										{plugin.status === 'error' && <Chip>Unavailable</Chip>}
+										{words ? (
+											<Chip>{words}</Chip>
+										) : (
+											plugin.updateKnown && <Chip>Update available</Chip>
+										)}
 									</span>
 									<span className="customize-row-sub">
 										{plugin.description
@@ -94,12 +164,20 @@ export function PluginsList({
 								</span>
 								<span className="customize-row-time">{shortUpdated(plugin.updatedAt, now)}</span>
 							</button>
+							{plugin.id && row?.actions.states[plugin.id]?.kind === 'available' && (
+								<Button
+									variant="outline"
+									size="sm"
+									className="customize-row-update"
+									aria-label={`Update ${plugin.name}`}
+									onClick={() => void row.actions.update(plugin)}
+								>
+									Update
+								</Button>
+							)}
 							<MoreMenu
 								label={`Actions for ${plugin.name}`}
-								items={[
-									turnEntry(plugin, view, inventory),
-									{ label: 'Details', onSelect: () => onOpen(plugin) },
-								]}
+								items={pluginEntries(plugin, view, inventory, row, onOpen)}
 							/>
 						</li>
 					)
@@ -109,11 +187,41 @@ export function PluginsList({
 	)
 }
 
+/** The installed plugins, grouped by the marketplace each came from; a plugin placed by hand is under Installed. */
+export function PluginsList({
+	plugins,
+	...rest
+}: {
+	plugins: readonly ComposerPlugin[]
+	view: ComposerPluginInventory
+	inventory: Inventory
+	now: number
+	onOpen: (plugin: ComposerPlugin) => void
+	row?: PluginRowActions
+}) {
+	return (
+		<>
+			{groupPlugins(plugins).map((group) => (
+				<PluginGroupList key={group.key} group={group} {...rest} />
+			))}
+		</>
+	)
+}
+
 export function PluginsEmpty({
 	searching,
 	disabled,
 	onChooseSpace,
-}: { searching: boolean; disabled: boolean; onChooseSpace: () => void }) {
+	onAddMarketplace,
+	onUpload,
+}: {
+	searching: boolean
+	disabled: boolean
+	onChooseSpace: () => void
+	/** Where there is a way to add one: the two entries the Add menu has. */
+	onAddMarketplace?: () => void
+	onUpload?: () => void
+}) {
 	if (disabled)
 		return (
 			<EmptyState
@@ -126,7 +234,32 @@ export function PluginsEmpty({
 				Open a trusted project to see its installed plugins.
 			</EmptyState>
 		)
-	return <EmptyState>{searching ? 'No plugins match your search.' : NO_PLUGINS}</EmptyState>
+	if (searching) return <EmptyState>No plugins match your search.</EmptyState>
+	return (
+		<EmptyState
+			action={
+				<>
+					{(onAddMarketplace || onUpload) && (
+						<div className="customize-empty-actions">
+							{onAddMarketplace && (
+								<Button variant="outline" size="sm" onClick={onAddMarketplace}>
+									Add marketplace
+								</Button>
+							)}
+							{onUpload && (
+								<Button variant="outline" size="sm" onClick={onUpload}>
+									Upload plugin
+								</Button>
+							)}
+						</div>
+					)}
+					<p className="customize-footnote">{NO_PLUGINS_NOTE}</p>
+				</>
+			}
+		>
+			{NO_PLUGINS}
+		</EmptyState>
+	)
 }
 
 export type PluginDetailTab = 'overview' | 'skills' | 'connectors'
@@ -148,6 +281,7 @@ export function PluginDetail({
 	tab,
 	onTab,
 	onBack,
+	row,
 }: {
 	plugin: ComposerPlugin
 	view: ComposerPluginInventory
@@ -156,6 +290,7 @@ export function PluginDetail({
 	tab: PluginDetailTab
 	onTab: (tab: PluginDetailTab) => void
 	onBack: () => void
+	row?: PluginRowActions
 }) {
 	const off = pluginIsOff(plugin, view.live)
 	const skills = plugin.skills ?? []
@@ -172,6 +307,9 @@ export function PluginDetail({
 		.filter(Boolean)
 		.join(' · ')
 	const change = turnEntry(plugin, view, inventory)
+	const managed = Boolean(row) && isManaged(plugin)
+	const entries = pluginEntries(plugin, view, inventory, row)
+	const words = updateWords(plugin.id ? row?.actions.states[plugin.id] : undefined)
 	return (
 		<DetailFrame
 			backLabel="Your plugins"
@@ -181,7 +319,9 @@ export function PluginDetail({
 			subtitle={subtitle}
 			note={
 				<>
-					{view.notice ?? notice}
+					{managed ? undefined : (view.notice ?? notice)}
+					{!plugin.id && row && <span>{PLACED_NOTE}</span>}
+					{words && <output>{words}</output>}
 					{inventory.error && (
 						<span role="alert" className="customize-error">
 							{inventory.error}
@@ -192,12 +332,19 @@ export function PluginDetail({
 			actions={
 				<>
 					{changing && <LoaderCircleIcon className="animate-spin" aria-hidden="true" />}
-					<MoreMenu label={`Actions for ${plugin.name}`} items={[change]} />
+					{row?.actions.states[plugin.id ?? '']?.kind === 'available' && (
+						<Button variant="outline" size="sm" onClick={() => void row?.actions.update(plugin)}>
+							Update
+						</Button>
+					)}
+					<MoreMenu label={`Actions for ${plugin.name}`} items={entries} />
 					<Switch
 						label={`Use ${plugin.name}`}
 						checked={!off}
-						disabled={change.disabled}
-						onChange={() => void inventory.change(plugin)}
+						disabled={managed ? inventory.changing !== undefined : change.disabled}
+						onChange={() =>
+							managed && row ? row.onToggle(plugin, off) : void inventory.change(plugin)
+						}
 					/>
 				</>
 			}
@@ -221,7 +368,7 @@ export function PluginDetail({
 							<dl className="customize-info">
 								<div>
 									<dt>Installation</dt>
-									<dd>{plugin.scope === 'user' ? 'Personal' : 'Project'}</dd>
+									<dd>{pluginPlace(plugin)}</dd>
 								</div>
 								{plugin.version && (
 									<div>

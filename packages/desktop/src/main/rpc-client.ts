@@ -146,6 +146,11 @@ export class RuntimeClient extends EventEmitter {
 	supportsSkillsManage(): boolean {
 		return this.skillsManage
 	}
+	private pluginsManage = false
+	/** A host that predates installing plugins does not list the marketplace and plugin methods. */
+	supportsPluginsManage(): boolean {
+		return this.pluginsManage
+	}
 	private browserStatus = false
 	/** A host that predates the browser status does not list `namzu/browser/status`. */
 	supportsBrowserStatus(): boolean {
@@ -431,6 +436,7 @@ export class RuntimeClient extends EventEmitter {
 		this.skillsList = offers('skillsList')
 		this.skillsCatalog = offers('skillsCatalog')
 		this.skillsManage = offers('skillsManage')
+		this.pluginsManage = offers('pluginsManage')
 		this.browserStatus = offers('browserStatus')
 		this.hooksView = offers('hooksView')
 		this.standingInstructions = offers('standingInstructions')

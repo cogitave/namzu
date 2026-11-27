@@ -15,6 +15,7 @@ import {
 import { checkSetting, readSettings, writeSetting } from '../config/desktop-settings.js'
 import { loadConfig } from '../config/load.js'
 import type { SkillsConfig } from '../config/schema.js'
+import { planSettingChange } from '../config/setting-cli.js'
 import { userConfigPath } from '../config/user-config.js'
 import {
 	approveListedAnyMcpServers,
@@ -109,6 +110,7 @@ import { readContextRequest } from './desktop-context.js'
 import { createProjectChanges } from './desktop-host-changes.js'
 import { type ProjectGitState, capMarkdown, createProjectGit } from './desktop-host-header.js'
 import { createMemoryHost } from './desktop-host-memory.js'
+import { createDesktopPluginActions } from './desktop-host-plugins.js'
 import { projectPr } from './desktop-host-pr.js'
 import { createDesktopSkillActions } from './desktop-host-skills.js'
 import { LIMITS_REFRESH_METHOD, type LimitsFeed } from './desktop-limits-feed.js'
@@ -931,9 +933,31 @@ export function createDesktopHostExtensions(
 				? (runtime.suggestCommitMessage?.(sessionId, request, signal) ?? Promise.resolve(undefined))
 				: Promise.resolve(undefined),
 	}),
+	/** Progress of a long step (a marketplace read, a plugin plan) goes to the app through this. */
+	notify?: (method: string, params: Record<string, unknown>) => void,
 ) {
 	const cwd = canonicalProjectPath(directory)
 	const pal = () => palAtWorkspace(cwd)
+	const pluginActions = createDesktopPluginActions({
+		cwd,
+		pal: () => Boolean(pal()),
+		isTrusted,
+		...(notify ? { notify } : {}),
+		// A settings file that cannot be read stops the step: a block list nobody could read is not "empty".
+		blockedMarketplaces: () => loadConfig({ cwd }).plugins?.blockedMarketplaces ?? [],
+		loadingOn: () => {
+			try {
+				return loadConfig({ cwd }).plugins?.enabled === true
+			} catch {
+				return false
+			}
+		},
+		enableLoading: () => {
+			const plan = planSettingChange('plugins.enabled', 'true')
+			if (!plan.ok) throw new Error(plan.error)
+			return plan.apply().replace(/^Plugins is now/, 'Plugin loading is now')
+		},
+	})
 	const skillActions = createDesktopSkillActions({
 		cwd,
 		pal: () => Boolean(pal()),
@@ -1809,6 +1833,8 @@ export function createDesktopHostExtensions(
 		},
 		/** Stage, install, create and remove skills for the Customize page. */
 		...skillActions.methods,
+		/** Marketplaces and plugins for the Customize page: read, show, install, update, remove. */
+		...pluginActions.methods,
 		/** The skills this folder's engine finds, names and tiers only; reads files, runs nothing. */
 		'namzu/skills/list': async (params: Record<string, unknown> = {}) => {
 			if (
@@ -2069,7 +2095,9 @@ export function createDesktopHostExtensions(
 					canChange: false,
 					notice: 'Host plugins are not inherited by Pals.',
 				}
-			return runtime.plugins(cwd, id)
+			return pluginActions.enrichList(
+				await pluginActions.withInstalled(await runtime.plugins(cwd, id)),
+			)
 		},
 		'namzu/plugins/set_enabled': async (params: Record<string, unknown>) => {
 			if (!isTrusted(cwd)) throw new Error('Trust this folder first.')

@@ -147,6 +147,7 @@ export function CustomizeHeader({
 	onSort,
 	add,
 	searchLabel,
+	beside,
 }: {
 	tab: CustomizeTab
 	onTab: (tab: CustomizeTab) => void
@@ -156,21 +157,26 @@ export function CustomizeHeader({
 	onSort: (sort: SkillSort) => void
 	add?: AddMenuModel
 	searchLabel: string
+	/** A second switch next to the tabs, such as the Plugins tab's Yours and Discover. */
+	beside?: ReactNode
 }) {
 	return (
 		<div className="customize-controls">
-			<Tabs.List className="customize-tabs" aria-label="Customize sections">
-				{CUSTOMIZE_TABS.map((item) => (
-					<Tabs.Tab
-						key={item.id}
-						value={item.id}
-						className="customize-tab"
-						onClick={() => onTab(item.id)}
-					>
-						{item.label}
-					</Tabs.Tab>
-				))}
-			</Tabs.List>
+			<div className="customize-tabs-group">
+				<Tabs.List className="customize-tabs" aria-label="Customize sections">
+					{CUSTOMIZE_TABS.map((item) => (
+						<Tabs.Tab
+							key={item.id}
+							value={item.id}
+							className="customize-tab"
+							onClick={() => onTab(item.id)}
+						>
+							{item.label}
+						</Tabs.Tab>
+					))}
+				</Tabs.List>
+				{beside}
+			</div>
 			<div className="customize-tools">
 				<div className="customize-search">
 					<SearchIcon aria-hidden="true" />

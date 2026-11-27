@@ -2629,6 +2629,7 @@ export function desktopServerExtensions(
 	limits?: Pick<LimitsFeed, 'refresh'>,
 	extensions?: Readonly<Record<string, (params: Record<string, unknown>) => unknown>>,
 	browserPane?: Pick<AcpPaneLink, 'extensions'>,
+	notify?: (method: string, params: Record<string, unknown>) => void,
 ): Readonly<Record<string, (params: Record<string, unknown>) => unknown>> {
 	return {
 		...createDesktopHostExtensions(
@@ -2640,6 +2641,8 @@ export function desktopServerExtensions(
 			undefined,
 			palInboxStart,
 			limits,
+			undefined,
+			notify,
 		),
 		...terminals?.extensions,
 		// What the app says about the agent's tab in its Browser pane. Always listed, so the app
@@ -2773,6 +2776,7 @@ export async function runAcpCommand(ctx: CommandContext, desktop = false): Promi
 						limitsFeed,
 						undefined,
 						paneLink,
+						announce,
 					),
 				}
 			: {}),
