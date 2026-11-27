@@ -160,3 +160,46 @@ it('answers which browser the engine would drive, from the user file, and refuse
 		await owner.close()
 	}
 })
+
+it('takes headers as environment references only, through the host', async () => {
+	const owner = runtime()
+	const host = createDesktopHostExtensions(owner, cwd)
+	try {
+		await host['namzu/mcp/save-user-server']({
+			mode: 'add',
+			name: 'remote',
+			url: 'https://example.com/mcp',
+			headers: { 'X-Api-Key': '${EXAMPLE_TOKEN}' },
+		})
+		const servers = userDoc().mcpServers as Record<string, Record<string, unknown>>
+		expect(servers.remote?.headers).toEqual({ 'X-Api-Key': '${EXAMPLE_TOKEN}' })
+		await expect(
+			host['namzu/mcp/save-user-server']({
+				mode: 'add',
+				name: 'other',
+				url: 'https://example.com/mcp',
+				headers: { 'X-Api-Key': 'sk-live-abc' },
+			}),
+		).rejects.toThrow('environment reference')
+		await expect(
+			host['namzu/mcp/save-user-server']({
+				mode: 'add',
+				name: 'other',
+				url: 'https://example.com/mcp',
+				headers: ['x'],
+			}),
+		).rejects.toThrow('Headers are names')
+		await expect(
+			host['namzu/mcp/save-user-server']({
+				mode: 'add',
+				name: 'other',
+				url: 'https://example.com/mcp',
+				headers: { 'X-A': 5 },
+			}),
+		).rejects.toThrow('Headers are names')
+		const text = readFileSync(userFile(), 'utf8')
+		expect(text).not.toContain('sk-live-abc')
+	} finally {
+		await owner.close()
+	}
+})

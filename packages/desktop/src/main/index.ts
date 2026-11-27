@@ -160,6 +160,7 @@ import { SettingsConfirmation } from './settings-confirmation.js'
 import { ShortcutController } from './shortcut-controller.js'
 import { runShutdown } from './shutdown-sequence.js'
 import { SidebarSnapshotStore } from './sidebar-snapshot-store.js'
+import { createSkillPathRegistry } from './skill-paths.js'
 import { SleepGuard } from './sleep-guard.js'
 import { nodeStateFs } from './state-store/node-fs.js'
 import { StateStore } from './state-store/store.js'
@@ -1781,6 +1782,46 @@ function register(): void {
 	handle('skillFiles', (name: unknown, projectId?: string) => operator.skillFiles(name, projectId))
 	handle('skillFile', (name: unknown, path: unknown, projectId?: string) =>
 		operator.skillFile(name, path, projectId),
+	)
+	// Skills the person adds: main opens the dialog or takes the drop, checks each path and
+	// remembers it; the engine is asked only about paths remembered for this window.
+	const skillPaths = createSkillPathRegistry()
+	handleWindow('chooseSkillFiles', async ({ id, window }) => {
+		if (!window) return []
+		const picked = await dialog.showOpenDialog(window, {
+			title: 'Add a skill',
+			properties: ['openFile', 'multiSelections'],
+			filters: [{ name: 'Skills', extensions: ['skill', 'zip', 'md'] }],
+		})
+		return picked.canceled ? [] : skillPaths.register(id, picked.filePaths)
+	})
+	handleWindow('chooseSkillFolder', async ({ id, window }) => {
+		if (!window) return []
+		const picked = await dialog.showOpenDialog(window, {
+			title: 'Choose a folder',
+			properties: ['openDirectory'],
+		})
+		return picked.canceled ? [] : skillPaths.register(id, picked.filePaths)
+	})
+	handleWindow('dropSkillFiles', ({ id }, paths: unknown) =>
+		skillPaths.register(
+			id,
+			Array.isArray(paths) ? paths.filter((p): p is string => typeof p === 'string') : [],
+		),
+	)
+	handleWindow('stageSkills', ({ id }, paths: unknown, projectId?: string) => {
+		const taken = skillPaths.take(id, paths)
+		if ('error' in taken) throw new Error(taken.error)
+		return operator.stageSkills(taken.paths, projectId)
+	})
+	handle('installSkills', (change: unknown, projectId?: string) =>
+		operator.installSkills(change, projectId),
+	)
+	handle('createSkill', (change: unknown, projectId?: string) =>
+		operator.createSkill(change, projectId),
+	)
+	handle('removeSkill', (name: unknown, tier: unknown, projectId?: string) =>
+		operator.removeSkill(name, tier, projectId),
 	)
 	handle('engineBrowser', () => operator.engineBrowser())
 	handle('standingInstructions', () => operator.standingInstructions())

@@ -89,3 +89,28 @@ The page reaches the engine only through the host methods in the table of
 `namzu/plugins/list`, `namzu/mcp/servers` and `namzu/plugins/set_enabled`, behind the capability
 group `skillsCatalog`. Every answer is read through `shared/customize-protocol.ts`, which keeps the
 shape it expects, caps the counts and lengths and drops the rest.
+
+## Adding, making and removing skills (engine and app plumbing)
+
+The page's Add and Remove actions rest on four host methods in the group `skillsManage`
+(`namzu/skills/stage`, `install`, `create`, `remove`, in the table of [Desktop](desktop.md)), all
+built on the same modules as [`namzu skills add`, `create` and `remove`](skills-add.md). A method
+refuses a Pal, takes exact keys with length caps, and refuses `scope: project` and `tier: project`
+for a folder nobody trusted. An older engine lacks the group, so the page hides the entries it
+cannot serve. Success answers carry `It loads in new conversations.`, because a running
+conversation keeps what it loaded.
+
+- **Stage, then install.** `stage` reads and checks what the person chose and returns what each
+  item is, what it can run (`grants`), the scripts it ships and whether the name is already in use;
+  it writes nothing. The items stay in the host's memory for ten minutes (at most four stages), and
+  `install` recomputes their digest before it writes, so the app can install only what the person
+  was shown.
+- **Which paths.** The app's main process opens the file dialog (`.skill`, `.zip`, `.md`) and a
+  separate Choose a folder dialog, or takes a drop whose path the preload reads with
+  `webUtils.getPathForFile`. It checks each path with `lstat` (a regular file of at most 30 MB, or a
+  folder, never a link; at most 20 at once) and remembers it for that window. The page can name a
+  path only to take back one it was given: a path it made up is refused before the engine is asked.
+  The engine checks everything again. An engine on another file system gets a translated path, or
+  `This engine cannot read that file. Use a file on the engine's computer.`
+- **Connector headers.** The Add custom connector dialog saves through `namzu/mcp/save-user-server`
+  with `headers`: names and values that are environment references only (see [Desktop](desktop.md)).
