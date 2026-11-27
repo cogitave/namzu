@@ -241,6 +241,7 @@ import { type PasteRange, addPaste, confirmedRanges, trackEdit } from './paste-r
 import { pendingMessages } from './pending-messages.js'
 import type { PendingActions } from './pending-tail.js'
 import { plainError, plainErrorText } from './plain-error.js'
+import { NEW_PLUGIN_EVENT, NEW_PLUGIN_PROMPT } from './plugin-create.js'
 import {
 	EMPTY_CONVERSATION_TITLE,
 	emptyProjectConversation,
@@ -2581,6 +2582,8 @@ export function App({
 				setLimitsView(event.limits)
 				return
 			}
+			// A marketplace or plugin step's phase belongs to the page that started it, not to a conversation.
+			if (event.kind === 'op-progress') return
 			// The Extensions page and the window mark listen for their own event.
 			if (event.kind === 'extensions-state') return
 			// A page of an extension speaks to its own host, not to a conversation.
@@ -5507,6 +5510,8 @@ export function App({
 	const openSettingsRef = useRef(openSettings)
 	openSettingsRef.current = openSettings
 	// Settings > Skills > New skill: a new conversation that opens with the skill request in its box.
+	const sessionIdRef = useRef(sessionId)
+	sessionIdRef.current = sessionId
 	const newConversationRef = useRef(newConversation)
 	newConversationRef.current = newConversation
 	useEffect(() => {
@@ -5517,13 +5522,43 @@ export function App({
 		}
 		// The saved-skill card's link: Customize on the Skills tab.
 		const openSkills = () => openCustomizeRef.current('skills')
+		// Plugins, Add, Create with Namzu: the request waits in the box, unsent.
+		const startPlugin = () => {
+			setSettingsOpen(false)
+			// An empty conversation with nothing typed in it takes the request, so no second tab is left behind.
+			const current = sessionIdRef.current
+			const empty = current ? threadsRef.current[current] : undefined
+			if (
+				current &&
+				empty &&
+				empty.messages.length === 0 &&
+				!empty.running &&
+				!draftsRef.current[current]?.trim()
+			) {
+				draftsRef.current[current] = NEW_PLUGIN_PROMPT
+				setDrafts((all) => ({ ...all, [current]: NEW_PLUGIN_PROMPT }))
+				void api.saveDraft(current, NEW_PLUGIN_PROMPT).catch(() => undefined)
+				setConversationSelection(null)
+				setPalScreen(undefined)
+				setRailSection(null)
+				setPalsPage(false)
+				setSideOpen(false)
+				setJobsOpen(false)
+				requestAnimationFrame(() => input.current?.focus())
+				return
+			}
+			pendingSeed.current = NEW_PLUGIN_PROMPT
+			void act(newConversationRef.current)
+		}
 		window.addEventListener(NEW_SKILL_EVENT, start)
+		window.addEventListener(NEW_PLUGIN_EVENT, startPlugin)
 		window.addEventListener(OPEN_SKILLS_EVENT, openSkills)
 		return () => {
+			window.removeEventListener(NEW_PLUGIN_EVENT, startPlugin)
 			window.removeEventListener(NEW_SKILL_EVENT, start)
 			window.removeEventListener(OPEN_SKILLS_EVENT, openSkills)
 		}
-	}, [act])
+	}, [act, api])
 	// Record your screen: whether the Skills Add menu offers it, and the recording waiting above the box.
 	const recording = useRecording(api, {
 		onMessage: (text) => notify(text, { tone: 'warning' }),

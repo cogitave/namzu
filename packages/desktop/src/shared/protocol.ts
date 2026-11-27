@@ -26,6 +26,21 @@ import type {
 } from './config-settings-protocol.js'
 import type { ContextReport } from './context-protocol.js'
 import type {
+	MarketplaceAddView,
+	MarketplaceAvailableView,
+	MarketplaceListView,
+	MarketplacePreviewView,
+	MarketplaceRemoveView,
+	MarketplaceUpdateView,
+	OpProgressView,
+	PluginEnableView,
+	PluginInstallView,
+	PluginPlanView,
+	PluginScope,
+	PluginStageView,
+	PluginUninstallView,
+	PluginUpdateCheckView,
+	PluginUpdateView,
 	SkillCatalogView,
 	SkillCreateView,
 	SkillFileTextView,
@@ -232,6 +247,12 @@ export interface PluginInventoryView {
 		servers?: { name: string }[]
 		author?: string
 		updatedAt?: string
+		id?: string
+		marketplace?: string
+		layout?: 'common' | 'namzu'
+		installed?: ('user' | 'project' | 'local')[]
+		findings?: Record<string, number>
+		updateKnown?: true
 	}[]
 	live: boolean
 	canChange: boolean
@@ -810,6 +831,8 @@ export type DesktopEvent = (
 	| ({ kind: 'usage' } & UsageNotice)
 	/** What each provider in use says about its account; see `LimitsNotification`. Account data, kept in memory. */
 	| { kind: 'limits'; limits: LimitsNotification }
+	/** Which phase a long marketplace or plugin step (one the app named with an `opId`) is in. */
+	| ({ kind: 'op-progress' } & OpProgressView)
 	/** What a finished turn changed and what checked it; see `OutcomeNotice`. */
 	| ({ kind: 'outcome' } & OutcomeNotice)
 	/** What the model saw after a computer action, small, with where a click landed. */
@@ -1229,6 +1252,71 @@ export interface DesktopApi {
 	): Promise<SkillCreateView | null>
 	/** Moves a skill the person added into the backups folder. */
 	removeSkill?(name: string, tier: SkillScope, projectId?: string): Promise<SkillRemoveView | null>
+	/** The file dialog for a plugin archive (.zip, .plugin); what was chosen, registered for staging. Empty when cancelled. */
+	choosePluginFile?(): Promise<SkillPathChoiceView[]>
+	/** The folder dialog for a plugin folder. */
+	choosePluginFolder?(): Promise<SkillPathChoiceView[]>
+	/** A plugin file dropped on the page, by the path the preload read from it; registered after a check. */
+	dropPluginFile?(files: File[]): Promise<SkillPathChoiceView[]>
+	/** Reads a chosen plugin aside and keeps it for ten minutes; null where the engine cannot. Nothing is installed. */
+	stagePlugin?(path: string, opId?: string, projectId?: string): Promise<PluginStageView | null>
+	/** What an address would be, from its text alone: no network. */
+	previewMarketplace?(source: string, projectId?: string): Promise<MarketplacePreviewView | null>
+	/** Adds a marketplace after the person read the notice. */
+	addMarketplace?(
+		change: { source: string; scope: PluginScope; accepted: 'marketplace-v1'; opId?: string },
+		projectId?: string,
+	): Promise<MarketplaceAddView | null>
+	marketplaces?(projectId?: string): Promise<MarketplaceListView | null>
+	removeMarketplace?(
+		change: { name: string; confirm: true },
+		projectId?: string,
+	): Promise<MarketplaceRemoveView | null>
+	updateMarketplaces?(
+		change: { name?: string; opId?: string },
+		projectId?: string,
+	): Promise<MarketplaceUpdateView | null>
+	availablePlugins?(
+		marketplace: string,
+		projectId?: string,
+	): Promise<MarketplaceAvailableView | null>
+	/** Reads a plugin and says what it would do, with the digest an install must send back. */
+	planPlugin?(
+		change: { id?: string; stageId?: string; scope: PluginScope; opId?: string },
+		projectId?: string,
+	): Promise<PluginPlanView | null>
+	/** Installs what a plan showed, only with its digest. */
+	installPlugin?(
+		change: {
+			planId: string
+			digest: string
+			scope: PluginScope
+			consent: true
+			enableLoading?: boolean
+			opId?: string
+		},
+		projectId?: string,
+	): Promise<PluginInstallView | null>
+	/** Writes the saved yes or no for an installed plugin. */
+	enablePlugin?(
+		change: { id: string; scope: PluginScope; enabled: boolean },
+		projectId?: string,
+	): Promise<PluginEnableView | null>
+	checkPluginUpdate?(
+		change: { id: string; opId?: string },
+		projectId?: string,
+	): Promise<PluginUpdateCheckView | null>
+	/** Updates an installed plugin; when what runs changed it answers `needs-consent` with the digest to send back as `acceptDigest`. */
+	updatePlugin?(
+		change: { id: string; acceptDigest?: string; opId?: string },
+		projectId?: string,
+	): Promise<PluginUpdateView | null>
+	uninstallPlugin?(
+		change: { id: string; scope: PluginScope; deleteData?: boolean; confirm: true },
+		projectId?: string,
+	): Promise<PluginUninstallView | null>
+	/** Stops a long step by the id the app named it with. */
+	cancelOp?(opId: string, projectId?: string): Promise<boolean>
 	/** Which browser the engine would drive on this computer, read without launching it; null where the engine cannot say. */
 	engineBrowser?(): Promise<EngineBrowserView | null>
 	/** The person's own instructions every conversation starts from; null where the engine cannot say. */

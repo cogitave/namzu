@@ -228,8 +228,9 @@ export function skillLocation(skill: SkillCatalogEntryView): string {
 }
 
 export const NO_SKILLS = 'No skills yet. Create skills in .namzu/skills/ or ~/.namzu/skills/.'
-export const NO_PLUGINS =
-	'No plugins installed. Plugins live in .namzu/plugins/ or ~/.namzu/plugins/.'
+export const NO_PLUGINS = 'No plugins yet.'
+export const NO_PLUGINS_NOTE =
+	'Plugins placed by hand live in .namzu/plugins/ or ~/.namzu/plugins/.'
 export const NO_CONNECTORS = 'No connectors yet.'
 export const USE_SKILLS_NOTE =
 	'Use them by typing / in chat, or let Namzu use them when a task fits.'

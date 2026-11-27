@@ -52,19 +52,23 @@ type UploadApi = Pick<
 	'chooseSkillFiles' | 'chooseSkillFolder' | 'dropSkillFiles' | 'stageSkills' | 'installSkills'
 >
 
-function ScopePicker({
+export function ScopePicker({
 	scope,
 	onScope,
 	projectReady,
+	label = 'Where to save',
+	untrusted = PROJECT_UNTRUSTED,
 }: {
 	scope: SkillScope
 	onScope: (scope: SkillScope) => void
 	projectReady: boolean
+	label?: string
+	untrusted?: string
 }) {
 	const name = useId()
 	return (
 		<fieldset className="customize-fieldset">
-			<legend className="customize-field-label">Where to save</legend>
+			<legend className="customize-field-label">{label}</legend>
 			<div className="customize-segments">
 				{SCOPES.map((item) => {
 					const off = item.id === 'project' && !projectReady
@@ -73,7 +77,7 @@ function ScopePicker({
 							key={item.id}
 							className="customize-segment"
 							data-disabled={off || undefined}
-							title={off ? PROJECT_UNTRUSTED : undefined}
+							title={off ? untrusted : undefined}
 						>
 							<input
 								type="radio"
@@ -87,7 +91,7 @@ function ScopePicker({
 					)
 				})}
 			</div>
-			{!projectReady && <p className="customize-hint">{PROJECT_UNTRUSTED}</p>}
+			{!projectReady && <p className="customize-hint">{untrusted}</p>}
 		</fieldset>
 	)
 }
@@ -428,7 +432,7 @@ export function UploadSkillPage({
 const firstField = (): HTMLElement | null =>
 	document.querySelector<HTMLElement>('.customize-dialog [data-autofocus]')
 
-function Overlay({
+export function Overlay({
 	title,
 	children,
 	onClose,

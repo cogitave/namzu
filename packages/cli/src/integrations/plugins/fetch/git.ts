@@ -56,6 +56,11 @@ export class FetchError extends Error {
 	}
 }
 
+/** What a fetch throws when its signal aborted: a stop the person asked for is not a failure to explain. */
+export function cancelledFetch(): FetchError {
+	return new FetchError(EXIT_FAIL, 'Cancelled.', 'cancelled')
+}
+
 export const DEFAULT_GIT_TIMEOUT_MS = 120_000
 export const MAX_GIT_TIMEOUT_MS = 600_000
 export const GIT_OUTPUT_CAP = 1024 * 1024
@@ -92,6 +97,8 @@ export interface GitRunOptions {
 	readonly timeoutMs: number
 	/** A folder the run writes into: measured while it runs, the run is stopped past the limits. */
 	readonly watch?: { readonly dir: string; readonly maxBytes: number; readonly maxFiles: number }
+	/** Stops the run (the process tree is killed) when it aborts. */
+	readonly signal?: AbortSignal
 }
 
 export type GitRunner = (args: readonly string[], options: GitRunOptions) => Promise<GitRun>
@@ -106,6 +113,8 @@ export interface FetchOptions {
 	/** Test only: replaces `fetch`. */
 	readonly fetchImpl?: typeof fetch
 	readonly timeoutMs?: number
+	/** The person asked to stop: Git is killed, a download is dropped, nothing is kept. */
+	readonly signal?: AbortSignal
 	readonly runner?: GitRunner
 	readonly env?: NodeJS.ProcessEnv
 }
@@ -262,6 +271,7 @@ export function createGitRunner(deps: RunnerDeps = {}): GitRunner {
 				cancel(timer)
 				if (watcher !== undefined) cancel(watcher)
 				if (grace !== undefined) cancel(grace)
+				options.signal?.removeEventListener('abort', stop)
 				if (pid !== undefined) {
 					live.delete(pid)
 					if (live.size === 0) unhook()
@@ -289,6 +299,8 @@ export function createGitRunner(deps: RunnerDeps = {}): GitRunner {
 				windowsHide: true,
 				stdio: ['ignore', 'pipe', 'pipe'],
 			})
+			if (options.signal?.aborted) stop()
+			else options.signal?.addEventListener('abort', stop, { once: true })
 			const take = (current: string, chunk: Buffer | string): string =>
 				current.length >= GIT_OUTPUT_CAP
 					? current
@@ -513,7 +525,9 @@ class Git {
 			env: this.env,
 			timeoutMs: this.timeoutMs,
 			watch: { dir: this.dest, maxBytes: GIT_WRITE_MAX_BYTES, maxFiles: GIT_WRITE_MAX_FILES },
+			...(this.options.signal !== undefined ? { signal: this.options.signal } : {}),
 		})
+		if (this.options.signal?.aborted) throw cancelledFetch()
 		if (run.code !== 0) throw explainGitFailure(run, url, this.timeoutMs)
 		return run
 	}
@@ -566,6 +580,7 @@ export async function cloneRepository(
 	request: CloneRequest,
 	options: FetchOptions = {},
 ): Promise<CloneResult> {
+	if (options.signal?.aborted) throw cancelledFetch()
 	const allowFile = options.allowFileProtocol === true
 	const problem = gitUrlProblem(request.url, allowFile)
 	if (problem !== undefined)

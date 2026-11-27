@@ -22,8 +22,20 @@ import {
 } from './customize-model.js'
 import { type AddMenuModel, CustomizeHeader, type MenuEntry } from './customize-parts.js'
 import {
+	AddMarketplaceDialog,
+	DiscoverGrid,
+	InstallSheet,
+	MarketplacesList,
+	RemoveMarketplaceDialog,
+	RemovePluginDialog,
+	UpdateSheet,
+	UploadPluginPage,
+} from './customize-plugin-parts.js'
+import { TURN_OFF_BODY, installedFrom, turnOffTitle } from './customize-plugins-model.js'
+import {
 	PluginDetail,
 	type PluginDetailTab,
+	type PluginRowActions,
 	PluginsEmpty,
 	PluginsList,
 } from './customize-plugins.js'
@@ -34,13 +46,16 @@ import {
 	SkillsEmpty,
 	SkillsList,
 } from './customize-skills.js'
-import { MonitorIcon, PencilIcon, PlusIcon, UploadIcon } from './icons.js'
+import { FolderPlusIcon, MonitorIcon, PencilIcon, PlusIcon, UploadIcon } from './icons.js'
 import { notify } from './notify.js'
 import { plainErrorText } from './plain-error.js'
+import { NEW_PLUGIN_EVENT, PLUGINS_CHANGED_EVENT } from './plugin-create.js'
 import { foldedIncludes } from './text-fold.js'
 import { useConfigSettings } from './use-config-settings.js'
 import { useCustomizeSkills, useSkillFiles } from './use-customize-skills.js'
+import { useMarketplaces } from './use-marketplaces.js'
 import { useMcpServers } from './use-mcp-servers.js'
+import { usePluginActions } from './use-plugin-actions.js'
 import { useUserMcpServers } from './use-user-mcp-servers.js'
 import './customize-page.css'
 
@@ -91,13 +106,30 @@ export function CustomizePage({
 	}, [])
 	const root = useRef<HTMLElement>(null)
 	const [upload, setUpload] = useState(false)
+	const [uploadPlugin, setUploadPlugin] = useState(false)
+	const [pluginView, setPluginView] = useState<'yours' | 'discover'>('yours')
 	// A skill just made is selected once the list has read it.
 	const [pendingSelect, setPendingSelect] = useState<string>()
-	const [dialog, setDialog] = useState<'create' | 'connector' | { remove: SkillRowModel }>()
+	const [dialog, setDialog] = useState<
+		| 'create'
+		| 'connector'
+		| 'marketplace'
+		| { remove: SkillRowModel }
+		| { removePlugin: ComposerPlugin }
+		| { removeMarketplace: string }
+		| { turnOff: ComposerPlugin }
+		| { install: { id: string; name: string } }
+		| { update: true }
+	>()
 	// The button that opened a dialog gets the focus back when it closes.
 	const opener = useRef<HTMLElement | null>(null)
 	const openDialog = (next: NonNullable<typeof dialog>) => {
-		opener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
+		// A menu entry goes away when chosen: the button that opened the menu is what gets the focus back.
+		const active = document.activeElement
+		opener.current =
+			active instanceof HTMLElement && active.getAttribute('role') !== 'menuitem'
+				? active
+				: document.querySelector<HTMLElement>('[aria-haspopup="menu"][aria-expanded="true"]')
 		setDialog(next)
 	}
 	const returnFocus = () => opener.current
@@ -107,6 +139,7 @@ export function CustomizePage({
 		setSkillName(undefined)
 		setPluginKey(undefined)
 		setUpload(false)
+		setUploadPlugin(false)
 		onTabChange(next)
 	}
 
@@ -152,6 +185,38 @@ export function CustomizePage({
 			onLoadPlugins()
 		}
 	}, [tab, scope, disabled, onLoadPlugins])
+	// The marketplaces and what an installed plugin can be asked to do come from the engine; an older one has neither.
+	const markets = useMarketplaces(api, projectId, tab === 'plugins', pluginView === 'discover')
+	const pluginActions = usePluginActions(api, projectId, {
+		view,
+		change: inventory.change,
+		canChange: inventory.canChange,
+	})
+	const canManagePlugins = markets.view !== undefined
+	const marketCount = markets.view?.marketplaces.length ?? 0
+	// Discover needs a marketplace to read; with none, the page is on Yours whatever was asked for.
+	const discovering = pluginView === 'discover' && marketCount > 0
+	useEffect(() => {
+		const again = () => {
+			if (!disabled) onLoadPlugins()
+		}
+		window.addEventListener(PLUGINS_CHANGED_EVENT, again)
+		return () => window.removeEventListener(PLUGINS_CHANGED_EVENT, again)
+	}, [disabled, onLoadPlugins])
+	const turnPlugin = (entry: ComposerPlugin, on: boolean) => {
+		if (on)
+			void pluginActions
+				.setSaved(entry, true)
+				.catch((failure) => notify(plainErrorText(failure, 'change the plugin'), { tone: 'error' }))
+		else openDialog({ turnOff: entry })
+	}
+	const rowActions: PluginRowActions | undefined = canManagePlugins
+		? {
+				actions: pluginActions,
+				onToggle: turnPlugin,
+				onRemove: (entry) => openDialog({ removePlugin: entry }),
+			}
+		: undefined
 	const plugin = pluginKey
 		? view?.plugins.find((entry) => `${entry.scope}:${entry.name}` === pluginKey)
 		: undefined
@@ -181,20 +246,39 @@ export function CustomizePage({
 			? [{ label: 'Record your screen', icon: MonitorIcon, onSelect: onRecordScreen }]
 			: []),
 	]
+	const pluginEntries: MenuEntry[] = [
+		...(canManagePlugins
+			? [
+					{
+						label: 'Add marketplace',
+						icon: FolderPlusIcon,
+						onSelect: () => openDialog('marketplace'),
+					},
+					{ label: 'Upload plugin', icon: UploadIcon, onSelect: () => setUploadPlugin(true) },
+				]
+			: []),
+		{
+			label: 'Create with Namzu',
+			icon: PlusIcon,
+			onSelect: () => window.dispatchEvent(new Event(NEW_PLUGIN_EVENT)),
+		},
+	]
 	const add: AddMenuModel | undefined =
 		tab === 'skills'
 			? { items: skillEntries }
-			: tab === 'connectors'
-				? {
-						items: [
-							{
-								label: 'Add custom connector',
-								icon: PlusIcon,
-								onSelect: () => (own ? openDialog('connector') : onAddConnector()),
-							},
-						],
-					}
-				: undefined
+			: tab === 'plugins'
+				? { items: pluginEntries }
+				: tab === 'connectors'
+					? {
+							items: [
+								{
+									label: 'Add custom connector',
+									icon: PlusIcon,
+									onSelect: () => (own ? openDialog('connector') : onAddConnector()),
+								},
+							],
+						}
+					: undefined
 	const removeSkill = async (row: SkillRowModel) => {
 		if (!api.removeSkill || (row.tier !== 'user' && row.tier !== 'project')) return
 		const answer = await api.removeSkill(row.name, row.tier, projectId)
@@ -245,6 +329,7 @@ export function CustomizePage({
 					tab={pluginTab}
 					onTab={setPluginTab}
 					onBack={() => setPluginKey(undefined)}
+					row={rowActions}
 				/>
 			)
 		return undefined
@@ -292,7 +377,80 @@ export function CustomizePage({
 					}}
 				/>
 			)}
-			{typeof dialog === 'object' && (
+			{dialog === 'marketplace' && (
+				<AddMarketplaceDialog
+					api={api}
+					projectId={projectId}
+					returnFocus={returnFocus}
+					onClose={() => setDialog(undefined)}
+					onAdded={() => {
+						setDialog(undefined)
+						setPluginView('discover')
+					}}
+				/>
+			)}
+			{typeof dialog === 'object' && 'removePlugin' in dialog && (
+				<RemovePluginDialog
+					name={dialog.removePlugin.name}
+					returnFocus={returnFocus}
+					onClose={() => setDialog(undefined)}
+					onRemove={(deleteData) => {
+						const target = dialog.removePlugin
+						return pluginActions.remove(target, deleteData).then(() => setPluginKey(undefined))
+					}}
+				/>
+			)}
+			{typeof dialog === 'object' && 'removeMarketplace' in dialog && (
+				<RemoveMarketplaceDialog
+					name={dialog.removeMarketplace}
+					installed={installedFrom(view?.plugins ?? [], dialog.removeMarketplace)}
+					returnFocus={returnFocus}
+					onClose={() => setDialog(undefined)}
+					onRemove={() =>
+						pluginActions.removeMarket((dialog as { removeMarketplace: string }).removeMarketplace)
+					}
+				/>
+			)}
+			{typeof dialog === 'object' && 'turnOff' in dialog && (
+				<ConfirmRemovalDialog
+					title={turnOffTitle(dialog.turnOff.name)}
+					description={TURN_OFF_BODY}
+					actionLabel="Turn off"
+					pendingLabel="Turning off…"
+					tone="default"
+					returnFocus={returnFocus}
+					onConfirm={() =>
+						pluginActions.setSaved((dialog as { turnOff: ComposerPlugin }).turnOff, false)
+					}
+					onClose={() => setDialog(undefined)}
+				/>
+			)}
+			{typeof dialog === 'object' && 'install' in dialog && (
+				<InstallSheet
+					api={api}
+					plugin={dialog.install}
+					projectId={projectId}
+					returnFocus={returnFocus}
+					onClose={() => setDialog(undefined)}
+					onInstalled={() => setDialog(undefined)}
+				/>
+			)}
+			{pluginActions.pendingUpdate && (
+				<UpdateSheet
+					api={api}
+					update={pluginActions.pendingUpdate.update}
+					name={pluginActions.pendingUpdate.plugin.name}
+					projectId={projectId}
+					returnFocus={returnFocus}
+					onClose={pluginActions.clearPendingUpdate}
+					onUpdated={(message) => {
+						pluginActions.clearPendingUpdate()
+						notify(message, { tone: 'success' })
+						window.dispatchEvent(new Event(PLUGINS_CHANGED_EVENT))
+					}}
+				/>
+			)}
+			{typeof dialog === 'object' && 'remove' in dialog && (
 				<ConfirmRemovalDialog
 					title={removeTitle}
 					description={removeBody(dialog.remove.name)}
@@ -330,6 +488,13 @@ export function CustomizePage({
 							skills.reload()
 						}}
 					/>
+				) : tab === 'plugins' && uploadPlugin ? (
+					<UploadPluginPage
+						api={api}
+						projectId={projectId}
+						onBack={() => setUploadPlugin(false)}
+						onDone={() => setUploadPlugin(false)}
+					/>
 				) : (
 					(detail ?? (
 						<>
@@ -344,6 +509,24 @@ export function CustomizePage({
 									onSort={setSort}
 									add={add}
 									searchLabel={searchLabel}
+									beside={
+										tab === 'plugins' && marketCount > 0 ? (
+											<fieldset className="customize-tabs customize-view" aria-label="Plugins view">
+												{(['yours', 'discover'] as const).map((id) => (
+													<button
+														key={id}
+														type="button"
+														className="customize-tab"
+														data-active={(id === 'discover') === discovering || undefined}
+														aria-pressed={(id === 'discover') === discovering}
+														onClick={() => setPluginView(id)}
+													>
+														{id === 'yours' ? 'Yours' : 'Discover'}
+													</button>
+												))}
+											</fieldset>
+										) : undefined
+									}
 								/>
 								<Tabs.Panel value="skills" className="customize-panel">
 									{skills.error && !rows && <p className="customize-error">{skills.error}</p>}
@@ -392,26 +575,51 @@ export function CustomizePage({
 											{inventory.error}
 										</p>
 									)}
-									{!disabled && view && orderedPlugins.length > 0 ? (
-										<PluginsList
-											plugins={orderedPlugins}
-											view={view}
-											inventory={inventory}
-											now={now}
-											onOpen={(entry: ComposerPlugin) => {
-												inventory.clearError()
-												setPluginTab('overview')
-												setPluginKey(`${entry.scope}:${entry.name}`)
-											}}
-										/>
-									) : !loading && (disabled || view) ? (
-										<PluginsEmpty
-											searching={query.trim() !== ''}
-											disabled={Boolean(disabled)}
-											onChooseSpace={onChooseSpace}
+									{discovering && markets.view ? (
+										<DiscoverGrid
+											view={markets.view}
+											available={markets.available}
+											query={query}
+											onAdd={(entry) => openDialog({ install: { id: entry.id, name: entry.name } })}
 										/>
 									) : (
-										<p className="customize-muted">Loading plugins…</p>
+										<>
+											{!disabled && view && orderedPlugins.length > 0 ? (
+												<PluginsList
+													plugins={orderedPlugins}
+													view={view}
+													inventory={inventory}
+													now={now}
+													row={rowActions}
+													onOpen={(entry: ComposerPlugin) => {
+														inventory.clearError()
+														setPluginTab('overview')
+														setPluginKey(`${entry.scope}:${entry.name}`)
+													}}
+												/>
+											) : !loading && (disabled || view) ? (
+												<PluginsEmpty
+													searching={query.trim() !== ''}
+													disabled={Boolean(disabled)}
+													onChooseSpace={onChooseSpace}
+													onAddMarketplace={
+														canManagePlugins ? () => openDialog('marketplace') : undefined
+													}
+													onUpload={canManagePlugins ? () => setUploadPlugin(true) : undefined}
+												/>
+											) : (
+												<p className="customize-muted">Loading plugins…</p>
+											)}
+											{markets.view && marketCount > 0 && query.trim() === '' && (
+												<MarketplacesList
+													view={markets.view}
+													now={now}
+													updating={pluginActions.updatingMarket}
+													onUpdate={(name) => void pluginActions.updateMarket(name)}
+													onRemove={(name) => openDialog({ removeMarketplace: name })}
+												/>
+											)}
+										</>
 									)}
 								</Tabs.Panel>
 							</Tabs.Root>

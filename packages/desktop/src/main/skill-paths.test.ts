@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import {
 	OTHER_FILE_SYSTEM_MESSAGE,
+	PLUGIN_PATH_FILE_MAX_BYTES,
+	type PluginPathHead,
 	SKILL_PATH_FILE_MAX_BYTES,
 	type SkillPathStat,
+	checkPluginPath,
 	checkSkillPath,
 	createSkillPathRegistry,
 	enginePath,
@@ -127,5 +130,72 @@ describe('the path registry', () => {
 		const r = createSkillPathRegistry({ stat: stat(entries), engine: () => 'wsl' })
 		await r.register('w1', ['/in/a.md'])
 		expect(r.take('w1', ['/in/a.md'])).toEqual({ error: OTHER_FILE_SYSTEM_MESSAGE })
+	})
+})
+
+describe('plugin paths', () => {
+	const zipHead: PluginPathHead = async () => Uint8Array.from([0x50, 0x4b, 3, 4])
+	const plugins: Record<string, Entry> = {
+		'/p/a.zip': { kind: 'file' },
+		'/p/b.plugin': { kind: 'file' },
+		'/p/folder': { kind: 'dir' },
+		'/p/link.zip': { kind: 'link' },
+		'/p/big.zip': { kind: 'file', size: PLUGIN_PATH_FILE_MAX_BYTES + 1 },
+		'/p/edge.zip': { kind: 'file', size: PLUGIN_PATH_FILE_MAX_BYTES },
+		'/p/skill.md': { kind: 'file' },
+		'/p/fake.zip': { kind: 'file' },
+		'/p/pipe': { kind: 'other' },
+	}
+	const check = (path: string, head = zipHead) => checkPluginPath(path, stat(plugins), head)
+
+	it('accepts a zip or .plugin file that starts like a zip, and a folder', async () => {
+		expect(await check('/p/a.zip')).toEqual({ kind: 'file' })
+		expect(await check('/p/b.plugin')).toEqual({ kind: 'file' })
+		expect(await check('/p/edge.zip')).toEqual({ kind: 'file' })
+		expect(await check('/p/folder')).toEqual({ kind: 'folder' })
+	})
+
+	it('checks the zip signature, the size, the extension, links and other kinds', async () => {
+		expect(await check('/p/fake.zip', async () => new TextEncoder().encode('MZ..'))).toEqual({
+			error: 'fake.zip is not a zip archive.',
+		})
+		expect(await check('/p/a.zip', async () => undefined)).toEqual({
+			error: 'a.zip is not a zip archive.',
+		})
+		expect(await check('/p/a.zip', async () => Uint8Array.from([0x50, 0x4b]))).toEqual({
+			error: 'a.zip is not a zip archive.',
+		})
+		expect(await check('/p/big.zip')).toEqual({
+			error: 'Plugin file is too large. Maximum size is 200 MB.',
+		})
+		expect(await check('/p/skill.md')).toEqual({
+			error: 'Plugin files must have a .zip or .plugin file extension.',
+		})
+		expect(await check('/p/link.zip')).toEqual({ error: expect.stringContaining('is a link') })
+		expect(await check('/p/pipe')).toEqual({ error: expect.stringContaining('not a file') })
+		expect(await check('/p/none.zip')).toEqual({ error: 'none.zip could not be read.' })
+		expect(await check('relative.zip')).toEqual({ error: 'That path cannot be used.' })
+		expect(await check('/p/a\0.zip')).toEqual({ error: 'That path cannot be used.' })
+	})
+
+	it('forwards only a plugin path this window registered, one at a time, translated for the engine', async () => {
+		const r = createSkillPathRegistry({ stat: stat(plugins), head: zipHead })
+		const chosen = await r.registerPlugin('w1', ['/p/a.zip', '/p/b.plugin'])
+		expect(chosen).toEqual([{ fileName: 'a.zip', path: '/p/a.zip', kind: 'file' }])
+		expect(r.takePlugin('w1', '/p/a.zip')).toEqual({ path: '/p/a.zip' })
+		expect(r.takePlugin('w1', '/p/b.plugin')).toEqual({ error: 'Choose the plugin again.' })
+		expect(r.takePlugin('w2', '/p/a.zip')).toEqual({ error: 'Choose the plugin again.' })
+		expect(r.takePlugin('w1', 5)).toEqual({ error: 'Choose the plugin again.' })
+		// A skill choice does not register a plugin path.
+		await r.register('w3', ['/p/a.zip'])
+		expect(r.takePlugin('w3', '/p/a.zip')).toEqual({ error: 'Choose the plugin again.' })
+		expect(await r.registerPlugin('w1', ['/p/fake.zip'])).toEqual([
+			{ fileName: 'fake.zip', path: '/p/fake.zip', kind: 'file' },
+		])
+		r.forget('w1')
+		expect(r.takePlugin('w1', '/p/a.zip')).toEqual({ error: 'Choose the plugin again.' })
+		const wsl = createSkillPathRegistry({ stat: stat(plugins), head: zipHead, engine: () => 'wsl' })
+		await wsl.registerPlugin('w1', ['/p/a.zip'])
+		expect(wsl.takePlugin('w1', '/p/a.zip')).toEqual({ error: OTHER_FILE_SYSTEM_MESSAGE })
 	})
 })
