@@ -6,6 +6,7 @@ import {
 	wslPowerShellPath,
 } from '../adapters/wsl.js'
 import { NativeA11yBackend } from '../native/a11y.js'
+import { NATIVE_HELPER_ENV, nativeHelperFromEnv } from '../native/env.js'
 import { WindowsA11yHost } from './a11y.js'
 import type { AccessibilityBackend } from './interface.js'
 
@@ -24,11 +25,12 @@ export interface WindowsA11yFactoryOptions {
 }
 
 /**
- * The path of the native helper (`namzu-win.exe`). While the helper is not
+ * The path of the native helper (`namzu-native.exe`). While the helper is not
  * delivered with the product, naming it here is how it is chosen over the
  * PowerShell host; unset, nothing changes.
  */
-export const WIN_HELPER_ENV = 'NAMZU_WIN_HELPER'
+/** @deprecated Use `NATIVE_HELPER_ENV`; the old `NAMZU_WIN_HELPER` is still read as a fallback. */
+export const WIN_HELPER_ENV = NATIVE_HELPER_ENV
 
 function withoutSecrets(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
 	const clean: NodeJS.ProcessEnv = {}
@@ -48,7 +50,7 @@ export function a11yDisabledByEnv(env: NodeJS.ProcessEnv): boolean {
  * a Windows PowerShell to run it in. Nothing is started until it is first
  * used or warmed.
  *
- * With `NAMZU_WIN_HELPER` naming an executable, the host is the native helper
+ * With `NAMZU_NATIVE_HELPER` naming an executable, the host is the native helper
  * and no PowerShell is involved. The variable is the only way to choose it
  * for now.
  */
@@ -61,7 +63,7 @@ export function createWindowsA11yHost(
 	const probes = options.wslProbes ?? realWslProbes
 	const wsl = isWsl(env, platform, probes)
 	const clean = withoutSecrets(env)
-	const helper = env[WIN_HELPER_ENV]?.trim()
+	const helper = nativeHelperFromEnv(env)
 	if (helper && (wsl || platform === 'win32')) {
 		return new NativeA11yBackend({
 			executable: helper,

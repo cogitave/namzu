@@ -19,7 +19,7 @@ import { SpawnError } from '../util/spawn.js'
 import { type Adapter, AdapterUnavailableError } from './types.js'
 
 /**
- * The Windows display adapter when the native helper (`namzu-win`) is
+ * The Windows display adapter when the native helper (`namzu-native`) is
  * configured: screenshot, zoom region, click, drag, scroll, type, key,
  * cursor and display geometry, each one request to a helper that is already
  * running. It keeps the host contract the PowerShell adapter keeps (physical
@@ -85,7 +85,7 @@ export class NativeWin32Adapter implements Adapter {
 		private readonly executable: string,
 	) {
 		this.ownsDir = ownsDir
-		this.backend = `namzu-win ${process.hello?.version ?? ''}`.trim()
+		this.backend = `namzu-native ${process.hello?.version ?? ''}`.trim()
 		this.capabilities = Object.freeze({
 			displayServer: 'win32',
 			screenshot: true,
@@ -131,7 +131,7 @@ export class NativeWin32Adapter implements Adapter {
 			)
 		}
 		const ownsDir = options.captureDir === undefined
-		const dir = options.captureDir ?? mkdtempSync(join(tmpdir(), 'namzu-win-'))
+		const dir = options.captureDir ?? mkdtempSync(join(tmpdir(), 'namzu-native-'))
 		if (!ownsDir) mkdirSync(dir, { recursive: true })
 		const helperDir = (options.toHelperPath ?? ((p: string) => p))(dir)
 		return new NativeWin32Adapter(process, dir, helperDir, ownsDir, options.executable)
@@ -149,7 +149,7 @@ export class NativeWin32Adapter implements Adapter {
 		} catch (error) {
 			if (error instanceof A11yError && OUTCOME_UNKNOWN.has(error.code)) {
 				throw new SpawnError(
-					`namzu-win input: ${error.message}`,
+					`namzu-native input: ${error.message}`,
 					{
 						exitCode: -1,
 						stdout: Buffer.alloc(0),
@@ -161,7 +161,7 @@ export class NativeWin32Adapter implements Adapter {
 					['input'],
 				)
 			}
-			if (error instanceof A11yError) throw new Error(`namzu-win input: ${error.message}`)
+			if (error instanceof A11yError) throw new Error(`namzu-native input: ${error.message}`)
 			throw error
 		}
 	}
@@ -174,7 +174,7 @@ export class NativeWin32Adapter implements Adapter {
 	private async primary(): Promise<DisplayInfo> {
 		const all = await this.displays()
 		const found = all.find((d) => d.primary) ?? all[0]
-		if (!found) throw new Error('namzu-win: the helper lists no display')
+		if (!found) throw new Error('namzu-native: the helper lists no display')
 		return found
 	}
 
@@ -209,11 +209,12 @@ export class NativeWin32Adapter implements Adapter {
 			{ op: 'capture', target, into: this.helperDir },
 			REQUEST_MS,
 		)
-		if (picture.path === undefined) throw new Error('namzu-win capture: the helper sent no picture')
+		if (picture.path === undefined)
+			throw new Error('namzu-native capture: the helper sent no picture')
 		const data = this.takePicture(picture.path)
 		const all = await this.displays()
 		const shown = all.find((d) => d.id === picture.display) ?? all.find((d) => d.primary) ?? all[0]
-		if (!shown) throw new Error('namzu-win: the helper lists no display')
+		if (!shown) throw new Error('namzu-native: the helper lists no display')
 		if (!region) this.display = shown
 		return {
 			data,

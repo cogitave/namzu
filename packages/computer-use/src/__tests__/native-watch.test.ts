@@ -1,7 +1,7 @@
 /**
  * The native helper's watch, client side: what is asked of the helper and how
  * its answers are read. The helper is a fake that answers with the lines of
- * `conformance/namzu-win/`, which the Rust side is held to as well.
+ * `conformance/namzu-native/`, which the Rust side is held to as well.
  */
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
@@ -12,7 +12,7 @@ import { NativeWatch } from '../native/watch.js'
 
 const vectors = JSON.parse(
 	readFileSync(
-		fileURLToPath(new URL('../../../../conformance/namzu-win/protocol.json', import.meta.url)),
+		fileURLToPath(new URL('../../../../conformance/namzu-native/protocol.json', import.meta.url)),
 		'utf8',
 	),
 ) as { replies: { name: string; op: string; wire: Record<string, unknown> }[] }
@@ -57,7 +57,7 @@ class FakeHelper implements NativeChannel {
 }
 
 function watch(fake: FakeHelper): NativeWatch {
-	return new NativeWatch({ executable: 'namzu-win.exe', spawnHelper: () => fake })
+	return new NativeWatch({ executable: 'namzu-native.exe', spawnHelper: () => fake })
 }
 
 describe('NativeWatch', () => {

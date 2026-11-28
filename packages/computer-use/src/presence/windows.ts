@@ -5,6 +5,7 @@ import {
 	wslChildEnv,
 	wslPowerShellPath,
 } from '../adapters/wsl.js'
+import { resolveNativeHelper } from '../native/env.js'
 import { NativePresence } from '../native/presence.js'
 import { type Presence, WindowsPresence } from './presence.js'
 
@@ -20,7 +21,7 @@ export interface WindowsPresenceFactoryOptions {
 	readonly wslProbes?: WslProbes
 	/** Default true. `false` shows nothing, whatever the environment says. */
 	readonly enabled?: boolean
-	/** The native helper (`namzu-win.exe`); default `NAMZU_WIN_HELPER`. Named, the overlay is drawn by the helper and no PowerShell runs. */
+	/** The native helper (`namzu-native.exe`); default `NAMZU_NATIVE_HELPER`. Named, the overlay is drawn by the helper and no PowerShell runs. */
 	readonly helper?: string
 }
 
@@ -42,7 +43,7 @@ export function createWindowsPresence(
 	const platform = options.platform ?? process.platform
 	const probes = options.wslProbes ?? realWslProbes
 	const wsl = isWsl(env, platform, probes)
-	const native = (options.helper ?? env.NAMZU_WIN_HELPER)?.trim()
+	const native = resolveNativeHelper(options.helper, env)
 	if (native) {
 		if (!wsl && platform !== 'win32') return undefined
 		const clean: NodeJS.ProcessEnv = {}

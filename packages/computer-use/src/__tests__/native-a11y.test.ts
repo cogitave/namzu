@@ -1,7 +1,7 @@
 /**
  * The native helper's client side: the process (greeting, correlation, limits,
  * restart, cancel) and the accessibility backend on top of it. They are driven
- * by a fake helper that answers with the lines of `conformance/namzu-win/`,
+ * by a fake helper that answers with the lines of `conformance/namzu-native/`,
  * the same lines the Rust side is held to, so a reply the real helper writes
  * and a reply this test reads cannot drift apart.
  */
@@ -10,10 +10,11 @@ import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { A11yError, createWindowsA11yHost } from '../a11y/index.js'
 import { NativeA11yBackend, actFailureCode } from '../native/a11y.js'
+import { nativeHelperFromEnv } from '../native/env.js'
 import { type NativeChannel, NativeWinProcess } from '../native/process.js'
 
 function vectors(name: string): Record<string, any> {
-	const url = new URL(`../../../../conformance/namzu-win/${name}`, import.meta.url)
+	const url = new URL(`../../../../conformance/namzu-native/${name}`, import.meta.url)
 	return JSON.parse(readFileSync(fileURLToPath(url), 'utf8'))
 }
 
@@ -90,7 +91,7 @@ function backend(
 	const { configure, ...rest } = options
 	const helpers: FakeHelper[] = []
 	const client = new NativeA11yBackend({
-		executable: 'C:\\namzu\\namzu-win.exe',
+		executable: 'C:\\namzu\\namzu-native.exe',
 		cliVersion: '55.0.0',
 		spawnHelper: () => {
 			const h = new FakeHelper()
@@ -113,7 +114,7 @@ describe('the native helper process', () => {
 		expect(helpers).toHaveLength(0)
 	})
 
-	it('greets the helper in namzu-win/1 and is ready once it answers', async () => {
+	it('greets the helper in namzu-native/1 and is ready once it answers', async () => {
 		const { client, helpers } = backend()
 		expect(client.isReady).toBe(false)
 		expect(await client.ready()).toBe(true)
@@ -121,7 +122,7 @@ describe('the native helper process', () => {
 		expect(helpers[0]?.requests[0]).toEqual({
 			id: 1,
 			op: 'hello',
-			protocol: 'namzu-win/1',
+			protocol: 'namzu-native/1',
 			cliVersion: '55.0.0',
 		})
 	})
@@ -132,13 +133,31 @@ describe('the native helper process', () => {
 				h.raw.hello = {
 					ok: false,
 					code: 'protocol_mismatch',
-					message: 'this helper speaks namzu-win/2',
+					message: 'this helper speaks namzu-native/2',
 				}
 			},
 		})
 		expect(await client.ready()).toBe(false)
 		expect(helpers[0]?.killed).toBe(true)
 		await expect(client.listDisplays()).rejects.toMatchObject({ code: 'unavailable' })
+	})
+
+	it('says the old protocol name to a helper that refuses the new one, and is ready', async () => {
+		const { client, helpers } = backend({
+			configure: (h) => {
+				const write = h.write.bind(h)
+				h.write = (line: string): void => {
+					if (line.includes('"namzu-native/1"')) {
+						h.requests.push(JSON.parse(line))
+						h.says({ id: 1, ok: false, code: 'protocol_mismatch', message: 'old helper' })
+						return
+					}
+					write(line)
+				}
+			},
+		})
+		expect(await client.ready()).toBe(true)
+		expect(helpers[0]?.requests.map((r) => r.protocol)).toEqual(['namzu-native/1', 'namzu-win/1'])
 	})
 
 	it('stays off when the helper says nothing', async () => {
@@ -559,7 +578,15 @@ describe('acting on a control through the native backend', () => {
 })
 
 describe('choosing the native helper', () => {
-	it('is chosen by NAMZU_WIN_HELPER on Windows, with no PowerShell', () => {
+	it('is chosen by NAMZU_NATIVE_HELPER on Windows, with no PowerShell', () => {
+		const host = createWindowsA11yHost({
+			platform: 'win32',
+			env: { NAMZU_NATIVE_HELPER: 'C:\\namzu\\namzu-native.exe', PATH: 'x' },
+		})
+		expect(host?.id).toBe('native-uia')
+	})
+
+	it('is still chosen by the deprecated NAMZU_WIN_HELPER when the new name is absent', () => {
 		const host = createWindowsA11yHost({
 			platform: 'win32',
 			env: { NAMZU_WIN_HELPER: 'C:\\namzu\\namzu-win.exe', PATH: 'x' },
@@ -567,8 +594,17 @@ describe('choosing the native helper', () => {
 		expect(host?.id).toBe('native-uia')
 	})
 
+	it('prefers NAMZU_NATIVE_HELPER over the deprecated name', () => {
+		expect(
+			nativeHelperFromEnv({ NAMZU_NATIVE_HELPER: 'new.exe', NAMZU_WIN_HELPER: 'old.exe' }),
+		).toBe('new.exe')
+		expect(nativeHelperFromEnv({ NAMZU_NATIVE_HELPER: ' ', NAMZU_WIN_HELPER: 'old.exe' })).toBe(
+			'old.exe',
+		)
+	})
+
 	it('is not chosen when the variable is unset or blank', () => {
-		const host = createWindowsA11yHost({ platform: 'win32', env: { NAMZU_WIN_HELPER: '  ' } })
+		const host = createWindowsA11yHost({ platform: 'win32', env: { NAMZU_NATIVE_HELPER: '  ' } })
 		expect(host?.id).toBe('windows-uia')
 	})
 
@@ -582,7 +618,7 @@ describe('choosing the native helper', () => {
 	it('stays off when the accessibility host is turned off', () => {
 		const host = createWindowsA11yHost({
 			platform: 'win32',
-			env: { NAMZU_WIN_HELPER: 'C:\\x.exe', NAMZU_COMPUTER_USE_A11Y: 'off' },
+			env: { NAMZU_NATIVE_HELPER: 'C:\\x.exe', NAMZU_COMPUTER_USE_A11Y: 'off' },
 		})
 		expect(host).toBeUndefined()
 	})
@@ -590,7 +626,7 @@ describe('choosing the native helper', () => {
 	it('means nothing off Windows', () => {
 		const host = createWindowsA11yHost({
 			platform: 'linux',
-			env: { NAMZU_WIN_HELPER: '/tmp/namzu-win.exe' },
+			env: { NAMZU_NATIVE_HELPER: '/tmp/namzu-native.exe' },
 			wslProbes: { readFile: () => undefined, exists: () => false, interopSockets: () => [] },
 		})
 		expect(host).toBeUndefined()
