@@ -2,7 +2,7 @@
  * The helper as a process: start it, greet it, send it requests as lines and
  * match the replies to them by id.
  *
- * The helper is the compiled `namzu-win` executable. It is started directly,
+ * The helper is the compiled `namzu-native` executable. It is started directly,
  * with no shell and no script engine, and answers JSON lines on its standard
  * output. Everything the TypeScript side asks of it goes through
  * {@link NativeWinProcess.request}, which gives a reply body or throws an
@@ -13,6 +13,7 @@ import { spawn } from 'node:child_process'
 import { createInterface } from 'node:readline'
 import { A11yError } from '../a11y/interface.js'
 import {
+	LEGACY_NATIVE_PROTOCOL,
 	NATIVE_PROTOCOL,
 	type NativeHello,
 	type NativeOp,
@@ -32,7 +33,7 @@ export interface NativeChannel {
 }
 
 export interface NativeWinProcessOptions {
-	/** The path of `namzu-win.exe`. */
+	/** The path of `namzu-native.exe`. */
 	readonly executable: string
 	/** Sent in `hello`, so the helper's log can say who asked. */
 	readonly cliVersion?: string
@@ -271,6 +272,15 @@ export class NativeWinProcess {
 			this.runs += 1
 			let greeted = false
 			let greetedAt = 0
+			let triedLegacy = false
+			const hello = (protocol: string): void =>
+				channel.write(
+					encodeRequest(this.nextId++, {
+						op: 'hello',
+						protocol,
+						cliVersion: this.options.cliVersion ?? '0.0.0',
+					}),
+				)
 			const fail = (): void => {
 				this.dead = true
 				this.up = false
@@ -305,10 +315,16 @@ export class NativeWinProcess {
 					this.onReply(line)
 					return
 				}
-				greeted = true
-				clearTimeout(timer)
 				try {
 					const reply = decodeReply('hello', line)
+					// A helper built before the rename knows only the old protocol name.
+					if (!reply.ok && reply.code === 'protocol_mismatch' && !triedLegacy) {
+						triedLegacy = true
+						hello(LEGACY_NATIVE_PROTOCOL)
+						return
+					}
+					greeted = true
+					clearTimeout(timer)
 					if (!reply.ok) {
 						fail()
 						return
@@ -318,17 +334,13 @@ export class NativeWinProcess {
 					greetedAt = Date.now()
 					resolve(true)
 				} catch {
+					greeted = true
+					clearTimeout(timer)
 					fail()
 				}
 			})
 			// The helper ids start at 1 and the greeting is the first of them.
-			channel.write(
-				encodeRequest(this.nextId++, {
-					op: 'hello',
-					protocol: NATIVE_PROTOCOL,
-					cliVersion: this.options.cliVersion ?? '0.0.0',
-				}),
-			)
+			hello(NATIVE_PROTOCOL)
 		})
 		return this.starting
 	}

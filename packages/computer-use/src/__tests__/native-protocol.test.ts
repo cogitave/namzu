@@ -12,13 +12,13 @@ import {
 	parseRef,
 } from '../native/protocol.js'
 
-// The vectors are shared with crates/namzu-win-core: both are held to the same files.
+// The vectors are shared with crates/namzu-native-core: both are held to the same files.
 function vectors(name: string): Record<string, any> {
-	const url = new URL(`../../../../conformance/namzu-win/${name}`, import.meta.url)
+	const url = new URL(`../../../../conformance/namzu-native/${name}`, import.meta.url)
 	return JSON.parse(readFileSync(fileURLToPath(url), 'utf8'))
 }
 
-describe('namzu-win/1 requests', () => {
+describe('namzu-native/1 requests', () => {
 	for (const c of vectors('protocol.json').requests) {
 		it(`writes ${c.name}`, () => {
 			const { id, ...request } = c.wire
@@ -40,7 +40,7 @@ describe('namzu-win/1 requests', () => {
 	})
 })
 
-describe('namzu-win/1 replies', () => {
+describe('namzu-native/1 replies', () => {
 	for (const c of vectors('protocol.json').replies) {
 		it(`reads ${c.name}`, () => {
 			const { id, ok, ...rest } = c.wire

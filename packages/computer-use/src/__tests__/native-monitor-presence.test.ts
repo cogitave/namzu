@@ -2,7 +2,7 @@
  * The native helper's foreground monitor and presence overlay, client side:
  * what is asked of the helper and how its answers become the interfaces the
  * ladder and the host already use. The helper is a fake that answers with the
- * lines of `conformance/namzu-win/`, which the Rust side is held to as well.
+ * lines of `conformance/namzu-native/`, which the Rust side is held to as well.
  */
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -20,7 +20,7 @@ import { createWindowsPresence } from '../presence/windows.js'
 
 const vectors = JSON.parse(
 	readFileSync(
-		fileURLToPath(new URL('../../../../conformance/namzu-win/protocol.json', import.meta.url)),
+		fileURLToPath(new URL('../../../../conformance/namzu-native/protocol.json', import.meta.url)),
 		'utf8',
 	),
 ) as { replies: { name: string; op: string; wire: Record<string, unknown> }[] }
@@ -84,7 +84,7 @@ class FakeHelper implements NativeChannel {
 
 function monitor(fake: FakeHelper, toHelperPath?: (p: string) => string): NativeForegroundMonitor {
 	return new NativeForegroundMonitor({
-		executable: 'namzu-win.exe',
+		executable: 'namzu-native.exe',
 		spawnHelper: () => fake,
 		...(toHelperPath ? { toHelperPath } : {}),
 	})
@@ -177,8 +177,8 @@ describe('NativeForegroundMonitor', () => {
 			started++
 			return fake
 		}
-		const m = new NativeForegroundMonitor({ executable: 'namzu-win.exe', spawnHelper })
-		const adapter = await NativeWin32Adapter.create({ executable: 'namzu-win.exe', spawnHelper })
+		const m = new NativeForegroundMonitor({ executable: 'namzu-native.exe', spawnHelper })
+		const adapter = await NativeWin32Adapter.create({ executable: 'namzu-native.exe', spawnHelper })
 		await m.start()
 		await m.begin({ leasePath: 'p', token: 't', watch: '0x10A2C' })
 		await adapter.execute({ type: 'key', keys: 'a' })
@@ -252,7 +252,7 @@ describe('NativeForegroundMonitor', () => {
 describe('NativePresence', () => {
 	it('shows the overlay for an action: the window by handle, the kind and the point', async () => {
 		const fake = new FakeHelper()
-		const p = new NativePresence({ executable: 'namzu-win.exe', spawnHelper: () => fake })
+		const p = new NativePresence({ executable: 'namzu-native.exe', spawnHelper: () => fake })
 		p.mark({ hwnd: 0x10a2c, kind: 'click', at: { x: 640.4, y: 480.6 } })
 		await flush()
 		expect(fake.last('presence.act')).toEqual({
@@ -269,7 +269,7 @@ describe('NativePresence', () => {
 
 	it('hides only a helper that is running', async () => {
 		const fake = new FakeHelper()
-		const p = new NativePresence({ executable: 'namzu-win.exe', spawnHelper: () => fake })
+		const p = new NativePresence({ executable: 'namzu-native.exe', spawnHelper: () => fake })
 		p.hide()
 		await flush()
 		expect(fake.requests).toEqual([])
@@ -283,7 +283,7 @@ describe('NativePresence', () => {
 	it('does not fail an action when the helper refuses or is missing', async () => {
 		const fake = new FakeHelper()
 		fake.answers['presence.act'] = { ok: false, code: 'not_found', message: 'no such window' }
-		const p = new NativePresence({ executable: 'namzu-win.exe', spawnHelper: () => fake })
+		const p = new NativePresence({ executable: 'namzu-native.exe', spawnHelper: () => fake })
 		expect(() => p.mark({ hwnd: 9, kind: 'click' })).not.toThrow()
 		await flush()
 		const none = new NativePresence({
@@ -298,7 +298,7 @@ describe('NativePresence', () => {
 
 	it('ends the helper on release', async () => {
 		const fake = new FakeHelper()
-		const p = new NativePresence({ executable: 'namzu-win.exe', spawnHelper: () => fake })
+		const p = new NativePresence({ executable: 'namzu-native.exe', spawnHelper: () => fake })
 		p.mark({ hwnd: 1, kind: 'click' })
 		await flush()
 		p.release()
@@ -308,7 +308,7 @@ describe('NativePresence', () => {
 
 describe('choosing the helper', () => {
 	it('uses the native overlay when the helper is named, and PowerShell when it is not', () => {
-		const env = { NAMZU_WIN_HELPER: 'C:\\n\\namzu-win.exe' }
+		const env = { NAMZU_NATIVE_HELPER: 'C:\\n\\namzu-native.exe' }
 		expect(createWindowsPresence({ env, platform: 'win32' })).toBeInstanceOf(NativePresence)
 		expect(createWindowsPresence({ env: {}, platform: 'win32' })).toBeInstanceOf(WindowsPresence)
 		expect(createWindowsPresence({ env: {}, platform: 'win32', helper: 'x.exe' })).toBeInstanceOf(
@@ -319,11 +319,11 @@ describe('choosing the helper', () => {
 	it('has no overlay for a helper on a machine that cannot run it', () => {
 		const wslProbes = { exists: () => false, readFile: () => undefined } as never
 		expect(
-			createWindowsPresence({ env: { NAMZU_WIN_HELPER: 'x' }, platform: 'linux', wslProbes }),
+			createWindowsPresence({ env: { NAMZU_NATIVE_HELPER: 'x' }, platform: 'linux', wslProbes }),
 		).toBeUndefined()
 		expect(
 			createWindowsForegroundLadder({
-				env: { NAMZU_WIN_HELPER: 'x' },
+				env: { NAMZU_NATIVE_HELPER: 'x' },
 				platform: 'linux',
 				wslProbes,
 			}),
@@ -332,7 +332,7 @@ describe('choosing the helper', () => {
 
 	it('builds the ladder on the native monitor when the helper is named', () => {
 		const ladder = createWindowsForegroundLadder({
-			env: { NAMZU_WIN_HELPER: 'C:\\n\\namzu-win.exe' },
+			env: { NAMZU_NATIVE_HELPER: 'C:\\n\\namzu-native.exe' },
 			platform: 'win32',
 		})
 		expect(ladder).toBeInstanceOf(ForegroundLadder)

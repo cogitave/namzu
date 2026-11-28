@@ -634,6 +634,43 @@ export const SETTINGS_CATALOGUE: readonly CatalogueEntry[] = [
 		],
 	},
 
+	// Privacy. What Namzu records, and the one switch that removes the way in.
+	{
+		id: 'screen-recording',
+		key: 'screenRecording',
+		owner: 'desktop',
+		section: 'privacy',
+		label: 'Record your screen to make skills',
+		description:
+			'Shows Record your screen under Customize, Skills, Add. Off removes it. Each recording asks again before it starts.',
+		control: toggle,
+		default: true,
+		appliesWhen: 'now',
+		keywords: [
+			'screen recording',
+			'record',
+			'recorder',
+			'privacy',
+			'skill',
+			'teach',
+			'demonstrate',
+			'watch me',
+		],
+	},
+	{
+		id: 'screen-recording-voice',
+		key: 'screenRecordingVoice',
+		owner: 'desktop',
+		section: 'privacy',
+		label: 'Record voice narration',
+		description: 'The last recording had voice narration on; the next one starts the same way.',
+		control: toggle,
+		default: false,
+		appliesWhen: 'now',
+		hidden: true,
+		keywords: ['Voice narration for screen recording', 'narration', 'microphone'],
+	},
+
 	// Usage. One panel: the limits of every provider, and the optional spending budget under them.
 	{
 		id: 'usage-limits',

@@ -1164,6 +1164,38 @@ export interface DesktopApi {
 	onVoiceInputEvent?(
 		listener: (event: import('./voice-input-protocol.js').VoiceInputEvent) => void,
 	): () => void
+	/** Whether Record your screen is offered on this computer, and why not. */
+	recordingAvailability?(): Promise<import('./recording-protocol.js').RecordingAvailability>
+	/** Opens the chooser; resolves when the person has started, cancelled or been refused. */
+	recordingStart?(options: {
+		provider: string
+		microphones?: import('./recording-protocol.js').ChooserMicrophone[]
+		microphone?: string
+	}): Promise<
+		| { started: true }
+		| { started: false; reason: 'cancelled' | 'unavailable' | 'busy' | 'failed'; message?: string }
+	>
+	/** The recording waiting for review, if one is. */
+	recordingReview?(): Promise<import('./recording-protocol.js').RecordingReviewView | undefined>
+	recordingEdit?(
+		edit:
+			| { kind: 'step'; id: number }
+			| { kind: 'picture'; index: number }
+			| { kind: 'pictures' }
+			| { kind: 'voice' },
+	): Promise<import('./recording-protocol.js').RecordingReviewView | undefined>
+	recordingDiscard?(): Promise<void>
+	/** Send: puts the recording into this draft as one attachment; the text goes in the message box. */
+	recordingSend?(
+		ownerId: string,
+		note?: string,
+	): Promise<{ attachments: AttachmentView[]; text: string }>
+	/** About 100 ms of 16 kHz mono narration audio. */
+	recordingAudio?(samples: Float32Array): Promise<void>
+	recordingNarrationLost?(): Promise<void>
+	onRecordingNotice?(
+		listener: (notice: import('./recording-protocol.js').RecordingNotice) => void,
+	): () => void
 	workspace?(): Promise<WorkspaceView>
 	workspaceAction?(action: WorkspaceAction): Promise<WorkspaceView>
 	workspaceReady?(transferId: string): Promise<WorkspaceView>

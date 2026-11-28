@@ -342,7 +342,7 @@ function abortable<T>(promise: Promise<T>, signal: AbortSignal): Promise<T | und
  * reports what the timeline says after each. Shared by the detector and the recognizer so that
  * both see exactly the same boundaries.
  */
-async function pumpFrames(
+export async function pumpFrames(
 	service: LocalListeningService,
 	frames: AsyncIterable<ListeningFrame>,
 	signal: AbortSignal,

@@ -186,6 +186,7 @@ export function Composer({
 	attachmentsSupported = true,
 	reviewModes,
 	notice,
+	topSlot,
 	permissionEngine,
 	permissionScope,
 	onLeaveProject,
@@ -336,6 +337,8 @@ export function Composer({
 	onShowHandoffTab?: (() => void) | undefined
 	onContinueHandoff?: (() => unknown) | undefined
 	onStopHandoff?: (() => unknown) | undefined
+	/** A card above the box that is not an approval: a finished screen recording waiting for Send. */
+	topSlot?: ReactNode
 	attachments: AttachmentView[]
 	draftDisabled?: boolean
 	attachmentsBusy: boolean
@@ -1025,6 +1028,7 @@ export function Composer({
 							{...(onShowHandoffTab ? { onShowTab: onShowHandoffTab } : {})}
 						/>
 					)}
+					{!permissions[0] && topSlot}
 					{/* A note about the conversation itself sits above the box, never inside what you type in. */}
 					{notice && (
 						<output data-composer-note className="block px-3 pb-1.5 text-xs text-muted-foreground">
