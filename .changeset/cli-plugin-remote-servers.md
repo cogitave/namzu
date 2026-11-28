@@ -1,5 +1,0 @@
----
-'@namzu/cli': minor
----
-
-The remote servers (`url`) of an installed plugin now connect, after you approve each one. Nothing connects at install or load: a server waits until `namzu mcp approve <plugin>-<server>` (all waiting servers when no name is given) or the Approve button in Desktop's Connectors table, and an answer is tied to the server's address, headers and transport, so a plugin update that changes any of them asks again. A plugin that is turned off disconnects its servers. New `namzu mcp servers` lists every tool server with its source (`Plugin <name>`) and state (waiting, ready, connected, failed, needs setup); `namzu mcp login` takes a plugin server by the same name. A header may read a bare `${VAR}` only; an unset variable, or a reference in the address, marks the server `needs setup` and it cannot start. Nothing existing breaks: `mcp-approvals.json` gains a `plugins` section next to `folders` and a Namzu that does not know it keeps it as written; hand-placed and `--plugin-dir` plugins still do not connect remote servers. `McpServerSpec` gains an optional `transport` that only a plugin's server sets.
