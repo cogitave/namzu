@@ -6,7 +6,7 @@ import {
 	wslPowerShellPath,
 } from '../adapters/wsl.js'
 import { NativeA11yBackend } from '../native/a11y.js'
-import { NATIVE_HELPER_ENV, nativeHelperFromEnv } from '../native/env.js'
+import { LEGACY_NATIVE_HELPER_ENV, nativeHelperFromEnv } from '../native/env.js'
 import { WindowsA11yHost } from './a11y.js'
 import type { AccessibilityBackend } from './interface.js'
 
@@ -29,8 +29,8 @@ export interface WindowsA11yFactoryOptions {
  * delivered with the product, naming it here is how it is chosen over the
  * PowerShell host; unset, nothing changes.
  */
-/** @deprecated Use `NATIVE_HELPER_ENV`; the old `NAMZU_WIN_HELPER` is still read as a fallback. */
-export const WIN_HELPER_ENV = NATIVE_HELPER_ENV
+/** @deprecated Prefer the variable `NAMZU_NATIVE_HELPER`. Still holds the old name, `NAMZU_WIN_HELPER`, until the next major release, so code that reads `env[WIN_HELPER_ENV]` keeps working. */
+export const WIN_HELPER_ENV = LEGACY_NATIVE_HELPER_ENV
 
 function withoutSecrets(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
 	const clean: NodeJS.ProcessEnv = {}
