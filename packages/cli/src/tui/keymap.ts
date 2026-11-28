@@ -125,14 +125,14 @@ export const ACTIONS = [
 		context: 'Chat',
 		group: 'Conversation',
 		keys: ['return'],
-		help: 'Send the message, or steer the reply in progress',
+		help: 'Send the message, or queue it for the reply in progress',
 	}),
 	action({
 		id: 'chat:queue',
 		context: 'Chat',
 		group: 'Conversation',
 		keys: ['tab'],
-		help: 'Queue the message for after the reply',
+		help: 'Hold the message until the reply ends',
 	}),
 	action({
 		id: 'chat:newline',
@@ -146,14 +146,14 @@ export const ACTIONS = [
 		context: 'Chat',
 		group: 'Conversation',
 		keys: ['ctrl+x ctrl+s'],
-		help: 'Send queued messages now',
+		help: 'Send what is queued now (with text in the box, send that text)',
 	}),
 	action({
 		id: 'chat:recallQueued',
 		context: 'Chat',
 		group: 'Conversation',
 		keys: ['meta+up'],
-		help: 'Bring the last queued message back for editing',
+		help: 'Bring the last queued message back into the box',
 	}),
 	action({
 		id: 'chat:stash',

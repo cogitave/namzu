@@ -205,7 +205,7 @@ it('G3 throws the queue away on Ctrl+C', async () => {
 	`)
 })
 
-it('G3 keeps the queue held after Esc and runs the next message before it', async () => {
+it('G3 keeps the queue held after Esc with a draft in the box and runs the next message before it', async () => {
 	const hold = deferred()
 	behaviour = async function* (index) {
 		if (index === 0) await hold.promise
@@ -215,6 +215,9 @@ it('G3 keeps the queue held after Esc and runs the next message before it', asyn
 	await type(screen, 'one', '\r')
 	await waitUntil(screen, () => roundLog.entries.length === 1)
 	await type(screen, 'two', '\t')
+	// With the box empty, Esc takes the waiting messages back instead; a draft makes it stop the reply.
+	screen.press('draft')
+	await screen.waitForRender()
 	screen.press('\x1b')
 	// A lone Esc is told apart from a key sequence by the terminal layer; wait for its effect.
 	while (!screen.viewport().join('\n').includes('Held after you stopped the reply')) {
@@ -230,6 +233,7 @@ it('G3 keeps the queue held after Esc and runs the next message before it', asyn
 		  "#0 typed rows=1 "one"",
 		]
 	`)
+	screen.press('\x15')
 	await type(screen, 'next', '\r')
 	await waitUntil(screen, () => roundLog.entries.length === 3)
 	expect(roundLog.lines()).toMatchInlineSnapshot(`

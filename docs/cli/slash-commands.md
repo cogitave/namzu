@@ -149,8 +149,8 @@ every command either way.
   reply. It closes by itself when the reply ends. While one is open, queued work
   is held.
 
-A message typed while a reply runs keeps its two keys: Enter steers it into the
-running reply, Tab queues it.
+A message typed while a reply runs keeps its two keys: Enter queues it for the
+running reply (read at its next model boundary), Tab holds it for after the reply.
 
 What a change applies to:
 
@@ -521,7 +521,7 @@ terminals place descriptions below labels.
 ## Keys that are not commands
 
 - **Esc Esc** on an empty composer, the second press within 800 ms of the first (the first shows nothing), opens the [rewind dialog](file-checkpoints.md#rewind). To edit an earlier prompt, pick it and choose Restore conversation: that forks the conversation before the prompt and reopens it for editing; the original conversation is left where it was. With text in the composer, Esc clears it instead.
-- **Enter** during a turn steers a message into that turn at its next model boundary. **Tab** queues a message for a later turn. Both wait as `❯` rows above the composer's upper rule, with the message text and attachment count; a Tab-queued row says `after this reply`. **Ctrl+X Ctrl+S** sends them now (see the Esc line).
+- **Enter** during a turn steers a message into that turn at its next model boundary. **Tab** queues a message for a later turn. Both wait as `❯` rows above the composer's upper rule, with the message text and attachment count. With a slash or `!` line in the box, **Ctrl+X Ctrl+S** runs that command and leaves the reply alone; **Esc** with a search open only closes the search. **Ctrl+X Ctrl+S** sends them now (see the Esc line).
 - **Up** on an empty composer chooses the newest queued message, **Up/Down** move, **Enter** loads it into the composer for editing and **Esc** leaves the choice. **Alt+Up** recalls the latest operator-composed queued message for editing, with its attachments and armed triggers. A queued slash command returns as the command the operator typed; its expanded model prompt remains queued until recalled. It leaves a nonempty draft alone; automatic goal and skill prompts cannot be recalled this way.
 - **Esc** while a turn runs interrupts it. An undelivered steer starts a fresh turn before Tab-queued messages after the old turn settles. Without a pending steer, queued messages remain held; a new Enter message runs before them, while Tab adds to the held queue. **Ctrl+X Ctrl+S** does the same as Esc with a pending steer and also releases queued messages Esc had held. **Ctrl+C** is reserved for exit. If a shell command is running, Esc moves it to a background job instead of stopping it ([Background jobs](background-jobs.md#moving-a-running-command-to-the-background)).
 - **Ctrl+B** while a shell command has run for two seconds or more moves it to the background. With no such command it moves the cursor left.

@@ -291,7 +291,7 @@ it('holds a dependent queued prompt through provider switch until the paused tur
 	await press(screen, '\t')
 	await until(
 		screen,
-		() => screen.viewport().join('\n').includes('❯ Dependent queued work · after this reply'),
+		() => screen.viewport().join('\n').includes('❯ Dependent queued work'),
 		'Dependent prompt was not queued',
 	)
 	releaseFirstSend()

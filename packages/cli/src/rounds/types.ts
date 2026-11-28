@@ -102,6 +102,11 @@ export interface ActiveTurnInbox<Trigger extends string = string> {
 	/** Resolves when the operator wrote; a notice or peer mail does not wake it. */
 	waitForOperator(signal: AbortSignal): Promise<void>
 	close(): readonly LiveInput<Trigger>[]
+	/**
+	 * Take the operator's messages the kernel has not drained yet back out of the
+	 * inbox, so they can be put in the box. A message that cannot be recalled stays.
+	 */
+	withdraw(): readonly LiveInput<Trigger>[]
 }
 
 /** Put an undelivered steer back where it occurred among Tab-queued prompts. */

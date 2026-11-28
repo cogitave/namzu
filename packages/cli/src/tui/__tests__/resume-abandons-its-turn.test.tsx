@@ -450,7 +450,7 @@ describe('/resume typed while a turn is running', () => {
 		// left; choosing another one drops it, and says so.
 		const harness = await pickerOpenAfterTurn(async (h) => {
 			await queue(h, 'FOLLOWUP')
-			await untilFrame(h, '❯ FOLLOWUP · after this reply', 'the follow-up was not queued')
+			await untilFrame(h, '❯ FOLLOWUP', 'the follow-up was not queued')
 		})
 		await tick(100)
 		expect(gates.length, 'the follow-up ran behind the open picker').toBe(1)
