@@ -27,7 +27,7 @@ describe('pending input on the terminal screen', () => {
 		expect(lines(screen)).toEqual([
 			' ❯ check server log [1 image]',
 			' ❯ then write the summary · after this reply',
-			'   ctrl+x ctrl+s to send now',
+			'   ⎿  Queued · ctrl+x ctrl+s to send now',
 		])
 		expect(
 			pendingInputPanelRows({
@@ -53,7 +53,7 @@ describe('pending input on the terminal screen', () => {
 		)
 		expect(lines(screen)).toEqual([
 			' ❯ /compact · Queued, runs after this reply',
-			'   ctrl+x ctrl+s to send now',
+			'   ⎿  Queued · ctrl+x ctrl+s to send now',
 		])
 		await screen.unmount()
 		screen = await renderToScreen(
@@ -92,39 +92,6 @@ describe('pending input on the terminal screen', () => {
 		expect(lines(screen)).toHaveLength(
 			pendingInputPanelRows({ pendingSteers: [], queued, rows: 24, working: true }),
 		)
-	})
-
-	it('marks the chosen queued message and dims the pointer on the others', async () => {
-		screen = await renderToScreen(
-			<PendingInputPanel
-				pendingSteers={[]}
-				queued={[{ text: 'first' }, { text: 'second' }]}
-				columns={60}
-				rows={24}
-				selectedQueued={0}
-				working
-			/>,
-			{ cols: 60, rows: 24 },
-		)
-		expect(lines(screen).slice(0, 2)).toEqual([
-			' ❯ first · after this reply',
-			'   second · after this reply',
-		])
-	})
-
-	it('keeps the chosen message in view when it is older than the rows shown', async () => {
-		const queued = ['a', 'b', 'c', 'd', 'e'].map((text) => ({ text }))
-		screen = await renderToScreen(
-			<PendingInputPanel
-				pendingSteers={[]}
-				queued={queued}
-				columns={60}
-				rows={24}
-				selectedQueued={0}
-			/>,
-			{ cols: 60, rows: 24 },
-		)
-		expect(screen.viewport().join('\n')).toContain('❯ a')
 	})
 
 	it('keeps control characters and invisible direction changes out of terminal commands', async () => {

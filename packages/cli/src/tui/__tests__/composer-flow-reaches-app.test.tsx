@@ -494,13 +494,13 @@ describe('the two composer destinations', () => {
 			expect(firstPromptRow).toBeLessThan(14)
 			const composerRow = screen.viewport().findIndex((line) => line.includes('Type a message'))
 			expect(composerRow).toBeGreaterThan(firstPromptRow)
-			expect(screen.viewport().join('\n')).not.toContain('enter steer')
+			expect(screen.viewport().join('\n')).not.toContain('enter queue')
 
 			// Alt+V belongs to clipboard attachment, independently of computer-use.
 			screen.press('\x1bv')
 			await waitUntil(
 				screen,
-				() => screen.viewport().join('\n').includes('enter steer'),
+				() => screen.viewport().join('\n').includes('enter queue'),
 				'active-turn controls did not appear for an attached image draft',
 			)
 			await typeAndPress(screen, 'also inspect this', '\r')
@@ -883,7 +883,7 @@ describe('the two composer destinations', () => {
 		}
 	})
 
-	it('Esc promotes an undrained steer ahead of the next-turn queue exactly once', async () => {
+	it('Esc on an empty box takes every waiting message back and the reply goes on; a second Esc stops it', async () => {
 		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 110, rows: 28 })
 		try {
 			await waitUntil(
@@ -899,7 +899,7 @@ describe('the two composer destinations', () => {
 			await typeAndPress(screen, 'after interruption', '\t')
 			await waitUntil(
 				screen,
-				() => screen.viewport().join('\n').includes('after interruption'),
+				() => screen.viewport().join('\n').includes('after interruption · after this reply'),
 				'pending next-turn input was not visible',
 			)
 
@@ -907,28 +907,36 @@ describe('the two composer destinations', () => {
 			screen.press('\x1b[27u')
 			await waitUntil(
 				screen,
-				() => screen.scrollback().join('\n').includes('Interrupted'),
-				'Esc did not interrupt the active turn',
+				() => !screen.viewport().join('\n').includes('after this reply'),
+				'Esc did not take the waiting messages back',
 			)
-			expect(sent).toHaveLength(1)
-			expect(delivered).toEqual([])
-			releaseFirstTurn()
-			await waitUntil(screen, () => sent.length === 3, 'recovered input never ran')
+			const taken = screen.viewport().join('\n')
+			expect(taken).toContain('interrupt with image')
+			expect(taken).not.toContain('ctrl+x ctrl+s to send now')
+			expect(screen.scrollback().join('\n')).not.toContain('Interrupted')
+			// The box holds them in the order they were sent, one per line.
+			expect(taken.indexOf('interrupt with image')).toBeLessThan(
+				taken.indexOf('after interruption'),
+			)
 
+			screen.press('\x1b[27u')
+			await waitUntil(
+				screen,
+				() => screen.scrollback().join('\n').includes('Interrupted'),
+				'a second Esc did not interrupt the active turn',
+			)
+			releaseFirstTurn()
+			await screen.waitForRender()
+			// Nothing waiting was left to run: the reply stopped and the box kept the text.
+			expect(sent).toHaveLength(1)
 			expect(delivered[0]).toEqual([])
-			expect(sent.slice(1).map((messages) => messages.at(-1)?.content)).toEqual([
-				'[Image #1]interrupt with image',
-				'after interruption',
-			])
-			expect(sent[1]?.at(-1)).toMatchObject({ attachments: [image] })
-			expect(sent).toHaveLength(3)
 		} finally {
 			releaseFirstTurn()
 			await screen.unmount()
 		}
 	})
 
-	it('Up on an empty draft chooses a queued message, Enter loads it, Esc only leaves the choice', async () => {
+	it('Up on an empty box takes every waiting message into the box, one per line, and sends none', async () => {
 		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 110, rows: 28 })
 		try {
 			await waitUntil(
@@ -938,46 +946,72 @@ describe('the two composer destinations', () => {
 			)
 			await typeAndPress(screen, 'active work', '\r')
 			await waitUntil(screen, () => sent.length === 1, 'active turn did not start')
-			await typeAndPress(screen, 'first queued', '\t')
+			await typeAndPress(screen, 'first steer', '\r')
 			await typeAndPress(screen, 'second queued', '\t')
+			await typeAndPress(screen, 'third steer', '\r')
 			await waitUntil(
 				screen,
-				() => screen.viewport().join('\n').includes('Press up to edit queued messages'),
-				'the edit placeholder never appeared',
+				() => screen.viewport().join('\n').includes('⎿  Queued · ctrl+x ctrl+s to send now'),
+				'the waiting rows and their hint never appeared',
 			)
 
 			screen.press('\x1b[A')
 			await waitUntil(
 				screen,
-				() => screen.viewport().some((line) => line.includes('  first queued · after')),
-				'Up did not start choosing queued messages',
+				() => !screen.viewport().join('\n').includes('Queued · ctrl+x'),
+				'Up did not empty the waiting list',
 			)
-			expect(screen.viewport().join('\n')).toContain('❯ second queued')
-			screen.press('\x1b[A')
-			await waitUntil(
-				screen,
-				() => screen.viewport().some((line) => line.includes('❯ first queued')),
-				'a second Up did not move to the older message',
-			)
+			const view = screen.viewport().join('\n')
+			expect(view).not.toContain('after this reply')
+			const at = (needle: string) => view.indexOf(needle)
+			expect(at('first steer')).toBeGreaterThanOrEqual(0)
+			expect(at('first steer')).toBeLessThan(at('second queued'))
+			expect(at('second queued')).toBeLessThan(at('third steer'))
 
-			// Esc leaves the choice and does not interrupt the running reply.
-			screen.press('\x1b[27u')
-			await waitUntil(
-				screen,
-				() => screen.viewport().some((line) => line.includes('❯ second queued')),
-				'Esc did not leave the choice',
-			)
-			expect(screen.scrollback().join('\n')).not.toContain('Interrupted')
-
+			// Up with text in the box is the cursor and history again, not the queue.
 			screen.press('\x1b[A')
+			await screen.waitForRender()
+			releaseFirstTurn()
+			await screen.waitForRender()
+			// Nothing was sent: the reply ended with nothing delivered and no second turn.
+			expect(delivered[0]).toEqual([])
+			expect(sent).toHaveLength(1)
+			// The same text sends as one message when Enter is pressed.
 			screen.press('\r')
+			await waitUntil(screen, () => sent.length === 2, 'the taken-back text never sent')
+			expect(sent[1]?.at(-1)?.content).toBe('first steer\nsecond queued\nthird steer')
+		} finally {
+			releaseFirstTurn()
+			await screen.unmount()
+		}
+	})
+
+	it('ctrl+x ctrl+s with text in the box sends that text now, after the waiting steer', async () => {
+		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 110, rows: 28 })
+		try {
 			await waitUntil(
 				screen,
-				() => screen.viewport().some((line) => line.includes('❯ second queued')),
-				'Enter did not load the chosen message',
+				() => screen.viewport().some((line) => line.includes('Type a message')),
+				'App never became ready',
 			)
-			expect(screen.viewport().join('\n')).not.toContain('second queued · after')
-			expect(screen.viewport().join('\n')).toContain('first queued · after this reply')
+			await typeAndPress(screen, 'active work', '\r')
+			await waitUntil(screen, () => sent.length === 1, 'active turn did not start')
+			await typeAndPress(screen, 'earlier steer', '\r')
+			screen.press('urgent text')
+			await screen.waitForRender()
+			screen.press('\x18')
+			screen.press('\x13')
+			await waitUntil(
+				screen,
+				() => screen.scrollback().join('\n').includes('Interrupted'),
+				'the chord did not interrupt the active turn',
+			)
+			releaseFirstTurn()
+			await waitUntil(screen, () => sent.length === 3, 'the sent-now messages never ran')
+			expect(sent.slice(1).map((messages) => messages.at(-1)?.content)).toEqual([
+				'earlier steer',
+				'urgent text',
+			])
 		} finally {
 			releaseFirstTurn()
 			await screen.unmount()
@@ -1047,6 +1081,9 @@ describe('the two composer destinations', () => {
 			await typeAndPress(screen, 'active work', '\r')
 			await waitUntil(screen, () => sent.length === 1, 'active turn did not start')
 			await typeAndPress(screen, 'keep after stop', '\t')
+			// With the box empty Esc takes the queue back; a draft makes it stop the reply.
+			screen.press('x')
+			await screen.waitForRender()
 			screen.press('\x1b[27u')
 			await waitUntil(
 				screen,
@@ -1058,6 +1095,8 @@ describe('the two composer destinations', () => {
 			expect(sent).toHaveLength(1)
 			expect(screen.viewport().join('\n')).toContain('keep after stop')
 
+			screen.press('\x15')
+			await screen.waitForRender()
 			screen.press('\x1b[1;3A')
 			await waitUntil(
 				screen,
@@ -1086,6 +1125,8 @@ describe('the two composer destinations', () => {
 			await typeAndPress(screen, 'active work', '\r')
 			await waitUntil(screen, () => sent.length === 1, 'active turn did not start')
 			await typeAndPress(screen, 'held follow-up', '\t')
+			screen.press('x')
+			await screen.waitForRender()
 			screen.press('\x1b[27u')
 			await waitUntil(
 				screen,
@@ -1095,6 +1136,8 @@ describe('the two composer destinations', () => {
 			releaseFirstTurn()
 			await waitUntil(screen, () => delivered.length === 1, 'interrupted turn never settled')
 			expect(sent).toHaveLength(1)
+			screen.press('\x15')
+			await screen.waitForRender()
 			await typeAndPress(screen, 'urgent new instruction', '\r')
 			await waitUntil(screen, () => sent.length === 3, 'fresh instruction and held queue never ran')
 			expect(sent.slice(1).map((messages) => messages.at(-1)?.content)).toEqual([
@@ -1118,6 +1161,8 @@ describe('the two composer destinations', () => {
 			await typeAndPress(screen, 'active work', '\r')
 			await waitUntil(screen, () => sent.length === 1, 'active turn did not start')
 			await typeAndPress(screen, 'revise after stop', '\t')
+			screen.press('x')
+			await screen.waitForRender()
 			screen.press('\x1b[27u')
 			await waitUntil(
 				screen,
@@ -1126,6 +1171,8 @@ describe('the two composer destinations', () => {
 			)
 			releaseFirstTurn()
 			await waitUntil(screen, () => delivered.length === 1, 'interrupted turn never settled')
+			screen.press('\x15')
+			await screen.waitForRender()
 			screen.press('\x1b[1;3A')
 			await waitUntil(
 				screen,

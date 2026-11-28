@@ -33,8 +33,6 @@ export interface PendingInputPanelProps {
 	readonly rows: number
 	/** A reply is running, so "send now" has something to interrupt. */
 	readonly working?: boolean
-	/** Index into `queued` of the row chosen for editing; it is drawn in the accent colour. */
-	readonly selectedQueued?: number | null
 	/** A stopped or failed turn keeps the next-turn queue until the operator continues. */
 	readonly held?: {
 		readonly outcome: 'failed' | 'stopped' | 'paused'
@@ -45,6 +43,8 @@ export interface PendingInputPanelProps {
 /** The pointer every pending row carries. */
 export const PENDING_POINTER = '❯'
 export const SEND_NOW_HINT = 'ctrl+x ctrl+s to send now'
+/** The line under the last waiting message: its elbow, the word Queued, and the key. */
+export const QUEUED_HINT_LEAD = '  ⎿  Queued'
 
 const MAX_PREVIEW_CODEPOINTS = 400
 const QUEUED_SUFFIX = ' · after this reply'
@@ -80,7 +80,6 @@ interface Row {
 	readonly key: string
 	readonly item: PendingInputItem
 	readonly queued: boolean
-	readonly queuedIndex: number
 }
 
 function allRows(
@@ -92,24 +91,14 @@ function allRows(
 			key: `s${index}`,
 			item,
 			queued: false,
-			queuedIndex: -1,
 		})),
-		...queued.map((item, index) => ({ key: `q${index}`, item, queued: true, queuedIndex: index })),
+		...queued.map((item, index) => ({ key: `q${index}`, item, queued: true })),
 	]
 }
 
 /** Rows shown at a given height; the rest collapse into one "earlier" row. */
 function rowLimit(rows: number): number {
 	return rows >= 30 ? 5 : rows >= 20 ? 3 : 1
-}
-
-/** The newest `limit` rows, moved back only far enough to keep the selection in view. */
-function windowStart(rows: readonly Row[], limit: number, selectedQueued: number | null): number {
-	let start = Math.max(0, rows.length - limit)
-	if (selectedQueued === null) return start
-	const at = rows.findIndex((row) => row.queued && row.queuedIndex === selectedQueued)
-	if (at >= 0 && at < start) start = at
-	return start
 }
 
 function holdText(held: NonNullable<PendingInputPanelProps['held']>): string {
@@ -148,23 +137,24 @@ export function PendingInputPanel({
 	columns,
 	rows,
 	working = false,
-	selectedQueued = null,
 	held = null,
 }: PendingInputPanelProps) {
 	const list = allRows(pendingSteers, queued)
 	if (list.length === 0) return null
 
 	const limit = rowLimit(rows)
-	const start = windowStart(list, limit, selectedQueued)
+	const start = Math.max(0, list.length - limit)
 	const shown = list.slice(start, start + limit)
 	const width = Math.max(1, columns - 2)
-	const selecting = selectedQueued !== null
-	const hint = held ? holdText(held) : working && rows >= 16 ? SEND_NOW_HINT : null
+	const hint = held
+		? `  ${holdText(held)}`
+		: working && rows >= 16
+			? `${QUEUED_HINT_LEAD} · ${SEND_NOW_HINT}`
+			: null
 	return (
 		<Box flexDirection="column" paddingX={1}>
 			{shown.map((row) => {
-				const chosen = row.queued && row.queuedIndex === selectedQueued
-				const lead = chosen || !selecting ? `${PENDING_POINTER} ` : '  '
+				const lead = `${PENDING_POINTER} `
 				const files = attachmentSuffix(row.item)
 				const text =
 					previewText(row.item.text) ||
@@ -184,10 +174,10 @@ export function PendingInputPanel({
 					Math.max(0, room - choiceDisplayWidth(tail) - choiceDisplayWidth(shownFiles)),
 				)
 				const shownTail = tail
-				const colour = chosen ? theme.accent.system : theme.text.muted
+				const colour = theme.text.muted
 				// Greyer than a sent message: it has not been sent yet.
 				const tint = rowTints()
-				const ground = tint === null ? {} : { backgroundColor: chosen ? tint.user : tint.queued }
+				const ground = tint === null ? {} : { backgroundColor: tint.queued }
 				return (
 					<Text key={row.key} color={colour} wrap="truncate-end" {...ground}>
 						{lead}
@@ -207,7 +197,7 @@ export function PendingInputPanel({
 			) : null}
 			{hint ? (
 				<Text color={theme.text.muted} dimColor wrap="truncate-end">
-					{truncateChoiceText(`  ${hint}`, width)}
+					{truncateChoiceText(hint, width)}
 				</Text>
 			) : null}
 		</Box>

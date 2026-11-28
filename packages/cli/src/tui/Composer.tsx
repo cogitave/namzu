@@ -297,19 +297,15 @@ export interface ComposerProps {
 	/** Recall the latest operator-authored next-turn message into an empty draft. */
 	readonly onRecallQueued?: () => Omit<ComposerDraft, 'token'> | null
 	/**
-	 * Messages typed while a reply runs and still waiting. Up on an empty
-	 * draft chooses the newest editable one, Up/Down move, Enter loads the
-	 * chosen one into the draft, Esc (handled by the host) leaves the choice.
+	 * Messages typed while a reply runs and still waiting. Up on an empty draft
+	 * takes every one of them back into the draft, one per line in the order they
+	 * were sent, and empties the waiting list; nothing is sent.
 	 */
 	readonly queuedEdit?: {
-		/** At least one waiting message can be loaded back for editing. */
+		/** At least one waiting message can be taken back into the box. */
 		readonly available: boolean
-		/** A waiting message is chosen right now. */
-		readonly selected: boolean
-		/** Returns whether the key was used; false lets Up fall through to prompt history. */
-		readonly onMove: (direction: 'up' | 'down') => boolean
-		readonly onLoad: () => Omit<ComposerDraft, 'token'> | null
-		readonly onLeave: () => void
+		/** Empty the waiting list into one draft; null when there was nothing to take. */
+		readonly onTakeAll: () => Omit<ComposerDraft, 'token'> | null
 	}
 	/**
 	 * Where the queued-messages hint's appearance count lives. Absent, the count
@@ -1734,10 +1730,6 @@ export function Composer({
 				return
 			}
 			if (isAction('task:background', input, key) && onBackgroundCommand?.()) return
-			if (chordArmed && isChordAction('chat:sendNow', input, key) && onSendNow) {
-				onSendNow()
-				return
-			}
 			if (chordArmed && isChordAction('chat:killAgents', input, key) && onStopAllAgents) {
 				onStopAllAgents()
 				return
@@ -1746,30 +1738,18 @@ export function Composer({
 				openExternalEditor(pressedKeyLabel('chat:externalEditor', input, key, true))
 				return
 			}
-			if (queuedEdit) {
-				const empty = valueRef.current.length === 0 && attachmentsRef.current.length === 0
-				// Read from the host's ref, not the last render: Up then Enter can arrive together.
-				if (empty && key.return && !key.shift && !key.meta) {
-					const loaded = queuedEdit.onLoad()
-					if (loaded) {
-						restoreDraft(loaded)
-						return
-					}
-				}
-				if (queuedEdit.selected) {
-					if (key.upArrow && !key.meta && !key.shift) {
-						queuedEdit.onMove('up')
-						return
-					}
-					if (key.downArrow && !key.shift) {
-						queuedEdit.onMove('down')
-						return
-					}
-					// Esc is the host's: it clears the choice on the same keypress.
-					if (key.escape) return
-					// Anything else is the operator going back to typing.
-					queuedEdit.onLeave()
-				} else if (empty && key.upArrow && !key.meta && !key.shift && queuedEdit.onMove('up')) {
+			if (
+				queuedEdit?.available &&
+				key.upArrow &&
+				!key.meta &&
+				!key.shift &&
+				valueRef.current.length === 0 &&
+				attachmentsRef.current.length === 0
+			) {
+				// Read from the host's ref, not the last render: Up can follow a paste.
+				const taken = queuedEdit.onTakeAll()
+				if (taken) {
+					restoreDraft(taken)
 					return
 				}
 			}
@@ -1863,7 +1843,6 @@ export function Composer({
 				vimOnRef.current &&
 				!vimBypass &&
 				historySearchRef.current === null &&
-				queuedEdit?.selected !== true &&
 				vimStep(input, key, hasLiveSuggestions)
 			)
 				return
@@ -1919,6 +1898,13 @@ export function Composer({
 					})
 				}
 				return true
+			}
+			if (chordArmed && isChordAction('chat:sendNow', input, key) && onSendNow) {
+				// With text in the box, send-now sends that text first (it reaches the
+				// reply being cut); with an empty box it sends what is already waiting.
+				if (turnActive) submit('submit')
+				onSendNow()
+				return
 			}
 			if (isAction('chat:newline', input, key) || input === '\n') {
 				const position = cursorRef.current

@@ -149,8 +149,8 @@ every command either way.
   reply. It closes by itself when the reply ends. While one is open, queued work
   is held.
 
-A message typed while a reply runs keeps its two keys: Enter steers it into the
-running reply, Tab queues it.
+A message typed while a reply runs keeps its two keys: Enter queues it for the
+running reply (read at its next model boundary), Tab holds it for after the reply.
 
 What a change applies to:
 

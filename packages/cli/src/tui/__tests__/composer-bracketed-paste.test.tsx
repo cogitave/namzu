@@ -207,10 +207,7 @@ it('removes a chip whole with one Backspace and sends nothing of it', async () =
 
 const queuedAvailable = {
 	available: true,
-	selected: false,
-	onMove: () => false,
-	onLoad: () => null,
-	onLeave: () => {},
+	onTakeAll: () => null,
 }
 const queuedNone = { ...queuedAvailable, available: false }
 const QUEUED_HINT_TEXT = 'Press up to edit queued messages'

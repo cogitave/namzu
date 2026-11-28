@@ -4739,13 +4739,6 @@ function AppBody({
 		)
 		if (line) pushMessage('system', line, false, CLOSING_GLYPH, undefined, tokenColor('text.muted'))
 	}, [subagents, workflowRuns, state, closingWaitVersion, pushMessage])
-	/** The queue row chosen for editing with Up; null when no row is chosen. */
-	const [queueSelection, setQueueSelectionState] = useState<number | null>(null)
-	const queueSelectionRef = useRef<number | null>(null)
-	const setQueueSelection = useCallback((next: number | null) => {
-		queueSelectionRef.current = next
-		setQueueSelectionState(next)
-	}, [])
 	const takeQueuedPrompt = useCallback(
 		(index: number) => {
 			const pending = roundQueueRef.current.items()
@@ -4754,14 +4747,13 @@ function AppBody({
 			const remaining = [...pending.slice(0, index), ...pending.slice(index + 1)]
 			replaceQueued(remaining)
 			if (remaining.length === 0) setQueuePause(null)
-			setQueueSelection(null)
 			return {
 				text: prompt.recallText ?? prompt.text,
 				...(prompt.attachments ? { attachments: prompt.attachments } : {}),
 				...(prompt.triggers ? { triggers: prompt.triggers } : {}),
 			}
 		},
-		[replaceQueued, setQueuePause, setQueueSelection],
+		[replaceQueued, setQueuePause],
 	)
 	const recallQueuedPrompt = useCallback(() => {
 		const pending = roundQueueRef.current.items()
@@ -4774,37 +4766,36 @@ function AppBody({
 		return takeQueuedPrompt(index)
 	}, [pushMessage, takeQueuedPrompt])
 	/**
-	 * Up/Down on an empty composer walks the queued messages the operator can
-	 * still edit. Returns whether the key was used, so Up falls through to the
-	 * prompt history when there is nothing to select.
+	 * Up on an empty box (and Esc on one): every message waiting, the ones the
+	 * reply has not read yet and the ones queued for after it, moves into the box
+	 * in the order they were sent, one per line. Nothing is sent and the waiting
+	 * list is empty afterwards. A waiting item that is not a typed message (a
+	 * command, a notice) stays where it is.
 	 */
-	const moveQueueSelection = useCallback(
-		(direction: 'up' | 'down'): boolean => {
-			const editable = roundQueueRef.current
-				.items()
-				.flatMap((prompt, index) => (isRecallableHumanPrompt(prompt) ? [index] : []))
-			const current = queueSelectionRef.current
-			if (direction === 'up') {
-				if (editable.length === 0) return false
-				const older = current === null ? undefined : editable.filter((i) => i < current).at(-1)
-				setQueueSelection(current === null ? (editable.at(-1) ?? null) : (older ?? current))
-				return true
-			}
-			if (current === null) return false
-			setQueueSelection(editable.find((i) => i > current) ?? null)
-			return true
-		},
-		[setQueueSelection],
-	)
-	const loadSelectedQueued = useCallback(() => {
-		const index = queueSelectionRef.current
-		return index === null ? null : takeQueuedPrompt(index)
-	}, [takeQueuedPrompt])
-	// A chosen queue row goes with the message it pointed at (sent, recalled, dropped).
-	useEffect(() => {
-		const index = queueSelectionRef.current
-		if (index !== null && !isRecallableHumanPrompt(queued[index])) setQueueSelection(null)
-	}, [queued, setQueueSelection])
+	const takeAllPending = useCallback((): Omit<ComposerDraft, 'token'> | null => {
+		const steers = activeTurnInboxRef.current?.withdraw() ?? []
+		const waiting = mergeUndeliveredLiveInput(roundQueueRef.current.items(), steers)
+		const taken = waiting.filter(isRecallableHumanPrompt)
+		if (taken.length === 0) return null
+		const remaining = waiting.filter((prompt) => !isRecallableHumanPrompt(prompt))
+		replaceQueued(remaining)
+		if (remaining.length === 0) setQueuePause(null)
+		const attachments = taken.flatMap((prompt) => prompt.attachments ?? [])
+		const triggers = [...new Set(taken.flatMap((prompt) => prompt.triggers ?? []))]
+		return {
+			text: taken.map((prompt) => prompt.recallText ?? prompt.text).join('\n'),
+			...(attachments.length > 0 ? { attachments } : {}),
+			...(triggers.length > 0 ? { triggers } : {}),
+		}
+	}, [replaceQueued, setQueuePause])
+	/** Esc on an empty box with messages waiting: they come back to the box instead of the reply stopping. */
+	const takeAllPendingIntoBox = useCallback((): boolean => {
+		const draft = takeAllPending()
+		if (!draft) return false
+		composerDraftTokenRef.current += 1
+		setComposerDraft({ token: composerDraftTokenRef.current, ...draft })
+		return true
+	}, [takeAllPending])
 
 	/**
 	 * The skill proposal's per-conversation facts: whether this conversation
@@ -12691,6 +12682,14 @@ function AppBody({
 					}
 					return delivered.map((input) => input.message)
 				},
+				withdraw(): readonly LiveInput[] {
+					if (!inboxOpen || ac.signal.aborted || activeTurnInboxRef.current !== inbox) return []
+					const taken = inboxEntries.filter((input) => isRecallableHumanPrompt(input.prompt))
+					if (taken.length === 0) return []
+					for (const input of taken) inboxEntries.splice(inboxEntries.indexOf(input), 1)
+					setPendingSteers([...inboxEntries])
+					return taken
+				},
 				close(): readonly LiveInput[] {
 					inboxOpen = false
 					for (const wake of [...inputWaiters]) wake()
@@ -19380,11 +19379,10 @@ function AppBody({
 				void resumeActiveTurn({ explain: true })
 				return
 			}
-			// A queued message chosen for editing: Esc only leaves the choice.
-			if (key.escape && queueSelectionRef.current !== null) {
-				setQueueSelection(null)
+			// Esc on an empty box with messages waiting takes them all back into the
+			// box (the reply goes on); the next Esc interrupts.
+			if (key.escape && !vimOwnsEscapeRef.current && !composerHasDraft && takeAllPendingIntoBox())
 				return
-			}
 			// Esc interrupts the running turn. Its pending steer can start a fresh
 			// turn, while a next-turn queue remains visible for the operator.
 			if (
@@ -19998,7 +19996,6 @@ function AppBody({
 									columns={Math.max(2, (terminal.columns ?? 80) - SCREEN_MARGIN)}
 									rows={terminal.rows}
 									working={abortRef.current !== null}
-									selectedQueued={queueSelection}
 									held={queuePause}
 								/>
 							) : null}
@@ -20454,11 +20451,10 @@ function AppBody({
 										onRecallQueued={recallQueuedPrompt}
 										queuedHintCount={queuedHintCount}
 										queuedEdit={{
-											available: queued.some(isRecallableHumanPrompt),
-											selected: queueSelection !== null,
-											onMove: moveQueueSelection,
-											onLoad: loadSelectedQueued,
-											onLeave: () => setQueueSelection(null),
+											available:
+												queued.some(isRecallableHumanPrompt) ||
+												pendingSteers.some((input) => isRecallableHumanPrompt(input.prompt)),
+											onTakeAll: takeAllPending,
 										}}
 										onSendNow={sendPendingNow}
 										onBackgroundCommand={backgroundRunningCommand}
@@ -20770,7 +20766,7 @@ function hintForPhase(
 ): string {
 	if (phase === 'probing') return 'discovering providers…'
 	if (phase === 'unhealthy') return 'esc or Ctrl+C exit'
-	if (state !== 'idle') return hasDraft ? 'enter steer · tab queue · esc interrupt' : ''
+	if (state !== 'idle') return hasDraft ? 'enter queue · tab after reply · esc interrupt' : ''
 	// The composer already points to /help. Keeping the complete key list in
 	// every idle frame made ordinary conversation read like a permanent setup
 	// screen; only state-specific actions belong in the footer.

@@ -223,18 +223,19 @@ repeated failures. It never runs while a turn is running, never in print or
 exec mode (they do not mount this screen), and not at all when
 `NAMZU_PR_STATUS=off` or the output is not a terminal.
 
-While a turn runs, Enter steers a submitted message to that turn's next model
-boundary; Tab holds it for the next turn. Messages typed while Namzu is working
+While a turn runs, Enter queues a submitted message: the running reply reads it at its
+next model boundary, as its own user message and not at the end; Tab holds it for the next
+turn instead. Messages typed while Namzu is working
 are rows at the end of the transcript, directly above the working line (and
-so above the input frame), not inside the frame: pending rows, then the send-now
-hint, then `Working (…)`, then the input. Each is `❯ <text>` in the grey of a
+so above the input frame), not inside the frame: pending rows, then the `⎿  Queued`
+line, then `Working (…)`, then the input. Each is `❯ <text>` in the grey of a
 message not yet read, one row per message in the order it will be used. A
 Tab-queued row ends with a dim `· after this reply`, so it reads apart from a
 steer; a slash command waiting for the reply ends `· Queued, runs after this reply`
 (`· Queued` when narrow). Once a message is sent it is an ordinary `❯ <text>` row, whether it was
 typed while a reply ran or not: it carries no `sent while working` label, and a
 conversation restored later draws it the same way. (An `N files attached` note
-under a message stays.) Under the last row a dim `ctrl+x ctrl+s to send now` appears while a
+under a message stays.) Under the last row a dim `  ⎿  Queued · ctrl+x ctrl+s to send now` appears while a
 reply runs. Rows are bounded by the terminal height (five, three or one; the
 rest fold into a dim `+N more messages` row) and counted in the transcript's
 live-window budget so they do not overdraw a short terminal. Control
@@ -242,26 +243,29 @@ characters in a submitted message are escaped before display. When a steer is
 delivered it becomes an ordinary user row carrying a dim `· sent while
 working`.
 
-With nothing typed, Up chooses the newest queued message the operator wrote
-(automatic goal and peer items cannot be edited); the chosen row takes the
-accent colour and the others lose their pointer. Up and Down move, Enter loads
-the chosen message into the input with its attachments and armed triggers,
-and Esc only leaves the choice. Typing anything else leaves it too. While
-messages can be edited the input's placeholder reads `Press up to edit queued
+With nothing typed, Up takes every waiting message back into the box (the ones the
+reply has not read yet and the Tab-queued ones), one per line in the order they were sent,
+with their attachments and armed triggers, and empties the list; nothing is sent, and
+the footer's `esc to interrupt` is plain again. With text in the box, Up is the cursor
+or the history, as before. Esc on an empty box with messages waiting does the same
+instead of stopping the reply; a second Esc stops it. A waiting item the operator did not
+write (an automatic goal continuation, peer mail) is not taken and stays queued. While
+messages can be taken back the input's placeholder reads `Press up to edit queued
 messages`, the first three times it would appear (the count is kept in
 `~/.namzu/hint-counts.json` as `queuedMessagesHint`, so it carries over
 between launches; each appearance counts once, and the words are decided
 before the frame is drawn, so the usual placeholder never flashes first), then
-the usual placeholder returns. Enter on an empty box loads the chosen queued
-message for editing; it never sends the queue. On the very first prompt of a
+the usual placeholder returns. On the very first prompt of a
 conversation the placeholder is a rotating example, `Try "fix lint errors"`,
 and, in a git repository, ones that name a frequently modified source file
-(`Try "refactor src/app.ts"`). Alt+Up still restores the newest one at once. A held queue says why
+(`Try "refactor src/app.ts"`). Alt+Up still restores only the newest Tab-queued one at once. A held queue says why
 under its rows: after a failed reply `Paused after the failed reply · send a
 message to run them`; after Esc, a new Enter message runs before the queue.
-`ctrl+x ctrl+s` is a two-key chord (any key in between drops it) that does what
-Esc does with a pending steer, interrupting the reply so the steer starts the
-next one, and also releases a queue that Esc had held.
+`ctrl+x ctrl+s` is a two-key chord (any key in between drops it). With text in the box it
+sends that text now; with an empty box it sends what is waiting. Either way the reply
+stops, the waiting messages start the next one in the order they were sent, and a queue that
+Esc had held is released. A held queue appears only when Esc stopped a reply while the
+box held a draft.
 
 A running background shell shows as the footer's shell pill (above). The `/tasks` child view is the `Background` dialog (no job ids on screen; rows read `● <command>  running|done|error|stopped`, details are `Shell details`); a finished job also leaves a `● Background command "…" finished (exit code N)` row in the transcript. It keeps the input draft mounted, lets the
 operator inspect bounded, escaped shell output, and stops a selected running
