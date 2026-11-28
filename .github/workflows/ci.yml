@@ -576,7 +576,7 @@ jobs:
           bash .github/scripts/verify-consumer-install.sh
 
   # The Rust workspace (`crates/`, `conformance/`). Nothing here needs node:
-  # the pure core is tested on Linux, and the vectors in `conformance/namzu-win/`
+  # the pure core is tested on Linux, and the vectors in `conformance/namzu-native/`
   # are the same files the TypeScript codec's tests read in `check`.
   # `--locked` everywhere: a build that rewrites Cargo.lock is not the build
   # that was reviewed.
@@ -626,9 +626,9 @@ jobs:
       - run: rustup toolchain install 1.99.1 --profile minimal --component rustfmt --component clippy --target ${{ matrix.target }}
 
       - name: Build the Windows helper
-        run: cargo build --release --locked --target ${{ matrix.target }} -p namzu-win
+        run: cargo build --release --locked --target ${{ matrix.target }} -p namzu-native
         env:
-          NAMZU_WIN_BUILD_HASH: ${{ github.sha }}
+          NAMZU_NATIVE_BUILD_HASH: ${{ github.sha }}
 
       # Runs the helper's own tests on the OS it is for: the stdio test against
       # the real executable, a read of a window the test creates itself (list,
@@ -647,15 +647,15 @@ jobs:
         shell: bash
         run: |
           cd target/${{ matrix.target }}/release
-          sha256sum namzu-win.exe | tee namzu-win.exe.sha256
+          sha256sum namzu-native.exe | tee namzu-native.exe.sha256
 
       - name: Upload the helper
         uses: actions/upload-artifact@v4
         with:
-          name: namzu-win-${{ matrix.target }}
+          name: namzu-native-${{ matrix.target }}
           path: |
-            target/${{ matrix.target }}/release/namzu-win.exe
-            target/${{ matrix.target }}/release/namzu-win.exe.sha256
+            target/${{ matrix.target }}/release/namzu-native.exe
+            target/${{ matrix.target }}/release/namzu-native.exe.sha256
           if-no-files-found: error
           retention-days: 14
 

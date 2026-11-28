@@ -3,7 +3,7 @@
 # test data for these crates lives in `conformance/`.
 [workspace]
 resolver = "3"
-members = ["crates/namzu-win-core", "crates/namzu-win"]
+members = ["crates/namzu-native-core", "crates/namzu-native"]
 
 [workspace.package]
 version = "0.1.0"

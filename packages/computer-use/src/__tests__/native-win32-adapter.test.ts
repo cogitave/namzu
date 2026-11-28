@@ -153,10 +153,10 @@ const dirs: string[] = []
 
 async function adapter(configure?: (h: FakeHelper) => void) {
 	const helpers: FakeHelper[] = []
-	const captureDir = mkdtempSync(join(tmpdir(), 'namzu-win-adapter-test-'))
+	const captureDir = mkdtempSync(join(tmpdir(), 'namzu-native-adapter-test-'))
 	dirs.push(captureDir)
 	const created = await NativeWin32Adapter.create({
-		executable: 'C:\\namzu\\namzu-win.exe',
+		executable: 'C:\\namzu\\namzu-native.exe',
 		cliVersion: '55.0.0',
 		captureDir,
 		spawnHelper: () => {
@@ -177,7 +177,7 @@ afterEach(() => {
 describe('starting the native display adapter', () => {
 	it('reports what it can do and names the helper', async () => {
 		const { adapter: a } = await adapter()
-		expect(a.backend).toBe('namzu-win 0.2.0')
+		expect(a.backend).toBe('namzu-native 0.2.0')
 		expect(a.capabilities).toMatchObject({
 			displayServer: 'win32',
 			screenshot: true,
@@ -214,7 +214,7 @@ describe('starting the native display adapter', () => {
 	it('is unavailable when the helper does not start', async () => {
 		await expect(
 			NativeWin32Adapter.create({
-				executable: 'C:\\missing\\namzu-win.exe',
+				executable: 'C:\\missing\\namzu-native.exe',
 				spawnHelper: () => {
 					throw new Error('ENOENT')
 				},
@@ -379,7 +379,7 @@ describe('lifecycle', () => {
 		await a.dispose?.()
 		expect(existsSync(captureDir)).toBe(true)
 		const own = await NativeWin32Adapter.create({
-			executable: 'C:\\namzu\\namzu-win.exe',
+			executable: 'C:\\namzu\\namzu-native.exe',
 			spawnHelper: () => new FakeHelper(),
 		})
 		await own.dispose?.()
@@ -411,7 +411,7 @@ describe('choosing the native helper in the Windows adapter', () => {
 		const helpers: FakeHelper[] = []
 		const chosen = await Win32Adapter.create({
 			backend: 'powershell',
-			helper: 'C:\\namzu\\namzu-win.exe',
+			helper: 'C:\\namzu\\namzu-native.exe',
 			platform: 'win32',
 			env: {},
 			spawnHelper: () => {
@@ -420,22 +420,22 @@ describe('choosing the native helper in the Windows adapter', () => {
 				return h
 			},
 		})
-		expect(chosen.backend).toBe('namzu-win 0.2.0')
+		expect(chosen.backend).toBe('namzu-native 0.2.0')
 		expect(helpers).toHaveLength(1)
 		expect(ps).not.toHaveBeenCalled()
 		await chosen.dispose?.()
 	})
 
-	it('is chosen by NAMZU_WIN_HELPER when cua-driver is not available', async () => {
+	it('is chosen by NAMZU_NATIVE_HELPER when cua-driver is not available', async () => {
 		const ps = powershell()
 		const chosen = await Win32Adapter.create({
 			backend: 'auto',
 			platform: 'win32',
-			env: { NAMZU_WIN_HELPER: ' C:\\namzu\\namzu-win.exe ' },
+			env: { NAMZU_NATIVE_HELPER: ' C:\\namzu\\namzu-native.exe ' },
 			resolve: noCuaDriver as never,
 			spawnHelper: () => new FakeHelper(),
 		})
-		expect(chosen.backend).toBe('namzu-win 0.2.0')
+		expect(chosen.backend).toBe('namzu-native 0.2.0')
 		expect(ps).not.toHaveBeenCalled()
 		await chosen.dispose?.()
 	})
@@ -444,7 +444,7 @@ describe('choosing the native helper in the Windows adapter', () => {
 		const ps = powershell()
 		const failure = await Win32Adapter.create({
 			backend: 'auto',
-			helper: 'C:\\missing\\namzu-win.exe',
+			helper: 'C:\\missing\\namzu-native.exe',
 			platform: 'win32',
 			env: {},
 			resolve: noCuaDriver as never,
@@ -469,12 +469,12 @@ describe('choosing the native helper in the Windows adapter', () => {
 		expect(ps).toHaveBeenCalledTimes(1)
 	})
 
-	it('treats a blank NAMZU_WIN_HELPER as none', async () => {
+	it('treats a blank NAMZU_NATIVE_HELPER as none', async () => {
 		const ps = powershell()
 		await Win32Adapter.create({
 			backend: 'powershell',
 			platform: 'win32',
-			env: { NAMZU_WIN_HELPER: '   ' },
+			env: { NAMZU_NATIVE_HELPER: '   ' },
 		}).catch(() => undefined)
 		expect(ps).toHaveBeenCalledTimes(1)
 	})
