@@ -1902,8 +1902,12 @@ export function Composer({
 			if (chordArmed && isChordAction('chat:sendNow', input, key) && onSendNow) {
 				// With text in the box, send-now sends that text first (it reaches the
 				// reply being cut); with an empty box it sends what is already waiting.
+				// A slash or `!` line is a command, not a message: it runs on its own
+				// and leaves the reply alone.
+				const typed = valueRef.current.trim()
+				const isCommand = shellRef.current || typed.startsWith('/')
 				if (turnActive) submit('submit')
-				onSendNow()
+				if (!(turnActive && isCommand)) onSendNow()
 				return
 			}
 			if (isAction('chat:newline', input, key) || input === '\n') {

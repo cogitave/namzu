@@ -19381,7 +19381,13 @@ function AppBody({
 			}
 			// Esc on an empty box with messages waiting takes them all back into the
 			// box (the reply goes on); the next Esc interrupts.
-			if (key.escape && !vimOwnsEscapeRef.current && !composerHasDraft && takeAllPendingIntoBox())
+			if (
+				key.escape &&
+				!vimOwnsEscapeRef.current &&
+				!composerHasDraft &&
+				!composerSearchingRef.current &&
+				takeAllPendingIntoBox()
+			)
 				return
 			// Esc interrupts the running turn. Its pending steer can start a fresh
 			// turn, while a next-turn queue remains visible for the operator.

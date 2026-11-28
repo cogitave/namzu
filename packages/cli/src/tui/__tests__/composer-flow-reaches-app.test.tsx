@@ -515,7 +515,7 @@ describe('the two composer destinations', () => {
 			await typeAndPress(screen, 'then do this', '\t')
 			await waitUntil(
 				screen,
-				() => screen.viewport().some((line) => line.includes('then do this · after this reply')),
+				() => screen.viewport().some((line) => line.includes('❯ then do this')),
 				'Tab submission never entered the next-turn queue',
 			)
 			expect(screen.viewport().join('\n')).toContain('ctrl+x ctrl+s to send now')
@@ -899,7 +899,7 @@ describe('the two composer destinations', () => {
 			await typeAndPress(screen, 'after interruption', '\t')
 			await waitUntil(
 				screen,
-				() => screen.viewport().join('\n').includes('after interruption · after this reply'),
+				() => screen.viewport().join('\n').includes('❯ after interruption'),
 				'pending next-turn input was not visible',
 			)
 
@@ -907,7 +907,7 @@ describe('the two composer destinations', () => {
 			screen.press('\x1b[27u')
 			await waitUntil(
 				screen,
-				() => !screen.viewport().join('\n').includes('after this reply'),
+				() => !screen.viewport().join('\n').includes('Queued · ctrl+x'),
 				'Esc did not take the waiting messages back',
 			)
 			const taken = screen.viewport().join('\n')
@@ -930,6 +930,37 @@ describe('the two composer destinations', () => {
 			// Nothing waiting was left to run: the reply stopped and the box kept the text.
 			expect(sent).toHaveLength(1)
 			expect(delivered[0]).toEqual([])
+		} finally {
+			releaseFirstTurn()
+			await screen.unmount()
+		}
+	})
+
+	it('send-now with a slash command in the box runs the command and leaves the reply alone', async () => {
+		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 110, rows: 28 })
+		try {
+			await waitUntil(
+				screen,
+				() => screen.viewport().some((line) => line.includes('Type a message')),
+				'App never became ready',
+			)
+			await typeAndPress(screen, 'active work', '\r')
+			await waitUntil(screen, () => sent.length === 1, 'active turn did not start')
+			await typeAndPress(screen, 'waiting message', '\t')
+			await waitUntil(
+				screen,
+				() => screen.viewport().join('\n').includes('Queued · ctrl+x'),
+				'the waiting row never appeared',
+			)
+			await typeAndPress(screen, '/help', '')
+			screen.press('\x18')
+			screen.press('\x13')
+			await waitUntil(
+				screen,
+				() => screen.viewport().join('\n').includes('Choose a command'),
+				'the command did not run',
+			)
+			expect(screen.scrollback().join('\n')).not.toContain('Interrupted')
 		} finally {
 			releaseFirstTurn()
 			await screen.unmount()
@@ -962,7 +993,6 @@ describe('the two composer destinations', () => {
 				'Up did not empty the waiting list',
 			)
 			const view = screen.viewport().join('\n')
-			expect(view).not.toContain('after this reply')
 			const at = (needle: string) => view.indexOf(needle)
 			expect(at('first steer')).toBeGreaterThanOrEqual(0)
 			expect(at('first steer')).toBeLessThan(at('second queued'))
@@ -1103,7 +1133,6 @@ describe('the two composer destinations', () => {
 				() => screen.viewport().some((line) => line.includes('❯ keep after stop')),
 				'queued input was not recalled',
 			)
-			expect(screen.viewport().join('\n')).not.toContain('after this reply')
 			expect(sent).toHaveLength(1)
 			screen.press('\r')
 			await waitUntil(screen, () => sent.length === 2, 'recalled input never started')

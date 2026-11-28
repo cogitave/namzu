@@ -10,7 +10,16 @@ afterEach(async () => {
 	screen = null
 })
 
-const lines = (s: Screen) => s.viewport().filter((row) => row.length > 0)
+const lines = (s: Screen) =>
+	s
+		.viewport()
+		.filter(
+			(row, i, all) =>
+				row.length > 0 ||
+				(i > 0 &&
+					all.slice(i).some((r) => r.length > 0) &&
+					all.slice(0, i).some((r) => r.length > 0)),
+		)
 
 describe('pending input on the terminal screen', () => {
 	it('lists each message as a grey pointer row, with the queued one saying when it runs', async () => {
@@ -25,9 +34,10 @@ describe('pending input on the terminal screen', () => {
 			{ cols: 80, rows: 24 },
 		)
 		expect(lines(screen)).toEqual([
-			' ❯ check server log [1 image]',
-			' ❯ then write the summary · after this reply',
-			'   ⎿  Queued · ctrl+x ctrl+s to send now',
+			'❯ check server log [1 image]',
+			'',
+			'❯ then write the summary',
+			'  ⎿  Queued · ctrl+x ctrl+s to send now',
 		])
 		expect(
 			pendingInputPanelRows({
@@ -36,7 +46,7 @@ describe('pending input on the terminal screen', () => {
 				rows: 24,
 				working: true,
 			}),
-		).toBe(3)
+		).toBe(4)
 		expect(screen.bufferType()).toBe('normal')
 	})
 
@@ -52,8 +62,8 @@ describe('pending input on the terminal screen', () => {
 			{ cols: 80, rows: 24 },
 		)
 		expect(lines(screen)).toEqual([
-			' ❯ /compact · Queued, runs after this reply',
-			'   ⎿  Queued · ctrl+x ctrl+s to send now',
+			'❯ /compact · Queued, runs after this reply',
+			'  ⎿  Queued · ctrl+x ctrl+s to send now',
 		])
 		await screen.unmount()
 		screen = await renderToScreen(
@@ -66,7 +76,7 @@ describe('pending input on the terminal screen', () => {
 			/>,
 			{ cols: 24, rows: 24 },
 		)
-		expect(lines(screen)[0]).toBe(' ❯ /compact · Queued')
+		expect(lines(screen)[0]).toBe('❯ /compact · Queued')
 	})
 
 	it('keeps the send-now hint only while a reply runs', async () => {
@@ -141,8 +151,8 @@ describe('pending input on the terminal screen', () => {
 			{ cols: 110, rows: 24 },
 		)
 		expect(lines(screen)).toEqual([
-			' ❯ operator correction · after this reply',
-			'   Paused after the failed reply · send a message to run them',
+			'❯ operator correction',
+			'  Paused after the failed reply · send a message to run them',
 		])
 		expect(
 			pendingInputPanelRows({
@@ -165,6 +175,6 @@ describe('pending input on the terminal screen', () => {
 			/>,
 			{ cols: 40, rows: 14 },
 		)
-		expect(lines(screen)).toEqual([' ❯ queued · after this reply', '   +1 more message'])
+		expect(lines(screen)).toEqual(['❯ queued', '  +1 more message'])
 	})
 })

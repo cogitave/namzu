@@ -28,7 +28,7 @@ export interface PendingInputItem {
 export interface PendingInputPanelProps {
 	readonly pendingSteers: readonly PendingInputItem[]
 	readonly queued: readonly PendingInputItem[]
-	/** Available cells, including the panel's one-cell side padding. */
+	/** Available cells. */
 	readonly columns: number
 	readonly rows: number
 	/** A reply is running, so "send now" has something to interrupt. */
@@ -47,7 +47,6 @@ export const SEND_NOW_HINT = 'ctrl+x ctrl+s to send now'
 export const QUEUED_HINT_LEAD = '  ⎿  Queued'
 
 const MAX_PREVIEW_CODEPOINTS = 400
-const QUEUED_SUFFIX = ' · after this reply'
 /** A queued command says plainly that it is queued; the key to run it now is the hint line below. */
 const QUEUED_COMMAND_SUFFIX = ' · Queued, runs after this reply'
 const QUEUED_COMMAND_SHORT_SUFFIX = ' · Queued'
@@ -128,7 +127,9 @@ export function pendingInputPanelRows({
 	const total = pendingSteers.length + queued.length
 	if (total === 0) return 0
 	const limit = rowLimit(rows)
-	return Math.min(limit, total) + Number(total > limit) + hintRows({ working, held, rows })
+	const shown = Math.min(limit, total)
+	// One blank line between consecutive messages.
+	return shown * 2 - 1 + Number(total > limit) + hintRows({ working, held, rows })
 }
 
 export function PendingInputPanel({
@@ -145,15 +146,15 @@ export function PendingInputPanel({
 	const limit = rowLimit(rows)
 	const start = Math.max(0, list.length - limit)
 	const shown = list.slice(start, start + limit)
-	const width = Math.max(1, columns - 2)
+	const width = Math.max(1, columns)
 	const hint = held
 		? `  ${holdText(held)}`
 		: working && rows >= 16
 			? `${QUEUED_HINT_LEAD} · ${SEND_NOW_HINT}`
 			: null
 	return (
-		<Box flexDirection="column" paddingX={1}>
-			{shown.map((row) => {
+		<Box flexDirection="column">
+			{shown.map((row, index) => {
 				const lead = `${PENDING_POINTER} `
 				const files = attachmentSuffix(row.item)
 				const text =
@@ -164,7 +165,7 @@ export function PendingInputPanel({
 				const keep = Math.min(choiceDisplayWidth(text), 12) + choiceDisplayWidth(files)
 				const suffixes = row.item.command
 					? [QUEUED_COMMAND_SUFFIX, QUEUED_COMMAND_SHORT_SUFFIX]
-					: [QUEUED_SUFFIX]
+					: []
 				const tail = row.queued
 					? (suffixes.find((suffix) => room - keep >= choiceDisplayWidth(suffix)) ?? '')
 					: ''
@@ -179,12 +180,14 @@ export function PendingInputPanel({
 				const tint = rowTints()
 				const ground = tint === null ? {} : { backgroundColor: tint.queued }
 				return (
-					<Text key={row.key} color={colour} wrap="truncate-end" {...ground}>
-						{lead}
-						{shownText}
-						{shownFiles}
-						{shownTail ? <Text dimColor>{shownTail}</Text> : null}
-					</Text>
+					<Box key={row.key} marginTop={index === 0 ? 0 : 1}>
+						<Text color={colour} wrap="truncate-end" {...ground}>
+							{lead}
+							{shownText}
+							{shownFiles}
+							{shownTail ? <Text dimColor>{shownTail}</Text> : null}
+						</Text>
+					</Box>
 				)
 			})}
 			{list.length > shown.length ? (
