@@ -17,7 +17,7 @@ files itself. Nothing leaves the computer before you press **Send**.
 
 The first release records on **Windows 10 (2004 and later) and 11, on the computer you are sitting
 at**. The item is not shown on macOS, Linux or WSL, in a remote desktop session, or where the native
-Windows helper (`namzu-win.exe`) is not present. In a remote session, asking says
+native helper (`namzu-native.exe`) is not present. In a remote session, asking says
 `Recording does not work in a remote session.` The remote check reads `SESSIONNAME` (a remote desktop
 session is named `RDP-Tcp#<n>`; a local one says `Console`) and `CLIENTNAME` (set only by a remote
 desktop client), again at each Start; it is a best effort that a real machine

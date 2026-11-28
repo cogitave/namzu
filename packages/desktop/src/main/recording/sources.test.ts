@@ -10,7 +10,20 @@ vi.mock('@namzu/computer-use', () => ({ NativeWatch: class {} }))
 const { helperPath, isWsl } = await import('./sources.js')
 
 describe('finding the native helper', () => {
-	it('uses the path in NAMZU_WIN_HELPER when the file is there', () => {
+	it('uses the path in NAMZU_NATIVE_HELPER when the file is there, before the old variable', () => {
+		expect(
+			helperPath(
+				{
+					NAMZU_NATIVE_HELPER: 'C:\\tools\\namzu-native.exe',
+					NAMZU_WIN_HELPER: 'C:\\old\\namzu-win.exe',
+				},
+				undefined,
+				() => true,
+			),
+		).toBe('C:\\tools\\namzu-native.exe')
+	})
+
+	it('still reads the deprecated NAMZU_WIN_HELPER when the new variable is absent', () => {
 		expect(
 			helperPath({ NAMZU_WIN_HELPER: 'C:\\tools\\namzu-win.exe' }, undefined, () => true),
 		).toBe('C:\\tools\\namzu-win.exe')
@@ -20,9 +33,9 @@ describe('finding the native helper', () => {
 		const seen: string[] = []
 		const found = helperPath({}, '/opt/namzu/resources', (path) => {
 			seen.push(path)
-			return path.endsWith('namzu-win.exe')
+			return path.endsWith('namzu-native.exe')
 		})
-		expect(found?.endsWith('namzu-win.exe')).toBe(true)
+		expect(found?.endsWith('namzu-native.exe')).toBe(true)
 		expect(seen).toHaveLength(1)
 	})
 

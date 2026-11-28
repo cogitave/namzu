@@ -20,16 +20,22 @@ export function isWsl(platform: NodeJS.Platform = process.platform): boolean {
 	return platform === 'linux' && /microsoft|wsl/i.test(release())
 }
 
-/** `NAMZU_WIN_HELPER`, else `namzu-win.exe` beside the app's resources; undefined when neither exists. */
+/**
+ * The native helper: `NAMZU_NATIVE_HELPER`, else the deprecated `NAMZU_WIN_HELPER` (read until the
+ * next major of `@namzu/computer-use`), else `namzu-native.exe` beside the app's resources; undefined
+ * when none exists.
+ */
 export function helperPath(
 	env: Readonly<Record<string, string | undefined>> = process.env,
 	resources: string | undefined = process.resourcesPath,
 	exists: (path: string) => boolean = existsSync,
 ): string | undefined {
-	const named = env.NAMZU_WIN_HELPER?.trim()
-	if (named && exists(named)) return named
+	for (const name of ['NAMZU_NATIVE_HELPER', 'NAMZU_WIN_HELPER']) {
+		const named = env[name]?.trim()
+		if (named && exists(named)) return named
+	}
 	if (resources) {
-		const beside = join(resources, 'namzu-win.exe')
+		const beside = join(resources, 'namzu-native.exe')
 		if (exists(beside)) return beside
 	}
 	return undefined
