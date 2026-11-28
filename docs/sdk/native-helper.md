@@ -416,9 +416,12 @@ control they used.
   is where a person's action lands; a window that opens or closes in the
   background is named by its own handle when it has one.
 
-`NativeWatch` in `@namzu/computer-use` (`native/watch.ts`) starts, polls and
-stops it on the shared helper process, and refuses a helper whose `hello` has
-no `watch` cap. The portable parts (kinds, caps, coalescing, the secure rule,
+`NativeWatch` in `@namzu/computer-use` (`native/watch.ts`, exported from the
+package with `NativeWatchOptions`, `NativeWatchStart`, `NativeWatching`,
+`NativeWatchEvent`, `NativeWatchKind`, `NativeWatchPollReply` and
+`NATIVE_WATCH_KINDS`) starts, polls and stops it on the shared helper process,
+and refuses a helper whose `hello` has no `watch` cap. The Desktop app's
+[Record your screen](../cli/desktop-record-your-screen.md) is its first user. The portable parts (kinds, caps, coalescing, the secure rule,
 serialisation) are `namzu-native-core`'s `watch` module and are tested on Linux;
 the UI Automation calls are `crates/namzu-native/src/platform/win32/watch.rs`, built and run
 only by the Windows CI job, whose `windows_watch.rs` makes a window with an

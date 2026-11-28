@@ -57,10 +57,19 @@ function failureKind(error: unknown): CaptureFailure {
 	return 'unavailable'
 }
 
-export function browserEnvironment(): CaptureEnvironment {
+export function browserEnvironment(deviceId?: string): CaptureEnvironment {
 	return {
 		getUserMedia: (constraints) =>
-			navigator.mediaDevices.getUserMedia(constraints) as unknown as Promise<CaptureStream>,
+			navigator.mediaDevices.getUserMedia(
+				deviceId
+					? {
+							audio: {
+								...(typeof constraints.audio === 'object' ? constraints.audio : {}),
+								deviceId: { exact: deviceId },
+							},
+						}
+					: constraints,
+			) as unknown as Promise<CaptureStream>,
 		createContext: () =>
 			new AudioContext({ latencyHint: 'interactive' }) as unknown as CaptureContext,
 		createWorkletNode: (context) =>

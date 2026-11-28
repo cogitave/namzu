@@ -6,6 +6,7 @@ import type { LocalListeningEvent } from './shared/local-listening-protocol.js'
 import type { LocalSpeechEvent } from './shared/local-speech-protocol.js'
 import type { PalComputerSetupState } from './shared/pal-computer-setup.js'
 import type { DesktopApi, DesktopBoot, DesktopEvent } from './shared/protocol.js'
+import type { RecordingNotice } from './shared/recording-protocol.js'
 import type { TerminalEvent } from './shared/terminal-view.js'
 import type { UpdateState } from './shared/update-protocol.js'
 import type { VoiceInputEvent } from './shared/voice-input-protocol.js'
@@ -94,6 +95,19 @@ const api: DesktopApi = {
 	voiceInputStart: (sessionId) => invoke('voiceInputStart', sessionId),
 	voiceInputAudio: (sessionId, samples) => invoke('voiceInputAudio', sessionId, samples),
 	voiceInputStop: () => invoke('voiceInputStop'),
+	recordingAvailability: () => invoke('recordingAvailability'),
+	recordingStart: (options) => invoke('recordingStart', options),
+	recordingReview: () => invoke('recordingReview'),
+	recordingEdit: (edit) => invoke('recordingEdit', edit),
+	recordingDiscard: () => invoke('recordingDiscard'),
+	recordingSend: (ownerId, note) => invoke('recordingSend', ownerId, note),
+	recordingAudio: (samples) => invoke('recordingAudio', samples),
+	recordingNarrationLost: () => invoke('recordingNarrationLost'),
+	onRecordingNotice: (listener) => {
+		const handler = (_event: unknown, data: RecordingNotice) => listener(data)
+		ipcRenderer.on('namzu:recording-notice', handler)
+		return () => ipcRenderer.removeListener('namzu:recording-notice', handler)
+	},
 	onVoiceInputEvent: (listener) => {
 		const handler = (_event: unknown, data: VoiceInputEvent) => listener(data)
 		ipcRenderer.on('namzu:voice-input-event', handler)

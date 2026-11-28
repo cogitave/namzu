@@ -1,6 +1,7 @@
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { BrowserWindow, type Display, ipcMain, screen } from 'electron'
+import { markProtectedByDefault } from './recording/protection.js'
 import { PILL_COLLAPSED_HEIGHT, PILL_WIDTH, pillPage } from './working-pill-page.js'
 import type { PillAction, PillSurface, PillView } from './working-pill.js'
 
@@ -68,6 +69,7 @@ export function createPillSurface(act: (action: PillAction) => void): PillSurfac
 	// `NAMZU_PILL_CAPTURABLE=1` leaves it in, only so a picture of the desktop can show the pill.
 	const capturable = process.env.NAMZU_PILL_CAPTURABLE === '1'
 	window.setContentProtection(!capturable)
+	if (!capturable) markProtectedByDefault(window)
 	window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
 	window.webContents.on('will-navigate', (event) => event.preventDefault())
 	const listener = (event: Electron.IpcMainEvent, action: unknown) => {

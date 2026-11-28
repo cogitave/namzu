@@ -24,6 +24,7 @@ export const SETTINGS_SECTION_TITLES: Record<SettingsSection, string> = {
 	notifications: 'Notifications',
 	terminal: 'Terminal',
 	desktop: 'Desktop app',
+	privacy: 'Privacy',
 	telemetry: 'Telemetry',
 	updates: 'Updates',
 	speech: 'Speech',
@@ -43,6 +44,7 @@ export const SETTINGS_SECTION_SUBTITLES: Record<SettingsSection, string> = {
 	notifications: 'When Namzu tells you something while you are in another window.',
 	terminal: 'The terminals in this window, the terminal app, and the command line.',
 	desktop: 'How this app itself runs on your computer.',
+	privacy: 'What Namzu may record on this computer, and where it stays.',
 	telemetry: 'Where records of your work may be sent. Off unless you set a place.',
 	updates: 'Keep Namzu and the programs it works with up to date.',
 	speech: 'Talk to Namzu and have replies read aloud, with voices that stay on this computer.',
@@ -79,7 +81,7 @@ export const SETTINGS_NAV_GROUPS: readonly (readonly SettingsSection[])[] = [
 	['models', 'usage'],
 	['general', 'appearance', 'notifications', 'speech'],
 	['agent', 'tools', 'extensions', 'projects', 'terminal'],
-	['desktop', 'telemetry', 'updates', 'about'],
+	['desktop', 'privacy', 'telemetry', 'updates', 'about'],
 ]
 
 /** The groups with only the sections that have a match; with no search, every group whole. */

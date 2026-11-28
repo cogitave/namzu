@@ -1,0 +1,149 @@
+/* The review sheet of a screen recording reuses the approval card; these rules are its own parts. */
+.recording-review-hint {
+	margin: 0;
+	color: var(--muted-foreground);
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
+}
+.recording-review-note {
+	width: 100%;
+	flex: none;
+}
+.recording-review-body {
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+	max-height: min(46vh, 360px);
+	overflow-y: auto;
+	min-width: 0;
+}
+.recording-review-block {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+}
+.recording-review-line {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: baseline;
+	justify-content: space-between;
+	gap: 4px 12px;
+	color: var(--muted-foreground);
+}
+.recording-review-buttons {
+	display: inline-flex;
+	flex-wrap: wrap;
+	gap: 4px 14px;
+}
+.recording-review-link {
+	padding: 0;
+	border: 0;
+	background: none;
+	color: var(--foreground);
+	font: inherit;
+	text-decoration: underline;
+	text-underline-offset: 3px;
+	cursor: pointer;
+}
+.recording-review-link:focus-visible,
+.recording-review-x:focus-visible {
+	outline: none;
+	box-shadow: var(--focus-ring);
+}
+.recording-review-strip {
+	display: flex;
+	gap: 8px;
+	margin: 0;
+	padding: 0 0 4px;
+	list-style: none;
+	overflow-x: auto;
+	scrollbar-width: thin;
+}
+.recording-review-picture {
+	position: relative;
+	flex: none;
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	width: 112px;
+}
+.recording-review-picture img,
+.recording-review-picture > span:first-child {
+	display: block;
+	width: 112px;
+	aspect-ratio: 16 / 9;
+	object-fit: cover;
+	border: 1px solid var(--border);
+	border-radius: var(--radius-control);
+	background: var(--muted);
+}
+.recording-review-time {
+	color: var(--muted-foreground);
+	font-variant-numeric: tabular-nums;
+}
+.recording-review-x {
+	display: inline-grid;
+	place-items: center;
+	flex: none;
+	width: 24px;
+	height: 24px;
+	padding: 0;
+	border: 0;
+	border-radius: 50%;
+	background: color-mix(in srgb, var(--foreground) 10%, transparent);
+	color: var(--foreground);
+	cursor: pointer;
+}
+.recording-review-x svg {
+	width: 12px;
+	height: 12px;
+}
+.recording-review-x:hover {
+	background: color-mix(in srgb, var(--foreground) 20%, transparent);
+}
+.recording-review-picture .recording-review-x {
+	position: absolute;
+	top: 4px;
+	right: 4px;
+	border: 1px solid var(--border);
+	background: var(--background);
+}
+.recording-review-steps {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+.recording-review-step {
+	display: flex;
+	align-items: flex-start;
+	gap: 10px;
+	min-width: 0;
+}
+.recording-review-label {
+	flex: 1;
+	min-width: 0;
+	overflow-wrap: anywhere;
+}
+.recording-review-empty {
+	color: var(--muted-foreground);
+}
+.recording-review-heading {
+	margin: 0;
+	font-weight: var(--weight-control);
+}
+.recording-review-cut {
+	margin: 0;
+	padding-left: 18px;
+	list-style: disc;
+	color: var(--muted-foreground);
+}
+.recording-review-error {
+	margin: 0;
+	color: var(--error-foreground);
+}
+.recording-review-toggle {
+	margin-right: auto;
+}

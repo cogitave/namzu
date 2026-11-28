@@ -379,6 +379,9 @@ importers:
       '@biomejs/biome':
         specifier: ^1.9.4
         version: 1.9.4
+      '@namzu/computer-use':
+        specifier: workspace:*
+        version: link:../computer-use
       '@namzu/sdk':
         specifier: workspace:*
         version: link:../sdk

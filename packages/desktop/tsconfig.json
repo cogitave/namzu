@@ -13,6 +13,9 @@
 	},
 	"references": [
 		{
+			"path": "../computer-use"
+		},
+		{
 			"path": "../sdk"
 		}
 	],
