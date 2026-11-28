@@ -2,6 +2,7 @@ import type { AccessibilityBackend } from '../a11y/interface.js'
 import { guardForeground } from '../foreground/guard.js'
 import type { ForegroundLadder } from '../foreground/ladder.js'
 import { windowsPathFor } from '../foreground/windows.js'
+import { resolveNativeHelper } from '../native/env.js'
 import type { NativeWinProcessOptions } from '../native/process.js'
 import type { Presence } from '../presence/presence.js'
 import { CuaDriverAdapter } from './cua-driver/adapter.js'
@@ -24,8 +25,8 @@ import { type WslProbes, isWsl, realWslProbes, wslChildEnv } from './wsl.js'
  * - `cua-driver`: cua-driver or nothing; its failure is the adapter's.
  * - `powershell`: never cua-driver.
  *
- * The per-action path is the native helper (`namzu-win`) when one is
- * configured (`NAMZU_WIN_HELPER`, or the `helper` option) and PowerShell
+ * The per-action path is the native helper (`namzu-native`) when one is
+ * configured (`NAMZU_NATIVE_HELPER`, or the `helper` option) and PowerShell
  * otherwise. With a helper configured there is no PowerShell fallback: a
  * helper that does not start is an error, not a reason to run scripts.
  */
@@ -42,8 +43,8 @@ export interface Win32AdapterOptions {
 	/** Told once, in plain words, before the pinned build is downloaded. */
 	readonly onNotice?: (notice: string) => void
 	/**
-	 * The path of the native helper, `namzu-win.exe`. Default: the
-	 * `NAMZU_WIN_HELPER` variable. Set, the helper is the per-action path and
+	 * The path of the native helper, `namzu-native.exe`. Default: the
+	 * `NAMZU_NATIVE_HELPER` variable. Set, the helper is the per-action path and
 	 * PowerShell is never started for display input or capture.
 	 */
 	readonly helper?: string
@@ -137,7 +138,7 @@ export class Win32Adapter {
 		const ladder = options.foreground
 		const guard = (adapter: Adapter): Adapter =>
 			ladder ? guardForeground(adapter, ladder) : adapter
-		const helper = (options.helper ?? env.NAMZU_WIN_HELPER)?.trim()
+		const helper = resolveNativeHelper(options.helper, env)
 		// The per-action path: the native helper when one is named, else PowerShell.
 		// A helper that does not start throws; it never turns into PowerShell.
 		const perAction = async (fallbackReason?: string) => {

@@ -1,11 +1,11 @@
 /**
- * The `namzu-win/1` line codec: how this package talks to the native Windows
- * helper (`crates/namzu-win`), one JSON object per line over stdio.
+ * The `namzu-native/1` line codec: how this package talks to the native Windows
+ * helper (`crates/namzu-native`), one JSON object per line over stdio.
  *
  * Only the codec lives here: a request is written with {@link encodeRequest},
  * a reply is read with {@link decodeReply}, which refuses a line that is not
- * the shape the op promises. The Rust side (`crates/namzu-win-core`) reads and
- * writes the same lines; `conformance/namzu-win/` is the list both are held to.
+ * the shape the op promises. The Rust side (`crates/namzu-native-core`) reads and
+ * writes the same lines; `conformance/namzu-native/` is the list both are held to.
  */
 
 import type {
@@ -18,7 +18,16 @@ import type {
 	A11yWindow,
 } from '../a11y/interface.js'
 
-export const NATIVE_PROTOCOL = 'namzu-win/1'
+export const NATIVE_PROTOCOL = 'namzu-native/1'
+
+/**
+ * What `NATIVE_PROTOCOL` was called while the helper was `namzu-win`. The
+ * lines are identical. A helper built before the rename answers `hello` with
+ * `protocol_mismatch` to the new name, and the client then says the old one.
+ *
+ * Deprecated: the next major release of `@namzu/computer-use` drops it.
+ */
+export const LEGACY_NATIVE_PROTOCOL = 'namzu-win/1'
 
 /** The largest id or revision either side writes: a JavaScript number holds it exactly. */
 export const MAX_SAFE_ID = Number.MAX_SAFE_INTEGER

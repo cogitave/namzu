@@ -7,6 +7,7 @@ import {
 	wslChildEnv,
 	wslPowerShellPath,
 } from '../adapters/wsl.js'
+import { resolveNativeHelper } from '../native/env.js'
 import { NativeForegroundMonitor } from '../native/foreground-monitor.js'
 import { ForegroundLadder, type LadderTiming } from './ladder.js'
 import type { ForegroundApprover } from './types.js'
@@ -22,7 +23,7 @@ export interface WindowsLadderOptions {
 	readonly approve?: ForegroundApprover
 	readonly session?: string
 	readonly timing?: Partial<LadderTiming>
-	/** The native helper (`namzu-win.exe`); default `NAMZU_WIN_HELPER`. Named, the monitor is the helper and no PowerShell runs. */
+	/** The native helper (`namzu-native.exe`); default `NAMZU_NATIVE_HELPER`. Named, the monitor is the helper and no PowerShell runs. */
 	readonly helper?: string
 }
 
@@ -51,7 +52,7 @@ export function createWindowsForegroundLadder(
 	const platform = options.platform ?? process.platform
 	const probes = options.wslProbes ?? realWslProbes
 	const wsl = isWsl(env, platform, probes)
-	const native = (options.helper ?? env.NAMZU_WIN_HELPER)?.trim()
+	const native = resolveNativeHelper(options.helper, env)
 	const powershell = native
 		? undefined
 		: wsl
